@@ -491,18 +491,16 @@ void checkTransferTimeouts(void) {
 #define AXP2101_REG_POWER_WAKEUP_CTL 0x26
 #define AXP2101_REG_ADC_CHANNEL_CTRL 0x30
 #define AXP2101_REG_ADC_DATA_BAT_VOL_H 0x34
-#define AXP2101_REG_ADC_DATA_VBUS_VOL_H 0x36
-#define AXP2101_REG_ADC_DATA_SYS_VOL_H 0x38
+#define AXP2101_REG_ADC_DATA_VBUS_VOL_H 0x38
+#define AXP2101_REG_ADC_DATA_SYS_VOL_H 0x3A
 #define AXP2101_REG_BAT_PERCENT_DATA 0xA4
 #define AXP2101_REG_PWRON_STATUS 0x20
 #define AXP2101_REG_IRQ_ENABLE1 0x40
 #define AXP2101_REG_IRQ_ENABLE2 0x41
 #define AXP2101_REG_IRQ_ENABLE3 0x42
-#define AXP2101_REG_IRQ_ENABLE4 0x43
-#define AXP2101_REG_IRQ_STATUS1 0x44
-#define AXP2101_REG_IRQ_STATUS2 0x45
-#define AXP2101_REG_IRQ_STATUS3 0x46
-#define AXP2101_REG_IRQ_STATUS4 0x47
+#define AXP2101_REG_IRQ_STATUS1 0x48
+#define AXP2101_REG_IRQ_STATUS2 0x49
+#define AXP2101_REG_IRQ_STATUS3 0x4A
 #define AXP2101_REG_LDO_ONOFF_CTRL1 0x91
 #define FONT_BASE_WIDTH 8
 #define FONT_BASE_HEIGHT 8
@@ -1095,7 +1093,9 @@ void readAXP2101Data(){
         od_log_error("AXP2101 not found at address 0x%02X", AXP2101_SLAVE_ADDRESS);
         return;
     }
-    const uint8_t od_i2c_tx15[2] = { (uint8_t)(AXP2101_REG_ADC_CHANNEL_CTRL), (uint8_t)(0xFF) };
+    // 0x3F, not 0xFF: bits 5:0 are the channel enables, bits 7:6 are
+    // reserved (R0) and must be written as zero.
+    const uint8_t od_i2c_tx15[2] = { (uint8_t)(AXP2101_REG_ADC_CHANNEL_CTRL), (uint8_t)(0x3F) };
     error = od_hal_i2c_write(busId, AXP2101_SLAVE_ADDRESS, od_i2c_tx15, 2);
     od_hal_delay_ms(10);
     const uint8_t od_i2c_tx16 = (uint8_t)(AXP2101_REG_POWER_STATUS);
@@ -1107,9 +1107,9 @@ void readAXP2101Data(){
             uint8_t status2 = od_i2c_rx100[1];
             od_log_debug("Power Status 1: 0x%02X", status1);
             od_log_debug("Power Status 2: 0x%02X", status2);
-            bool batteryPresent = (status1 & 0x20) != 0;
-            bool charging = (status1 & 0x04) != 0;
-            bool vbusPresent = (status1 & 0x08) != 0;
+            bool batteryPresent = (status1 & 0x08) != 0;
+            bool charging = ((status2 >> 5) & 0x03) == 0x01;
+            bool vbusPresent = (status1 & 0x20) != 0;
             od_log_debug("Battery Present: %s", batteryPresent ? "Yes" : "No");
             od_log_debug("Charging: %s", charging ? "Yes" : "No");
             od_log_debug("VBUS Present: %s", vbusPresent ? "Yes" : "No");
@@ -1131,8 +1131,8 @@ void readAXP2101Data(){
         if (od_hal_i2c_read(busId, AXP2101_SLAVE_ADDRESS, od_i2c_rx101, 2) == OD_HAL_I2C_OK) {
             uint8_t batVolH = od_i2c_rx101[0];
             uint8_t batVolL = od_i2c_rx101[1];
-            uint16_t batVolRaw = ((uint16_t)batVolH << 4) | (batVolL & 0x0F);
-            float batVoltage = batVolRaw * 0.5;
+            uint16_t batVolRaw = ((uint16_t)(batVolH & 0x3F) << 8) | batVolL;
+            float batVoltage = batVolRaw;  // 1 mV per count
             od_log_debug("Battery Voltage: %.1f mV (%.2f V)", batVoltage, batVoltage / 1000.0);
         }
     }
@@ -1143,8 +1143,8 @@ void readAXP2101Data(){
         if (od_hal_i2c_read(busId, AXP2101_SLAVE_ADDRESS, od_i2c_rx102, 2) == OD_HAL_I2C_OK) {
             uint8_t vbusVolH = od_i2c_rx102[0];
             uint8_t vbusVolL = od_i2c_rx102[1];
-            uint16_t vbusVolRaw = ((uint16_t)vbusVolH << 4) | (vbusVolL & 0x0F);
-            float vbusVoltage = vbusVolRaw * 1.7;
+            uint16_t vbusVolRaw = ((uint16_t)(vbusVolH & 0x3F) << 8) | vbusVolL;
+            float vbusVoltage = vbusVolRaw;  // 1 mV per count
             od_log_debug("VBUS Voltage: %.1f mV (%.2f V)", vbusVoltage, vbusVoltage / 1000.0);
         }
     }
@@ -1155,8 +1155,8 @@ void readAXP2101Data(){
         if (od_hal_i2c_read(busId, AXP2101_SLAVE_ADDRESS, od_i2c_rx103, 2) == OD_HAL_I2C_OK) {
             uint8_t sysVolH = od_i2c_rx103[0];
             uint8_t sysVolL = od_i2c_rx103[1];
-            uint16_t sysVolRaw = ((uint16_t)sysVolH << 4) | (sysVolL & 0x0F);
-            float sysVoltage = sysVolRaw * 1.4;
+            uint16_t sysVolRaw = ((uint16_t)(sysVolH & 0x3F) << 8) | sysVolL;
+            float sysVoltage = sysVolRaw;  // 1 mV per count
             od_log_debug("System Voltage: %.1f mV (%.2f V)", sysVoltage, sysVoltage / 1000.0);
         }
     }
@@ -1226,10 +1226,6 @@ void powerDownAXP2101(){
         error = od_hal_i2c_write(busId, AXP2101_SLAVE_ADDRESS, od_i2c_tx27, 2);
     }
     if(error == 0){
-        const uint8_t od_i2c_tx28[2] = { (uint8_t)(AXP2101_REG_IRQ_ENABLE4), (uint8_t)(0x00) };
-        error = od_hal_i2c_write(busId, AXP2101_SLAVE_ADDRESS, od_i2c_tx28, 2);
-    }
-    if(error == 0){
         const uint8_t od_i2c_tx29[2] = { (uint8_t)(AXP2101_REG_IRQ_STATUS1), (uint8_t)(0xFF) };
         error = od_hal_i2c_write(busId, AXP2101_SLAVE_ADDRESS, od_i2c_tx29, 2);
     }
@@ -1238,12 +1234,9 @@ void powerDownAXP2101(){
         error = od_hal_i2c_write(busId, AXP2101_SLAVE_ADDRESS, od_i2c_tx30, 2);
     }
     if(error == 0){
-        const uint8_t od_i2c_tx31[2] = { (uint8_t)(AXP2101_REG_IRQ_STATUS3), (uint8_t)(0xFF) };
+        // 0xDF, not 0xFF: bit 5 of the third IRQ-status register is reserved.
+        const uint8_t od_i2c_tx31[2] = { (uint8_t)(AXP2101_REG_IRQ_STATUS3), (uint8_t)(0xDF) };
         error = od_hal_i2c_write(busId, AXP2101_SLAVE_ADDRESS, od_i2c_tx31, 2);
-    }
-    if(error == 0){
-        const uint8_t od_i2c_tx32[2] = { (uint8_t)(AXP2101_REG_IRQ_STATUS4), (uint8_t)(0xFF) };
-        error = od_hal_i2c_write(busId, AXP2101_SLAVE_ADDRESS, od_i2c_tx32, 2);
         if(error == 0){
             od_log_debug("All IRQs disabled and status cleared");
         }
@@ -1268,26 +1261,16 @@ void powerDownAXP2101(){
     const uint8_t od_i2c_tx35[2] = { (uint8_t)(AXP2101_REG_LDO_ONOFF_CTRL1), (uint8_t)(0x00) };
     error = od_hal_i2c_write(busId, AXP2101_SLAVE_ADDRESS, od_i2c_tx35, 2);
     if(error == 0){
-        od_log_debug("BLDO1-2, CPUSLDO, DLDO1-2 disabled");
+        od_log_debug("DLDO2 disabled");
     } else {
-        od_log_error("Failed to disable BLDO/CPUSLDO/DLDO rails");
+        od_log_error("Failed to disable DLDO2");
     }
-    const uint8_t od_i2c_tx36 = (uint8_t)(AXP2101_REG_LDO_ONOFF_CTRL0);
-    error = od_hal_i2c_write(busId, AXP2101_SLAVE_ADDRESS, &od_i2c_tx36, 1);
-    uint8_t aldoEnable = 0x00;
-    if(error == 0){
-        uint8_t od_i2c_rx11 = 0;
-        if (od_hal_i2c_read(busId, AXP2101_SLAVE_ADDRESS, &od_i2c_rx11, 1) == OD_HAL_I2C_OK) {
-            aldoEnable = od_i2c_rx11;
-        }
-    }
-    aldoEnable &= ~0x0F;
-    const uint8_t od_i2c_tx37[2] = { (uint8_t)(AXP2101_REG_LDO_ONOFF_CTRL0), (uint8_t)(aldoEnable) };
+    const uint8_t od_i2c_tx37[2] = { (uint8_t)(AXP2101_REG_LDO_ONOFF_CTRL0), (uint8_t)(0x00) };
     error = od_hal_i2c_write(busId, AXP2101_SLAVE_ADDRESS, od_i2c_tx37, 2);
     if(error == 0){
-        od_log_debug("ALDO1-4 disabled");
+        od_log_debug("ALDO1-4, BLDO1-2, CPUSLDO, DLDO1 disabled");
     } else {
-        od_log_error("Failed to disable ALDO rails");
+        od_log_error("Failed to disable ALDO/BLDO/CPUSLDO/DLDO1 rails");
     }
     const uint8_t od_i2c_tx38 = (uint8_t)(AXP2101_REG_POWER_WAKEUP_CTL);
     error = od_hal_i2c_write(busId, AXP2101_SLAVE_ADDRESS, &od_i2c_tx38, 1);
@@ -1307,7 +1290,6 @@ void powerDownAXP2101(){
     if(!(wakeupCtrl & 0x10)) {
         wakeupCtrl |= 0x10;
     }
-    wakeupCtrl |= 0x80;
     const uint8_t od_i2c_tx39[2] = { (uint8_t)(AXP2101_REG_POWER_WAKEUP_CTL), (uint8_t)(wakeupCtrl) };
     error = od_hal_i2c_write(busId, AXP2101_SLAVE_ADDRESS, od_i2c_tx39, 2);
     if(error == 0){
