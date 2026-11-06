@@ -81,16 +81,23 @@ two bytes and shows up as a bogus "unknown packet type 0x00" immediately after t
 
 ### EFR32BG22 (`efr32bg22-slc`) — Firmware_Silabs `feat/od-epd-driver` parity, 2026-11-06
 
-Built (246,908 B; 7,044 B real headroom against 253,952) and host-tested only. **No row below has
-been run on a device yet.**
+Built (246,908 B; 7,044 B real headroom against 253,952). ODBEEBA6 OTA'd twice on 2026-11-06 (the
+second image adds the write/refresh fix below); PPK2 rail at 3.0 V, encrypted link. **No camera covers
+this bench**, so render rows are protocol-level until someone looks at the glass.
 
-- [ ] **16-colour on glass via `0x0085`.** Mode 1 (`colour16`, 3 passes) on ODBEEBA6: ACK reports
-      `[mode][passes=3][temp_c]`, three refreshes of ~20.6 / 1.8 / 1.8 s, the 4x4 index16 grid
-      visibly correct. The config is already on the unit (row above).
+- [x] **16-colour via `0x0085`, protocol level.** Mode 1 (`colour16`): START ACK `mode 1, passes 3,
+      temp 25 C`; 3 x 16128 = 48384 B accepted; END `00 72`; refresh notification `00 73` (success).
+      The first OTA'd image ACKed START and then NACKed the first DATA (`ff 71`): `od_xfer_app_write`
+      and `od_xfer_app_refresh` only admitted `XFER_APP_FULL`, so a drive-mode transfer could never
+      stream. Host tests stub the display layer and could not see it.
+- [ ] **16-colour visually correct on glass** (4x4 index16 grid, full panel). Not yet looked at.
 - [ ] **Temp policy.** A mode whose window excludes the die temperature: REJECT NACKs `0x06`
       with nothing driven; SUBSTITUTE answers with the substituted mode index.
-- [ ] **`READ_IDENT` (`0x0046`) pre-gate.** Answers `[proto_minor][0x03][1][1e 00 a8 00 80 01 03]`
-      on an ENCRYPTED unit with no session established.
+- [x] **`READ_IDENT` (`0x0046`) pre-gate.** Encrypted unit, no key, no session: answered
+      `00 46 04 03 01 1e 00 a8 00 80 01 03` -- protocol minor 4, Silabs, one display, ic `0x001E`,
+      168x384, scheme 3.
+- [x] **Config survives the OTA.** 2144 B read back byte-identical to the pre-OTA backup after both
+      OTAs (2 modes, 2 LUT slots, panel, calibration).
 - [ ] **Boot screen after an OTA with no drive packets.** Boot logs "no drive packets; will retry";
       writing the drive config then draws the QR without a power cycle, and the config-write ACK
       arrives within py-opendisplay's 5 s bound (the redraw follows it).

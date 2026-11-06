@@ -1002,10 +1002,18 @@ extern "C" bool od_xfer_app_begin_full(const od_color_geometry_t *geometry)
   return true;
 }
 
+/* Both full-frame shapes stream through the same write and refresh: an ordinary 0x0070 upload
+ * (FULL) and a config-declared multi-pass mode (DRIVE), which differs only in advancing the
+ * pass at each frame boundary inside xfer_app_write_full. */
+static bool xfer_app_streaming(void)
+{
+  return s_xfer_app.mode == XFER_APP_FULL || s_xfer_app.mode == XFER_APP_DRIVE;
+}
+
 extern "C" uint32_t od_xfer_app_write(uint32_t stream_offset, od_span_t data)
 {
   if (!od_span_valid(data) || data.n == 0u || data.n > UINT32_MAX
-      || s_xfer_app.mode != XFER_APP_FULL) {
+      || !xfer_app_streaming()) {
     return 0u;
   }
   return xfer_app_write_full(stream_offset, data) ? (uint32_t)data.n : 0u;
@@ -1042,7 +1050,7 @@ extern "C" bool od_xfer_app_refresh(uint8_t mode, bool *completed)
 {
   bool ok;
 
-  if (completed == nullptr || s_xfer_app.mode != XFER_APP_FULL) {
+  if (completed == nullptr || !xfer_app_streaming()) {
     return false;
   }
   if (s_xfer_app.to_flash) {
