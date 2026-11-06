@@ -101,6 +101,13 @@ extern "C" {
 #ifndef OD_CONFIG_WITH_DATA_EXTENDED
 #define OD_CONFIG_WITH_DATA_EXTENDED 1
 #endif
+/* FindMyConfig is 128 bytes, and only a target with a second advertising set can act on it
+ * (shared/hal/od_hal_adv2.h). Default ON like the rest: the packet is walked and counted
+ * either way, and a build that cannot advertise a finding network just holds a config it never
+ * reads -- easier to diagnose than a packet that vanished. */
+#ifndef OD_CONFIG_WITH_FINDMY
+#define OD_CONFIG_WITH_FINDMY 1
+#endif
 
 /* --------------------------------------------------------------------------- the aggregate --- */
 /* NOT a wire struct: unpacked, our field order, and the counts and `loaded` flags have no
@@ -153,6 +160,14 @@ struct od_config {
     struct SecurityConfig    security;
     bool                     security_loaded;
 
+#if OD_CONFIG_WITH_FINDMY
+    /* Offline-finding networks. Stored verbatim; which of them is enabled, and the key-derived
+     * address and record that follow, are od_net_a's business. Reach it through
+     * od_config_findmy() rather than this member -- see that declaration. */
+    struct FindMyConfig      findmy;
+    bool                     findmy_loaded;
+#endif
+
     uint8_t                  version;         /* outer version byte */
     uint8_t                  minor_version;   /* always 0: not carried by the current format */
     bool                     loaded;
@@ -195,6 +210,16 @@ void od_config_log_dump(const struct od_config *cfg);
  * because it is half of the zero-key rule, which od_session and od_config_log both apply outside
  * a parse: encryption is in force only when the enable flag is set AND a key is present. */
 bool od_config_security_key_set(const struct SecurityConfig *sec);
+
+/* The stored findmy config, or NULL when none was stored or this build does not carry it.
+ *
+ * AN ACCESSOR RATHER THAN THE MEMBER, because the member is behind OD_CONFIG_WITH_FINDMY and a
+ * caller guarding its own `#if` only works where that macro is visible. A target file that
+ * reaches the member through a typedef without including this header preprocesses the guard as
+ * 0, deletes its own call, and still builds and links -- leaving a feature that is present,
+ * configured, and never invoked. This function cannot be mis-preprocessed: it is either
+ * declared and returns a pointer, or the build fails. */
+const struct FindMyConfig *od_config_findmy(const struct od_config *cfg);
 
 /* Store one packet whose bounds the walk has already guaranteed. Safe to call directly for a
  * target that keeps its own walk during migration -- and the span is what makes that safe: a

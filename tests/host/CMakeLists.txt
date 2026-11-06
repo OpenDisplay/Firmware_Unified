@@ -149,6 +149,14 @@ add_executable(od_color_test color_test.c)
 target_link_libraries(od_color_test od_shared)
 add_test(NAME color COMMAND od_color_test)
 
+# The source directly, not od_shared: od_net_a_sync() binds od_hal_adv2, and the three pure
+# functions under test need no HAL at all. Keeping the policy half linkable without a fake
+# stack is the point -- the record layout is a network specification, checkable on its own.
+add_executable(od_net_a_test net_a_test.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../shared/core/od_net_a.c)
+target_link_libraries(od_net_a_test od_shared)
+add_test(NAME net_a COMMAND od_net_a_test)
+
 add_executable(od_boot_screen_test boot_screen_test.c
     ${CMAKE_CURRENT_LIST_DIR}/../../third_party/qrcode/qrcode.c)
 target_link_libraries(od_boot_screen_test od_shared)

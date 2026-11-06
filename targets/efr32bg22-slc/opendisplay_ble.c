@@ -3,6 +3,8 @@
 #include "od_nfc_app.h"
 #include "opendisplay_config_parser.h"
 #include "opendisplay_display.h"
+#include "od_cfg_index.h"
+#include "od_net_a.h"
 #include "opendisplay_led.h"
 #include "opendisplay_pipe.h"
 #include "opendisplay_constants.h"
@@ -1492,6 +1494,19 @@ void opendisplay_ble_reload_config_from_nvm(void)
   if (!loadGlobalConfig(&s_od_global_config)) {
     printf("[OD] config: reload after save failed\r\n");
   }
+
+  /* REBUILD BEFORE ANYTHING READS CONFIG BYTES. od_cfg_index holds byte offsets into the
+   * stored payload, so after a write they describe the PREVIOUS config. Two configs that both
+   * carry drive packets resolve stale offsets to plausible wrong bytes rather than to an
+   * error -- the failure that does not announce itself. */
+  (void)od_cfg_index_build();
+
+  /* Network A's address and payload are both derived from the key, which a config write can
+   * change. Invalidate first or the sync sees "already started" and keeps advertising the
+   * old key. */
+  od_net_a_invalidate();
+  od_net_a_sync(od_config_findmy(&s_od_global_config));
+
   od_buttons_init_from_config();
   opendisplay_display_park_pins();
   opendisplay_led_init();
