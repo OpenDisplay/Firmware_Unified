@@ -134,6 +134,42 @@ found so a shadowed table is diagnosable rather than invisible, and the host
 library should either model the action table properly or refuse to serialize a
 second copy of a packet id that the device resolves by first-match.
 
+## The temperature window has no hysteresis, and that is a defect
+
+**Measured on OD58FFC4, 2026-11-06.** A window of 32..48 C, cooled through its
+lower edge once, fired **four times** — alternating EXIT/ENTER — for a single
+physical crossing.
+
+The cause is a hard comparison against a noisy signal:
+
+```c
+return t >= lo && t <= hi;       /* no deadband */
+```
+
+`TEMP_POLL_MS` is 2000, and the die reading visibly dithers by +/-2 C
+(`39 40 38 39 ... 35 34 36 35 ... 33 32 33` over one slow ramp). A reading that
+sits near an edge therefore crosses it repeatedly, and every crossing is a real
+edge as far as the runner is concerned.
+
+**This defeats the reason the trigger is an edge at all.** The whole argument
+for edges over levels, stated above, is that a level "would re-fire every poll
+and turn a warm room into a refresh loop that flattens the battery". Chatter
+reintroduces exactly that failure in a narrower band: a `DISPLAY_SLOT` step on a
+temperature trigger means several 20-second panel refreshes, at the highest
+current the board draws, every time ambient drifts past the boundary.
+
+**A fix needs a deadband, not a faster poll.** Enter at `lo`, leave only below
+`lo - N` (and symmetrically at `hi`), or require N consecutive samples on the
+new side before accepting the transition. Either kills chatter; neither costs
+more than a byte of state. The deadband has to be wider than the sensor noise,
+so N=3 C is the floor given what was measured here.
+
+**`0x004C` could not diagnose this and should be able to.** It reports one
+cumulative `fires` count and the `last` trigger, so "fired once" and "fired four
+times, alternating" are the same reading unless you happen to catch the count
+mid-flight. Per-trigger counters would have made the chatter obvious in a single
+poll instead of requiring the count to be watched over a ramp.
+
 ## Known limitation
 
 The temperature edge state is **one shared bit**, correct only while every

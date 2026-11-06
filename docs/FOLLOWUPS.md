@@ -1620,3 +1620,42 @@ changed, and `0x004C` reported a valid table with a plausible entry count.
 
 Until (1) lands, a client replacing the table must drop the existing entries
 rather than append — see `docs/BG22_ACTION_SYSTEM.md`.
+
+---
+
+## Temperature action triggers chatter at the window edge
+
+**Status: OPEN, and it is a defect rather than a limitation.** Measured on
+OD58FFC4, 2026-11-06.
+
+A 32..48 C window, cooled through its lower edge **once**, fired **four times**
+— alternating EXIT/ENTER. `od_action.c`'s `temp_in_window()` is a bare
+`t >= lo && t <= hi` with no deadband, `TEMP_POLL_MS` is 2000, and the BG22 die
+reading dithers by about +/-2 C (`39 40 38 39 ... 35 34 36 35 ... 33 32 33`
+across one slow ramp). A reading parked near an edge crosses it repeatedly, and
+each crossing is a genuine edge to the runner.
+
+This cancels the reason the trigger is an edge. `docs/BG22_ACTION_SYSTEM.md`
+argues edges over levels because a level "would re-fire every poll and turn a
+warm room into a refresh loop that flattens the battery" — chatter rebuilds that
+loop in a narrow band around the boundary. A `DISPLAY_SLOT` step on a
+temperature trigger is several 20-second panel refreshes, at the board's peak
+current, each time ambient drifts past the edge.
+
+**Fix: a deadband, not a faster poll.** Enter at `lo`, leave only below
+`lo - N`, symmetrically at `hi`; or require N consecutive samples on the new
+side. One byte of state either way. N must exceed the sensor noise, so 3 C is
+the floor given these measurements.
+
+**Also: `0x004C` cannot diagnose this.** One cumulative `fires` count and a
+`last` trigger make "fired once" and "fired four times, alternating"
+indistinguishable. Per-trigger counters would have shown the chatter in a single
+poll. Same observability gap as the duplicate-`0xB2` item above, and worth
+fixing in the same change.
+
+**Test-harness note, so the next person does not repeat it:** a BLE poll every
+~38 s cannot order events that the firmware generates every 2 s. The run that
+found this reported "WRONG TRIGGER" — it expected EXIT first and sampled
+`last=TEMP_ENTER` — which was the harness being too slow, not the firmware
+picking the wrong trigger. The real signal was `fires` jumping 0 -> 4. Any
+future edge test should assert on per-trigger counts, not on `last`.
