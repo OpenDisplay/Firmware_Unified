@@ -269,7 +269,6 @@ add_library(slc OBJECT
     "../opendisplay_config_parser.c"
     "../opendisplay_display.cpp"
     "../od_inflate_app.c"
-    "../opendisplay_epd_map.c"
     "../opendisplay_led.c"
     "${OD_REPO_ROOT}/third_party/qrcode/qrcode.c"
     "../app_bm.c"
@@ -278,10 +277,6 @@ add_library(slc OBJECT
     "../autogen/sl_event_handler.c"
     "../autogen/sl_power_manager_handler.c"
     "../main.c"
-    # OUR glue TU, not the vendored bb_epaper.cpp -- see ../panel/od_bbep_efr32.cpp for why.
-    # Third target on this pattern; third_party/bb_epaper takes zero edits.
-    "${CMAKE_CURRENT_LIST_DIR}/../panel/od_bbep_efr32.cpp"
-    "${OD_REPO_ROOT}/third_party/bb_epaper/src/Group5.cpp"
 
     # Shared tiers selected for the seams this target implements. HAL_ADV, HAL_WDT, APP_RXQ and
     # APP_BOOT remain absent. APP_XFER is production code: direct and capability-off partial route
@@ -305,6 +300,7 @@ add_library(slc OBJECT
     # needs vendor headers, the other is C++.
     "../od_epd_io_silabs.c"
     "../od_epd_adapter.cpp"
+    "../od_epd_shim.cpp"
 )
 
 target_include_directories(slc PUBLIC
@@ -326,7 +322,6 @@ target_include_directories(slc PUBLIC
    ${OD_SHARED_INCLUDE_DIRS}
    "${OD_REPO_ROOT}/third_party"
    "${SDK_PATH}/segger/systemview/SEGGER"
-   "${OD_REPO_ROOT}/third_party/bb_epaper/src"
    "${CMAKE_CURRENT_LIST_DIR}/../panel"
     "${SDK_PATH}/devices/platform/Device/SiliconLabs/EFR32BG22/Include"
     "${SDK_PATH}/platform_common_apps/app/common/util/app_assert"

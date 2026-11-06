@@ -3,10 +3,8 @@
 #include "opendisplay_ble.h"
 #include "opendisplay_config_parser.h"
 #include "opendisplay_constants.h"
-#include "opendisplay_epd_map.h"
 #include "opendisplay_runtime.h"
-#include "bb_epaper.h"
-#include "od_bbep_efr32.h"
+#include "od_epd_shim.h"
 #include "od_boot_payload.h"
 #include "od_caps.h"
 #include "od_xfer_app.h"
@@ -21,9 +19,6 @@
 
 #define OPENDISPLAY_DECOMPRESSION_CHUNK_SIZE 256u
 
-/* Raw BBEPDISP, not the vendored BBEPAPER C++ class -- see panel/od_bbep_efr32.h. The class is
- * not compiled on this target, matching esp32-idf and nordic-zephyr. */
-static BBEPDISP s_epd;
 static bool s_boot_applied;
 static uint8_t s_decompression_chunk[OPENDISPLAY_DECOMPRESSION_CHUNK_SIZE];
 
@@ -255,19 +250,6 @@ static int boot_bits_per_pixel(uint8_t color_scheme)
   }
 }
 
-static int boot_start_plane(uint8_t color_scheme)
-{
-  switch (color_scheme) {
-    case OD_COLOR_SCHEME_MONO:
-    case OD_COLOR_SCHEME_BWR:
-    case OD_COLOR_SCHEME_BWY:
-    case OD_COLOR_SCHEME_GRAY16:
-      return PLANE_0;
-    default:
-      return PLANE_1;
-  }
-}
-
 static int boot_line_step(int scale)
 {
   return scale * 10;
@@ -349,7 +331,7 @@ static bool boot_layout_fit(uint16_t w, uint16_t h, int scale, int pad, int qr_m
 }
 
 
-static bool render_boot_screen(BBEPDISP &epd, const struct GlobalConfig *cfg)
+static bool render_boot_screen(const struct GlobalConfig *cfg)
 {
   static const uint8_t zero_key[OD_BOOT_KEY_SIZE] = { 0 };
   const struct SecurityConfig *sec = od_get_parsed_security();
@@ -382,8 +364,11 @@ static bool render_boot_screen(BBEPDISP &epd, const struct GlobalConfig *cfg)
     return false;
   }
   dc = &cfg->displays[0];
-  w = (uint16_t)epd.width;
-  h = (uint16_t)epd.height;
+  /* From config, the same source od_xfer_app_panel_info() uses for the upload geometry.
+   * bb_epaper reported its own post-rotation width/height here; taking both from one place
+   * is what keeps the boot screen and an uploaded image from disagreeing about the frame. */
+  w = dc->pixel_width;
+  h = dc->pixel_height;
 
   last3 = (uint32_t)(SYSTEM_GetUnique() & 0xFFFFFFu);
   /* The same policy the other two targets get through od_boot_screen_render(); this panel only
@@ -453,7 +438,11 @@ static bool render_boot_screen(BBEPDISP &epd, const struct GlobalConfig *cfg)
 
   {
     static uint8_t s_boot_row[256];
-    bool is3clr = (epd.iFlags & BBEP_3COLOR) != 0;
+    /* Two image planes, from the colour scheme rather than a vendored panel flag: a
+     * spot-colour panel takes a second plane even when the boot screen leaves it blank. */
+    bool is3clr = dc->color_scheme == OD_COLOR_SCHEME_BWR
+               || dc->color_scheme == OD_COLOR_SCHEME_BWY
+               || dc->color_scheme == OD_COLOR_SCHEME_BWRY;
     bool is_gray4 = dc->color_scheme == OD_COLOR_SCHEME_GRAY4;
     int bits_per_pixel = boot_bits_per_pixel(dc->color_scheme);
     if (bits_per_pixel == 0) {
@@ -512,9 +501,11 @@ static bool render_boot_screen(BBEPDISP &epd, const struct GlobalConfig *cfg)
 
     const int render_passes = is_gray4 ? 2 : 1;
     for (int pass = 0; pass < render_passes; pass++) {
-      bbepSetAddrWindow(&epd, 0, 0, (int)w, (int)h);
-      bbepStartWrite(&epd, is_gray4 ? (pass == 0 ? PLANE_0 : PLANE_1)
-                                    : boot_start_plane(dc->color_scheme));
+      /* Pass 0's image marker was already reached by od_epd_shim_begin(). There is no
+       * address window to set: the drive sequence from config says where the frame goes. */
+      if (pass > 0 && !od_epd_shim_next_plane()) {
+        return false;
+      }
 
       for (y = 0; y < (int)h; y++) {
         memset(s_boot_row, white_byte, (size_t)pitch);
@@ -562,44 +553,37 @@ static bool render_boot_screen(BBEPDISP &epd, const struct GlobalConfig *cfg)
         if (is_gray4) {
           uint8_t *plane_row = s_boot_row + pitch;
           make_gray4_plane_row(plane_row, s_boot_row, plane_pitch, w, pass);
-          bbepWriteData(&epd, plane_row, plane_pitch);
-        } else {
-          bbepWriteData(&epd, s_boot_row, pitch);
+          if (!od_epd_shim_write(plane_row, (uint32_t)plane_pitch)) {
+            return false;
+          }
+        } else if (!od_epd_shim_write(s_boot_row, (uint32_t)pitch)) {
+          return false;
         }
       }
     }
     if (is3clr) {
-      bbepStartWrite(&epd, PLANE_1);
+      /* The second plane of a 3-colour panel, left blank: the boot screen is black on white
+       * and has nothing to say in the spot colour. It still has to be SENT -- a panel whose
+       * sequence declares two planes and receives one refreshes from whatever the controller
+       * held. */
+      if (!od_epd_shim_next_plane()) {
+        return false;
+      }
       for (y = 0; y < (int)h; y++) {
         memset(s_boot_row, 0x00u, (size_t)pitch);
-        bbepWriteData(&epd, s_boot_row, pitch);
+        if (!od_epd_shim_write(s_boot_row, (uint32_t)pitch)) {
+          return false;
+        }
       }
     }
   }
   return true;
 }
 
-static bool wait_for_refresh(uint32_t timeout_ms)
-{
-  uint32_t elapsed = 0;
-  bool saw_busy = false;
-  while (elapsed < timeout_ms) {
-    bool busy = bbepIsBusy(&s_epd);
-    if (busy) {
-      saw_busy = true;
-    } else if (saw_busy) {
-      return true;
-    }
-    sl_sleeptimer_delay_millisecond(50);
-    elapsed += 50;
-  }
-  return saw_busy && !bbepIsBusy(&s_epd);
-}
-
 extern "C" void opendisplay_display_abort(void)
 {
   if (s_xfer_app.panel_up) {
-    bbepSleep(&s_epd, DEEP_SLEEP);
+    od_epd_shim_sleep();
   }
   display_power_set(false);
   memset(&s_xfer_app, 0, sizeof(s_xfer_app));
@@ -607,37 +591,39 @@ extern "C" void opendisplay_display_abort(void)
 
 static bool xfer_app_write_full(uint32_t stream_offset, od_span_t data)
 {
-  uint32_t consumed = 0u;
+  uint32_t off = 0u;
 
   if (stream_offset > s_xfer_app.geometry.total_bytes
       || data.n > s_xfer_app.geometry.total_bytes - stream_offset) {
     return false;
   }
-  if (s_xfer_app.geometry.layout != OD_COLOR_LAYOUT_CONTROLLER_PLANES) {
-    bbepWriteData(&s_epd, (uint8_t *)(uintptr_t)data.p, (int)data.n);
-    return true;
-  }
 
-  while (consumed < data.n) {
-    const uint32_t logical = stream_offset + consumed;
-    const uint8_t plane = logical < s_xfer_app.plane_size ? PLANE_0 : PLANE_1;
-    const uint32_t plane_end = plane == PLANE_0 ? s_xfer_app.plane_size
-                                                 : s_xfer_app.geometry.total_bytes;
-    uint32_t chunk;
+  while (off < data.n) {
+    const uint32_t logical = stream_offset + off;
+    uint32_t chunk = (uint32_t)data.n - off;
 
-    if (s_xfer_app.current_plane != plane) {
-      if (logical != 0u && logical != s_xfer_app.plane_size) {
-        return false;
+    if (s_xfer_app.geometry.layout == OD_COLOR_LAYOUT_CONTROLLER_PLANES) {
+      const uint8_t plane = logical < s_xfer_app.plane_size ? 0u : 1u;
+      const uint32_t plane_end = plane == 0u ? s_xfer_app.plane_size
+                                             : s_xfer_app.geometry.total_bytes;
+      if (s_xfer_app.current_plane != plane) {
+        /* The drive sequence decides where the second plane goes, so this is "advance to the
+         * next image marker" rather than "address plane 1". A sequence declaring only one
+         * refuses, instead of silently writing both planes into the same place. */
+        if ((logical != 0u && logical != s_xfer_app.plane_size)
+            || !od_epd_shim_next_plane()) {
+          return false;
+        }
+        s_xfer_app.current_plane = plane;
       }
-      bbepStartWrite(&s_epd, plane);
-      s_xfer_app.current_plane = plane;
+      if (chunk > plane_end - logical) {
+        chunk = plane_end - logical;
+      }
     }
-    chunk = plane_end - logical;
-    if (chunk > data.n - consumed) {
-      chunk = (uint32_t)data.n - consumed;
+    if (!od_epd_shim_write(data.p + off, chunk)) {
+      return false;
     }
-    bbepWriteData(&s_epd, (uint8_t *)(uintptr_t)(data.p + consumed), (int)chunk);
-    consumed += chunk;
+    off += chunk;
   }
   return true;
 }
@@ -650,38 +636,30 @@ extern "C" void opendisplay_display_boot_apply(void)
     return;
   }
   s_boot_applied = true;
-  panel = opendisplay_map_epd(d->panel_ic_type);
-  if (panel == EP_PANEL_UNDEFINED) {
+
+  /* NO PANEL TABLE, so a device with no drive packets has no boot screen -- and that is the
+   * honest answer rather than a defect. There is nothing to fall back to: the init sequence,
+   * waveform and colour map all arrive in the config now. */
+  if (!od_epd_shim_available(d->instance_number)) {
     return;
   }
-  memset(&s_epd, 0, sizeof(s_epd));
   display_power_set(true);
-  if (bbepSetPanelType(&s_epd, panel) != BBEP_SUCCESS) {
+  /* Mode 0 by convention is the plain full refresh. */
+  if (!od_epd_shim_begin(d->instance_number, 0u, d->rotation,
+                         d->dc_pin, d->reset_pin, d->busy_pin, d->cs_pin,
+                         d->data_pin, d->clk_pin)) {
     display_power_set(false);
     return;
   }
-#if OD_CAP_DUAL_CS == 0
-  if ((s_epd.iFlags & BBEP_SPLIT_BUFFER) != 0u) {
+  if (!render_boot_screen(opendisplay_get_global_config())) {
+    od_epd_shim_sleep();
     display_power_set(false);
     return;
   }
-#endif
-  bbepSetRotation(&s_epd, (int)d->rotation * 90);
-  bbepInitIO(&s_epd, d->dc_pin, d->reset_pin, d->busy_pin, d->cs_pin, d->data_pin, d->clk_pin, 0);
-  od_bbep_wake(&s_epd);
-  od_bbep_send_panel_init_full(&s_epd);
-  if (!render_boot_screen(s_epd, opendisplay_get_global_config())) {
-    bbepSleep(&s_epd, DEEP_SLEEP);
-    display_power_set(false);
-    return;
-  }
-  /* The class's refresh(mode, bWait=true) called bbepWaitBusy() itself after a successful
-     * refresh; the bare function does not. Written out explicitly -- dropping it would let boot
-     * proceed while the panel was still refreshing. */
-  if (bbepRefresh(&s_epd, REFRESH_FULL) == BBEP_SUCCESS) {
-    bbepWaitBusy(&s_epd);
-  }
-  bbepSleep(&s_epd, DEEP_SLEEP);
+  /* finishPass runs the sequence tail: power-on, refresh, BUSY wait. The wait is inside it,
+   * so boot cannot proceed while the panel is still refreshing. */
+  (void)od_epd_shim_finish();
+  od_epd_shim_sleep();
   display_power_set(false);
 }
 
@@ -713,43 +691,33 @@ extern "C" bool od_xfer_app_panel_info(od_xfer_panel_info_t *out)
 extern "C" bool od_xfer_app_begin_full(const od_color_geometry_t *geometry)
 {
   const struct DisplayConfig *d = display_cfg();
-  int panel;
 
   if (d == nullptr || geometry == nullptr || geometry->total_bytes == 0u
       || geometry->layout == OD_COLOR_LAYOUT_SPLIT_HALVES) {
     return false;
   }
-  panel = opendisplay_map_epd(d->panel_ic_type);
-  if (panel == EP_PANEL_UNDEFINED) {
+  /* A device with no drive packets cannot be driven at all now -- there is no built-in panel
+   * table left to fall back to. Refusing here is what makes that visible as a failed upload
+   * rather than as a panel that stays blank after a successful one. */
+  if (!od_epd_shim_available(d->instance_number)) {
     return false;
   }
 
-  display_power_set(true);
-  memset(&s_epd, 0, sizeof(s_epd));
-  if (bbepSetPanelType(&s_epd, panel) != BBEP_SUCCESS) {
-    display_power_set(false);
-    return false;
-  }
-#if OD_CAP_DUAL_CS == 0
-  if ((s_epd.iFlags & BBEP_SPLIT_BUFFER) != 0u) {
-    display_power_set(false);
-    return false;
-  }
-#endif
-
-  bbepSetRotation(&s_epd, (int)d->rotation * 90);
-  bbepInitIO(&s_epd, d->dc_pin, d->reset_pin, d->busy_pin, d->cs_pin, d->data_pin, d->clk_pin, 0);
-  od_bbep_wake(&s_epd);
-  od_bbep_send_panel_init_full(&s_epd);
-  bbepSetAddrWindow(&s_epd, 0, 0, d->pixel_width, d->pixel_height);
   memset(&s_xfer_app, 0, sizeof(s_xfer_app));
+  display_power_set(true);
+  /* Mode 0 by convention is the plain full refresh. */
+  if (!od_epd_shim_begin(d->instance_number, 0u, d->rotation,
+                         d->dc_pin, d->reset_pin, d->busy_pin, d->cs_pin,
+                         d->data_pin, d->clk_pin)) {
+    display_power_set(false);
+    return false;
+  }
   s_xfer_app.mode = XFER_APP_FULL;
   s_xfer_app.geometry = *geometry;
   s_xfer_app.plane_size = geometry->layout == OD_COLOR_LAYOUT_CONTROLLER_PLANES
       ? geometry->part_bytes[0] : 0u;
-  s_xfer_app.current_plane = geometry->initial_plane == OD_COLOR_PLANE_0 ? PLANE_0 : PLANE_1;
+  s_xfer_app.current_plane = geometry->initial_plane == OD_COLOR_PLANE_0 ? 0u : 1u;
   s_xfer_app.panel_up = true;
-  bbepStartWrite(&s_epd, s_xfer_app.current_plane);
   return true;
 }
 
@@ -792,15 +760,18 @@ extern "C" void od_xfer_app_barrier_abort(const od_reply_t *owner)
 extern "C" bool od_xfer_app_refresh(uint8_t mode, bool *completed)
 {
   bool ok;
-  const int refresh_mode = mode == 1u ? REFRESH_FAST : REFRESH_FULL;
 
   if (completed == nullptr || s_xfer_app.mode != XFER_APP_FULL
       || !s_xfer_app.panel_up) {
     return false;
   }
-  (void)bbepRefresh(&s_epd, refresh_mode);
-  ok = wait_for_refresh(60000u);
-  bbepSleep(&s_epd, DEEP_SLEEP);
+  /* `mode` is not consulted: which waveform runs was fixed when the drive mode was selected
+   * at begin, and a refresh-mode byte cannot retarget it mid-transfer. finishPass runs the
+   * sequence tail -- power-on, refresh opcode, BUSY wait -- so there is no separate refresh
+   * call and no wait loop here. */
+  (void)mode;
+  ok = od_epd_shim_finish();
+  od_epd_shim_sleep();
   display_power_set(false);
   memset(&s_xfer_app, 0, sizeof(s_xfer_app));
   *completed = ok;
