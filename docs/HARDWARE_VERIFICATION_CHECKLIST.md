@@ -90,7 +90,8 @@ this bench**, so render rows are protocol-level until someone looks at the glass
       The first OTA'd image ACKed START and then NACKed the first DATA (`ff 71`): `od_xfer_app_write`
       and `od_xfer_app_refresh` only admitted `XFER_APP_FULL`, so a drive-mode transfer could never
       stream. Host tests stub the display layer and could not see it.
-- [ ] **16-colour visually correct on glass** (4x4 index16 grid, full panel). Not yet looked at.
+- [x] **16-colour visually correct on glass** (4x4 index16 grid, full panel). Confirmed by eye by
+      the user on 2026-11-06; no camera record.
 - [ ] **Temp policy.** A mode whose window excludes the die temperature: REJECT NACKs `0x06`
       with nothing driven; SUBSTITUTE answers with the substituted mode index.
 - [x] **`READ_IDENT` (`0x0046`) pre-gate.** Encrypted unit, no key, no session: answered
