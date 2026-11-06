@@ -19,7 +19,18 @@
 // <i> Max NVM3 object size that can be stored.
 // <i> Must cover opendisplay config record: 16-byte header + OD_CONFIG_MAX_SIZE (2048).
 // <i> Keep in sync with NVM3_MAX_OBJECT_SIZE in cmake_gcc/opendisplay-bg22.cmake.
-#define NVM3_DEFAULT_MAX_OBJECT_SIZE  2112
+/* 3136 = OD_CONFIG_MAX_SIZE 3120 + the 16-byte storage record header.
+ *
+ * SIZED AGAINST PAGE CAPACITY, NOT REGION SIZE. nvm3_open has two gates and the binding one
+ * is `validNvmPageCnt * (pageSize - NVM3_PAGE_HEADER_SIZE) >= thrSize`, so the usable figure
+ * for this 3-page/24576 B region is 24516 B, not 24576. thrSize(3136) = 22636, leaving 1880 B.
+ * thrSize(4096) = 24556 clears the region check by 20 B and FAILS capacity by 40 -- that is
+ * the configuration that stopped NVM3 opening on Firmware_Silabs, with the config reading back
+ * as 0 bytes and every write NACKed. Raising this past 4064 additionally needs a 4th page.
+ *
+ * NVM3_SECURITY off and REPACK_HEADROOM 0 are part of the arithmetic: either one grows
+ * thrSize, so re-derive the margin before enabling them. */
+#define NVM3_DEFAULT_MAX_OBJECT_SIZE  3136
 #endif
 
 #ifndef NVM3_DEFAULT_REPACK_HEADROOM

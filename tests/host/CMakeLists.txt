@@ -375,9 +375,13 @@ add_executable(od_silabs_storage_test
     fake_silabs/nvm3_fake.c
     ../../targets/efr32bg22-slc/od_hal_nvs.c
     ../../targets/efr32bg22-slc/opendisplay_config_storage.c)
+# The TARGET's own config/ is on the path, not a stub copy of it: the storage guard compares
+# OD_CONFIG_MAX_SIZE against NVM3_DEFAULT_MAX_OBJECT_SIZE, and a hand-mirrored copy of the
+# second one silently stops testing the real relationship the moment either moves.
 target_include_directories(od_silabs_storage_test PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/fake_silabs
-    ../../targets/efr32bg22-slc)
+    ../../targets/efr32bg22-slc
+    ../../targets/efr32bg22-slc/config)
 target_link_libraries(od_silabs_storage_test od_shared_silabs)
 add_test(NAME silabs_storage COMMAND od_silabs_storage_test)
 

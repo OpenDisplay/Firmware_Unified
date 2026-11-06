@@ -15,7 +15,11 @@
 # EFR32BG22: 32 KB RAM, no kernel, no PIPE, no partial transfer, no RX ring, single chip select,
 # no logging, and no touch/buzzer/Wi-Fi/extended-data hardware.
 set(OD_PROFILE_SILABS
-    OD_CONFIG_MAX_SIZE=2048u
+    # 3120 rather than 4096: a 16-colour 2.9in config measures 2112 B and each additional
+    # display sharing the global waveform slots adds ~493 B, so this covers two displays with
+    # margin. The ceiling is NVM3's, not RAM's -- see nvm3_default_config.h. Cost is 1088 B of
+    # .memory_manager_heap, which the linker sizes as whatever RAM is left; no flash.
+    OD_CONFIG_MAX_SIZE=3120u
     OD_TXQ_SLOTS=3u
     OD_CAP_PIPE=0
     OD_CAP_PARTIAL=0
