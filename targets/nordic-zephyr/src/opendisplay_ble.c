@@ -37,8 +37,9 @@
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/hwinfo.h>
+#include <zephyr/drivers/retained_mem.h>
 #include <zephyr/drivers/sensor.h>
-#include <zephyr/kernel.h>
+#include <zephyr/kernel.h>   /* also CMSIS, for NVIC_SystemReset() */
 #include <zephyr/settings/settings.h>
 #if defined(CONFIG_MCUMGR_TRANSPORT_BT_DYNAMIC_SVC_REGISTRATION)
 #include <zephyr/mgmt/mcumgr/transport/smp_bt.h>
@@ -323,6 +324,49 @@ static void od_smp_sync(void)
 #endif
 }
 
+/* Reboot into the Adafruit bootloader's DFU mode.
+ *
+ * ONLY FOR THE COMPOSITION THAT HAS NO MCUboot. Without this, CMD_ENTER_DFU on nRF52840 is a
+ * lie: it ACKs, unlocks an SMP service that was compiled out, and nothing can update the
+ * device. Measured on an EN04 -- once this firmware is flashed there is NO software path back
+ * to the bootloader at all. Zephyr's CDC does not implement the Arduino 1200-baud touch (a BSP
+ * convention, verified absent here), and CMD_REBOOT only resets into the same valid
+ * application, so a tag in a case was unrecoverable without opening it.
+ *
+ * GPREGRET1 is the handshake register the Adafruit bootloader reads on reset. od_hal_wdt
+ * deliberately keeps its breadcrumb in GPREGRET2 so a strike write cannot cancel a pending DFU
+ * request -- see the note there; this is the other half of that arrangement.
+ *
+ * 0x4E is SERIAL-only DFU, chosen over 0xA8 (BLE OTA) deliberately. This bootloader exposes CDC
+ * and no mass storage, so serial DFU is its only USB path, and a unit that enters BLE OTA and
+ * is never updated waits in DFU until someone physically resets it. Serial recovery needs a
+ * cable but cannot strand a device that is merely out of radio range.
+ */
+#if !defined(CONFIG_BOOTLOADER_MCUBOOT)
+#define OD_ADAFRUIT_DFU_SERIAL_MAGIC 0x4Eu
+
+static void enter_adafruit_dfu(void)
+{
+	const struct device *gpregret1 = DEVICE_DT_GET_OR_NULL(DT_NODELABEL(gpregret1));
+	const uint8_t magic = OD_ADAFRUIT_DFU_SERIAL_MAGIC;
+
+	if (gpregret1 == NULL || !device_is_ready(gpregret1)) {
+		od_log_error("ENTER_DFU: gpregret1 unavailable; cannot reach the bootloader");
+		return;
+	}
+	if (retained_mem_write(gpregret1, 0, &magic, sizeof magic) != 0) {
+		od_log_error("ENTER_DFU: gpregret1 write failed; not resetting");
+		return;
+	}
+	od_log_info("ENTER_DFU: rebooting into the Adafruit serial bootloader");
+	/* Let the log drain and the ACK reach the host before the reset takes the link down. */
+	k_sleep(K_MSEC(250));
+	/* NVIC_SystemReset, not sys_reboot: od_cmd_app_reboot already resets this way, and
+	 * sys_reboot would need CONFIG_REBOOT which this build does not set. */
+	NVIC_SystemReset();
+}
+#endif
+
 static void dfu_work_handler(struct k_work *work)
 {
 	ARG_UNUSED(work);
@@ -331,6 +375,10 @@ static void dfu_work_handler(struct k_work *work)
 	if (s_conn != NULL) {
 		(void)bt_conn_disconnect(s_conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
 	}
+#if !defined(CONFIG_BOOTLOADER_MCUBOOT)
+	/* After the disconnect, so the host sees the link drop rather than a silent stall. */
+	enter_adafruit_dfu();
+#endif
 }
 
 static void boot_display_work_handler(struct k_work *work)
