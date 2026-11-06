@@ -48,6 +48,41 @@ bool od_epd_shim_finish(void);
 
 void od_epd_shim_sleep(void);
 
+/* --- config-driven drive path, for CMD_DRIVE_WRITE_START (0x0085) ----------------------------
+ *
+ * Split into select-then-power deliberately: temp_policy enforcement HAS to sit between mode
+ * selection (which is what loads the mode's temperature window) and powering the glass, because
+ * under policy SUBSTITUTE the mode that runs may not be the one asked for. A single
+ * begin-at-mode call would have already committed the panel by the time the window was known.
+ */
+typedef struct {
+    uint8_t passes;        /* frames this mode expects; 16-colour BWRY is 3 */
+    uint8_t color_scheme;  /* what the MODE renders; 0xFF = the panel's own */
+    int8_t  temp_min_c;
+    int8_t  temp_max_c;
+    uint8_t temp_policy;   /* OD_DRIVE_TEMP_{ADVISORY,SUBSTITUTE,REJECT} */
+} od_epd_shim_mode_t;
+
+/* Load the descriptor, apply pins and rotation, and SELECT a mode -- stopping short of powering
+ * the glass. Reports the selected mode's header so the caller can judge its window. */
+bool od_epd_shim_drive_begin(uint8_t display_instance, uint8_t mode_index,
+                            uint8_t rotation_quarters,
+                            uint8_t dc, uint8_t rst, uint8_t busy, uint8_t cs,
+                            uint8_t mosi, uint8_t sck, od_epd_shim_mode_t *mode_out);
+
+/* Select a different mode on an already-begun panel, for temp_policy SUBSTITUTE. */
+bool od_epd_shim_reselect(uint8_t mode_index, od_epd_shim_mode_t *mode_out);
+
+/* How many modes this device's config declares. Valid after od_epd_shim_drive_begin. */
+uint8_t od_epd_shim_mode_count(void);
+
+/* Power the glass and run the drive sequence up to pass `pass`'s image marker. */
+bool od_epd_shim_begin_pass(uint8_t pass);
+
+/* The raw od_epd rc of the last beginPass, so a caller can distinguish a sequence this target
+ * cannot run (OD_EPD_RC_UNSUP -> OD_ERR_DRIVE_SEQ_UNSUPPORTED) from a generic failure. */
+int od_epd_shim_last_rc(void);
+
 /* --- raw SPI passthrough, for CMD_SPI_RAW (0x0084) -------------------------------------------
  *
  * Deliberately NOT routed through begin/write/finish: a raw session has no pass in flight, and

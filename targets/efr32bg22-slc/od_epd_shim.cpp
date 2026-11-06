@@ -78,6 +78,69 @@ void od_epd_shim_sleep(void)
     }
 }
 
+/* --- config-driven drive path (CMD_DRIVE_WRITE_START) ----------------------------------------- */
+
+static void mode_header_out(od_epd_shim_mode_t *out)
+{
+    if (out == NULL) {
+        return;
+    }
+    const od_epd_mode_t &m = s_epd.activeMode();
+    out->passes       = m.passes != 0u ? m.passes : 1u;   /* a mode declaring 0 still runs once */
+    out->color_scheme = m.color_scheme;
+    out->temp_min_c   = m.temp_min_c;
+    out->temp_max_c   = m.temp_max_c;
+    out->temp_policy  = m.temp_policy;
+}
+
+bool od_epd_shim_drive_begin(uint8_t display_instance, uint8_t mode_index,
+                            uint8_t rotation_quarters,
+                            uint8_t dc, uint8_t rst, uint8_t busy, uint8_t cs,
+                            uint8_t mosi, uint8_t sck, od_epd_shim_mode_t *mode_out)
+{
+    s_in_pass = false;
+
+    if (s_epd.setPanelType(display_instance) != BBEP_SUCCESS) {
+        od_log_warn("drive: no drive data for display %u", (unsigned)display_instance);
+        return false;
+    }
+    s_epd.setRotation((int)rotation_quarters * 90);
+    s_epd.initIO(dc, rst, busy, cs, mosi, sck, 0u);
+    return od_epd_shim_reselect(mode_index, mode_out);
+}
+
+bool od_epd_shim_reselect(uint8_t mode_index, od_epd_shim_mode_t *mode_out)
+{
+    if (s_epd.selectModeIndex(mode_index) != BBEP_SUCCESS) {
+        od_log_warn("drive: mode %u not in config (have %u)",
+                    (unsigned)mode_index, (unsigned)s_epd.modeCount());
+        return false;
+    }
+    mode_header_out(mode_out);
+    return true;
+}
+
+uint8_t od_epd_shim_mode_count(void)
+{
+    return s_epd.modeCount();
+}
+
+bool od_epd_shim_begin_pass(uint8_t pass)
+{
+    if (s_epd.beginPass(pass) != BBEP_SUCCESS) {
+        od_log_warn("drive: beginPass %u failed rc=%d", (unsigned)pass, s_epd.lastRc());
+        s_in_pass = false;
+        return false;
+    }
+    s_in_pass = true;
+    return true;
+}
+
+int od_epd_shim_last_rc(void)
+{
+    return s_epd.lastRc();
+}
+
 /* --- raw SPI passthrough (CMD_SPI_RAW) -------------------------------------------------------
  *
  * s_in_pass stays FALSE throughout a raw session, so od_epd_shim_write() keeps refusing: the

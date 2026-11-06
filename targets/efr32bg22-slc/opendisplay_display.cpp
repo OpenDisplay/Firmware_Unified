@@ -28,6 +28,9 @@ static uint8_t s_decompression_chunk[OPENDISPLAY_DECOMPRESSION_CHUNK_SIZE];
 enum XferAppMode {
   XFER_APP_IDLE = 0,
   XFER_APP_FULL,
+  /* Same byte stream as FULL, but the panel is already up at a named mode and the stream
+   * carries several frames. Kept distinct so the pass advance cannot fire on a 0x0070. */
+  XFER_APP_DRIVE,
 };
 
 struct XferAppHardwareState {
@@ -36,6 +39,12 @@ struct XferAppHardwareState {
   uint32_t plane_size;
   uint8_t current_plane;
   bool panel_up;
+  /* Multi-pass drive state, all zero on the ordinary 0x0070 path. `frame_bytes` is 0 for a
+   * single-pass transfer, which is what makes the pass-advance check below inert there. */
+  uint32_t frame_bytes;
+  uint8_t drive_passes;
+  uint8_t drive_pass;
+  uint8_t drive_mode;
   /* Set when CMD_FLASH_PRELOAD armed this upload: bytes go to a flash slot and the panel is
    * never touched, so there is no refresh and no 20-second wait. */
   bool to_flash;
@@ -756,10 +765,111 @@ static bool xfer_app_write_full(uint32_t stream_offset, od_span_t data)
         chunk = plane_end - logical;
       }
     }
+    /* A chunk must not straddle a pass boundary: the bytes after it belong to a frame that is
+     * not on the panel yet. Clamp first, advance below. */
+    if (s_xfer_app.mode == XFER_APP_DRIVE && s_xfer_app.frame_bytes > 0u) {
+      const uint32_t boundary = (uint32_t)(s_xfer_app.drive_pass + 1u) * s_xfer_app.frame_bytes;
+      if (logical < boundary && chunk > boundary - logical) {
+        chunk = boundary - logical;
+      }
+    }
     if (!od_epd_shim_write(data.p + off, chunk)) {
       return false;
     }
     off += chunk;
+
+    /* FRAME BOUNDARY IS PASS BOUNDARY. One pass is a whole refresh, not a plane: finish runs
+     * the panel's own waveform and BLOCKS for it -- 20.6 s for the 2.9in's first 16-colour pass
+     * -- then the next pass re-runs the mode's init with its own LUT. Blocking here is also the
+     * flow control: the host cannot usefully send pass N+1 until pass N is off the glass, so a
+     * late ACK on whichever chunk lands on the boundary is the signal. */
+    if (s_xfer_app.mode == XFER_APP_DRIVE && s_xfer_app.frame_bytes > 0u
+        && s_xfer_app.drive_pass + 1u < s_xfer_app.drive_passes
+        && stream_offset + off >= (uint32_t)(s_xfer_app.drive_pass + 1u)
+                                  * s_xfer_app.frame_bytes) {
+      if (!od_epd_shim_finish()) {
+        printf("[OD] drive pass %u refresh failed\r\n", (unsigned)s_xfer_app.drive_pass);
+        return false;
+      }
+      s_xfer_app.drive_pass++;
+      s_xfer_app.current_plane = 0u;
+      /* The rail stays up across passes. The 16-colour behaviour was characterised with power
+       * held for all three, and a drop between them would re-run the panel's power-on reset. */
+      if (!od_epd_shim_begin_pass(s_xfer_app.drive_pass)) {
+        return false;
+      }
+      printf("[OD] drive pass %u/%u\r\n", (unsigned)s_xfer_app.drive_pass + 1u,
+             (unsigned)s_xfer_app.drive_passes);
+    }
+  }
+  return true;
+}
+
+const struct DisplayConfig *opendisplay_display_config(void)
+{
+  return display_cfg();
+}
+
+void opendisplay_display_power(bool on)
+{
+  display_power_set(on);
+}
+
+bool opendisplay_display_drive_adopt(const od_color_geometry_t *geometry, uint8_t passes,
+                                     uint8_t mode, bool compressed,
+                                     const uint8_t *payload, uint16_t payload_len)
+{
+  uint64_t total;
+
+  if (geometry == nullptr || geometry->total_bytes == 0u || passes == 0u) {
+    return false;
+  }
+  total = (uint64_t)geometry->total_bytes * passes;
+  if (total > UINT32_MAX) {
+    return false;
+  }
+  /* A COMPRESSED stream declares its uncompressed length, and passes*frame is the ONLY value
+   * this device will accept -- a host that got the pass count wrong is told so at START rather
+   * than after it has streamed a frame and a half. */
+  if (compressed) {
+    uint32_t declared;
+    if (payload == nullptr || payload_len < 4u) {
+      return false;
+    }
+    declared = (uint32_t)payload[0] | ((uint32_t)payload[1] << 8)
+             | ((uint32_t)payload[2] << 16) | ((uint32_t)payload[3] << 24);
+    if (declared != (uint32_t)total) {
+      printf("[OD] drive declared %lu != passes*frame %lu\r\n",
+             (unsigned long)declared, (unsigned long)total);
+      return false;
+    }
+  }
+
+  memset(&s_xfer_app, 0, sizeof(s_xfer_app));
+  s_xfer_app.mode = XFER_APP_DRIVE;
+  s_xfer_app.geometry = *geometry;
+  s_xfer_app.geometry.total_bytes = (uint32_t)total;
+  s_xfer_app.frame_bytes = geometry->total_bytes;
+  s_xfer_app.drive_passes = passes;
+  s_xfer_app.drive_pass = 0u;
+  s_xfer_app.drive_mode = mode;
+  s_xfer_app.panel_up = true;
+  s_xfer_app.plane_size = geometry->layout == OD_COLOR_LAYOUT_CONTROLLER_PLANES
+                        ? geometry->part_bytes[0] : 0u;
+  return true;
+}
+
+bool opendisplay_display_drive_stream_info(od_color_geometry_t *geometry_out,
+                                           uint32_t *expected_out)
+{
+  if (s_xfer_app.mode != XFER_APP_DRIVE) {
+    return false;
+  }
+  if (geometry_out != nullptr) {
+    *geometry_out = s_xfer_app.geometry;
+  }
+  if (expected_out != nullptr) {
+    *expected_out = s_xfer_app.geometry.total_bytes;
   }
   return true;
 }

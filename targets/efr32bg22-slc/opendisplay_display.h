@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "od_color.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -16,6 +18,26 @@ void opendisplay_display_power_off(void);
 /* Runs a queued display-from-slot refresh. Called from the superloop, because the
  * refresh is seconds long and must not sit inside a command handler. */
 void opendisplay_display_service(void);
+
+/* --- config-driven drive path (CMD_DRIVE_WRITE_START 0x0085) ---------------------------------
+ *
+ * Accessors rather than exported statics: the rail and the stored DisplayConfig are owned here,
+ * and od_display_drive.cpp needs both to bring a named mode up. */
+const struct DisplayConfig *opendisplay_display_config(void);
+void opendisplay_display_power(bool on);
+
+/* Register a multi-pass drive transfer whose panel is ALREADY up at the chosen mode.
+ *
+ * `geometry` describes ONE pass; the stream carries `passes` of them back to back, and a frame
+ * boundary is a pass boundary. Validates a COMPRESSED declaration against passes*frame, which
+ * is the only size the device will accept. Returns false on a size mismatch. */
+bool opendisplay_display_drive_adopt(const od_color_geometry_t *geometry, uint8_t passes,
+                                     uint8_t mode, bool compressed,
+                                     const uint8_t *payload, uint16_t payload_len);
+
+/* The byte counts the shared transfer layer needs, valid after a successful adopt. */
+bool opendisplay_display_drive_stream_info(od_color_geometry_t *geometry_out,
+                                           uint32_t *expected_out);
 
 /* --- CMD_SPI_RAW (0x0084) session -------------------------------------------------------------
  *

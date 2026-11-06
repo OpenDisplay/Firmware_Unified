@@ -5,16 +5,16 @@
  * differ per pass, which the ordinary 0x0070 path cannot express: the mode has to be known at
  * START because this driver uploads the waveform as part of the init sequence, before the frame.
  *
- * THIS FILE IS ONLY THE DISPATCH HALF. od_display_drive_write_start() selects the mode, enforces
- * the mode's temp_policy and sets up the multi-pass transfer. Until that lands it answers
- * OD_ERR_DRIVE_UNSUPPORTED, which is deliberate over leaving the opcode unrouted: "I know this
- * opcode and cannot do it yet" and "I have never heard of this opcode" are different answers,
- * and only the first is true.
+ * THIS FILE IS THE DISPATCH HALF. od_display_drive_write_start() selects the mode, enforces its
+ * temp_policy and powers the glass for pass 0; od_xfer_adopt_full() then registers the transfer
+ * so DATA (0x0071) and END (0x0072) continue it with no drive-specific code of their own.
  */
 #include "od_cmd_app.h"
 
 #include "od_display_drive.h"
 #include "od_reply.h"
+#include "od_xfer.h"
+#include "opendisplay_display.h"
 #include "opendisplay_protocol.h"
 
 #include <stddef.h>
@@ -64,6 +64,27 @@ od_cmd_result_t od_cmd_app_drive_write_start(const od_cmd_ctx_t *ctx, od_span_t 
                                       &passes, &mode_used, &temp_c);
     if (rc != 0) {
         return nack(ctx, (uint8_t)(-rc), body.p[0]);
+    }
+
+    /* The panel is up at the chosen mode and the app knows passes*frame; hand that to the
+     * shared transfer layer so DATA (0x0071) and END (0x0072) continue it unchanged. Adopt
+     * rather than start: the hardware is already running. */
+    {
+        od_color_geometry_t geom;
+        uint32_t expected = 0u;
+        const bool compressed = (body.p[2] & DRIVE_WRITE_FLAG_COMPRESSED) != 0u;
+        od_span_t tail = od_span_drop(body, DRIVE_START_HDR);
+
+        if (!opendisplay_display_drive_stream_info(&geom, &expected)) {
+            return nack(ctx, OD_ERR_DRIVE_NO_CONFIG, body.p[0]);
+        }
+        /* The 4-byte uncompressed_size is a START field, not stream data. */
+        if (compressed) {
+            tail = od_span_drop(tail, 4u);
+        }
+        if (!od_xfer_adopt_full(&ctx->rp, &geom, expected, compressed, tail)) {
+            return nack(ctx, OD_ERR_DRIVE_BAD_SIZE, body.p[0]);
+        }
     }
 
     /* ACK carries what the device DECIDED, not an echo of the request: `mode` is the mode
