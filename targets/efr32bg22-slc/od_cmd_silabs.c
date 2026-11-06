@@ -83,6 +83,38 @@ od_cmd_result_t od_cmd_app_firmware_version(const od_cmd_ctx_t *ctx, od_span_t b
   return OD_CMD_OK;
 }
 
+/* CMD_READ_IDENT 0x0046: answered from DisplayConfig 0x20. display_count = 0 is a valid answer
+ * (reachable, no display configured -- the state straight after an OTA onto this driver). */
+od_cmd_result_t od_cmd_app_read_ident(const od_cmd_ctx_t *ctx, od_span_t body)
+{
+  const struct GlobalConfig *cfg = opendisplay_get_global_config();
+  uint8_t rsp[5u + OD_CONFIG_MAX_DISPLAYS * 7u];
+  uint16_t n = 5u;
+  uint8_t count = 0u;
+
+  (void)body;
+  rsp[0] = RESP_ACK;
+  rsp[1] = RESP_READ_IDENT;
+  rsp[2] = (uint8_t)OD_PROTOCOL_VERSION_MINOR;
+  rsp[3] = OD_IDENT_TARGET_SILABS;
+  if (cfg != NULL && cfg->loaded) {
+    for (uint8_t i = 0u; i < cfg->display_count && i < OD_CONFIG_MAX_DISPLAYS; i++) {
+      const struct DisplayConfig *d = &cfg->displays[i];
+      rsp[n++] = (uint8_t)(d->panel_ic_type & 0xFFu);
+      rsp[n++] = (uint8_t)(d->panel_ic_type >> 8);
+      rsp[n++] = (uint8_t)(d->pixel_width & 0xFFu);
+      rsp[n++] = (uint8_t)(d->pixel_width >> 8);
+      rsp[n++] = (uint8_t)(d->pixel_height & 0xFFu);
+      rsp[n++] = (uint8_t)(d->pixel_height >> 8);
+      rsp[n++] = d->color_scheme;
+      count++;
+    }
+  }
+  rsp[4] = count;
+  (void)reply_plain(ctx, rsp, n);
+  return OD_CMD_OK;
+}
+
 od_cmd_result_t od_cmd_app_read_msd(const od_cmd_ctx_t *ctx, od_span_t body)
 {
   uint8_t rsp[18] = { RESP_ACK, RESP_MSD_READ };

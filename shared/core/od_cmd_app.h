@@ -41,6 +41,9 @@ od_cmd_result_t od_cmd_app_reboot(const od_cmd_ctx_t *ctx, od_span_t body);     
 /* Exempt from the session gate on every target, and answered as DISCOVERY rather than ACCEPTED --
  * a client must be able to learn what it is talking to before it can authenticate. */
 od_cmd_result_t od_cmd_app_firmware_version(const od_cmd_ctx_t *ctx, od_span_t body);  /* 0x0043 */
+#if OD_CAP_READ_IDENT
+od_cmd_result_t od_cmd_app_read_ident(const od_cmd_ctx_t *ctx, od_span_t body);       /* 0x0046, pre-gate */
+#endif
 od_cmd_result_t od_cmd_app_read_msd(const od_cmd_ctx_t *ctx, od_span_t body);          /* 0x0044 */
 od_cmd_result_t od_cmd_app_enter_dfu(const od_cmd_ctx_t *ctx, od_span_t body);         /* 0x0051 */
 od_cmd_result_t od_cmd_app_power_off(const od_cmd_ctx_t *ctx, od_span_t body);         /* 0x0052 */
@@ -77,7 +80,7 @@ od_cmd_result_t od_cmd_app_drive_write_start(const od_cmd_ctx_t *ctx, od_span_t 
 od_cmd_result_t od_cmd_app_spi_raw(const od_cmd_ctx_t *ctx, od_span_t body);           /* 0x0084 */
 #endif
 
-/* --- image store and actions, EXPERIMENTAL -------------------------------------------------- */
+/* --- image store and actions (protocol 2.4) -------------------------------------------------- */
 
 /* Declared here rather than beside the target that implements them, because od_dispatch_ops.h
  * names them from SHARED code and shared/ never includes a target header. Gated on the same

@@ -781,7 +781,9 @@ check "config storage: one record framing" config_store_target_framing_absent
 # name is the same defect. Both spellings, because a table-driven version reverses the constant.
 # Checked in two directions -- absent from targets/, and in exactly ONE file under shared/ -- so
 # that neither "a target grew one back" nor "shared grew a second" can pass.
-CONFIG_STORE_CRC_FILES=$'shared/core/od_config_store.c\nshared/core/od_config_store.h'
+# opendisplay_protocol.h names the polynomial in prose (the CMD_FLASH_LIST slot digest) and is a
+# byte-for-byte canonical copy, so it is listed rather than edited.
+CONFIG_STORE_CRC_FILES=$'shared/core/od_config_store.c\nshared/core/od_config_store.h\nshared/protocol/opendisplay_protocol.h'
 config_store_single_crc32() {
     local files rc
     absent_or_fail "a second CRC-32 returned to a target; od_config_store_crc32 is the one" \

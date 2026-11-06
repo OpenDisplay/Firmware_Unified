@@ -1,7 +1,6 @@
 /* od_cmd_flash -- image-store management over BLE.
  *
- * Opcodes are EXPERIMENTAL and defined alongside the dispatch table they feed.
- * in shared/core/od_dispatch_ops.h; see the note there for why they are not canonical yet.
+ * Opcodes 0x0047-0x004D are canonical at protocol 2.4.
  *
  * PRELOAD ARMS THE EXISTING UPLOAD PATH rather than adding a parallel one. Chunking,
  * compression, inflate, acknowledgement and abort are identical whether the bytes end at the
@@ -19,8 +18,6 @@
 #include "opendisplay_runtime.h"
 #include "od_dispatch_ops.h"
 
-#define RESP_ACK_B  0x01u
-#define RESP_NACK_B 0x00u
 
 /* The target's own reply shape: od_reply takes the reservation and the reply descriptor out
  * of the context, as od_cmd_silabs.c does. */
@@ -50,7 +47,7 @@ void od_cmd_flash_clear_arm(void) { s_armed = false; }
 
 static od_cmd_result_t nack(const od_cmd_ctx_t *ctx, uint8_t op)
 {
-    uint8_t r[2] = { RESP_NACK_B, (uint8_t)op };
+    uint8_t r[2] = { RESP_NACK, (uint8_t)op };
     (void)reply(ctx, r, sizeof r);
     return OD_CMD_NACK;
 }
@@ -62,8 +59,8 @@ od_cmd_result_t od_cmd_app_flash_info(const od_cmd_ctx_t *ctx, od_span_t body)
 
     (void)body;
     memset(r, 0, sizeof r);
-    r[0] = RESP_ACK_B;
-    r[1] = (uint8_t)OD_CMD_FLASH_INFO;
+    r[0] = RESP_ACK;
+    r[1] = (uint8_t)CMD_FLASH_INFO;
     r[2] = st->mounted ? 1u : 0u;
     r[3] = st->slot_count;
     r[4] = (uint8_t)st->slot_stride;
@@ -87,10 +84,10 @@ od_cmd_result_t od_cmd_app_flash_list(const od_cmd_ctx_t *ctx, od_span_t body)
 
     (void)body;
     if (!st->mounted) {
-        return nack(ctx, (uint8_t)OD_CMD_FLASH_LIST);
+        return nack(ctx, (uint8_t)CMD_FLASH_LIST);
     }
-    r[0] = RESP_ACK_B;
-    r[1] = (uint8_t)OD_CMD_FLASH_LIST;
+    r[0] = RESP_ACK;
+    r[1] = (uint8_t)CMD_FLASH_LIST;
 
     for (uint8_t i = 0; i < st->slot_count && i < OD_IMGSTORE_MAX_SLOTS; i++) {
         od_imgstore_slot_t s;
@@ -117,13 +114,13 @@ od_cmd_result_t od_cmd_app_flash_erase(const od_cmd_ctx_t *ctx, od_span_t body)
     bool ok;
 
     if (!od_span_valid(body) || body.n < 1u) {
-        return nack(ctx, (uint8_t)OD_CMD_FLASH_ERASE);
+        return nack(ctx, (uint8_t)CMD_FLASH_ERASE);
     }
     const uint8_t idx = body.p[0];
     ok = (idx == 0xFFu) ? od_imgstore_erase_all() : od_imgstore_erase(idx);
 
-    r[0] = ok ? RESP_ACK_B : RESP_NACK_B;
-    r[1] = (uint8_t)OD_CMD_FLASH_ERASE;
+    r[0] = ok ? RESP_ACK : RESP_NACK;
+    r[1] = (uint8_t)CMD_FLASH_ERASE;
     r[2] = idx;
     (void)reply(ctx, r, sizeof r);
     return ok ? OD_CMD_OK : OD_CMD_NACK;
@@ -135,18 +132,18 @@ od_cmd_result_t od_cmd_app_flash_preload(const od_cmd_ctx_t *ctx, od_span_t body
     uint8_t r[3];
 
     if (!od_span_valid(body) || body.n < 1u || !st->mounted) {
-        return nack(ctx, (uint8_t)OD_CMD_FLASH_PRELOAD);
+        return nack(ctx, (uint8_t)CMD_FLASH_PRELOAD);
     }
     const uint8_t idx = body.p[0];
     if (idx >= st->slot_count) {
-        return nack(ctx, (uint8_t)OD_CMD_FLASH_PRELOAD);
+        return nack(ctx, (uint8_t)CMD_FLASH_PRELOAD);
     }
     s_armed = true;
     s_armed_slot = idx;
     od_log_info("flash: next upload -> slot %u (not displayed)", (unsigned)idx);
 
-    r[0] = RESP_ACK_B;
-    r[1] = (uint8_t)OD_CMD_FLASH_PRELOAD;
+    r[0] = RESP_ACK;
+    r[1] = (uint8_t)CMD_FLASH_PRELOAD;
     r[2] = idx;
     return reply(ctx, r, sizeof r) == OD_TXQ_OK ? OD_CMD_OK : OD_CMD_NACK;
 }
@@ -157,7 +154,7 @@ od_cmd_result_t od_cmd_app_flash_display(const od_cmd_ctx_t *ctx, od_span_t body
     bool ok;
 
     if (!od_span_valid(body) || body.n < 1u) {
-        return nack(ctx, (uint8_t)OD_CMD_FLASH_DISPLAY);
+        return nack(ctx, (uint8_t)CMD_FLASH_DISPLAY);
     }
     const uint8_t idx = body.p[0];
 
@@ -165,8 +162,8 @@ od_cmd_result_t od_cmd_app_flash_display(const od_cmd_ctx_t *ctx, od_span_t body
      * command timeout, so holding the reply until the panel settles would report a successful
      * display as a timeout -- the same defect the config-write path already hit once. */
     ok = od_display_from_slot_arm(idx);
-    r[0] = ok ? RESP_ACK_B : RESP_NACK_B;
-    r[1] = (uint8_t)OD_CMD_FLASH_DISPLAY;
+    r[0] = ok ? RESP_ACK : RESP_NACK;
+    r[1] = (uint8_t)CMD_FLASH_DISPLAY;
     r[2] = idx;
     (void)reply(ctx, r, sizeof r);
     return ok ? OD_CMD_OK : OD_CMD_NACK;
@@ -178,8 +175,8 @@ od_cmd_result_t od_cmd_app_action_info(const od_cmd_ctx_t *ctx, od_span_t body)
     uint8_t r[9];
 
     (void)body;
-    r[0] = RESP_ACK_B;
-    r[1] = (uint8_t)OD_CMD_ACTION_INFO;
+    r[0] = RESP_ACK;
+    r[1] = (uint8_t)CMD_ACTION_INFO;
     r[2] = st->entries;
     r[3] = st->active;
     r[4] = st->inactive;
@@ -199,8 +196,8 @@ od_cmd_result_t od_cmd_app_action_fire(const od_cmd_ctx_t *ctx, od_span_t body)
      * it is really for. The runner picks it up on the next service pass -- firing
      * it here would run effects inside a command handler. */
     od_action_trigger(OD_TRIG_HOST, arg);
-    r[0] = RESP_ACK_B;
-    r[1] = (uint8_t)OD_CMD_ACTION_FIRE;
+    r[0] = RESP_ACK;
+    r[1] = (uint8_t)CMD_ACTION_FIRE;
     r[2] = arg;
     return reply(ctx, r, sizeof r) == OD_TXQ_OK ? OD_CMD_OK : OD_CMD_NACK;
 }

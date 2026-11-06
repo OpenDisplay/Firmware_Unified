@@ -38,7 +38,9 @@ set(OD_PROFILE_SILABS
     OD_CAP_DRIVE_WRITE=1
     # CMD_SPI_RAW: Silabs-only by specification, and the opcode every panel in this fleet was
     # brought up through. Bypasses driver safety checks, so no other target enables it.
-    OD_CAP_SPI_RAW=1)
+    OD_CAP_SPI_RAW=1
+    # CMD_READ_IDENT: plaintext identity from DisplayConfig 0x20, pre-gate. Silabs-first.
+    OD_CAP_READ_IDENT=1)
 
 # Compile-time log level, one selector for every target.
 #

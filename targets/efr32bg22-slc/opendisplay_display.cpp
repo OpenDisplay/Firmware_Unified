@@ -9,6 +9,8 @@
 #include "od_imgstore.h"
 #include "od_boot_payload.h"
 #include "od_caps.h"
+#include "od_txq.h"
+#include "od_xfer.h"
 #include "od_xfer_app.h"
 #include "opendisplay_pipe.h"
 #include "opendisplay_protocol.h"
@@ -877,16 +879,16 @@ bool opendisplay_display_drive_stream_info(od_color_geometry_t *geometry_out,
 extern "C" void opendisplay_display_boot_apply(void)
 {
   const struct DisplayConfig *d = display_cfg();
-  int panel;
   if (s_boot_applied || d == nullptr) {
     return;
   }
-  s_boot_applied = true;
 
-  /* NO PANEL TABLE, so a device with no drive packets has no boot screen -- and that is the
-   * honest answer rather than a defect. There is nothing to fall back to: the init sequence,
-   * waveform and colour map all arrive in the config now. */
+  /* NO PANEL TABLE, so a device with no drive packets has no boot screen. That is the normal
+   * state straight after an OTA, so a failed attempt must NOT latch: the config-reload path
+   * calls this again so that writing drive packets brings the boot screen up without a power
+   * cycle. Say so, since an undriven panel looks exactly like one driven white. */
   if (!od_epd_shim_available(d->instance_number)) {
+    printf("[OD] boot screen: no drive packets; will retry after the next config write\r\n");
     return;
   }
   display_power_set(true);
@@ -894,10 +896,12 @@ extern "C" void opendisplay_display_boot_apply(void)
   if (!od_epd_shim_begin(d->instance_number, 0u, d->rotation,
                          d->dc_pin, d->reset_pin, d->busy_pin, d->cs_pin,
                          d->data_pin, d->clk_pin)) {
+    printf("[OD] boot screen: mode 0 unavailable; will retry after the next config write\r\n");
     display_power_set(false);
     return;
   }
   if (!render_boot_screen(opendisplay_get_global_config())) {
+    printf("[OD] boot screen did not fit; skipping refresh\r\n");
     od_epd_shim_sleep();
     display_power_set(false);
     return;
@@ -905,8 +909,24 @@ extern "C" void opendisplay_display_boot_apply(void)
   /* finishPass runs the sequence tail: power-on, refresh, BUSY wait. The wait is inside it,
    * so boot cannot proceed while the panel is still refreshing. */
   (void)od_epd_shim_finish();
+  /* Latch only once the panel has really been driven, so a later config write cannot redraw
+   * the boot screen over a user's image. */
+  s_boot_applied = true;
   od_epd_shim_sleep();
   display_power_set(false);
+}
+
+/* A config write is ACKed before its redraw: the ACK is only QUEUED when the handler returns,
+ * and a 20-35 s refresh run inline would hold it past the host's 5 s bound, so a successful
+ * write would report as a timeout. The request is serviced from the loop once the queue has
+ * drained -- the same reason a display-from-slot runs from opendisplay_display_service(). */
+static bool s_boot_requested;
+
+extern "C" void opendisplay_display_boot_request(void)
+{
+  if (!s_boot_applied) {
+    s_boot_requested = true;
+  }
 }
 
 extern "C" void od_xfer_app_prepare_start(void)
@@ -1081,6 +1101,10 @@ extern "C" bool od_display_from_slot_arm(uint8_t index)
  * the panel takes its 10-20 s, or a successful display reports as a host timeout. */
 extern "C" void opendisplay_display_service(void)
 {
+  if (s_boot_requested && od_txq_depth() == 0u && !od_xfer_active()) {
+    s_boot_requested = false;
+    opendisplay_display_boot_apply();
+  }
   if (s_pending_slot < 0) {
     return;
   }

@@ -6,6 +6,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+struct od_config;
+
 void fake_silabs_reset(void);
 
 extern bool fake_silabs_store_ok;
@@ -18,6 +20,8 @@ extern bool fake_silabs_reload_saw_queued;
 extern bool fake_silabs_reload_saw_authenticated;
 extern uint8_t fake_silabs_store_blob[2048];
 extern uint32_t fake_silabs_store_len;
+/* What opendisplay_get_global_config() returns. Zeroed (not loaded) by fake_silabs_reset(). */
+extern struct od_config fake_silabs_global_config;
 extern bool fake_silabs_xfer_active;
 extern bool fake_silabs_refresh_ok;
 extern unsigned fake_silabs_refreshes;

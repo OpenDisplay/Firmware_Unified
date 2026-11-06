@@ -1522,7 +1522,7 @@ void opendisplay_ble_reload_config_from_nvm(void)
   od_buttons_init_from_config();
   opendisplay_display_park_pins();
   opendisplay_led_init();
-  opendisplay_display_boot_apply();
+  opendisplay_display_boot_request();
 }
 
 static sl_status_t od_apply_advertising_timing(uint8_t adv_handle, uint32_t now_ms)

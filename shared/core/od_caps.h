@@ -69,6 +69,15 @@
 #define OD_CAP_SPI_RAW 0
 #endif
 
+/* CMD_READ_IDENT (0x0046): plaintext panel identity, routed pre-gate like FIRMWARE_VERSION.
+ *
+ * DEFAULT OFF: the protocol lists it as Silabs-only with the other families "pending
+ * adoption", and the response carries a fw_target value each family must answer for itself.
+ * A target enabling it implements od_cmd_app_read_ident(). */
+#ifndef OD_CAP_READ_IDENT
+#define OD_CAP_READ_IDENT 0
+#endif
+
 #ifndef OD_XFER_DIRECT_AUTO_END
 #define OD_XFER_DIRECT_AUTO_END 0
 #endif
@@ -87,6 +96,9 @@
 #endif
 #if (OD_CAP_NFC != 0) && (OD_CAP_NFC != 1)
 #error "OD_CAP_NFC must be 0 or 1"
+#endif
+#if (OD_CAP_READ_IDENT != 0) && (OD_CAP_READ_IDENT != 1)
+#error "OD_CAP_READ_IDENT must be 0 or 1"
 #endif
 #if (OD_XFER_DIRECT_AUTO_END != 0) && (OD_XFER_DIRECT_AUTO_END != 1)
 #error "OD_XFER_DIRECT_AUTO_END must be 0 or 1"

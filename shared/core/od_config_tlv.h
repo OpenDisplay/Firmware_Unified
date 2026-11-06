@@ -51,15 +51,24 @@ extern "C" {
 /* Ids at or above this carry their own length; below it the size comes from the table. */
 #define OD_CFG_TLV_LEN_PREFIXED_MIN 0x80u
 
-/* EXPERIMENTAL, not canonical: the action table. Defined here with the other packet ids so
- * od_cfg_index can decide to index it without depending on the subsystem that reads it.
- * Promoting it to ../opendisplay-protocol is required follow-up. */
-#define OD_PKT_ACTION_TABLE 0xB2u
+/* OD_PKT_ACTION_TABLE (0xB2) is canonical at structs 2.3 (opendisplay_structs.h). */
 
 /* The drive packet ids are OD_PKT_DISPLAY_{MODE,LUT,CALIB,PANEL} in the canonical contract
  * (opendisplay_structs.h) and are not redefined here. They are variable-length, so they have
  * no size-table entry; 0x2E-0x31 were burned by pre-release lab builds carrying fixed-size
  * drafts of them and must never be reused. */
+
+/* Burned ids and the fixed sizes those lab builds wrote. Sized so a stale config walks past
+ * them; never delivered to a walk callback, never indexed. Sizes match Firmware_Silabs
+ * opendisplay_constants.h CONFIG_PKT_BURNED_*_SIZE. */
+#define OD_CFG_TLV_BURNED_2E       0x2Eu
+#define OD_CFG_TLV_BURNED_2F       0x2Fu
+#define OD_CFG_TLV_BURNED_30       0x30u
+#define OD_CFG_TLV_BURNED_31       0x31u
+#define OD_CFG_TLV_BURNED_2E_SIZE  157u
+#define OD_CFG_TLV_BURNED_2F_SIZE  541u
+#define OD_CFG_TLV_BURNED_30_SIZE  116u
+#define OD_CFG_TLV_BURNED_31_SIZE  36u
 
 enum od_config_tlv_result {
     OD_CFG_TLV_OK = 0,
@@ -86,6 +95,9 @@ typedef bool (*od_config_tlv_packet_fn)(void *ctx, uint8_t packet_id, od_span_t 
  * hand-written number.
  */
 uint16_t od_config_tlv_body_size(uint8_t packet_id);
+
+/* True for the reserved 0x2E-0x31: sized so a walk can step over them, never consumed. */
+bool od_config_tlv_is_burned(uint8_t packet_id);
 
 /* Walk the blob, calling fn once per packet whose body could be bounded.
  *

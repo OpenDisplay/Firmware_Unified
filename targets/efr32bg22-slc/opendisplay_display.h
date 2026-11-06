@@ -12,6 +12,9 @@ extern "C" {
 
 void opendisplay_display_abort(void);
 void opendisplay_display_boot_apply(void);
+/* Ask for the boot screen from the superloop once the response queue has drained; used after a
+ * config write so its ACK is on the wire before a 20-35 s refresh. No-op once it has been drawn. */
+void opendisplay_display_boot_request(void);
 void opendisplay_display_park_pins(void);
 void opendisplay_display_power_off(void);
 

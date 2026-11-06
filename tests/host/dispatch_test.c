@@ -213,13 +213,13 @@ HOOK(od_nfc_frame,                CMD_NFC_ENDPOINT)
  * executable owes them definitions as much as any other row in the table. Gated on the same
  * capability as the dispatch rows, leaving the portable fixture unchanged. */
 #if OD_CAP_IMGSTORE
-HOOK(od_cmd_app_flash_info,       OD_CMD_FLASH_INFO)
-HOOK(od_cmd_app_flash_list,       OD_CMD_FLASH_LIST)
-HOOK(od_cmd_app_flash_erase,      OD_CMD_FLASH_ERASE)
-HOOK(od_cmd_app_flash_preload,    OD_CMD_FLASH_PRELOAD)
-HOOK(od_cmd_app_flash_display,    OD_CMD_FLASH_DISPLAY)
-HOOK(od_cmd_app_action_info,      OD_CMD_ACTION_INFO)
-HOOK(od_cmd_app_action_fire,      OD_CMD_ACTION_FIRE)
+HOOK(od_cmd_app_flash_info,       CMD_FLASH_INFO)
+HOOK(od_cmd_app_flash_list,       CMD_FLASH_LIST)
+HOOK(od_cmd_app_flash_erase,      CMD_FLASH_ERASE)
+HOOK(od_cmd_app_flash_preload,    CMD_FLASH_PRELOAD)
+HOOK(od_cmd_app_flash_display,    CMD_FLASH_DISPLAY)
+HOOK(od_cmd_app_action_info,      CMD_ACTION_INFO)
+HOOK(od_cmd_app_action_fire,      CMD_ACTION_FIRE)
 #endif
 
 /* Same reason, for the config-driven drive path. This fixture asserts that a routed opcode
@@ -230,6 +230,10 @@ HOOK(od_cmd_app_drive_write_start, CMD_DRIVE_WRITE_START)
 
 #if OD_CAP_SPI_RAW
 HOOK(od_cmd_app_spi_raw,           CMD_SPI_RAW)
+#endif
+
+#if OD_CAP_READ_IDENT
+HOOK(od_cmd_app_read_ident,        CMD_READ_IDENT)
 #endif
 
 static bool g_mutates_config;
@@ -665,6 +669,17 @@ static void test_control_opcodes(void)
 
     CASE("DISCOVERY is distinct from ACCEPTED, so a version poll cannot stamp activity");
     CHECK(OD_FRAME_DISCOVERY != OD_FRAME_ACCEPTED);
+
+#if OD_CAP_READ_IDENT
+    {
+        const uint8_t ident[2] = { 0x00u, (uint8_t)(CMD_READ_IDENT & 0xFFu) };
+        CASE("READ_IDENT bypasses the session gate too, and is DISCOVERY");
+        setup(true, false);
+        CHECK(od_dispatch_frame(&BLE, od_span_make(ident, sizeof ident)) == OD_FRAME_DISCOVERY);
+        CHECK(g_handler_calls == 1u);
+        CHECK(g_handler_cmd == CMD_READ_IDENT);
+    }
+#endif
 }
 
 static void test_handler_results_map(void)

@@ -120,6 +120,7 @@ uint8_t od_dispatch_budget(uint16_t cmd)
 #undef OD_BUDGET_CASE
     case CMD_AUTHENTICATE:
     case CMD_FIRMWARE_VERSION:
+    case CMD_READ_IDENT:
     default:
         return 1u;
     }
@@ -313,6 +314,18 @@ od_frame_outcome_t od_dispatch_frame(const od_reply_t *rp, od_span_t frame)
         od_txq_release(&r);
         return (rc == OD_CMD_OK) ? OD_FRAME_DISCOVERY : outcome_of(cmd, rc);
     }
+
+#if OD_CAP_READ_IDENT
+    /* READ_IDENT is pre-gate for the same reason (protocol 2.3: "never auth-gated"): a host
+     * picks the panel-database entry from it before it knows which key applies. It carries
+     * only what DisplayConfig already exposes -- panel type, geometry, colour scheme. */
+    if (cmd == CMD_READ_IDENT) {
+        const od_cmd_ctx_t ctx = { *rp, &r, (uint16_t)frame.n, false };
+        const od_cmd_result_t rc = od_cmd_app_read_ident(&ctx, body);
+        od_txq_release(&r);
+        return (rc == OD_CMD_OK) ? OD_FRAME_DISCOVERY : outcome_of(cmd, rc);
+    }
+#endif
 
     /* ORIGIN-GATED DECRYPT, SECTION 9 rule 4. A frame on the TLS-PSK LAN channel is already
      * confidential and authenticated by TLS and carries NO CCM envelope, so it must not meet this

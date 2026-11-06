@@ -44,6 +44,13 @@ uint16_t od_config_tlv_body_size(uint8_t packet_id)
      * length-prefixed range, so a device carrying findmy would abandon its blob exactly where
      * the drive packets begin and come up with no panel data at all. */
     case 0x2D: return (uint16_t)sizeof(struct FindMyConfig);
+    /* Burned 0x2E-0x31 (reserved; no struct, hence literals). Sized only so a config carrying
+     * them walks past instead of abandoning the 0xAE-0xB1 packets that sort after them. Never
+     * delivered -- see od_config_tlv_is_burned(). Matches Firmware_Silabs. */
+    case OD_CFG_TLV_BURNED_2E: return OD_CFG_TLV_BURNED_2E_SIZE;
+    case OD_CFG_TLV_BURNED_2F: return OD_CFG_TLV_BURNED_2F_SIZE;
+    case OD_CFG_TLV_BURNED_30: return OD_CFG_TLV_BURNED_30_SIZE;
+    case OD_CFG_TLV_BURNED_31: return OD_CFG_TLV_BURNED_31_SIZE;
     default:   return 0u;
     }
 }
@@ -128,12 +135,22 @@ enum od_config_tlv_result od_config_tlv_walk(od_span_t blob,
             return OD_CFG_TLV_TRUNCATED;
         }
 
+        /* Burned ids were sized only so the walk can get past them. Delivering one would hand a
+         * consumer a body whose layout no longer exists. */
+        if (od_config_tlv_is_burned(packet_id)) {
+            continue;
+        }
         if (!fn(ctx, packet_id, body)) {
             return OD_CFG_TLV_REJECTED;
         }
     }
 
     return OD_CFG_TLV_OK;
+}
+
+bool od_config_tlv_is_burned(uint8_t packet_id)
+{
+    return packet_id >= OD_CFG_TLV_BURNED_2E && packet_id <= OD_CFG_TLV_BURNED_31;
 }
 
 static uint16_t od_crc16_feed(uint16_t crc, uint8_t b)

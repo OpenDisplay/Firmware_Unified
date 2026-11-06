@@ -48,8 +48,16 @@ static struct od_config_asm s_assembler;
 static uint32_t s_xfer_written;
 static uint8_t s_inflate_scratch[256];
 
+struct od_config fake_silabs_global_config;
+
+const struct GlobalConfig *opendisplay_get_global_config(void)
+{
+    return &fake_silabs_global_config;
+}
+
 void fake_silabs_reset(void)
 {
+    memset(&fake_silabs_global_config, 0, sizeof fake_silabs_global_config);
     fake_silabs_store_ok = true;
     fake_silabs_store_attempts = 0u;
     fake_silabs_store_saves = 0u;

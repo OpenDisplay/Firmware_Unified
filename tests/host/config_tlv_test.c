@@ -178,6 +178,32 @@ static void test_unknown_id_ends_the_walk(void)
     CHECK(s.ids[0] == 0x01);
 }
 
+static void test_burned_ids_are_stepped_over(void)
+{
+    struct seen s; seen_init(&s);
+    uint8_t unknown = 0xEE;
+    CASE("burned 0x2E-0x31 are walked past at their fixed sizes and never delivered");
+    blob_begin(1);
+    blob_add(0x01, 0xC1);
+    for (uint8_t id = OD_CFG_TLV_BURNED_2E; id <= OD_CFG_TLV_BURNED_31; ++id) {
+        blob_add(id, 0x55);
+    }
+    blob_add_ex(OD_PKT_DISPLAY_PANEL, 4u, 4u, 0xC3);
+    blob_end();
+
+    CHECK(od_config_tlv_body_size(OD_CFG_TLV_BURNED_2E) == 157u);
+    CHECK(od_config_tlv_body_size(OD_CFG_TLV_BURNED_2F) == 541u);
+    CHECK(od_config_tlv_body_size(OD_CFG_TLV_BURNED_30) == 116u);
+    CHECK(od_config_tlv_body_size(OD_CFG_TLV_BURNED_31) == 36u);
+    CHECK(od_config_tlv_is_burned(0x2D) == false);
+    CHECK(od_config_tlv_is_burned(0x32) == false);
+    CHECK(od_config_tlv_walk(od_span_make(g_blob, g_len), on_packet, &s, NULL, &unknown) == OD_CFG_TLV_OK);
+    CHECK(unknown == 0u);
+    CHECK(s.count == 2);
+    CHECK(s.ids[0] == 0x01);
+    CHECK(s.ids[1] == OD_PKT_DISPLAY_PANEL && s.lens[1] == 4u && s.bodies[1][0] == 0xC3);
+}
+
 static void test_truncated_packet(void)
 {
     struct seen s;
@@ -452,6 +478,7 @@ int main(void)
     test_walks_known_packets();
     test_repeatable_packets();
     test_unknown_id_ends_the_walk();
+    test_burned_ids_are_stepped_over();
     test_truncated_packet();
     test_header_straddling_the_crc();
     test_callback_refusal();

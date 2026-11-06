@@ -13,47 +13,24 @@
 
 #include "od_caps.h"
 
-/* Image-store opcodes are EXPERIMENTAL and target-local: the values live in each target's
- * protocol_pending.h, not in shared/protocol/, because an opcode is real when the canonical
- * repo says so. A target without OD_CAP_IMGSTORE expands these to nothing and answers the
- * ordinary unrouted-opcode treatment, which is SILENCE rather than a NACK (od_dispatch's
- * OD_FRAME_UNKNOWN_OPCODE logs and emits nothing) -- the honest reply from a build with no
- * flash. */
+/* Image-store and action opcodes: canonical at protocol 2.4 (CMD_FLASH_* / CMD_ACTION_* in
+ * shared/protocol/opendisplay_protocol.h). Routing is gated because they need an image store; a
+ * target without OD_CAP_IMGSTORE leaves them unrouted, which is SILENCE rather than a NACK
+ * (od_dispatch's OD_FRAME_UNKNOWN_OPCODE logs and emits nothing). */
 #if OD_CAP_IMGSTORE
-/* EXPERIMENTAL OPCODES, DEFINED HERE RATHER THAN IN shared/protocol/.
- *
- * That directory is a byte-for-byte mirror of ../opendisplay-protocol and must not grow values
- * the canonical repo has not assigned. These are not canonical yet: they are implemented and
- * exercised on BG22 first, and a host that does not know them gets the ordinary unknown-opcode
- * NACK. Landing them upstream -- and only then moving them into the mirror -- is required
- * follow-up, not optional cleanup.
- *
- * The targets' own protocol_pending.h is the usual home for this kind of debt, but a value the
- * SHARED dispatch table has to see cannot live in a target header: shared/ never includes one.
- *
- * 0x0047-0x004F is free between CMD_READ_IDENT (0x0046) and the power family at 0x0050. */
-#define OD_CMD_FLASH_INFO     0x0047u   /* chip identity + store geometry */
-#define OD_CMD_FLASH_LIST     0x0048u   /* per-slot state and CRC-32 digest */
-#define OD_CMD_FLASH_ERASE    0x0049u   /* one slot, or all when index is 0xFF */
-#define OD_CMD_FLASH_PRELOAD  0x004Au   /* store the NEXT upload instead of displaying it */
-#define OD_CMD_FLASH_DISPLAY  0x004Bu   /* display a stored slot */
-#define OD_CMD_ACTION_INFO    0x004Cu   /* action table: entries/active/inactive/rejected */
-#define OD_CMD_ACTION_FIRE    0x004Du   /* fire OD_TRIG_HOST, for testing a table remotely */
-
 #define OD_DISPATCH_IMGSTORE_ROWS(X)                                                 \
-    X(OD_CMD_FLASH_INFO,       od_cmd_app_flash_info,      1u)                       \
-    X(OD_CMD_FLASH_LIST,       od_cmd_app_flash_list,      1u)                       \
-    X(OD_CMD_FLASH_ERASE,      od_cmd_app_flash_erase,     1u)                       \
-    X(OD_CMD_FLASH_PRELOAD,    od_cmd_app_flash_preload,   1u)                       \
-    X(OD_CMD_FLASH_DISPLAY,    od_cmd_app_flash_display,   1u)                       \
-    X(OD_CMD_ACTION_INFO,      od_cmd_app_action_info,     1u)                       \
-    X(OD_CMD_ACTION_FIRE,      od_cmd_app_action_fire,     1u)
+    X(CMD_FLASH_INFO,       od_cmd_app_flash_info,      1u)                       \
+    X(CMD_FLASH_LIST,       od_cmd_app_flash_list,      1u)                       \
+    X(CMD_FLASH_ERASE,      od_cmd_app_flash_erase,     1u)                       \
+    X(CMD_FLASH_PRELOAD,    od_cmd_app_flash_preload,   1u)                       \
+    X(CMD_FLASH_DISPLAY,    od_cmd_app_flash_display,   1u)                       \
+    X(CMD_ACTION_INFO,      od_cmd_app_action_info,     1u)                       \
+    X(CMD_ACTION_FIRE,      od_cmd_app_action_fire,     1u)
 #else
 #define OD_DISPATCH_IMGSTORE_ROWS(X)
 #endif
 
-/* CMD_DRIVE_WRITE_START is CANONICAL, unlike the experimental block above: it is specified in
- * shared/protocol/opendisplay_protocol.h at 2.3 with its own OD_ERR_DRIVE_* namespace. Only the
+/* CMD_DRIVE_WRITE_START is specified in shared/protocol/opendisplay_protocol.h at 2.3 with its own OD_ERR_DRIVE_* namespace. Only the
  * routing is gated, because a target whose display path cannot run a config-declared mode must
  * answer unknown-opcode rather than accept and fail. */
 #if OD_CAP_DRIVE_WRITE

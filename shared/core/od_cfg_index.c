@@ -97,6 +97,7 @@ int od_cfg_index_build(void)
         } else {
             hdr_sz = 2u;
             bsz = od_config_tlv_body_size(ph[1]);
+            record = !od_config_tlv_is_burned(ph[1]);
             if (bsz == 0u) {
                 /* The legacy range has no length on the wire, so an id missing from the size
                  * table abandons the tail -- and the drive packets sort AFTER everything

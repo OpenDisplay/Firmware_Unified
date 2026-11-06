@@ -3,6 +3,7 @@
 #include "fake_silabs.h"
 #include "od_cmd_app.h"
 #include "od_cmd_test_ctx.h"
+#include "od_config.h"
 #include "od_config_read.h"
 #include "od_nfc.h"
 #include "od_reply.h"
@@ -649,8 +650,54 @@ static void test_degraded_boot_contracts(void)
     }
 }
 
+static void test_read_ident(void)
+{
+    od_tx_reservation_t r;
+    od_cmd_ctx_t ctx = od_test_cmd_ctx((od_reply_t){ OD_ORIGIN_BLE, 0u }, &r, 0u, false);
+    const uint8_t *f;
+
+    CASE("READ_IDENT with no loaded config answers display_count 0, not an error");
+    setup();
+    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
+    ctx = od_test_cmd_ctx((od_reply_t){ OD_ORIGIN_BLE, opendisplay_pipe_connection_tag() },
+                          &r, 2u, false);
+    CHECK(od_cmd_app_read_ident(&ctx, od_span_make(NULL, 0u)) == OD_CMD_OK);
+    od_txq_release(&r);
+    CHECK(od_txq_process() == 1u);
+    CHECK(fake_silabs_sent_n == 1u);
+    f = fake_silabs_sent[0].data;
+    CHECK(fake_silabs_sent[0].len == 5u);
+    CHECK(f[0] == RESP_ACK && f[1] == RESP_READ_IDENT);
+    CHECK(f[2] == (uint8_t)OD_PROTOCOL_VERSION_MINOR && f[3] == OD_IDENT_TARGET_SILABS);
+    CHECK(f[4] == 0u);
+
+    CASE("READ_IDENT reports each display's ic type, geometry and colour scheme, LE, PLAINTEXT");
+    setup();
+    authenticate();   /* still plaintext: identity is answered before any key is known */
+    fake_silabs_global_config.loaded = true;
+    fake_silabs_global_config.display_count = 1u;
+    fake_silabs_global_config.displays[0].panel_ic_type = 0x001Eu;
+    fake_silabs_global_config.displays[0].pixel_width = 168u;
+    fake_silabs_global_config.displays[0].pixel_height = 384u;
+    fake_silabs_global_config.displays[0].color_scheme = 3u;
+    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
+    ctx = od_test_cmd_ctx((od_reply_t){ OD_ORIGIN_BLE, opendisplay_pipe_connection_tag() },
+                          &r, 2u, false);
+    CHECK(od_cmd_app_read_ident(&ctx, od_span_make(NULL, 0u)) == OD_CMD_OK);
+    od_txq_release(&r);
+    CHECK(od_txq_process() == 1u);
+    f = fake_silabs_sent[0].data;
+    CHECK(fake_silabs_sent[0].len == 12u);
+    CHECK(f[4] == 1u);
+    CHECK(f[5] == 0x1Eu && f[6] == 0x00u);
+    CHECK(f[7] == 168u && f[8] == 0u);
+    CHECK(f[9] == 0x80u && f[10] == 0x01u);
+    CHECK(f[11] == 3u);
+}
+
 int main(void)
 {
+    test_read_ident();
     test_config_persist_before_queue();
     test_nfc_exact_limit();
     ref_run_table();
