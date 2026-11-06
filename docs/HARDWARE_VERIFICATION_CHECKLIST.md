@@ -32,6 +32,33 @@ floor and D8 are BG22-only and are the rows
 Wire encoding for these rows: `group_repeats` is sent **minus one**, so "raw `0x02`" is a request
 for three groups. `py-opendisplay` sends raw `0xFE` for indefinite and never sends a finite `0xFF`.
 
+### EFR32BG22 (`efr32bg22-slc`) — CMD_SPI_RAW + config ceiling, 2026-11-06
+
+Unit **ODBEEBA6** (2.9in BWRY GDEY029F51H, 168x384), 3.0 V from a PPK2, encrypted link,
+`OD_CONFIG_MAX_SIZE=3120` / `NVM3_DEFAULT_MAX_OBJECT_SIZE=3136`, image from `f012ca3`.
+
+- [x] **Config ceiling moved, and the boundary is exact.** `CMD_CONFIG_WRITE` start frames only,
+      so nothing is committed and the live config is untouched. Before the OTA: 2048 ACCEPTED,
+      2049 REFUSED. After: 3120 ACCEPTED, **3121 REFUSED**, and **2112 — the measured 16-colour
+      2.9in config size — went from REFUSED to ACCEPTED**, which is the whole point of the change.
+- [x] **NVM3 still opens, and the stored config survived.** This is the row that matters: the
+      Firmware_Silabs failure of 2026-11-02 compiled fine and then would not open, reading every
+      config back as 0 bytes. The pre-existing 1325-byte blob read back intact after the OTA
+      (`2d 05` total, system + DisplayConfig ic `0x001E` 168x384 present).
+- [x] **CMD_SPI_RAW (0x0084) answers on all paths.** Before the OTA every sub-opcode TIMED OUT --
+      an unrouted opcode is silent, not NACKed (`OD_FRAME_UNKNOWN_OPCODE` emits no frame). After:
+      `CMD` before OPEN -> NACK `0x02` NOT_OPEN; `BUSY` with no args -> NACK `0x01` BAD_ARGS;
+      sub `0x7F` -> NACK `0x05` UNKNOWN_SUB; OPEN (pins only) -> ACK; `BUSY 1000 ms` -> ACK with
+      payload `00 00 00`, i.e. elapsed 0 and not-busy, correct for a pins-only OPEN that sent
+      nothing; CLOSE -> ACK; `CMD` after CLOSE -> NACK NOT_OPEN, so teardown works.
+- [x] **The CMD path really clocks the bus.** `--poke` sent command byte `0x71` -> ACK, and a
+      following BUSY still answered, so the session survived a real write.
+
+**Still open on this unit:** no full-length config has been COMMITTED. The rows above prove the
+declaration bound and that NVM3 opens, not that a 3120-byte record round-trips through
+`nvm3_writeData`. That needs a write of a real >2048 B config and a byte-exact read-back, which
+rewrites the unit's provisioning and so was left for a deliberate decision.
+
 ### EFR32BG22 (`efr32bg22-slc`) — Gate 2 blockers
 
 - [ ] **D1 liveness:** send `0x0073` with every loop count and delay zero and `group_repeats` raw
