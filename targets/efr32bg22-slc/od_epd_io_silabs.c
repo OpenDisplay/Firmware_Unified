@@ -36,6 +36,7 @@
 
 static struct {
     uint8_t  dc, rst, busy, cs, mosi, sck;
+    uint8_t  cs_primary, cs_second;   /* cs is whichever of these CS_SELECT chose */
     uint32_t speed;
     bool     hw_spi;
     bool     busy_idle_high;
@@ -247,6 +248,8 @@ void od_epd_io_silabs_setup(uint8_t dc, uint8_t rst, uint8_t busy, uint8_t cs,
     s_io.rst = rst;
     s_io.busy = busy;
     s_io.cs = cs;
+    s_io.cs_primary = cs;
+    s_io.cs_second = PIN_UNUSED;
     s_io.mosi = mosi;
     s_io.sck = sck;
     s_io.speed = speed;
@@ -289,6 +292,82 @@ bool od_epd_io_silabs_pin(uint8_t raw_pin, uint8_t level)
         GPIO_PinModeSet(port, pin, gpioModeInput, 0u);
     } else {
         GPIO_PinModeSet(port, pin, gpioModePushPull, level);
+    }
+    return true;
+}
+
+bool od_epd_io_silabs_set_cs2(uint8_t raw_pin)
+{
+    GPIO_Port_TypeDef port;
+    uint8_t pin;
+
+    if (raw_pin == PIN_UNUSED || raw_pin == s_io.cs_primary || !decode(raw_pin, &port, &pin)) {
+        s_io.cs_second = PIN_UNUSED;
+        return false;
+    }
+    s_io.cs_second = raw_pin;
+    pin_mode_out(raw_pin, true);   /* deselected until CS_SELECT 1 */
+    return true;
+}
+
+bool od_epd_io_silabs_cs_select(uint8_t which)
+{
+    if (which == 0u) {
+        s_io.cs = s_io.cs_primary;
+        return true;
+    }
+    if (which == 1u && s_io.cs_second != PIN_UNUSED) {
+        s_io.cs = s_io.cs_second;
+        return true;
+    }
+    return false;
+}
+
+/* Bit-banged read for READ_SCRATCH, SPI mode 0: SCK idles low, the panel shifts
+ * on the falling edge, we sample on the rising edge, MSB first. Runs as its own
+ * CS-low data transaction (DC high), like every other data phase here.
+ *
+ * USART1's route is dropped for the duration because the hardware owns SCK
+ * while routed; the clock has to be ours to toggle. When the data-in line IS
+ * the MOSI line (3-wire panels) it is released to input for the read and
+ * driven again afterwards -- whether the sequence also released it with
+ * SET_PIN level 2 or not, so a read can never fight the panel's driver. */
+bool od_epd_io_silabs_read(uint8_t raw_in, uint8_t *dst, uint8_t n)
+{
+    GPIO_Port_TypeDef port;
+    uint8_t pin;
+    const bool shares_mosi = (raw_in == s_io.mosi);
+
+    if (dst == NULL || n == 0u || !decode(raw_in, &port, &pin) || s_io.sck == PIN_UNUSED) {
+        return false;
+    }
+    if (s_io.hw_spi) {
+        GPIO->USARTROUTE[1].ROUTEEN = 0u;
+    }
+    pin_mode_out(s_io.sck, false);
+    GPIO_PinModeSet(port, pin, gpioModeInput, 0u);
+
+    pin_out(s_io.dc, true);
+    pin_out(s_io.cs, false);
+    for (uint8_t k = 0u; k < n; k++) {
+        uint8_t v = 0u;
+        for (int b = 0; b < 8; b++) {
+            pin_out(s_io.sck, false);
+            sl_udelay_wait(1u);
+            pin_out(s_io.sck, true);
+            v = (uint8_t)((v << 1) | (GPIO_PinInGet(port, pin) ? 1u : 0u));
+            sl_udelay_wait(1u);
+        }
+        dst[k] = v;
+    }
+    pin_out(s_io.sck, false);
+    pin_out(s_io.cs, true);
+
+    if (shares_mosi) {
+        pin_mode_out(s_io.mosi, false);
+    }
+    if (s_io.hw_spi) {
+        GPIO->USARTROUTE[1].ROUTEEN = GPIO_USART_ROUTEEN_TXPEN | GPIO_USART_ROUTEEN_CLKPEN;
     }
     return true;
 }

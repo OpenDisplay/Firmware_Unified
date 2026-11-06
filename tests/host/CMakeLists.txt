@@ -500,6 +500,13 @@ add_executable(od_config_tlv_test config_tlv_test.c)
 target_link_libraries(od_config_tlv_test od_shared)
 add_test(NAME config_tlv COMMAND od_config_tlv_test)
 
+# epd_seq: the shared od_epd sequence executor over a recording io table -- the escapes no panel
+# on the bench exercises (CS_SELECT, READ/WRITE_SCRATCH) and the refuse-before-any-I/O rule.
+# od_epd.c is compiled in directly: it is the APP_EPD tier, which od_shared does not take.
+add_executable(od_epd_seq_test epd_seq_test.c ../../shared/core/od_epd.c)
+target_link_libraries(od_epd_seq_test od_shared)
+add_test(NAME epd_seq COMMAND od_epd_seq_test)
+
 # config: the parsed aggregate -- instance caps, the Firmware zero-key rule, string termination,
 # and what a truncated blob leaves behind. Downstream of the pre-auth surface od_config_tlv
 # guards, so the cases are the ones where a hostile blob still reaches storage.

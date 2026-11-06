@@ -222,7 +222,8 @@ static bool io_lut_info(uint8_t slot, uint16_t *len_out)
 static uint8_t s_aux_pins[PINREF_AUX_COUNT];
 static uint8_t s_named_pins[6];   /* RESET, DC, CS, CS_2, DATA, CLK */
 
-static bool io_set_pin(uint8_t pin_ref, uint8_t level)
+/* 0xFF if the reference names nothing wired on this board. */
+static uint8_t resolve_pin_ref(uint8_t pin_ref)
 {
     uint8_t raw = 0xFFu;
 
@@ -236,12 +237,40 @@ static bool io_set_pin(uint8_t pin_ref, uint8_t level)
     } else if (pin_ref >= OD_SEQ_PINREF_RESET && pin_ref <= OD_SEQ_PINREF_CLK) {
         raw = s_named_pins[pin_ref - OD_SEQ_PINREF_RESET];
     }
+    return raw;
+}
+
+static bool io_set_pin(uint8_t pin_ref, uint8_t level)
+{
+    const uint8_t raw = resolve_pin_ref(pin_ref);
+
     if (raw == 0xFFu) {
         printf("[OD] SET_PIN ref 0x%02X unwired on this board\r\n",
                (unsigned)pin_ref);
         return false;
     }
     return od_epd_io_silabs_pin(raw, level);
+}
+
+static bool io_read_bytes(uint8_t pin_ref, uint8_t *dst, uint8_t n)
+{
+    const uint8_t raw = resolve_pin_ref(pin_ref);
+
+    if (raw == 0xFFu) {
+        printf("[OD] READ_SCRATCH ref 0x%02X unwired on this board\r\n",
+               (unsigned)pin_ref);
+        return false;
+    }
+    return od_epd_io_silabs_read(raw, dst, n);
+}
+
+static bool io_cs_select(uint8_t which)
+{
+    if (!od_epd_io_silabs_cs_select(which)) {
+        printf("[OD] CS_SELECT %u: cs_pin_2 not wired\r\n", (unsigned)which);
+        return false;
+    }
+    return true;
 }
 
 /* ------------------------------------------------------ desc from config */
@@ -369,8 +398,12 @@ int OdEpdAdapter::setPanelType(uint8_t display_instance)
     s_io.lut_info = io_lut_info;
     s_io.lut_read = io_lut_read;
     s_io.set_pin = io_set_pin;
-    s_io.cs_select = NULL;   /* dual-CS: specified, not implemented here yet --
-                              * a sequence using it is refused at validation. */
+    /* Declared only where cs_pin_2 is wired, so a split-controller sequence on a
+     * single-CS board is refused at validation -- before any panel I/O --
+     * instead of failing halfway through a pass. */
+    s_io.cs_select = (s_named_pins[3] != 0xFFu && s_named_pins[3] != s_named_pins[2])
+                   ? io_cs_select : NULL;
+    s_io.read_bytes = io_read_bytes;
     if (od_epd_init(&_epd, &_desc, &s_io) != 0) {
         return BBEP_ERROR_BAD_PARAMETER;
     }
@@ -399,6 +432,10 @@ void OdEpdAdapter::initIO(uint8_t dc, uint8_t rst, uint8_t busy, uint8_t cs,
 {
     od_epd_io_silabs_setup(dc, rst, busy, cs, mosi, sck, speed,
                            _desc.busy_idle_level != 0u);
+    /* CS_SELECT 1 is available only where cs_pin_2 is wired; a sequence that
+     * selects it on a board without one fails at that step, before any data
+     * is routed to a controller that is not there. */
+    (void)od_epd_io_silabs_set_cs2(s_named_pins[3]);
 }
 
 int OdEpdAdapter::selectModeIndex(uint8_t index)

@@ -29,6 +29,17 @@ const od_epd_io_t *od_epd_io_silabs(void);
  * The pin_ref -> raw mapping lives in the adapter (it owns the config). */
 bool od_epd_io_silabs_pin(uint8_t raw_pin, uint8_t level);
 
+/* Second chip-select for split-controller panels (DisplayConfig cs_pin_2).
+ * Returns false (and leaves CS_SELECT 1 unavailable) if unwired or equal to cs. */
+bool od_epd_io_silabs_set_cs2(uint8_t raw_pin);
+
+/* CS_SELECT escape: 0 = cs_pin, 1 = cs_pin_2. False if 1 is unwired. */
+bool od_epd_io_silabs_cs_select(uint8_t which);
+
+/* READ_SCRATCH escape: bit-bang n bytes in, sampling RAW pin raw_in. The
+ * pin_ref -> raw mapping lives in the adapter. */
+bool od_epd_io_silabs_read(uint8_t raw_in, uint8_t *dst, uint8_t n);
+
 #ifdef __cplusplus
 }
 #endif

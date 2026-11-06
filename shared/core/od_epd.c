@@ -94,6 +94,17 @@ static int esc_arg_bytes(uint8_t esc)
     }
 }
 
+/* Per-sequence state every sequence starts from: an empty scratch and CS 0.
+ * CS_SELECT is sticky, so without the reset a pass that ended on cs_pin_2 would
+ * route the next pass's first steps to the wrong controller. */
+static void seq_start(od_epd_t *e)
+{
+    memset(e->scratch, 0, sizeof e->scratch);
+    if (e->io->cs_select != NULL) {
+        (void)e->io->cs_select(0u);
+    }
+}
+
 int od_epd_validate(const od_epd_t *e)
 {
     const uint8_t *seq;
@@ -152,9 +163,19 @@ int od_epd_validate(const od_epd_t *e)
         /* Known but not implemented by THIS io table. */
         if ((esc == OD_EPD_ESC_SET_PIN && e->io->set_pin == NULL) ||
             (esc == OD_EPD_ESC_CS_SELECT && e->io->cs_select == NULL) ||
-            esc == OD_EPD_ESC_READ_SCRATCH ||
-            esc == OD_EPD_ESC_WRITE_SCRATCH) {
+            (esc == OD_EPD_ESC_READ_SCRATCH && e->io->read_bytes == NULL)) {
             return OD_ERR_UNSUP;
+        }
+        if (esc == OD_EPD_ESC_CS_SELECT && seq[i + 2u] > 1u) {
+            return OD_ERR_SEQ;      /* 0 = cs_pin, 1 = cs_pin_2 */
+        }
+        if (esc == OD_EPD_ESC_READ_SCRATCH &&
+            (seq[i + 3u] == 0u || seq[i + 3u] > OD_EPD_SCRATCH_LEN)) {
+            return OD_ERR_SEQ;
+        }
+        if (esc == OD_EPD_ESC_WRITE_SCRATCH &&
+            (uint32_t)seq[i + 3u] + seq[i + 4u] > OD_EPD_SCRATCH_LEN) {
+            return OD_ERR_SEQ;
         }
         if (esc == OD_EPD_ESC_IMAGE_SLICE) {
             uint8_t part = seq[i + 2u];
@@ -309,6 +330,34 @@ static int run_sequence(od_epd_t *e, const uint8_t *hdr, bool have_hdr,
             i += 3u;
             continue;
         }
+        if (esc == OD_EPD_ESC_READ_SCRATCH) {
+            const uint8_t n_rd = ((uint32_t)i + 4u <= len) ? seq[i + 3u] : 0u;
+            if (n_rd == 0u || n_rd > OD_EPD_SCRATCH_LEN) {
+                return OD_ERR_SEQ;
+            }
+            if (e->io->read_bytes == NULL ||
+                !e->io->read_bytes(seq[i + 2u], e->scratch, n_rd)) {
+                return OD_ERR_UNSUP;
+            }
+            i += 4u;
+            continue;
+        }
+        if (esc == OD_EPD_ESC_WRITE_SCRATCH) {
+            if ((uint32_t)i + 5u > len) {
+                return OD_ERR_SEQ;
+            }
+            const uint8_t off = seq[i + 3u];
+            const uint8_t n_wr = seq[i + 4u];
+            if ((uint32_t)off + n_wr > OD_EPD_SCRATCH_LEN) {
+                return OD_ERR_SEQ;
+            }
+            e->io->cmd(seq[i + 2u]);
+            if (n_wr > 0u) {
+                e->io->data(&e->scratch[off], n_wr);
+            }
+            i += 5u;
+            continue;
+        }
         if (esc == OD_EPD_ESC_LUT) {
             /* Loud, not silent: a mode whose sequence uploads a waveform but
              * whose pass resolved no slot would otherwise refresh with whatever
@@ -432,6 +481,7 @@ int od_epd_begin_pass(od_epd_t *e, uint8_t pass)
             return vrc;
         }
     }
+    seq_start(e);
 
     /* Resolve this pass's waveform. Only the 7-byte analog header is read into
      * RAM -- the 528-byte body is streamed later, at the marker. */
@@ -533,6 +583,7 @@ int od_epd_sleep(od_epd_t *e)
     e->seq_len = e->desc->sleep_seq_len;
     e->seq_pos = 0u;
     e->paused = false;
+    seq_start(e);
     int rc = run_sequence(e, NULL, false, 0xFFu, 0u, 0u);
     return (rc < 0) ? rc : OD_OK;
 }

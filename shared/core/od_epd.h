@@ -51,6 +51,7 @@ extern "C" {
 #define OD_EPD_MAX_SEQ_STEPS   64u
 #define OD_EPD_LUT_BYTES      535u   /* 7-byte analog header + 528-byte body */
 #define OD_EPD_SLEEP_SEQ_MAX   16u
+#define OD_EPD_SCRATCH_LEN     16u   /* READ_SCRATCH/WRITE_SCRATCH buffer, zeroed per sequence */
 
 /* Sequence step encoding, produced by the host from panels.yaml.
  *
@@ -102,9 +103,9 @@ extern "C" {
 #define OD_EPD_ESC_DELAY           0x05u
 #define OD_EPD_ESC_SET_PIN         0x06u   /* [pin_ref][level 0/1/2=Hi-Z] */
 #define OD_EPD_ESC_IMAGE_SLICE     0x07u   /* [part][of] of the frame */
-#define OD_EPD_ESC_CS_SELECT       0x08u   /* [0=cs, 1=cs_2]; spec-only here */
-#define OD_EPD_ESC_READ_SCRATCH    0x09u   /* unimplemented on every target */
-#define OD_EPD_ESC_WRITE_SCRATCH   0x0Au   /* unimplemented on every target */
+#define OD_EPD_ESC_CS_SELECT       0x08u   /* [0=cs, 1=cs_2]; sticky, a sequence starts at 0 */
+#define OD_EPD_ESC_READ_SCRATCH    0x09u   /* [pin_ref][len<=16] clock bytes into scratch */
+#define OD_EPD_ESC_WRITE_SCRATCH   0x0Au   /* [cmd][off][len] cmd + scratch[off..off+len) */
 #define OD_EPD_ESC_LUT_SLICE       0x0Bu   /* [off:2 LE][len:2 LE] of the slot */
 #define OD_EPD_SEQ_END             0x00u
 #define OD_EPD_WAVE_VCOM           0xFFu
@@ -188,6 +189,12 @@ typedef struct {
     /* cs_select: route subsequent command/data bytes to CS n (0 = cs_pin,
      * 1 = cs_pin_2). Sticky until changed; a pass starts at 0. */
     bool     (*cs_select)(uint8_t cs);
+    /* read_bytes: clock n bytes in on the panel SCK, sampling the CONFIG-
+     * REFERENCED pin_ref as the data-in line (dc_pin doubles as MISO on some
+     * boards; a waveform EEPROM has its own MISO on an aux pin). Returns false
+     * if the reference is unwired. Backs READ_SCRATCH; WRITE_SCRATCH needs no
+     * hook beyond cmd/data. */
+    bool     (*read_bytes)(uint8_t pin_ref, uint8_t *dst, uint8_t n);
 } od_epd_io_t;
 
 typedef struct {
@@ -208,6 +215,10 @@ typedef struct {
      * it streams before resuming as frame_bytes * 1/img_of. */
     uint8_t                img_part;
     uint8_t                img_of;
+    /* READ_SCRATCH lands here and WRITE_SCRATCH sends from here. Zeroed when a
+     * sequence starts (each pass, and the sleep sequence), kept across the
+     * image pause within one pass. */
+    uint8_t                scratch[OD_EPD_SCRATCH_LEN];
 } od_epd_t;
 
 int  od_epd_init(od_epd_t *e, const od_panel_desc_t *d, const od_epd_io_t *io);

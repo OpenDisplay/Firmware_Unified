@@ -1,0 +1,289 @@
+/* epd_seq_test -- the shared od_epd sequence executor, against a recording io table.
+ *
+ * Covers the escapes whose behaviour is not exercised by any panel on the bench: CS_SELECT
+ * (0x08), READ_SCRATCH (0x09) and WRITE_SCRATCH (0x0A), plus the validation rule that a refused
+ * sequence executes nothing. Only the hardware beneath od_epd is faked. */
+
+#include "od_epd.h"
+
+#include <stdio.h>
+#include <string.h>
+
+static unsigned g_checks;
+static unsigned g_failures;
+static const char *g_case = "(none)";
+
+#define CHECK(cond)                                                            \
+    do {                                                                       \
+        ++g_checks;                                                            \
+        if (!(cond)) {                                                         \
+            ++g_failures;                                                      \
+            printf("FAIL %s:%d [%s] %s\n", __FILE__, __LINE__, g_case, #cond); \
+        }                                                                      \
+    } while (0)
+#define CASE(name) (g_case = (name))
+
+/* ------------------------------------------------------------- recording io --- */
+
+enum { OP_CMD = 1, OP_DATA, OP_RESET, OP_CS, OP_READ };
+
+struct op {
+    int     kind;
+    uint8_t a;          /* cmd byte, cs index, pin_ref */
+    uint8_t n;          /* data/read length */
+    uint8_t d[16];
+};
+
+static struct op g_ops[64];
+static unsigned g_nops;
+static uint8_t  g_seq[OD_EPD_SEQ_MAX];
+static uint16_t g_seq_len;
+static uint8_t  g_read_src[16];
+static bool     g_cs2_wired;
+
+static void rec(int kind, uint8_t a, const uint8_t *d, size_t n)
+{
+    if (g_nops >= sizeof g_ops / sizeof g_ops[0]) {
+        return;
+    }
+    struct op *o = &g_ops[g_nops++];
+    memset(o, 0, sizeof *o);
+    o->kind = kind;
+    o->a = a;
+    o->n = (uint8_t)n;
+    if (d != NULL) {
+        memcpy(o->d, d, n < sizeof o->d ? n : sizeof o->d);
+    }
+}
+
+static void io_cmd(uint8_t c)                    { rec(OP_CMD, c, NULL, 0u); }
+static void io_data(const uint8_t *d, size_t n)  { rec(OP_DATA, 0u, d, n); }
+static void io_reset(uint32_t ms)                { (void)ms; rec(OP_RESET, 0u, NULL, 0u); }
+static void io_delay(uint32_t ms)                { (void)ms; }
+static bool io_busy(void)                        { return true; }   /* idle level 1 */
+
+static uint16_t io_seq_read(uint8_t mode, uint16_t off, uint8_t *dst, uint16_t len)
+{
+    (void)mode;
+    if ((uint32_t)off + len > g_seq_len) {
+        return 0u;
+    }
+    memcpy(dst, &g_seq[off], len);
+    return len;
+}
+
+static od_epd_mode_t g_mode;
+
+static bool io_mode_read(uint8_t index, od_epd_mode_t *out)
+{
+    if (index != 0u) {
+        return false;
+    }
+    *out = g_mode;
+    return true;
+}
+
+static bool io_cs_select(uint8_t cs)
+{
+    if (cs == 1u && !g_cs2_wired) {
+        return false;
+    }
+    rec(OP_CS, cs, NULL, 0u);
+    return true;
+}
+
+static bool io_read_bytes(uint8_t pin_ref, uint8_t *dst, uint8_t n)
+{
+    memcpy(dst, g_read_src, n);
+    rec(OP_READ, pin_ref, NULL, n);
+    return true;
+}
+
+static od_epd_io_t g_io;
+static od_panel_desc_t g_desc;
+static od_epd_t g_epd;
+
+static void setup(const uint8_t *seq, uint16_t len, uint8_t passes, bool cs_hook, bool rd_hook)
+{
+    memset(g_ops, 0, sizeof g_ops);
+    g_nops = 0u;
+    memcpy(g_seq, seq, len);
+    g_seq_len = len;
+    g_cs2_wired = true;
+    for (unsigned k = 0; k < sizeof g_read_src; ++k) {
+        g_read_src[k] = (uint8_t)(0xA0u + k);
+    }
+
+    memset(&g_io, 0, sizeof g_io);
+    g_io.cmd = io_cmd;
+    g_io.data = io_data;
+    g_io.reset = io_reset;
+    g_io.busy_level = io_busy;
+    g_io.delay_ms = io_delay;
+    g_io.seq_read = io_seq_read;
+    g_io.mode_read = io_mode_read;
+    g_io.cs_select = cs_hook ? io_cs_select : NULL;
+    g_io.read_bytes = rd_hook ? io_read_bytes : NULL;
+
+    memset(&g_desc, 0, sizeof g_desc);
+    g_desc.width = 8u;
+    g_desc.height = 8u;
+    g_desc.busy_usable = true;
+    g_desc.busy_idle_level = 1u;
+    g_desc.busy_timeout_ms = 100u;
+    g_desc.mode_count = 1u;
+
+    memset(&g_mode, 0, sizeof g_mode);
+    g_mode.passes = passes;
+    g_mode.seq_len = len;
+    memset(g_mode.lut_slot, 0xFF, sizeof g_mode.lut_slot);
+
+    CHECK(od_epd_init(&g_epd, &g_desc, &g_io) == OD_EPD_RC_OK);
+    CHECK(od_epd_select_mode(&g_epd, 0u) == OD_EPD_RC_OK);
+}
+
+static unsigned count_kind(int kind)
+{
+    unsigned n = 0u;
+    for (unsigned k = 0; k < g_nops; ++k) {
+        n += (g_ops[k].kind == kind) ? 1u : 0u;
+    }
+    return n;
+}
+
+/* ------------------------------------------------------------------ cases --- */
+
+static void test_refused_escapes_execute_nothing(void)
+{
+    static const uint8_t cs_seq[] = { 0x00, 0x08, 0x01, 0x01, 0x12, 0x00, 0x03, 0x00, 0x00 };
+    static const uint8_t rd_seq[] = { 0x01, 0x70, 0x00, 0x09, 0x14, 0x02, 0x00, 0x03, 0x00, 0x00 };
+
+    CASE("CS_SELECT with no cs_select hook is refused before any panel I/O");
+    setup(cs_seq, sizeof cs_seq, 1u, false, true);
+    CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_UNSUP);
+    CHECK(g_nops == 0u);
+
+    CASE("READ_SCRATCH with no read_bytes hook is refused before any panel I/O");
+    setup(rd_seq, sizeof rd_seq, 1u, true, false);
+    CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_UNSUP);
+    CHECK(g_nops == 0u);
+}
+
+static void test_malformed_args_are_seq_errors(void)
+{
+    static const uint8_t cs_bad[]  = { 0x00, 0x08, 0x02, 0x00, 0x03, 0x00, 0x00 };
+    static const uint8_t rd_zero[] = { 0x00, 0x09, 0x14, 0x00, 0x00, 0x03, 0x00, 0x00 };
+    static const uint8_t rd_big[]  = { 0x00, 0x09, 0x14, 0x11, 0x00, 0x03, 0x00, 0x00 };
+    static const uint8_t wr_big[]  = { 0x00, 0x0A, 0x30, 0x0F, 0x02, 0x00, 0x03, 0x00, 0x00 };
+
+    CASE("CS_SELECT index > 1 is malformed");
+    setup(cs_bad, sizeof cs_bad, 1u, true, true);
+    CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_SEQ);
+    CHECK(g_nops == 0u);
+
+    CASE("READ_SCRATCH of 0 bytes is malformed");
+    setup(rd_zero, sizeof rd_zero, 1u, true, true);
+    CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_SEQ);
+
+    CASE("READ_SCRATCH past the 16-byte scratch is malformed");
+    setup(rd_big, sizeof rd_big, 1u, true, true);
+    CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_SEQ);
+
+    CASE("WRITE_SCRATCH whose slice runs past the scratch is malformed");
+    setup(wr_big, sizeof wr_big, 1u, true, true);
+    CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_SEQ);
+    CHECK(g_nops == 0u);
+}
+
+static void test_read_then_write_scratch(void)
+{
+    /* cmd 0x70 (a read-back register), READ 3 bytes from DATA_PIN, then send cmd 0x30 with
+     * scratch[1..3) -- the UC8159 EEPROM -> register shape. */
+    static const uint8_t seq[] = {
+        0x01, 0x70,
+        0x00, 0x09, 0x14, 0x03,
+        0x00, 0x0A, 0x30, 0x01, 0x02,
+        0x00, 0x03,
+        0x00, 0x00,
+    };
+
+    CASE("READ_SCRATCH lands bytes that WRITE_SCRATCH then sends as data");
+    setup(seq, sizeof seq, 1u, true, true);
+    CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_OK);
+    CHECK(count_kind(OP_READ) == 1u);
+    {
+        unsigned k = 0u;
+        while (k < g_nops && g_ops[k].kind != OP_READ) { ++k; }
+        CHECK(k < g_nops && g_ops[k].a == 0x14u && g_ops[k].n == 3u);
+        CHECK(k + 2u < g_nops);
+        CHECK(g_ops[k + 1u].kind == OP_CMD && g_ops[k + 1u].a == 0x30u);
+        CHECK(g_ops[k + 2u].kind == OP_DATA && g_ops[k + 2u].n == 2u);
+        CHECK(g_ops[k + 2u].d[0] == 0xA1u && g_ops[k + 2u].d[1] == 0xA2u);
+    }
+}
+
+static void test_scratch_is_zeroed_per_pass(void)
+{
+    /* Pass 0 reads into scratch; pass 1 writes from it without reading. The write must see
+     * zeros: a pass may not inherit the previous pass's read-back. */
+    static const uint8_t seq[] = {
+        0x00, 0x0A, 0x31, 0x00, 0x02,
+        0x00, 0x09, 0x14, 0x02,
+        0x00, 0x03,
+        0x00, 0x00,
+    };
+    unsigned k;
+
+    CASE("scratch starts zeroed at every pass");
+    setup(seq, sizeof seq, 2u, true, true);
+    CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_OK);
+    CHECK(od_epd_finish_pass(&g_epd) == OD_EPD_RC_OK);
+    g_nops = 0u;
+    CHECK(od_epd_begin_pass(&g_epd, 1u) == OD_EPD_RC_OK);
+    for (k = 0u; k < g_nops && !(g_ops[k].kind == OP_CMD && g_ops[k].a == 0x31u); ++k) { }
+    CHECK(k + 1u < g_nops);
+    CHECK(g_ops[k + 1u].kind == OP_DATA && g_ops[k + 1u].n == 2u);
+    CHECK(g_ops[k + 1u].d[0] == 0u && g_ops[k + 1u].d[1] == 0u);
+}
+
+static void test_cs_select_is_sticky_and_resets_per_pass(void)
+{
+    static const uint8_t seq[] = {
+        0x01, 0x10,               /* cmd 0x10 on CS 0 */
+        0x00, 0x08, 0x01,         /* select cs_pin_2 */
+        0x01, 0x11,               /* cmd 0x11 on CS 1 */
+        0x00, 0x03,
+        0x00, 0x00,
+    };
+
+    CASE("every pass begins by selecting CS 0, and CS_SELECT holds until changed");
+    setup(seq, sizeof seq, 2u, true, true);
+    CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_OK);
+    CHECK(g_nops >= 4u);
+    CHECK(g_ops[0].kind == OP_CS && g_ops[0].a == 0u);
+    {
+        unsigned k;
+        for (k = 0u; k < g_nops && !(g_ops[k].kind == OP_CS && g_ops[k].a == 1u); ++k) { }
+        CHECK(k + 1u < g_nops && g_ops[k + 1u].kind == OP_CMD && g_ops[k + 1u].a == 0x11u);
+    }
+    CHECK(od_epd_finish_pass(&g_epd) == OD_EPD_RC_OK);
+    g_nops = 0u;
+    CHECK(od_epd_begin_pass(&g_epd, 1u) == OD_EPD_RC_OK);
+    CHECK(g_nops >= 1u && g_ops[0].kind == OP_CS && g_ops[0].a == 0u);
+
+    CASE("CS_SELECT 1 on a board whose cs_pin_2 the hook rejects stops the pass");
+    setup(seq, sizeof seq, 1u, true, true);
+    g_cs2_wired = false;
+    CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_UNSUP);
+}
+
+int main(void)
+{
+    test_refused_escapes_execute_nothing();
+    test_malformed_args_are_seq_errors();
+    test_read_then_write_scratch();
+    test_scratch_is_zeroed_per_pass();
+    test_cs_select_is_sticky_and_resets_per_pass();
+    printf("epd_seq: %u checks, %u failures\n", g_checks, g_failures);
+    return g_failures == 0u ? 0 : 1;
+}
