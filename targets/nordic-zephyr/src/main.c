@@ -79,8 +79,15 @@ int main(void)
 
 	od_board_early_init();
 	opendisplay_ble_init();
-#if defined(CONFIG_BOOTLOADER_MCUBOOT)
-	/* Confirm running image so MCUboot will not revert after OTA. */
+#if defined(CONFIG_MCUBOOT_IMG_MANAGER)
+	/* Confirm running image so MCUboot will not revert after OTA.
+	 *
+	 * Guarded on IMG_MANAGER, not BOOTLOADER_MCUBOOT: the latter only says this was built as
+	 * an MCUboot image, while boot_write_img_confirmed() comes from the image manager. The
+	 * two coincided until firmware-updater mode, which is an MCUboot build with NO second
+	 * slot -- so no image manager, and this became an undefined reference at link time.
+	 * Nothing is lost by skipping it there: with one slot there is no copy to revert to.
+	 */
 	(void)boot_write_img_confirmed();
 #endif
 
