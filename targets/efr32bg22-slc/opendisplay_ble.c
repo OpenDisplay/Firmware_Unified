@@ -6,6 +6,7 @@
 #include "od_cfg_index.h"
 #include "od_net_a.h"
 #include "od_imgstore.h"
+#include "od_action.h"
 #include "od_color.h"
 #include "opendisplay_led.h"
 #include "opendisplay_pipe.h"
@@ -364,6 +365,11 @@ static void od_button_irq_callback(uint8_t int_no, void *context)
             | ((st->current_state & 0x01u) << BUTTON_STATE_SHIFT));
   dynamic_return[st->byte_index] = encoded;
   s_button_msd_dirty = true;
+  /* Press edge only. A release is a separate trigger the table can ask for, and
+   * firing both on one entry would run every button action twice. */
+  if (logical_state != 0u) {
+    od_action_trigger(OD_TRIG_BUTTON_PRESS, (uint16_t)(1u << st->button_id));
+  }
   app_proceed();
 }
 
@@ -866,6 +872,7 @@ static bool od_nfc_field_detect_refresh(uint32_t now_ms, bool force_log)
   if (logical != 0u && prev_state == 0u) {
     s_od_nfc_field_scan_counter = (uint32_t)((s_od_nfc_field_scan_counter + 1u) & 0x7Fu);
     scan_event = true;
+    od_action_trigger(OD_TRIG_NFC_FIELD, 0u);
   }
   dynamic_return[s_od_nfc_field_detect.adv_button_byte_index] =
     (uint8_t)((logical & 0x01u)
@@ -1508,6 +1515,9 @@ void opendisplay_ble_reload_config_from_nvm(void)
    * old key. */
   od_net_a_invalidate();
   od_net_a_sync(od_config_findmy(&s_od_global_config));
+  /* After od_cfg_index_build: the table is read through that index, so reloading
+   * in the other order would validate against the previous config's offsets. */
+  od_action_reload();
 
   od_buttons_init_from_config();
   opendisplay_display_park_pins();
@@ -1863,6 +1873,9 @@ void opendisplay_ble_on_boot(uint8_t advertising_set_handle)
       }
     }
   }
+
+  od_action_reload();
+  od_action_trigger(OD_TRIG_BOOT, 0u);
 
   chip_id_hex6(hex);
   snprintf(s_dev_name, sizeof(s_dev_name), "%s%s", OD_NAME_PREFIX, hex);

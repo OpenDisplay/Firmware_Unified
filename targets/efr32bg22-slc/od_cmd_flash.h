@@ -18,6 +18,9 @@ od_cmd_result_t od_cmd_app_flash_erase(const od_cmd_ctx_t *ctx, od_span_t body);
 od_cmd_result_t od_cmd_app_flash_preload(const od_cmd_ctx_t *ctx, od_span_t body);
 od_cmd_result_t od_cmd_app_flash_display(const od_cmd_ctx_t *ctx, od_span_t body);
 
+od_cmd_result_t od_cmd_app_action_info(const od_cmd_ctx_t *ctx, od_span_t body);
+od_cmd_result_t od_cmd_app_action_fire(const od_cmd_ctx_t *ctx, od_span_t body);
+
 /* Consume the preload arm, if one is set. Called by the transfer path at begin: true means
  * this upload is stored in *slot_out instead of being displayed. */
 bool od_cmd_flash_take_arm(uint8_t *slot_out);

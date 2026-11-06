@@ -35,13 +35,17 @@
 #define OD_CMD_FLASH_ERASE    0x0049u   /* one slot, or all when index is 0xFF */
 #define OD_CMD_FLASH_PRELOAD  0x004Au   /* store the NEXT upload instead of displaying it */
 #define OD_CMD_FLASH_DISPLAY  0x004Bu   /* display a stored slot */
+#define OD_CMD_ACTION_INFO    0x004Cu   /* action table: entries/active/inactive/rejected */
+#define OD_CMD_ACTION_FIRE    0x004Du   /* fire OD_TRIG_HOST, for testing a table remotely */
 
 #define OD_DISPATCH_IMGSTORE_ROWS(X)                                                 \
     X(OD_CMD_FLASH_INFO,       od_cmd_app_flash_info,      1u)                       \
     X(OD_CMD_FLASH_LIST,       od_cmd_app_flash_list,      1u)                       \
     X(OD_CMD_FLASH_ERASE,      od_cmd_app_flash_erase,     1u)                       \
     X(OD_CMD_FLASH_PRELOAD,    od_cmd_app_flash_preload,   1u)                       \
-    X(OD_CMD_FLASH_DISPLAY,    od_cmd_app_flash_display,   1u)
+    X(OD_CMD_FLASH_DISPLAY,    od_cmd_app_flash_display,   1u)                       \
+    X(OD_CMD_ACTION_INFO,      od_cmd_app_action_info,     1u)                       \
+    X(OD_CMD_ACTION_FIRE,      od_cmd_app_action_fire,     1u)
 #else
 #define OD_DISPATCH_IMGSTORE_ROWS(X)
 #endif

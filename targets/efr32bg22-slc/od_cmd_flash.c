@@ -12,6 +12,7 @@
 
 #include <string.h>
 
+#include "od_action.h"
 #include "od_imgstore.h"
 #include "od_log.h"
 #include "od_reply.h"
@@ -169,4 +170,37 @@ od_cmd_result_t od_cmd_app_flash_display(const od_cmd_ctx_t *ctx, od_span_t body
     r[2] = idx;
     (void)reply(ctx, r, sizeof r);
     return ok ? OD_CMD_OK : OD_CMD_NACK;
+}
+
+od_cmd_result_t od_cmd_app_action_info(const od_cmd_ctx_t *ctx, od_span_t body)
+{
+    const od_action_stats_t *st = od_action_stats();
+    uint8_t r[9];
+
+    (void)body;
+    r[0] = RESP_ACK_B;
+    r[1] = (uint8_t)OD_CMD_ACTION_INFO;
+    r[2] = st->entries;
+    r[3] = st->active;
+    r[4] = st->inactive;
+    r[5] = st->rejected;
+    r[6] = st->last_trigger;
+    r[7] = st->fire_count;
+    r[8] = (uint8_t)st->last_temp_c;
+    return reply(ctx, r, sizeof r) == OD_TXQ_OK ? OD_CMD_OK : OD_CMD_NACK;
+}
+
+od_cmd_result_t od_cmd_app_action_fire(const od_cmd_ctx_t *ctx, od_span_t body)
+{
+    uint8_t r[3];
+    const uint8_t arg = (od_span_valid(body) && body.n >= 1u) ? body.p[0] : 0u;
+
+    /* OD_TRIG_HOST exists so a table can be exercised without the physical event
+     * it is really for. The runner picks it up on the next service pass -- firing
+     * it here would run effects inside a command handler. */
+    od_action_trigger(OD_TRIG_HOST, arg);
+    r[0] = RESP_ACK_B;
+    r[1] = (uint8_t)OD_CMD_ACTION_FIRE;
+    r[2] = arg;
+    return reply(ctx, r, sizeof r) == OD_TXQ_OK ? OD_CMD_OK : OD_CMD_NACK;
 }

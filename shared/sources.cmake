@@ -284,6 +284,14 @@ set(OD_SHARED_SOURCES_APP_IMGSTORE
     "${CMAKE_CURRENT_LIST_DIR}/core/od_imgstore.c"
 )
 
+# APP_ACTION is the trigger -> effect table: the generalisation of the
+# OD_LED_FLAG_BUTTON_PRESS / NFC flag bits, which spent three of LedFlags' four
+# spare bits on single-purpose reactions. Needs od_action_app.h from the target
+# and od_cfg_index to read the table on demand.
+set(OD_SHARED_SOURCES_APP_ACTION
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_action.c"
+)
+
 set(OD_SHARED_SOURCES_APP_NET_A
     "${CMAKE_CURRENT_LIST_DIR}/core/od_net_a.c"
 )

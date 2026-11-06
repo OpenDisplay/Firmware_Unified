@@ -32,6 +32,8 @@
 #include "app_assert.h"
 #include "app.h"
 #include "opendisplay_display.h"
+#include "od_action.h"
+#include "od_hal_time.h"
 #include "opendisplay_ble.h"
 #include <stdio.h>
 
@@ -55,6 +57,7 @@ void app_process_action(void)
    * 10-20 s and the ACK has to be on the wire long before that, or a successful display
    * reports to the host as a timeout. */
   opendisplay_display_service();
+  (void)od_action_service(od_hal_uptime_ms());
   if (app_is_process_required()) {
     /////////////////////////////////////////////////////////////////////////////
     // Put your additional application code here!                              //

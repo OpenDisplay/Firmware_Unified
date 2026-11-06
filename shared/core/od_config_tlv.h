@@ -51,6 +51,11 @@ extern "C" {
 /* Ids at or above this carry their own length; below it the size comes from the table. */
 #define OD_CFG_TLV_LEN_PREFIXED_MIN 0x80u
 
+/* EXPERIMENTAL, not canonical: the action table. Defined here with the other packet ids so
+ * od_cfg_index can decide to index it without depending on the subsystem that reads it.
+ * Promoting it to ../opendisplay-protocol is required follow-up. */
+#define OD_PKT_ACTION_TABLE 0xB2u
+
 /* The drive packet ids are OD_PKT_DISPLAY_{MODE,LUT,CALIB,PANEL} in the canonical contract
  * (opendisplay_structs.h) and are not redefined here. They are variable-length, so they have
  * no size-table entry; 0x2E-0x31 were burned by pre-release lab builds carrying fixed-size
