@@ -93,3 +93,15 @@ dependencies.lock
 # `git add -A` swept them back in.
 __pycache__/
 *.py[cod]
+
+# `slc generate` byproducts for targets/efr32bg22-slc. The project is built with the CMake/GCC
+# flow only; IAR, LLVM, Makefile and VS Code outputs are regenerated on every run and none is
+# referenced by cmake_gcc/. Firmware_Silabs tracks none of them either.
+targets/efr32bg22-slc/cmake_gcc/autogen_toolchain.cmake
+targets/efr32bg22-slc/cmake_iar/
+targets/efr32bg22-slc/cmake_llvm/
+targets/efr32bg22-slc/opendisplay-bg22.Makefile
+targets/efr32bg22-slc/opendisplay-bg22.project.mak
+targets/efr32bg22-slc/opendisplay-bg22.ew[dpw]
+targets/efr32bg22-slc/opendisplay-bg22.ipcf
+targets/efr32bg22-slc/vscode.conf

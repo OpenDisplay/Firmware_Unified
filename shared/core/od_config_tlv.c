@@ -38,6 +38,12 @@ uint16_t od_config_tlv_body_size(uint8_t packet_id)
     case 0x2A: return (uint16_t)sizeof(struct NfcConfig);
     case 0x2B: return (uint16_t)sizeof(struct FlashConfig);
     case 0x2C: return (uint16_t)sizeof(struct DataExtended);
+    /* 0x2D findmy_config, the LAST id in the frozen range. It is here for the same reason
+     * 0x2A is: a target sizes every canonical packet whether or not it can act on it. Leaving
+     * it out is not neutral -- 0x2D sorts after every other legacy packet and before the
+     * length-prefixed range, so a device carrying findmy would abandon its blob exactly where
+     * the drive packets begin and come up with no panel data at all. */
+    case 0x2D: return (uint16_t)sizeof(struct FindMyConfig);
     default:   return 0u;
     }
 }

@@ -295,7 +295,14 @@ add_library(slc OBJECT
     ${OD_SHARED_SOURCES_APP_XFER}
     ${OD_SHARED_SOURCES_APP_NFC}
     ${OD_SHARED_SOURCES_APP_LED}
+    ${OD_SHARED_SOURCES_APP_EPD}
     ${OD_SHARED_SOURCES_HAL_LOG}
+
+    # The od_epd seam for this target: SPI/GPIO over em_*, and the adapter that turns a device
+    # config into a panel description. Not in APP_EPD because both are target-shaped -- one
+    # needs vendor headers, the other is C++.
+    "../od_epd_io_silabs.c"
+    "../od_epd_adapter.cpp"
 )
 
 target_include_directories(slc PUBLIC

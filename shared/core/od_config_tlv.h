@@ -51,13 +51,10 @@ extern "C" {
 /* Ids at or above this carry their own length; below it the size comes from the table. */
 #define OD_CFG_TLV_LEN_PREFIXED_MIN 0x80u
 
-/* The drive packets (protocol Rev 2), variable-length so they have no size-table entry.
- * 0x2E-0x31 were burned by pre-release lab builds carrying fixed-size drafts of these and
- * must never be reused. */
-#define OD_CFG_PKT_DISPLAY_MODE  0xAEu
-#define OD_CFG_PKT_DISPLAY_LUT   0xAFu
-#define OD_CFG_PKT_DISPLAY_CALIB 0xB0u
-#define OD_CFG_PKT_DISPLAY_PANEL 0xB1u
+/* The drive packet ids are OD_PKT_DISPLAY_{MODE,LUT,CALIB,PANEL} in the canonical contract
+ * (opendisplay_structs.h) and are not redefined here. They are variable-length, so they have
+ * no size-table entry; 0x2E-0x31 were burned by pre-release lab builds carrying fixed-size
+ * drafts of them and must never be reused. */
 
 enum od_config_tlv_result {
     OD_CFG_TLV_OK = 0,

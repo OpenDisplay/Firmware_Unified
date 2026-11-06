@@ -144,7 +144,7 @@ static const od_cfg_entry_t *find_lut(uint8_t slot)
 {
     for (int i = 0; i < od_cfg_index_count(); i++) {
         const od_cfg_entry_t *e = od_cfg_index_entry(i);
-        if (e != NULL && e->type == CONFIG_PKT_DISPLAY_LUT && e->sub == slot) {
+        if (e != NULL && e->type == OD_PKT_DISPLAY_LUT && e->sub == slot) {
             return e;
         }
     }
@@ -284,7 +284,7 @@ extern "C" int od_epd_desc_from_config(od_panel_desc_t *out, uint8_t display_ins
     const od_cfg_entry_t *pe = NULL;
     for (int i = 0; i < od_cfg_index_count(); i++) {
         const od_cfg_entry_t *e = od_cfg_index_entry(i);
-        if (e != NULL && e->type == CONFIG_PKT_DISPLAY_PANEL &&
+        if (e != NULL && e->type == OD_PKT_DISPLAY_PANEL &&
             e->instance == display_instance) {
             pe = e;
             break;
@@ -319,7 +319,7 @@ extern "C" int od_epd_desc_from_config(od_panel_desc_t *out, uint8_t display_ins
     for (int i = 0; i < od_cfg_index_count() && out->mode_count < OD_CFG_INDEX_MAX; i++) {
         const od_cfg_entry_t *e = od_cfg_index_entry(i);
         uint8_t inst;
-        if (e == NULL || e->type != CONFIG_PKT_DISPLAY_MODE) {
+        if (e == NULL || e->type != OD_PKT_DISPLAY_MODE) {
             continue;
         }
         if (od_cfg_read(e, 0u, &inst, 1u) != 1u || inst != display_instance) {

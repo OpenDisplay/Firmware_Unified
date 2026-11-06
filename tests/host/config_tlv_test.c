@@ -376,22 +376,22 @@ static void test_drive_packets_use_the_wire_length(void)
 
     CASE("drive packet bodies come from the wire, not from the size table");
     blob_begin(1);
-    blob_add_ex(OD_CFG_PKT_DISPLAY_PANEL, 25u, 25u, 0xB1);
-    blob_add_ex(OD_CFG_PKT_DISPLAY_LUT, 541u, 541u, 0xAF);   /* a full waveform slot */
-    blob_add_ex(OD_CFG_PKT_DISPLAY_MODE, 63u, 63u, 0xAE);
+    blob_add_ex(OD_PKT_DISPLAY_PANEL, 25u, 25u, 0xB1);
+    blob_add_ex(OD_PKT_DISPLAY_LUT, 541u, 541u, 0xAF);   /* a full waveform slot */
+    blob_add_ex(OD_PKT_DISPLAY_MODE, 63u, 63u, 0xAE);
     blob_end();
 
     CHECK(od_config_tlv_walk(od_span_make(g_blob, g_len), on_packet, &s, NULL, NULL)
           == OD_CFG_TLV_OK);
     CHECK(s.count == 3);
-    CHECK(s.ids[0] == OD_CFG_PKT_DISPLAY_PANEL && s.lens[0] == 25u);
-    CHECK(s.ids[1] == OD_CFG_PKT_DISPLAY_LUT   && s.lens[1] == 541u);
-    CHECK(s.ids[2] == OD_CFG_PKT_DISPLAY_MODE  && s.lens[2] == 63u);
+    CHECK(s.ids[0] == OD_PKT_DISPLAY_PANEL && s.lens[0] == 25u);
+    CHECK(s.ids[1] == OD_PKT_DISPLAY_LUT   && s.lens[1] == 541u);
+    CHECK(s.ids[2] == OD_PKT_DISPLAY_MODE  && s.lens[2] == 63u);
 
     /* The table must stay silent about these: their size is not its business, and a caller
      * that reads 0 as "unknown" without checking the range would reject every drive packet. */
-    CHECK(od_config_tlv_body_size(OD_CFG_PKT_DISPLAY_MODE) == 0u);
-    CHECK(od_config_tlv_body_size(OD_CFG_PKT_DISPLAY_LUT) == 0u);
+    CHECK(od_config_tlv_body_size(OD_PKT_DISPLAY_MODE) == 0u);
+    CHECK(od_config_tlv_body_size(OD_PKT_DISPLAY_LUT) == 0u);
 }
 
 /* The hostile case for this range. The declared length is attacker-controlled: the blob is
@@ -403,7 +403,7 @@ static void test_length_prefixed_overclaim_is_truncation(void)
 
     CASE("a 0x80+ packet claiming more than the blob holds is TRUNCATED");
     blob_begin(1);
-    blob_add_ex(OD_CFG_PKT_DISPLAY_LUT, 4000u, 8u, 0xAF);   /* declares 4000, carries 8 */
+    blob_add_ex(OD_PKT_DISPLAY_LUT, 4000u, 8u, 0xAF);   /* declares 4000, carries 8 */
     blob_end();
     CHECK(od_config_tlv_walk(od_span_make(g_blob, g_len), on_packet, &s, NULL, NULL)
           == OD_CFG_TLV_TRUNCATED);
@@ -412,7 +412,7 @@ static void test_length_prefixed_overclaim_is_truncation(void)
     CASE("0xFFFF cannot wrap the bounds arithmetic");
     seen_init(&s);
     blob_begin(1);
-    blob_add_ex(OD_CFG_PKT_DISPLAY_LUT, 0xFFFFu, 8u, 0xAF);
+    blob_add_ex(OD_PKT_DISPLAY_LUT, 0xFFFFu, 8u, 0xAF);
     blob_end();
     CHECK(od_config_tlv_walk(od_span_make(g_blob, g_len), on_packet, &s, NULL, NULL)
           == OD_CFG_TLV_TRUNCATED);
@@ -422,7 +422,7 @@ static void test_length_prefixed_overclaim_is_truncation(void)
     seen_init(&s);
     blob_begin(1);
     g_blob[g_len++] = 0;                       /* reserved */
-    g_blob[g_len++] = OD_CFG_PKT_DISPLAY_LUT;  /* id, then only ONE length byte before the CRC */
+    g_blob[g_len++] = OD_PKT_DISPLAY_LUT;  /* id, then only ONE length byte before the CRC */
     g_blob[g_len++] = 0x10;
     blob_end();
     CHECK(od_config_tlv_walk(od_span_make(g_blob, g_len), on_packet, &s, NULL, NULL)
@@ -436,13 +436,13 @@ static void test_zero_length_prefixed_body(void)
 
     CASE("a zero-length 0x80+ body is bounded, not an error");
     blob_begin(1);
-    blob_add_ex(OD_CFG_PKT_DISPLAY_CALIB, 0u, 0u, 0x00);
+    blob_add_ex(OD_PKT_DISPLAY_CAL, 0u, 0u, 0x00);
     blob_add(0x01, 0xA1);
     blob_end();
     CHECK(od_config_tlv_walk(od_span_make(g_blob, g_len), on_packet, &s, NULL, NULL)
           == OD_CFG_TLV_OK);
     CHECK(s.count == 2);
-    CHECK(s.ids[0] == OD_CFG_PKT_DISPLAY_CALIB && s.lens[0] == 0u);
+    CHECK(s.ids[0] == OD_PKT_DISPLAY_CAL && s.lens[0] == 0u);
     CHECK(s.ids[1] == 0x01);     /* the packet after it is still reached */
 }
 

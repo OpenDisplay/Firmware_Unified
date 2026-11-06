@@ -253,6 +253,23 @@ set(OD_SHARED_SOURCES_HAL_WDT
     "${CMAKE_CURRENT_LIST_DIR}/core/od_watchdog.c"
 )
 
+# APP_EPD is the config-driven panel driver. od_epd holds no panel constants: every command
+# byte, waveform, pass count and colour code map arrives in the device config, so a new panel is
+# a config change rather than a firmware release. The target fills the seam (SPI, D/C, RST,
+# BUSY) and supplies the od_epd vtable.
+#
+# od_cfg_index comes with it and is not optional: od_epd reads packet bodies on demand instead
+# of holding them, because one waveform is 539 bytes against 32 KB of RAM on BG22. It needs
+# HAL_NVS for the medium.
+#
+# Taking this tier does not retire a target's vendored panel library. bb_epaper and od_epd are
+# chosen per DEVICE at runtime, on whether that device's config carries drive packets -- a
+# device provisioned before the drive packets existed still has to light up.
+set(OD_SHARED_SOURCES_APP_EPD
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_cfg_index.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_epd.c"
+)
+
 # The aggregate: every tier, for consumers that have every HAL (today: the host tests, which fake
 # them, and targets/esp32-idf).
 set(OD_SHARED_SOURCES
