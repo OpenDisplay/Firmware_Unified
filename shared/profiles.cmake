@@ -35,7 +35,10 @@ set(OD_PROFILE_SILABS
     OD_CAP_IMGSTORE=1
     # CMD_DRIVE_WRITE_START: canonical at protocol 2.3, Silabs-first. Only this target has a
     # display path driven from config drive packets, so only this target routes it.
-    OD_CAP_DRIVE_WRITE=1)
+    OD_CAP_DRIVE_WRITE=1
+    # CMD_SPI_RAW: Silabs-only by specification, and the opcode every panel in this fleet was
+    # brought up through. Bypasses driver safety checks, so no other target enables it.
+    OD_CAP_SPI_RAW=1)
 
 # Compile-time log level, one selector for every target.
 #

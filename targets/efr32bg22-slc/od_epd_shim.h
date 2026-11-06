@@ -48,6 +48,33 @@ bool od_epd_shim_finish(void);
 
 void od_epd_shim_sleep(void);
 
+/* --- raw SPI passthrough, for CMD_SPI_RAW (0x0084) -------------------------------------------
+ *
+ * Deliberately NOT routed through begin/write/finish: a raw session has no pass in flight, and
+ * the point of the opcode is that the CALLER owns the sequence. These bring the panel object up
+ * far enough to clock bytes and then get out of the way.
+ *
+ * Power and transfer ownership are not handled here -- opendisplay_display.cpp owns the rail and
+ * the abort, as it does for every other path. */
+
+/* Load the descriptor, apply pins and rotation, and optionally run mode 0's init up to its
+ * image marker. Returns false if the device carries no drive data or bring-up failed. */
+bool od_epd_shim_raw_begin(uint8_t display_instance, uint8_t rotation_quarters,
+                           uint8_t dc, uint8_t rst, uint8_t busy, uint8_t cs,
+                           uint8_t mosi, uint8_t sck, bool run_panel_init);
+
+/* One byte with D/C low, then any remainder with D/C high. */
+void od_epd_shim_raw_cmd(uint8_t cmd, const uint8_t *data, uint32_t len);
+void od_epd_shim_raw_data(const uint8_t *data, uint32_t len);
+
+/* Poll BUSY up to timeout_ms. *elapsed_ms_out is saturated at 0xFFFF; *still_busy_out reports
+ * whether it was STILL busy when the wait ended, which is how the host tells a release from a
+ * timeout. */
+void od_epd_shim_raw_busy(uint32_t timeout_ms, uint16_t *elapsed_ms_out, bool *still_busy_out);
+
+/* A bare RST pulse through the adapter's own IO, so no init bytes are emitted. */
+bool od_epd_shim_raw_reset(uint8_t hold_ms);
+
 #ifdef __cplusplus
 }
 #endif

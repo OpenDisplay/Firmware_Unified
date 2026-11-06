@@ -11,6 +11,7 @@
 #include "od_caps.h"
 #include "od_xfer_app.h"
 #include "opendisplay_pipe.h"
+#include "opendisplay_protocol.h"
 #include "em_cmu.h"
 #include "em_gpio.h"
 #include "em_system.h"
@@ -588,8 +589,124 @@ static bool render_boot_screen(const struct GlobalConfig *cfg)
   return true;
 }
 
+/* --- CMD_SPI_RAW session ---------------------------------------------------------------------
+ *
+ * The rail and transfer ownership live here, as they do for every other path; the adapter-level
+ * operations go through od_epd_shim_raw_*, which is the only translation unit allowed to see the
+ * adapter (od_epd_shim.h explains why).
+ */
+static bool s_spi_raw_open;
+
+extern "C" bool opendisplay_display_spi_raw_is_open(void)
+{
+  return s_spi_raw_open;
+}
+
+extern "C" int opendisplay_display_spi_raw_open(bool run_panel_init)
+{
+  const struct DisplayConfig *d = display_cfg();
+
+  if (d == nullptr) {
+    return -OD_ERR_SPI_RAW_NO_CONFIG;
+  }
+  /* NO PANEL TABLE: without drive packets there is no init sequence, no pin sense and no
+   * colour map, so there is nothing to bring up. Same test the boot screen uses. */
+  if (!od_epd_shim_available(d->instance_number)) {
+    return -OD_ERR_SPI_RAW_NO_CONFIG;
+  }
+  /* A raw session and a direct write share one panel object, so raw TAKES OWNERSHIP rather
+   * than interleaving with a transfer in flight. Re-opening an existing session is also an
+   * abort: it is the documented way to get back to a known state. */
+  opendisplay_display_abort();
+  s_spi_raw_open = false;
+
+  display_power_set(true);
+  if (!od_epd_shim_raw_begin(d->instance_number, d->rotation,
+                             d->dc_pin, d->reset_pin, d->busy_pin, d->cs_pin,
+                             d->data_pin, d->clk_pin, run_panel_init)) {
+    display_power_set(false);
+    return -OD_ERR_SPI_RAW_PANEL;
+  }
+  s_spi_raw_open = true;
+  return 0;
+}
+
+extern "C" int opendisplay_display_spi_raw_cmd(const uint8_t *data, uint16_t len)
+{
+  if (!s_spi_raw_open) {
+    return -OD_ERR_SPI_RAW_NOT_OPEN;
+  }
+  if (data == nullptr || len == 0u) {
+    return -OD_ERR_SPI_RAW_BAD_ARGS;
+  }
+  od_epd_shim_raw_cmd(data[0], len > 1u ? &data[1] : nullptr, (uint32_t)(len - 1u));
+  return 0;
+}
+
+extern "C" int opendisplay_display_spi_raw_data(const uint8_t *data, uint16_t len)
+{
+  if (!s_spi_raw_open) {
+    return -OD_ERR_SPI_RAW_NOT_OPEN;
+  }
+  if (data == nullptr || len == 0u) {
+    return -OD_ERR_SPI_RAW_BAD_ARGS;
+  }
+  od_epd_shim_raw_data(data, (uint32_t)len);
+  return 0;
+}
+
+extern "C" int opendisplay_display_spi_raw_busy(uint32_t timeout_ms, uint16_t *elapsed_ms_out,
+                                                bool *still_busy_out)
+{
+  if (!s_spi_raw_open) {
+    return -OD_ERR_SPI_RAW_NOT_OPEN;
+  }
+  /* Clamped to the driver's own refresh ceiling. A two-byte wire field cannot exceed 65535
+   * anyway, so this only bites if the field widens. */
+  if (timeout_ms > 90000u) {
+    timeout_ms = 90000u;
+  }
+  od_epd_shim_raw_busy(timeout_ms, elapsed_ms_out, still_busy_out);
+  return 0;
+}
+
+extern "C" int opendisplay_display_spi_raw_reset(uint8_t hold_ms)
+{
+  if (!s_spi_raw_open) {
+    return -OD_ERR_SPI_RAW_NOT_OPEN;
+  }
+  /* Clamped per the protocol: 0 would not be a pulse, and a long hold from a one-byte field
+   * is more likely a mistake than a request. */
+  if (hold_ms < 1u) {
+    hold_ms = 1u;
+  } else if (hold_ms > 50u) {
+    hold_ms = 50u;
+  }
+  return od_epd_shim_raw_reset(hold_ms) ? 0 : -OD_ERR_SPI_RAW_PANEL;
+}
+
+extern "C" void opendisplay_display_spi_raw_close(void)
+{
+  if (!s_spi_raw_open) {
+    return;
+  }
+  s_spi_raw_open = false;
+  od_epd_shim_sleep();
+  display_power_set(false);
+}
+
 extern "C" void opendisplay_display_abort(void)
 {
+  /* A raw session is torn down HERE because abort is also the transport's fail-safe path
+   * (opendisplay_pipe_reset_transport), which is what gives the protocol's "a BLE disconnect
+   * force-closes the session" without a second hook in the connection-closed handler.
+   *
+   * Leaving the flag set would be worse than leaking the rail: the rail goes down below either
+   * way, so a surviving session would accept the next CMD and clock bytes at an unpowered
+   * panel. No recursion -- close() does not call abort(). */
+  if (s_spi_raw_open) {
+    opendisplay_display_spi_raw_close();
+  }
   if (s_xfer_app.to_flash) {
     od_imgstore_abort();
   }

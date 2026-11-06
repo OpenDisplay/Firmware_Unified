@@ -53,6 +53,20 @@
 #define OD_CAP_DRIVE_WRITE 0
 #endif
 
+/* CMD_SPI_RAW (0x0084): debug/bring-up escape hatch that clocks the panel SPI bus directly.
+ *
+ * DEFAULT OFF, and the default matters more here than for the other caps. The opcode BYPASSES
+ * EVERY DRIVER-LEVEL SAFETY CHECK: a malformed sequence can leave the panel powered, mid-refresh
+ * or driven with a DC-imbalanced waveform, which degrades e-paper permanently. A target that
+ * does not need it should not answer it, and the unknown-opcode NACK is the honest reply.
+ *
+ * It is not a security hole on its own -- the handler sits in the ordinary dispatch table and so
+ * inherits the session gate, meaning an unauthenticated caller gets RESP_AUTH_REQUIRED and never
+ * reaches it. The protocol marks it Silabs-only. */
+#ifndef OD_CAP_SPI_RAW
+#define OD_CAP_SPI_RAW 0
+#endif
+
 #ifndef OD_XFER_DIRECT_AUTO_END
 #define OD_XFER_DIRECT_AUTO_END 0
 #endif

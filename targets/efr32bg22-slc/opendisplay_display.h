@@ -17,6 +17,24 @@ void opendisplay_display_power_off(void);
  * refresh is seconds long and must not sit inside a command handler. */
 void opendisplay_display_service(void);
 
+/* --- CMD_SPI_RAW (0x0084) session -------------------------------------------------------------
+ *
+ * A raw session PERSISTS across commands, which is the whole point: a handler that
+ * re-initialised per call would discard whatever the previous call staged, making register
+ * debugging impossible.
+ *
+ * Each returns 0, or -OD_ERR_SPI_RAW_* so the caller can hand the code straight to a NACK.
+ * Everything except open() refuses with NOT_OPEN outside a session. */
+int  opendisplay_display_spi_raw_open(bool run_panel_init);
+int  opendisplay_display_spi_raw_cmd(const uint8_t *data, uint16_t len);
+int  opendisplay_display_spi_raw_data(const uint8_t *data, uint16_t len);
+int  opendisplay_display_spi_raw_busy(uint32_t timeout_ms, uint16_t *elapsed_ms_out,
+                                      bool *still_busy_out);
+int  opendisplay_display_spi_raw_reset(uint8_t hold_ms);
+/* Sleep the panel and drop the rail. Idempotent, and safe to call from the disconnect path. */
+void opendisplay_display_spi_raw_close(void);
+bool opendisplay_display_spi_raw_is_open(void);
+
 #ifdef __cplusplus
 }
 #endif

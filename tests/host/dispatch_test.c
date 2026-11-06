@@ -228,6 +228,10 @@ HOOK(od_cmd_app_action_fire,      OD_CMD_ACTION_FIRE)
 HOOK(od_cmd_app_drive_write_start, CMD_DRIVE_WRITE_START)
 #endif
 
+#if OD_CAP_SPI_RAW
+HOOK(od_cmd_app_spi_raw,           CMD_SPI_RAW)
+#endif
+
 static bool g_mutates_config;
 bool od_cmd_mutates_config(uint16_t cmd)
 {

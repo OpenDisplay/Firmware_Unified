@@ -70,6 +70,13 @@ od_cmd_result_t od_cmd_app_buzzer(const od_cmd_ctx_t *ctx, od_span_t body);     
 od_cmd_result_t od_cmd_app_drive_write_start(const od_cmd_ctx_t *ctx, od_span_t body); /* 0x0085 */
 #endif
 
+/* CMD_SPI_RAW: the bring-up escape hatch. Its DATA_NOACK sub-opcode returns OD_CMD_OK without
+ * replying at all, which is allowed -- a handler may spend fewer response units than its row
+ * reserves, never more. */
+#if OD_CAP_SPI_RAW
+od_cmd_result_t od_cmd_app_spi_raw(const od_cmd_ctx_t *ctx, od_span_t body);           /* 0x0084 */
+#endif
+
 /* --- image store and actions, EXPERIMENTAL -------------------------------------------------- */
 
 /* Declared here rather than beside the target that implements them, because od_dispatch_ops.h

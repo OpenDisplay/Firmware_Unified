@@ -6,6 +6,8 @@
 #include "od_log.h"
 #include "opendisplay_structs.h"
 
+#include "sl_sleeptimer.h"
+
 static OdEpdAdapter s_epd;
 static bool s_in_pass;
 
@@ -74,4 +76,88 @@ void od_epd_shim_sleep(void)
     if (s_epd.ready()) {
         s_epd.sleep(DEEP_SLEEP);
     }
+}
+
+/* --- raw SPI passthrough (CMD_SPI_RAW) -------------------------------------------------------
+ *
+ * s_in_pass stays FALSE throughout a raw session, so od_epd_shim_write() keeps refusing: the
+ * pass state machine is not merely bypassed here, it is still asserting that nothing is in
+ * flight. A raw caller uses od_epd_shim_raw_data() instead, which is why that one is separate
+ * rather than a flag on the existing write.
+ */
+bool od_epd_shim_raw_begin(uint8_t display_instance, uint8_t rotation_quarters,
+                           uint8_t dc, uint8_t rst, uint8_t busy, uint8_t cs,
+                           uint8_t mosi, uint8_t sck, bool run_panel_init)
+{
+    s_in_pass = false;
+
+    if (s_epd.setPanelType(display_instance) != BBEP_SUCCESS) {
+        od_log_warn("spi_raw: no drive data for display %u", (unsigned)display_instance);
+        return false;
+    }
+    s_epd.setRotation((int)rotation_quarters * 90);
+    s_epd.initIO(dc, rst, busy, cs, mosi, sck, 0u);
+
+    /* Default is pins and power only -- nothing is clocked out, so virgin register state is
+     * observable and the caller owns the whole sequence. That is the useful default for
+     * bring-up: a session that initialised first could not answer "what does this panel look
+     * like before anyone talks to it".
+     *
+     * run_panel_init stops at the image marker, so even then the caller still owns everything
+     * after the registers. */
+    if (run_panel_init) {
+        if (s_epd.selectModeIndex(0u) != BBEP_SUCCESS) {
+            od_log_warn("spi_raw: mode 0 not in config (have %u)", (unsigned)s_epd.modeCount());
+            return false;
+        }
+        if (s_epd.beginPass(0u) != BBEP_SUCCESS) {
+            od_log_warn("spi_raw: beginPass failed rc=%d", s_epd.lastRc());
+            return false;
+        }
+    }
+    return true;
+}
+
+void od_epd_shim_raw_cmd(uint8_t cmd, const uint8_t *data, uint32_t len)
+{
+    s_epd.writeCmd(cmd);
+    if (data != NULL && len != 0u) {
+        s_epd.writeRaw(data, (int)len);
+    }
+}
+
+void od_epd_shim_raw_data(const uint8_t *data, uint32_t len)
+{
+    if (data != NULL && len != 0u) {
+        s_epd.writeRaw(data, (int)len);
+    }
+}
+
+void od_epd_shim_raw_busy(uint32_t timeout_ms, uint16_t *elapsed_ms_out, bool *still_busy_out)
+{
+    const uint32_t t0 = sl_sleeptimer_get_tick_count();
+    uint32_t waited = 0u;
+
+    while (s_epd.isBusy()) {
+        waited = sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count() - t0);
+        if (waited >= timeout_ms) {
+            break;
+        }
+        sl_sleeptimer_delay_millisecond(2u);
+    }
+    waited = sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count() - t0);
+
+    if (elapsed_ms_out != NULL) {
+        *elapsed_ms_out = (uint16_t)((waited > 0xFFFFu) ? 0xFFFFu : waited);
+    }
+    /* Re-read rather than reuse the loop condition: the distinction the host needs is
+     * "released" vs "timed out", and those differ only in the pin's state right now. */
+    if (still_busy_out != NULL) {
+        *still_busy_out = s_epd.isBusy();
+    }
+}
+
+bool od_epd_shim_raw_reset(uint8_t hold_ms)
+{
+    return s_epd.reset(hold_ms) == BBEP_SUCCESS;
 }
