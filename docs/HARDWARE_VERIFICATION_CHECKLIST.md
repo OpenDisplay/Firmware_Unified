@@ -54,10 +54,30 @@ Unit **ODBEEBA6** (2.9in BWRY GDEY029F51H, 168x384), 3.0 V from a PPK2, encrypte
 - [x] **The CMD path really clocks the bus.** `--poke` sent command byte `0x71` -> ACK, and a
       following BUSY still answered, so the session survived a real write.
 
-**Still open on this unit:** no full-length config has been COMMITTED. The rows above prove the
-declaration bound and that NVM3 opens, not that a 3120-byte record round-trips through
-`nvm3_writeData`. That needs a write of a real >2048 B config and a byte-exact read-back, which
-rewrites the unit's provisioning and so was left for a deliberate decision.
+- [x] **A >2048 B config COMMITS and round-trips.** This was the open row above; it is now closed.
+      The real 16-colour drive config for 0x001E went on via `migrate_drive_config.py`:
+      **1325 B -> 2144 B**, and the delta of **819 B is exactly** the three expected additions
+      measured beforehand with `packets_from_yaml` (colour16 mode 140 + wave_edit LUT 543 +
+      calibration 136). Read back **2144/2144 B COMPLETE over 23 frames** and parsed by
+      py-opendisplay's own deserialiser.
+- [x] **The drive set is complete and correctly shaped.** `0xB1` panel; `0xAE` **two** modes --
+      `mode_index=0 scheme=0xFF passes=1` (full) and `mode_index=1 scheme=10 passes=3`
+      (colour16); `0xAF` **two** waveform slots at 539 B each; `0xB0` calibration bound to
+      `mode_index=1`. No `unknown_ex` packets, so nothing was left unparsed.
+- [x] **`bwry16` stayed a MODE, not a scheme.** DisplayConfig `0x20` still reports
+      `color_scheme=3` (BWRY) while scheme 10 appears only on the `0xAE` mode packet -- the
+      invariant that keeps an unknown scheme from silently degrading a panel to greyscale.
+- [x] **Device identity survived the rewrite.** `0x27` security is PRESENT in the read-back and
+      the unit still answers on the encrypted link.
+
+**Two tooling defects found while doing this, both in HOST code, neither a firmware fault:**
+`Firmware_Silabs scripts/dump_config.py` reads the CONFIG_READ response's *chunk-index* field as
+the declared total, gets 0, and stops after two frames -- which made a healthy 1325 B config look
+like a 272 B truncation. And the config read stream is **not** uniformly framed: the FIRST frame
+is `[00][40][chunk_no:2][total_len:2][tlv...]` (6-byte prefix) while the rest are
+`[00][40][chunk_no:2][tlv...]` (4-byte). Stripping 4 from the first frame shifts the whole blob by
+two bytes and shows up as a bogus "unknown packet type 0x00" immediately after the first packet.
+`device.py interrogate()` gets this right; hand-rolled readers must match it.
 
 ### EFR32BG22 (`efr32bg22-slc`) — Gate 2 blockers
 
