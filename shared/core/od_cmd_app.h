@@ -25,6 +25,7 @@
 #ifndef OD_CMD_APP_H
 #define OD_CMD_APP_H
 
+#include "od_caps.h"
 #include "od_cmd.h"
 #include "od_span.h"
 
@@ -57,6 +58,22 @@ od_cmd_result_t od_cmd_app_config_clear(const od_cmd_ctx_t *ctx, od_span_t body)
 od_cmd_result_t od_cmd_app_led_activate(const od_cmd_ctx_t *ctx, od_span_t body);      /* 0x0073 */
 od_cmd_result_t od_cmd_app_led_stop(const od_cmd_ctx_t *ctx, od_span_t body);          /* 0x0075 */
 od_cmd_result_t od_cmd_app_buzzer(const od_cmd_ctx_t *ctx, od_span_t body);            /* 0x0077 */
+
+/* --- image store and actions, EXPERIMENTAL -------------------------------------------------- */
+
+/* Declared here rather than beside the target that implements them, because od_dispatch_ops.h
+ * names them from SHARED code and shared/ never includes a target header. Gated on the same
+ * capability as the dispatch rows, so only a build that routes these opcodes owes definitions.
+ * The values, and why they are not yet in shared/protocol/, are in od_dispatch_ops.h. */
+#if OD_CAP_IMGSTORE
+od_cmd_result_t od_cmd_app_flash_info(const od_cmd_ctx_t *ctx, od_span_t body);        /* 0x0047 */
+od_cmd_result_t od_cmd_app_flash_list(const od_cmd_ctx_t *ctx, od_span_t body);        /* 0x0048 */
+od_cmd_result_t od_cmd_app_flash_erase(const od_cmd_ctx_t *ctx, od_span_t body);       /* 0x0049 */
+od_cmd_result_t od_cmd_app_flash_preload(const od_cmd_ctx_t *ctx, od_span_t body);     /* 0x004A */
+od_cmd_result_t od_cmd_app_flash_display(const od_cmd_ctx_t *ctx, od_span_t body);     /* 0x004B */
+od_cmd_result_t od_cmd_app_action_info(const od_cmd_ctx_t *ctx, od_span_t body);       /* 0x004C */
+od_cmd_result_t od_cmd_app_action_fire(const od_cmd_ctx_t *ctx, od_span_t body);       /* 0x004D */
+#endif
 
 #ifdef __cplusplus
 }

@@ -897,6 +897,7 @@ if(Python3_FOUND)
     add_executable(od_dispatch_corpus_silabs_test
         corpus_runner.c
         corpus_profile_silabs.c
+        imgstore_app_test_stub.c
         fake_silabs/fake_silabs.c
         ../../targets/efr32bg22-slc/od_cmd_silabs.c
         ../../targets/efr32bg22-slc/od_inflate_app.c
@@ -915,6 +916,7 @@ if(Python3_FOUND)
     # failures are state assertions rather than wire fixtures.
     add_executable(od_silabs_fault_test
         silabs_fault_test.c
+        imgstore_app_test_stub.c
         fake_silabs/fake_silabs.c
         fake_silabs/fake_silabs_bgapi.c
         ../../targets/efr32bg22-slc/od_cmd_silabs.c

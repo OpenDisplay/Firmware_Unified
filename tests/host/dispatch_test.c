@@ -14,6 +14,7 @@
 
 #include "od_caps.h"
 #include "od_cmd_app.h"
+#include "od_dispatch_ops.h"   /* the experimental opcode values the silabs fixture routes */
 #include "od_log.h"
 #include "od_pipe.h"
 #include "od_config_read.h"
@@ -207,6 +208,19 @@ HOOK(od_cmd_app_led_activate,     CMD_LED_ACTIVATE)
 HOOK(od_cmd_app_led_stop,         CMD_LED_STOP)
 HOOK(od_cmd_app_buzzer,           CMD_BUZZER)
 HOOK(od_nfc_frame,                CMD_NFC_ENDPOINT)
+
+/* The silabs fixture routes the experimental image-store and action opcodes, so this
+ * executable owes them definitions as much as any other row in the table. Gated on the same
+ * capability as the dispatch rows, leaving the portable fixture unchanged. */
+#if OD_CAP_IMGSTORE
+HOOK(od_cmd_app_flash_info,       OD_CMD_FLASH_INFO)
+HOOK(od_cmd_app_flash_list,       OD_CMD_FLASH_LIST)
+HOOK(od_cmd_app_flash_erase,      OD_CMD_FLASH_ERASE)
+HOOK(od_cmd_app_flash_preload,    OD_CMD_FLASH_PRELOAD)
+HOOK(od_cmd_app_flash_display,    OD_CMD_FLASH_DISPLAY)
+HOOK(od_cmd_app_action_info,      OD_CMD_ACTION_INFO)
+HOOK(od_cmd_app_action_fire,      OD_CMD_ACTION_FIRE)
+#endif
 
 static bool g_mutates_config;
 bool od_cmd_mutates_config(uint16_t cmd)
