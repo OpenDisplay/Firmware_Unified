@@ -27,6 +27,26 @@ static uint32_t get_u32le(const uint8_t *p)
          | ((uint32_t)p[3] << 24);
 }
 
+uint32_t od_config_store_crc32_update(uint32_t crc_in, const uint8_t *data, uint32_t len)
+{
+    /* The running value is the FINALISED one, so a caller can stop and resume without
+     * tracking whether the inversion has been applied. Streaming consumers need that: the
+     * image store CRCs a frame it never holds in one piece. */
+    uint32_t crc = ~crc_in;
+
+    for (uint32_t i = 0; i < len; ++i) {
+        crc ^= data[i];
+        for (int bit = 0; bit < 8; ++bit) {
+            if (crc & 1u) {
+                crc = (crc >> 1) ^ 0xEDB88320u;
+            } else {
+                crc >>= 1;
+            }
+        }
+    }
+    return ~crc;
+}
+
 uint32_t od_config_store_crc32(const uint8_t *data, uint32_t len)
 {
     uint32_t crc = 0xFFFFFFFFu;

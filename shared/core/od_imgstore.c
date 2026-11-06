@@ -3,6 +3,7 @@
 
 #include <string.h>
 
+#include "od_config_store.h"
 #include "od_flash_nor.h"
 #include "od_log.h"
 
@@ -28,18 +29,9 @@ static struct {
     uint32_t crc;
 } s_w;
 
-/* CRC-32 reflected, polynomial 0xEDB88320 -- the same function od_config_store uses, written
- * bit-serial for the same reason: a 1 KB table is not available on this part. */
 uint32_t od_imgstore_crc32(uint32_t crc, const uint8_t *data, uint32_t len)
 {
-    crc = ~crc;
-    for (uint32_t i = 0; i < len; i++) {
-        crc ^= data[i];
-        for (unsigned b = 0; b < 8u; b++) {
-            crc = (crc >> 1) ^ (0xEDB88320u & (uint32_t)(-(int32_t)(crc & 1u)));
-        }
-    }
-    return ~crc;
+    return od_config_store_crc32_update(crc, data, len);
 }
 
 static void put32(uint8_t *p, uint32_t v)

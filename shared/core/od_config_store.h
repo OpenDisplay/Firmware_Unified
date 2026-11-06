@@ -95,6 +95,11 @@ enum od_config_store_result od_config_store_clear(void);
  * tests and tooling build records with it. */
 uint32_t od_config_store_crc32(const uint8_t *data, uint32_t len);
 
+/* The same CRC-32, resumable. Seed with 0 and feed consecutive spans; the value returned is
+ * final at every step. Here rather than in the caller because this file is the one home for
+ * the polynomial -- a second copy is what tools/check.sh's ratchet exists to catch. */
+uint32_t od_config_store_crc32_update(uint32_t crc, const uint8_t *data, uint32_t len);
+
 #ifdef __cplusplus
 }
 #endif

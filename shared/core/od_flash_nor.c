@@ -43,15 +43,23 @@ bool od_flash_nor_ready(void)
     return (sr & STATUS_WIP) == 0u;
 }
 
+/* Bounded spin, NOT a deadline against the ambient clock. Shared code takes its time as a
+ * parameter rather than reading od_hal_uptime_ms -- the policy tools/check.sh ratchets -- and
+ * a blocking status poll has nowhere to take one from. Counting delays is honest about what
+ * this is: it busy-waits, and the bound is the only thing keeping an unresponsive chip from
+ * hanging the loop. */
+#define WAIT_STEP_US 200u
+
 static bool wait_ready(uint32_t timeout_ms)
 {
-    const uint32_t deadline = od_hal_uptime_ms() + timeout_ms;
+    uint32_t steps = (timeout_ms * 1000u) / WAIT_STEP_US;
 
     do {
         if (od_flash_nor_ready()) {
             return true;
         }
-    } while ((int32_t)(od_hal_uptime_ms() - deadline) < 0);
+        od_hal_delay_us(WAIT_STEP_US);
+    } while (steps-- > 0u);
     return false;
 }
 
