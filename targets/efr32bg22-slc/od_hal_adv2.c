@@ -41,6 +41,20 @@ static enum od_hal_adv_result ensure_set(void)
     uint8_t handle = OD_ADV2_NO_SET;
     sl_status_t sc = sl_bt_advertiser_create_set(&handle);
     if (sc != SL_STATUS_OK) {
+        if (sc == SL_STATUS_NO_MORE_RESOURCE) {
+            /* NOT backpressure, however much it looks like it from the status code: the
+             * advertising-set pool is sized at compile time, so this fails identically on
+             * every pass forever. Reporting it as RETRY is what makes a device run normally
+             * and simply never be findable, with nothing to search for. Name the cause and
+             * say it ONCE -- the caller retries every pass and would otherwise flood. */
+            static bool told;
+            if (!told) {
+                told = true;
+                od_log_error("adv2: no advertising set free -- raise "
+                             "SL_BT_CONFIG_USER_ADVERTISERS (needs >= 2)");
+            }
+            return OD_HAL_ADV_ERROR;
+        }
         od_log_warn("adv2: create_set sc=0x%04X", (unsigned)sc);
         return from_sc(sc);
     }

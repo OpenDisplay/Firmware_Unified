@@ -1823,6 +1823,15 @@ void opendisplay_ble_on_boot(uint8_t advertising_set_handle)
   s_adv_handle = advertising_set_handle;
   printf("[OD] BLE boot: adv_set=%u\r\n", (unsigned)advertising_set_handle);
 
+  /* Boot needs the same two steps as a config write. Wiring only the write path leaves a
+   * device that is findable until it reboots and silently is not afterwards -- and these
+   * devices deep-sleep and reset far more often than they are reconfigured.
+   *
+   * After the stack is up, because od_hal_adv2 creates its advertising set on demand. */
+  (void)od_cfg_index_build();
+  od_net_a_invalidate();
+  od_net_a_sync(od_config_findmy(&s_od_global_config));
+
   chip_id_hex6(hex);
   snprintf(s_dev_name, sizeof(s_dev_name), "%s%s", OD_NAME_PREFIX, hex);
   printf("[OD] GAP name: %s\r\n", s_dev_name);
