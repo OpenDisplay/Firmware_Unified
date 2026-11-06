@@ -1583,3 +1583,40 @@ on targets that cannot sleep. That is a wire-behaviour change needing its own pl
 update in step, so it is filed rather than done here.
 
 **Sequencing:** answer Q3 before py-opendisplay moves to `0x0053`, not after.
+
+---
+
+## Duplicate `0xB2` action tables resolve by first-match, silently
+
+**Status: OPEN.** Observed on OD58FFC4, 2026-11-06.
+
+`od_cfg_find` returns the first packet with a given id, so a config carrying two
+action tables runs the **older** one and ignores the newer one. Nothing reports
+it: `0x004C` faithfully describes the table it loaded, and a shadowed table is
+indistinguishable from a write that never happened.
+
+This is not a theoretical ordering concern — the obvious client code produces it.
+py-opendisplay round-trips unknown `0x80+` packets through `unknown_ex_packets`,
+so `interrogate()` → append → `write_config()` keeps the old table and adds a new
+one. Three successive writes left **four** tables on the device, the config grew
+by exactly 24 B each time (1964 → 1988 → 2012 B), and the device ran the original
+table throughout. Against the BG22's 2048-byte cap, that path also walks the
+config into an outright refusal in a few more writes.
+
+Debugging it cost most of a session, because every individual signal looked fine:
+the write returned success, a modeled field written alongside it read back
+changed, and `0x004C` reported a valid table with a plausible entry count.
+
+**Three separable fixes, none done:**
+
+1. **Make it observable.** `0x004C` should report how many `0xB2` packets the
+   index found. A count of 2 is then a diagnosis instead of a mystery. Cheapest
+   of the three and worth doing even if the others are rejected.
+2. **Decide the semantics and state them.** First-match is defensible, but so is
+   last-wins (a newer table replacing an older one is what a client writing one
+   intends). Either way `od_cfg_index` should not leave it implicit.
+3. **Fix the host.** py-opendisplay should model the action table, or refuse to
+   serialize two packets with an id the device resolves by first-match.
+
+Until (1) lands, a client replacing the table must drop the existing entries
+rather than append — see `docs/BG22_ACTION_SYSTEM.md`.

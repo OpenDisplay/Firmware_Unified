@@ -106,6 +106,34 @@ warm room into a refresh loop that flattens the battery. The inside/outside
 state starts *unknown*, so the first sample sets a baseline rather than firing:
 a device booting inside its window has not entered it.
 
+## Replacing the table: a client must remove the old `0xB2`, not add one
+
+**Duplicate `0xB2` packets are legal, silent, and useless.** `od_cfg_find` returns
+the *first* match, so a config carrying two tables runs the older one and ignores
+the newer one entirely. Nothing reports this — `0x004C` describes the table it
+loaded, and a table that is being shadowed looks exactly like a write that did
+not happen.
+
+This is easy to hit, because the obvious client code hits it. py-opendisplay
+round-trips unknown `0x80+` packets through `unknown_ex_packets`, so
+`interrogate()` → append a table → `write_config()` **keeps the old one and adds
+a new one**. Observed on OD58FFC4: three successive writes left four tables
+stored, the config grew by exactly 24 bytes each time (1964 → 1988 → 2012 B),
+and the device kept running the original table throughout. At a 2048-byte cap
+that is also four writes from the config being refused outright.
+
+A client replacing the table must **drop the existing `0xB2` entries first**:
+
+```python
+cfg.unknown_ex_packets = [p for p in cfg.unknown_ex_packets if p[1] != 0xB2]
+cfg.unknown_ex_packets.append((0, 0xB2, table))
+```
+
+Two follow-ups, neither done: `0x004C` should report how many `0xB2` packets were
+found so a shadowed table is diagnosable rather than invisible, and the host
+library should either model the action table properly or refuse to serialize a
+second copy of a packet id that the device resolves by first-match.
+
 ## Known limitation
 
 The temperature edge state is **one shared bit**, correct only while every
