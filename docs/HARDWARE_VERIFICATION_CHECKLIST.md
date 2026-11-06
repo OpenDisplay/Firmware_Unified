@@ -1197,8 +1197,23 @@ is open follow-up.
 - [ ] **BUTTON_PRESS and NFC_FIELD triggers are unexercised.** Both need a physical press or
       an NFC scan at the chamber; neither can be driven from here. The entries load active,
       which is not the same as having fired.
+- [x] Temperature triggers fire from a real thermal stimulus. Closed-loop in the chamber: a
+      32..48 °C window armed with the die inside it, three baseline polls with **no fire**
+      (so the trigger is an edge and not a level), then cooled through the lower edge.
+- [ ] **FAILED — temperature triggers chatter.** That single crossing fired **four** times,
+      alternating EXIT/ENTER. `temp_in_window()` has no deadband, the poll is 2 s, and the die
+      reading dithers ±2 °C. Defect and fix in `docs/FOLLOWUPS.md`; this row stays open until a
+      deadband lands and the crossing fires exactly once.
 - [ ] Known limitation, recorded not fixed: the temperature edge state is **one shared bit**,
-      correct only while every temperature entry uses the same window.
+      correct only while every temperature entry uses the same window. Untested — the chatter
+      above has to be fixed before a two-window test could be read.
+
+**Two notes on how these rows were obtained**, because both cost a session's time. The action
+table is reached through `od_cfg_index`, which resolves by FIRST match, and py-opendisplay
+round-trips unknown `0x80+` packets — so `interrogate()` → append → `write_config()` silently
+stacks tables and keeps running the oldest. Verify `0x004C` reports the table you think you
+wrote before trusting any row here. And a BLE poll every ~38 s cannot order events the firmware
+generates every 2 s: assert on counts, not on `last`.
 
 ### Flash budget — a reporting bug worth knowing before trusting a build
 
