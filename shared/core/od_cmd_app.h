@@ -59,6 +59,17 @@ od_cmd_result_t od_cmd_app_led_activate(const od_cmd_ctx_t *ctx, od_span_t body)
 od_cmd_result_t od_cmd_app_led_stop(const od_cmd_ctx_t *ctx, od_span_t body);          /* 0x0075 */
 od_cmd_result_t od_cmd_app_buzzer(const od_cmd_ctx_t *ctx, od_span_t body);            /* 0x0077 */
 
+/* --- config-driven drive path ---------------------------------------------------------------- */
+
+/* CMD_DRIVE_WRITE_START: a full-frame write that NAMES a drive mode from the config, so a
+ * multi-pass mode (16-colour BWRY needs three) is one transfer rather than three.
+ *
+ * Gated on the capability, not on the protocol version: the opcode is canonical at 2.3, but a
+ * target whose display path cannot run a config-declared mode must answer unknown-opcode. */
+#if OD_CAP_DRIVE_WRITE
+od_cmd_result_t od_cmd_app_drive_write_start(const od_cmd_ctx_t *ctx, od_span_t body); /* 0x0085 */
+#endif
+
 /* --- image store and actions, EXPERIMENTAL -------------------------------------------------- */
 
 /* Declared here rather than beside the target that implements them, because od_dispatch_ops.h

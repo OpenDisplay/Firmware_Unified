@@ -28,7 +28,10 @@ set(OD_PROFILE_SILABS
     OD_CONFIG_WITH_BUZZER=0
     OD_CONFIG_WITH_WIFI=0
     OD_CONFIG_WITH_DATA_EXTENDED=0
-    OD_CAP_IMGSTORE=1)
+    OD_CAP_IMGSTORE=1
+    # CMD_DRIVE_WRITE_START: canonical at protocol 2.3, Silabs-first. Only this target has a
+    # display path driven from config drive packets, so only this target routes it.
+    OD_CAP_DRIVE_WRITE=1)
 
 # Compile-time log level, one selector for every target.
 #

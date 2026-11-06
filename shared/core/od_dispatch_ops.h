@@ -50,6 +50,17 @@
 #define OD_DISPATCH_IMGSTORE_ROWS(X)
 #endif
 
+/* CMD_DRIVE_WRITE_START is CANONICAL, unlike the experimental block above: it is specified in
+ * shared/protocol/opendisplay_protocol.h at 2.3 with its own OD_ERR_DRIVE_* namespace. Only the
+ * routing is gated, because a target whose display path cannot run a config-declared mode must
+ * answer unknown-opcode rather than accept and fail. */
+#if OD_CAP_DRIVE_WRITE
+#define OD_DISPATCH_DRIVE_ROWS(X)                                                    \
+    X(CMD_DRIVE_WRITE_START,   od_cmd_app_drive_write_start, 1u)
+#else
+#define OD_DISPATCH_DRIVE_ROWS(X)
+#endif
+
 #define OD_DISPATCH_OPCODE_ROWS(X)                                                   \
     X(CMD_REBOOT,              od_cmd_app_reboot,          1u)                       \
     X(CMD_CONFIG_READ,         od_cmd_app_config_read,     1u)                       \
@@ -71,6 +82,7 @@
     X(CMD_PIPE_WRITE_DATA,     od_pipe_data,               (OD_CAP_PIPE ? 3u : 1u))  \
     X(CMD_PIPE_WRITE_END,      od_pipe_end,                (OD_CAP_PIPE ? 3u : 1u))  \
     X(CMD_NFC_ENDPOINT,        od_nfc_frame,               1u)                       \
+    OD_DISPATCH_DRIVE_ROWS(X)                                                        \
     OD_DISPATCH_IMGSTORE_ROWS(X)
 
 #endif /* OD_DISPATCH_OPS_H */

@@ -39,6 +39,20 @@
 #define OD_CAP_IMGSTORE 0
 #endif
 
+/* CMD_DRIVE_WRITE_START (0x0085): full-frame write naming a config-declared drive mode.
+ *
+ * DEFAULT OFF for the same reason as OD_CAP_IMGSTORE: it is answerable only by a target whose
+ * display path is driven from config drive packets (0xAE-0xB1) and can run a mode's declared
+ * pass count. A target without that must answer the ordinary unknown-opcode NACK rather than
+ * claim an opcode it cannot honour -- and "unknown" is wire-visible, so the distinction is not
+ * cosmetic.
+ *
+ * The protocol header calls this Silabs-first, and efr32bg22-slc is the only target that sets
+ * it. The spec and the error namespace are already in shared/protocol; this gates the routing. */
+#ifndef OD_CAP_DRIVE_WRITE
+#define OD_CAP_DRIVE_WRITE 0
+#endif
+
 #ifndef OD_XFER_DIRECT_AUTO_END
 #define OD_XFER_DIRECT_AUTO_END 0
 #endif

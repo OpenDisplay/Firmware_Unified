@@ -898,7 +898,9 @@ if(Python3_FOUND)
         corpus_runner.c
         corpus_profile_silabs.c
         imgstore_app_test_stub.c
+        drive_display_test_stub.c
         fake_silabs/fake_silabs.c
+        ../../targets/efr32bg22-slc/od_cmd_drive.c
         ../../targets/efr32bg22-slc/od_cmd_silabs.c
         ../../targets/efr32bg22-slc/od_inflate_app.c
         ${OD_VEC_INC})
@@ -917,8 +919,10 @@ if(Python3_FOUND)
     add_executable(od_silabs_fault_test
         silabs_fault_test.c
         imgstore_app_test_stub.c
+        drive_display_test_stub.c
         fake_silabs/fake_silabs.c
         fake_silabs/fake_silabs_bgapi.c
+        ../../targets/efr32bg22-slc/od_cmd_drive.c
         ../../targets/efr32bg22-slc/od_cmd_silabs.c
         ../../targets/efr32bg22-slc/od_inflate_app.c
         ../../targets/efr32bg22-slc/opendisplay_pipe.c

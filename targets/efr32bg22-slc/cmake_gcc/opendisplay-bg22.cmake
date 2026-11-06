@@ -305,6 +305,8 @@ add_library(slc OBJECT
     "../od_epd_shim.cpp"
     "../od_hal_spi.c"
     "../od_cmd_flash.c"
+    "../od_cmd_drive.c"
+    "../od_display_drive.cpp"
     "../od_action_app_silabs.c"
 )
 

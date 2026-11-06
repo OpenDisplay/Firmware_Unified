@@ -222,6 +222,12 @@ HOOK(od_cmd_app_action_info,      OD_CMD_ACTION_INFO)
 HOOK(od_cmd_app_action_fire,      OD_CMD_ACTION_FIRE)
 #endif
 
+/* Same reason, for the config-driven drive path. This fixture asserts that a routed opcode
+ * reaches its hook with the right budget, not what the hook does with the panel. */
+#if OD_CAP_DRIVE_WRITE
+HOOK(od_cmd_app_drive_write_start, CMD_DRIVE_WRITE_START)
+#endif
+
 static bool g_mutates_config;
 bool od_cmd_mutates_config(uint16_t cmd)
 {
