@@ -45,18 +45,18 @@
 
 		slot0_partition: partition@33000 {
 			label = "image-0";
-			reg = <0x00033000 0x00088000>;
+			reg = <0x00033000 0x00090000>;
 		};
 
-		/* The PERMANENT firmware loader, not a staging copy of the application --
+		/* The PERMANENT firmware loader, not a staging copy of the application:
 		 * FIRMWARE_LOADER_image_default.overlay points the loader's own
 		 * zephyr,code-partition at slot1_partition. Sized for an SMP server rather
-		 * than for a second copy of the app, which is what buys the application
-		 * 544 kB instead of 368 kB.
+		 * than a second copy of the app, which is what buys the application 540 kB
+		 * instead of 368 kB.
 		 */
-		slot1_partition: partition@bb000 {
+		slot1_partition: partition@d7000 {
 			label = "image-1";
-			reg = <0x000BB000 0x00030000>;
+			reg = <0x000D7000 0x00014000>;
 		};
 
 		/* 36 kB, not the 32 kB of the Adafruit-only layout: the two slots are

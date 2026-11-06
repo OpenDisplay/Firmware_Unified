@@ -1,36 +1,37 @@
-# nRF52840 with MCUboot CHAINED BEHIND the Adafruit bootloader.
+# nRF52840, MCUboot FIRMWARE-UPDATER mode chained behind the Adafruit bootloader.
 #
-# Only used when OD_NRF52840_MCUBOOT=1; the default build keeps the Adafruit bootloader alone
-# and never reads this file. Boot order is Adafruit (0xF4000) -> MCUboot (0x27000) -> app slot.
+# Only read when OD_NRF52840_MCUBOOT=1, and passed explicitly with -DPM_STATIC_YML_FILE.
+# DELIBERATELY NOT NAMED pm_static_xiao_ble_nrf52840.yml: Partition Manager auto-applies a map
+# named for the board to EVERY build of that board, which broke the default Adafruit-only
+# build with "'_sysbuild/mcuboot_primary_app_hex' ... missing and no known rule to make it".
 #
-# DELIBERATELY *NOT* NAMED pm_static_xiao_ble_nrf52840.yml. Partition Manager auto-discovers a
-# file named for the board and applies it to EVERY build of that board, which broke the default
-# Adafruit-only build with "'_sysbuild/mcuboot_primary_app_hex', needed by 'mcuboot_primary.hex',
-# missing" -- the map asked for MCUboot partitions in a composition that builds no MCUboot image.
-# build.sh passes this file explicitly with -DPM_STATIC_YML_FILE so it applies only to the
-# chained composition.
+# Boot order: Adafruit (0xF4000) -> MCUboot (0x27000) -> application, or -> the permanent
+# firmware loader when a boot-mode request asks for it.
 #
-# EVERY ADDRESS HERE IS FORCED BY HARDWARE THAT IS ALREADY ON THE BOARD, not chosen:
+# REQUIRES patches/0001-dfu-boot-recognise-firmware_loader-slot.patch applied to the NCS tree.
+# Without it the loader image cannot compile: zephyr/subsys/dfu/boot/mcuboot.c only resolves an
+# active slot for images at mcuboot_primary or mcuboot_secondary, and stops at "#error Missing
+# partition definitions" for one living in firmware_loader.
 #
+# THE FIXED POINTS ARE THE HARDWARE'S, NOT CHOICES.
 #   0x00000  MBR + SoftDevice s140 v7, 156 kB. The Adafruit bootloader ships with these and
-#            needs the MBR for reset forwarding and its own DFU flash writes. The Zephyr app
-#            does NOT use the SoftDevice -- NCS links the SoftDevice CONTROLLER into the image
-#            instead -- so this region is dead weight to us, but it cannot be reclaimed without
-#            rebuilding the Adafruit bootloader, which derives the application start address
-#            from the SoftDevice info struct. Measured on an EN04: bootloader 0.10.6 + s140
-#            7.3.0, serial DFU only, NO mass-storage interface, so a failed bootloader rewrite
-#            has no UF2 fallback. Hence: left alone.
-#   0x27000  Where the Adafruit bootloader jumps. MCUboot must start exactly here.
-#   0xF4000  Adafruit bootloader itself, 48 kB.
+#            needs the MBR; the Zephyr app links the SoftDevice CONTROLLER instead and never
+#            calls s140. Dead weight, but not reclaimable without rebuilding the bootloader,
+#            which derives the application start address from the SoftDevice info struct.
+#   0x27000  Where the Adafruit bootloader jumps. MCUboot starts exactly here.
+#   0xF4000  The Adafruit bootloader. Measured on an EN04: 0.10.6 + s140 7.3.0, serial DFU
+#            only, NO mass-storage interface -- erasing it leaves no USB way back.
 #
-# That leaves 0x27000..0xF4000 for MCUboot + two slots + settings, and nothing else.
+# WHY THIS RATHER THAN TWO EQUAL SLOTS. Dual-slot was built and measured: 371,152 B in a
+# 376,320 B slot, 98.63% full, and it did not boot. Enabling MCUboot + mcumgr costs ~14 kB
+# flash and ~13 kB RAM, so sizing against a non-OTA image understates by threefold. Trading
+# the staging copy for a small permanent loader is what makes OTA fit on this part at all.
 #
-# HEADROOM IS THIN AND THAT IS THE POINT OF WRITING IT DOWN: the app measured 356,660 B against
-# a 376,320 B slot payload, about 5%. Dual-slot OTA on this part is not comfortable, it merely
-# fits. Anything that grows the image meaningfully needs this map revisited first.
+# THE TRADE IS ATOMICITY. There is no second copy of the application, so an interrupted update
+# leaves the primary slot invalid and MCUboot returns to the loader -- recoverable over the
+# air, but the device is not running the application until a retry succeeds. Dual-slot would
+# swap back instead. That is the real decision between the two, not size.
 
-# MBR + SoftDevice. Declared so Partition Manager accounts for the region rather than treating
-# it as free space and placing a slot over the bootloader's own stack.
 mbr_and_softdevice:
   address: 0x0
   size: 0x27000
@@ -41,46 +42,35 @@ mcuboot:
   size: 0xC000
   region: flash_primary
 
-# 0x33000..0xBA000 (540 kB) IS DELIBERATELY LEFT UNDECLARED. Partition Manager requires
-# EXACTLY ONE gap in a static map to place its dynamic partitions into, and this is it: it
-# becomes mcuboot_primary, i.e. mcuboot_pad + the signed application. Declaring it here --
-# even just the span -- produced "Incorrect amount of gaps found in static configuration ...
-# Gaps found (0)", and declaring its sub-partitions by hand instead produced
-# "'_sysbuild/mcuboot_primary_app_hex' ... missing and no known rule to make it", because the
-# hand-written entries displaced the ones the signing rules attach to. Pin the fixed points
-# around the application and let PM own the application region.
+# 0x33000..0xC3000 (576 kB) IS DELIBERATELY LEFT UNDECLARED. Partition Manager needs EXACTLY
+# ONE gap in a static map to place its dynamic partitions into, and this is it: it becomes
+# mcuboot_primary, i.e. mcuboot_pad plus the signed application. Declaring it -- even only the
+# span -- gives "Incorrect amount of gaps found in static configuration ... Gaps found (0)",
+# and hand-writing its sub-partitions displaces the entries the signing rules attach to.
 
-# THE LOADER LIVES IN mcuboot_secondary, which is the point of the whole layout.
+# SIZED FOR THE LOADER EVEN THOUGH THE LOADER DOES NOT LIVE HERE.
 #
-# In classic dual-slot the secondary is a staging copy of the application, so it must be as big
-# as the application and the two together consume the flash. Firmware-updater mode replaces that
-# copy with a small PERMANENT updater, so the secondary only has to hold an SMP server and the
-# application keeps the rest.
+# The loader's signing step takes its --slot-size from mcuboot_secondary, not from
+# firmware_loader: with this pinned to one sector imgtool failed with "Image size (0x1228f) +
+# trailer (0x630) exceeds requested size 0x1000". So the secondary cannot be a stub, even
+# though in firmware-updater mode nothing is ever staged into it. It is dead space bought to
+# satisfy a signing parameter -- another seam where NCS's firmware-updater support is
+# incomplete, alongside the dfu/boot/mcuboot.c patch this layout already requires.
 #
-# IT IS THE SECONDARY RATHER THAN A PARTITION OF ITS OWN FOR A CONCRETE REASON.
-# zephyr/subsys/dfu/boot/mcuboot.c decides which slot it is running from by comparing PM_ADDRESS
-# against PM_MCUBOOT_PRIMARY_ADDRESS and PM_MCUBOOT_SECONDARY_ADDRESS, and nothing else. An image
-# living in a separately-named firmware_loader partition matches neither and the build stops at
-# "#error Missing partition definitions" with ACTIVE_SLOT_FLASH_AREA_ID undeclared. Placing the
-# loader at the secondary address satisfies that comparison directly.
-#
-# Partition Manager still requires a partition literally named firmware_loader in this mode
-# (it raises KeyError: 'firmware_loader' otherwise), so that name is a span over the same
-# region rather than a second allocation.
+# 0x14000 is the measured loader (73,720 B) plus header, trailer and a sector of slack.
 mcuboot_secondary:
-  address: 0xBB000
-  size: 0x30000
+  address: 0xC3000
+  size: 0x14000
   region: flash_primary
 
-# Address and size as well as the span: Partition Manager's STATIC path computes
-# end_address = address + size for every entry and raises KeyError: 'address' on a
-# span-only declaration. The span still records that this is the same region, not a
-# second allocation.
+# The PERMANENT firmware loader: an SMP server, not a staging copy of the application. Its own
+# partition rather than an alias of mcuboot_secondary, because Partition Manager rejects the
+# alias ("Container partitions are not allowed to share the name of the image that defines
+# it"). Measured at 73,720 B / 37.5% of this slot.
 firmware_loader:
-  address: 0xBB000
-  size: 0x30000
+  address: 0xD7000
+  size: 0x14000
   region: flash_primary
-  span: [mcuboot_secondary]
 
 settings_storage:
   address: 0xEB000

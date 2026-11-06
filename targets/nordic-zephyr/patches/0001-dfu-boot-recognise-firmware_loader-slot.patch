@@ -1,0 +1,72 @@
+From: OpenDisplay <noreply@anthropic.com>
+Subject: [PATCH] dfu: boot: resolve the active slot for a firmware_loader image
+
+Zephyr's MCUboot DFU helper resolves which slot it is executing from by
+comparing PM_ADDRESS against mcuboot_primary and mcuboot_secondary, and nothing
+else. In MCUboot firmware-updater mode the SMP server runs from its own
+`firmware_loader` partition, so it matches neither and the build stops at
+"#error Missing partition definitions", with ACTIVE_SLOT_FLASH_AREA_ID
+undeclared at every use site.
+
+That makes the mode unusable: the loader cannot contain the DFU library it
+exists to run. Partition Manager will not reconcile it either -- it requires
+the loader to live in a partition named firmware_loader and rejects aliasing
+that name onto mcuboot_secondary:
+
+  Partition image 'firmware_loader' is a container with a span of one or more
+  images, but has the same name of its image. Container partitions are not
+  allowed to share the name of the image that defines it.
+
+The sysbuild path a few lines above already carries an explicit
+"TODO: Add firmware loader support", so this is a known gap rather than a
+misconfiguration; this adds the equivalent arm to the legacy child/parent path.
+
+NOTE THE COMPARISON OMITS PM_ADDRESS_OFFSET, unlike the two arms above it. That
+offset is mcuboot_pad, which precedes mcuboot_primary_app only. The firmware
+loader is not an MCUboot slot image and carries no pad, so PM_ADDRESS is its
+partition address exactly -- measured on nRF52840, both 0xBB000. Subtracting the
+pad compares 0xBAE00 against 0xBB000 and falls silently through to the #error.
+
+The loader is permanent -- never swapped, reverted or confirmed -- so pointing
+the active slot at its own flash area is inert. The point is that the
+translation unit compiles, letting the loader write the PRIMARY slot.
+
+Guarded on defined(PM_FIRMWARE_LOADER_ADDRESS), so every build without a
+firmware loader is bit-for-bit unchanged.
+
+Measured on nRF52840 (Seeed EN04, chained behind the Adafruit bootloader):
+firmware-updater mode gives a 540 kB application slot against 368 kB for
+dual-slot, which on this part is the difference between 35% headroom and 1.4%.
+
+Apply:   cd ~/ncs/v3.3.1/zephyr && git apply <this file>
+Revert:  cd ~/ncs/v3.3.1/zephyr && git checkout subsys/dfu/boot/mcuboot.c
+---
+--- a/subsys/dfu/boot/mcuboot.c
++++ b/subsys/dfu/boot/mcuboot.c
+@@ -107,6 +107,26 @@
+ 	#define ACTIVE_SLOT_FLASH_AREA_ID	PM_MCUBOOT_PRIMARY_ID
+ #elif (PM_ADDRESS - PM_ADDRESS_OFFSET) == PM_MCUBOOT_SECONDARY_ADDRESS
+ 	#define ACTIVE_SLOT_FLASH_AREA_ID	PM_MCUBOOT_SECONDARY_ID
++#elif defined(PM_FIRMWARE_LOADER_ADDRESS) && (PM_ADDRESS == PM_FIRMWARE_LOADER_ADDRESS)
++	/* Firmware-updater mode: this image is the permanent firmware loader, which lives
++	 * in its own partition rather than in either MCUboot slot. Without this arm it
++	 * matches neither address above and the build stops at the #error below, so the
++	 * loader cannot contain the DFU library it exists to run.
++	 *
++	 * COMPARED WITHOUT PM_ADDRESS_OFFSET, unlike the two arms above. That offset is
++	 * mcuboot_pad, which precedes mcuboot_primary_app only; the loader is not an
++	 * MCUboot slot image and carries no pad, so PM_ADDRESS is its partition address
++	 * exactly. Subtracting the pad here compares 0xBAE00 against 0xBB000 and silently
++	 * falls through to the #error.
++	 *
++	 * The loader is never swapped, reverted or confirmed, so naming its own flash area
++	 * as the active slot is inert; what this buys is that the file compiles and the
++	 * loader can write the PRIMARY slot.
++	 *
++	 * Legacy child/parent counterpart of the "TODO: Add firmware loader support" noted
++	 * on the sysbuild path above.
++	 */
++	#define ACTIVE_SLOT_FLASH_AREA_ID	PM_FIRMWARE_LOADER_ID
+ #else
+ 	#error Missing partition definitions.
+ #endif
