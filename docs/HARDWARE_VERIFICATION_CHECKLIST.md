@@ -1222,3 +1222,35 @@ The SLC build script's "Free in application FLASH region" **overstates by 24576 
 subtract it. Real ceiling is **253952**, not 278528. Acting on the reported figure is what
 made a 4116-byte overflow look like 26016 bytes of headroom. Fixing the script is open
 follow-up.
+
+
+---
+
+## `xiao_ble` / EN04 — BLE OTA via dual-slot MCUboot (2026-11-06)
+
+One board, **OD114608** (Seeed EN04, `E0:91:D1:32:80:27`), SoftDevice erased and MCUboot
+chained behind the Adafruit bootloader. Opt-in behind `OD_NRF52840_MCUBOOT=1`.
+
+- [x] **SoftDevice erase moves the application start to 0x1000.** `0x3004` went
+      `51b1e5db` -> `ffffffff`, and a reset issued with NO DFU request landed in serial DFU
+      -- which the bootloader can only do by looking at `0x1000` and finding erased flash.
+      Reclaims 152 kB. Reversible: `s140_nrf52_7.3.0_softdevice.hex` over serial DFU.
+- [x] **Chain boots**: Adafruit (`0xF4000`) -> MCUboot (`0x1000`) -> application
+      (`0xD200`), advertising and USB CDC up.
+- [x] **Fits with room**: application 371,152 B of 450,048 B (82.5%). The same image was
+      98.6% of a 376,320 B slot before the erase, and did not boot.
+- [x] **BLE OTA end to end.** 372,016 B uploaded over SMP into the secondary slot, marked
+      for test, rebooted, and MCUboot swapped: slot0 went `298810f2...` -> `0fde8171...`
+      and came back `active=True confirmed=True`, with the previous image retained in
+      slot1. Client was `smpclient` over BLE; no physical contact at any point.
+- [x] A first upload of the IDENTICAL image was correctly refused at the mark step with
+      `IMAGE_SETTING_TEST_TO_ACTIVE_DENIED`. Recorded because it looks like a failure and
+      is not: MCUboot will not mark the running image for test.
+- [ ] **Rollback on a bad image is NOT exercised.** The swap-back path -- boot a
+      deliberately broken image, let it fail to confirm, confirm MCUboot reverts -- is the
+      property dual-slot is being paid for and it remains unproven.
+- [ ] **Images are signed with MCUboot's published debug key.** The build says so
+      explicitly. Must not ship.
+- [ ] Fleet migration (erasing the SoftDevice on existing devices) is a per-device USB
+      visit: the erase also removes the Adafruit bootloader's BLE DFU, so there is no radio
+      path left for stragglers.
