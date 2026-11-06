@@ -5,6 +5,7 @@
 #include "opendisplay_display.h"
 #include "od_cfg_index.h"
 #include "od_net_a.h"
+#include "od_flash_probe.h"
 #include "opendisplay_led.h"
 #include "opendisplay_pipe.h"
 #include "opendisplay_constants.h"
@@ -1831,6 +1832,23 @@ void opendisplay_ble_on_boot(uint8_t advertising_set_handle)
   (void)od_cfg_index_build();
   od_net_a_invalidate();
   od_net_a_sync(od_config_findmy(&s_od_global_config));
+
+  /* DIAGNOSTIC -- published where a SCANNER can see it, because there is no J-Link on this rig
+   * and printf goes nowhere. dynamic_return[0..4] is zero on a device with no buttons or
+   * sensors mapped into the advertisement, which is this one. Remove with the probe. */
+  {
+    const od_flash_probe_result_t *fp = od_flash_probe_run(&s_od_global_config);
+    printf("[OD] flash probe: st=%u id=%02X %02X %02X sr=%02X\r\n",
+           (unsigned)fp->status, (unsigned)fp->manufacturer,
+           (unsigned)fp->mem_type, (unsigned)fp->capacity, (unsigned)fp->status_reg);
+    if (sizeof(dynamic_return) >= 5u) {
+      dynamic_return[0] = 0xF1u;        /* tag, so a stale frame is obvious */
+      dynamic_return[1] = fp->status;
+      dynamic_return[2] = fp->manufacturer;
+      dynamic_return[3] = fp->mem_type;
+      dynamic_return[4] = fp->capacity;
+    }
+  }
 
   chip_id_hex6(hex);
   snprintf(s_dev_name, sizeof(s_dev_name), "%s%s", OD_NAME_PREFIX, hex);

@@ -301,6 +301,7 @@ add_library(slc OBJECT
     "../od_epd_io_silabs.c"
     "../od_epd_adapter.cpp"
     "../od_epd_shim.cpp"
+    "../od_flash_probe.c"
 )
 
 target_include_directories(slc PUBLIC
