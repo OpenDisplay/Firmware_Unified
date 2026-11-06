@@ -1659,3 +1659,66 @@ found this reported "WRONG TRIGGER" — it expected EXIT first and sampled
 `last=TEMP_ENTER` — which was the harness being too slow, not the firmware
 picking the wrong trigger. The real signal was `fires` jumping 0 -> 4. Any
 future edge test should assert on per-trigger counts, not on `last`.
+
+---
+
+## MCUboot on nRF52840: dual-slot is cramped, firmware-updater mode is blocked upstream
+
+**Status: BLOCKED on an NCS v3.3.1 inconsistency, not on our configuration.** Measured
+2026-11-06 against an EN04. Everything below is opt-in behind `OD_NRF52840_MCUBOOT=1`; the
+default build is unchanged and verified at 356,956 B.
+
+### The flash is fixed at both ends
+
+The Adafruit bootloader sits at `0xF4000` and jumps to `0x27000`, with MBR + SoftDevice s140
+below. MCUboot must therefore be chained at `0x27000`, leaving `0x27000..0xF4000` for MCUboot,
+the application and settings. Measured on the board: bootloader 0.10.6 + s140 7.3.0, **serial
+DFU only, no mass-storage interface**, so a failed bootloader rewrite has no UF2 fallback. That
+is why MCUboot is chained rather than installed at `0x0`.
+
+The application is 356,956 B and MCUboot is 27,660 B of a 48 kB slot.
+
+### Dual-slot works and is tight
+
+Two equal slots give **368 kB each, about 5% headroom**. It builds, but there is no room to
+grow and no margin for a debug build.
+
+### Firmware-updater mode would fix that, and cannot be made to work
+
+`SB_CONFIG_MCUBOOT_MODE_FIRMWARE_UPDATER` replaces the staging copy with a small permanent
+loader, which should give the application ~540 kB (35% headroom). Getting there needed four
+Partition Manager constraints, all now encoded in `pm_static_nrf52840_mcuboot.yml`:
+
+1. A static map named `pm_static_<board>.yml` is auto-applied to EVERY build of that board and
+   broke the default one. Pass it explicitly with `-DPM_STATIC_YML_FILE`.
+2. Hand-written `mcuboot_pad` / `mcuboot_primary_app` displace the entries the signing rules
+   attach to: `'_sysbuild/mcuboot_primary_app_hex' ... missing and no known rule to make it`.
+3. PM needs **exactly one gap** in a static map to place dynamic partitions into.
+4. PM creates `mcuboot_secondary` with `share_size` even in this mode, halving that gap and
+   leaving the application 278 kB -- *smaller* than dual-slot. Pinning the secondary to a 4 kB
+   stub reclaims it, and the application then builds at 357,272 B in a 552,448 B slot.
+
+**The loader image is where it dies.** `zephyr/subsys/dfu/boot/mcuboot.c` resolves which slot
+it is running from by comparing `PM_ADDRESS` against `PM_MCUBOOT_PRIMARY_ADDRESS` and
+`PM_MCUBOOT_SECONDARY_ADDRESS` and nothing else; an image in a `firmware_loader` partition
+matches neither and stops at `#error Missing partition definitions`. Moving the loader into
+`mcuboot_secondary` to satisfy that comparison is refused outright by Partition Manager:
+
+> Partition image 'firmware_loader' is a container with a span of one or more images, but has
+> the same name of its image. Container partitions are not allowed to share the name of the
+> image that defines it.
+
+So PM insists the loader lives in `firmware_loader`, and the DFU library the loader exists to
+run refuses to compile anywhere but primary or secondary. Two Nordic components disagree and
+no configuration reconciles them.
+
+**Ways forward, none attempted:** teach `dfu/boot/mcuboot.c` about `PM_FIRMWARE_LOADER_ADDRESS`
+and carry it as an NCS patch or upstream it; write a loader that does not use Zephyr's
+`img_mgmt`; or stay on dual-slot and accept 5%.
+
+### What to use meanwhile
+
+Nothing here is required for updates today. `CMD_ENTER_DFU` now reboots into the Adafruit
+bootloader over BLE (hardware-verified round trip), so a device is reflashable over serial DFU
+without physical access. That closed the problem this work was chasing; MCUboot would only add
+atomic rollback and signature enforcement.

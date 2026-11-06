@@ -1,0 +1,119 @@
+/*
+ * nRF52840 flash map for MCUboot CHAINED behind the Adafruit bootloader.
+ * Applied to both the app and the mcuboot image, and only when OD_NRF52840_MCUBOOT=1.
+ *
+ * WHY A DEVICETREE OVERLAY WHEN pm_static_xiao_ble_nrf52840.yml ALREADY DESCRIBES THIS.
+ * Partition Manager runs after every image has configured, but MCUboot's own CMakeLists
+ * requires the slot0_partition NODELABEL during its configure -- it fails with "required
+ * nodelabel not found: slot0_partition" before Partition Manager has placed anything. The
+ * upstream xiao_ble board pulls in nrf52840_partition_uf2_sdv7.dtsi, which describes the
+ * Adafruit/UF2 layout and has no MCUboot slots at all. So the slots must exist in DT as well,
+ * and the two descriptions MUST agree: Partition Manager wins at runtime, and a DT map that
+ * disagreed would place MCUboot's idea of a slot somewhere the image is not.
+ *
+ * Addresses are forced by what is already on the board, not chosen -- see the header of
+ * pm_static_xiao_ble_nrf52840.yml for why 0x27000 and 0xF4000 are fixed points.
+ */
+
+/delete-node/ &reserved_partition_0;
+/delete-node/ &code_partition;
+/delete-node/ &storage_partition;
+/delete-node/ &boot_partition;
+
+&flash0 {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		/* MBR + SoftDevice s140 v7. The Adafruit bootloader needs the MBR; the
+		 * Zephyr app uses the SoftDevice CONTROLLER library instead and never
+		 * calls into s140. Reserved, not reclaimed: the Adafruit bootloader
+		 * derives the application start address from the SoftDevice info struct.
+		 */
+		sd_reserved: partition@0 {
+			label = "SoftDevice";
+			read-only;
+			reg = <0x00000000 0x00027000>;
+		};
+
+		/* MCUboot, where the Adafruit bootloader jumps. */
+		boot_partition: partition@27000 {
+			label = "mcuboot";
+			reg = <0x00027000 0x0000C000>;
+		};
+
+		slot0_partition: partition@33000 {
+			label = "image-0";
+			reg = <0x00033000 0x00088000>;
+		};
+
+		/* The PERMANENT firmware loader, not a staging copy of the application --
+		 * FIRMWARE_LOADER_image_default.overlay points the loader's own
+		 * zephyr,code-partition at slot1_partition. Sized for an SMP server rather
+		 * than for a second copy of the app, which is what buys the application
+		 * 544 kB instead of 368 kB.
+		 */
+		slot1_partition: partition@bb000 {
+			label = "image-1";
+			reg = <0x000BB000 0x00030000>;
+		};
+
+		/* 36 kB, not the 32 kB of the Adafruit-only layout: the two slots are
+		 * sector-aligned at 0x5C000 each and leave 0xEB000..0xEC000 spare, which
+		 * is absorbed here so storage ends exactly at the Adafruit bootloader.
+		 */
+		storage_partition: partition@eb000 {
+			label = "storage";
+			reg = <0x000EB000 0x00009000>;
+		};
+
+		/* Described so nothing is ever placed over it. Erasing this is the one
+		 * change this board cannot recover from over USB: the bootloader exposes
+		 * serial DFU only, with no mass-storage fallback.
+		 */
+		adafruit_partition: partition@f4000 {
+			label = "adafruit-bootloader";
+			read-only;
+			reg = <0x000F4000 0x0000C000>;
+		};
+	};
+};
+
+/ {
+	chosen {
+		/* The deleted code_partition was the chosen one; without this the build
+		 * resolves zephyr,code-partition to a node that no longer exists.
+		 */
+		zephyr,code-partition = &slot0_partition;
+	};
+};
+
+/* Boot-mode retention, required by SB_CONFIG_MCUBOOT_MODE_FIRMWARE_UPDATER_BOOT_MODE_ENTRANCE.
+ *
+ * Without it MCUboot refuses to build -- boot/zephyr/io.c: "Firmware loader selected without an
+ * entrance mode set" -- because the sysbuild option only takes effect when a zephyr,boot-mode
+ * chosen node exists, and the xiao_ble devicetree has none.
+ *
+ * GPREGRET1 carries it. That is the register MCUboot and the DFU handshake already own:
+ * od_hal_wdt deliberately keeps its watchdog breadcrumb in GPREGRET2 so a strike write cannot
+ * clobber a pending boot request, and the Adafruit-bootloader entry path in opendisplay_ble.c
+ * writes this same register -- but that code is compiled out whenever MCUboot is present, so
+ * exactly one owner exists in either composition.
+ *
+ * One byte, no prefix or checksum: a boot mode is a single value, and the register is 1 byte
+ * wide, so there is no room for either and nothing that needs them.
+ */
+&gpregret1 {
+	boot_mode0: retention@0 {
+		compatible = "zephyr,retention";
+		status = "okay";
+		reg = <0x0 0x1>;
+	};
+};
+
+/ {
+	chosen {
+		zephyr,boot-mode = &boot_mode0;
+	};
+};

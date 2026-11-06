@@ -86,7 +86,12 @@ CMAKE_ARGS=(-DBOARD_ROOT="${SCRIPT_DIR}")
 # selection derive from the same predicate so their board scopes cannot diverge.
 OD_BOARD_TAG="${BOARD%%/*}"
 OD_USES_MCUBOOT=1
-if [[ "${OD_BOARD_TAG}" == xiao_ble* ]]; then
+# OD_NRF52840_MCUBOOT=1 chains MCUboot BEHIND the Adafruit bootloader instead of replacing it:
+# Adafruit (0xF4000) -> MCUboot (0x27000) -> app slot. Opt-in, because it buys BLE OTA at the
+# cost of halving the application region, and on this part that leaves only about 5% spare.
+# Default stays the Adafruit-only composition (Milestone 7).
+OD_NRF52840_MCUBOOT="${OD_NRF52840_MCUBOOT:-0}"
+if [[ "${OD_BOARD_TAG}" == xiao_ble* && "${OD_NRF52840_MCUBOOT}" != 1 ]]; then
   OD_USES_MCUBOOT=0
 fi
 
@@ -112,11 +117,34 @@ fi
 # right file is selected here. Without this an xiao_ble build fails at configure with
 # "required nodelabel not found: slot0_partition" -- upstream xiao_ble ships pm_static.yml for
 # the Adafruit layout and has no MCUboot partitions.
+OD_EXTRA_CONFS=()
 if [[ "${OD_USES_MCUBOOT}" == 0 ]]; then
   CMAKE_ARGS+=(-DSB_CONF_FILE="${SCRIPT_DIR}/zephyr/sysbuild_adafruit.conf")
+elif [[ "${OD_BOARD_TAG}" == xiao_ble* ]]; then
+  # Chained MCUboot: its own sysbuild file, plus an app overlay that undoes the three
+  # disables in boards/xiao_ble_nrf52840.conf. The static partition map that pins MCUboot to
+  # 0x27000 is picked up by Partition Manager from pm_static_xiao_ble_nrf52840.yml.
+  CMAKE_ARGS+=(-DSB_CONF_FILE="${SCRIPT_DIR}/zephyr/sysbuild_adafruit_mcuboot.conf")
+  OD_EXTRA_CONFS+=("${APP_DIR}/prj_nrf52840_mcuboot.conf")
+  # Passed explicitly rather than relying on Partition Manager's board-name discovery: a file
+  # called pm_static_xiao_ble_nrf52840.yml would also be applied to the default Adafruit-only
+  # build, which then fails looking for an MCUboot image it never builds.
+  CMAKE_ARGS+=(-DPM_STATIC_YML_FILE="${APP_DIR}/pm_static_nrf52840_mcuboot.yml")
+  # MCUboot's CMake needs slot0_partition as a DEVICETREE nodelabel during its own configure,
+  # before Partition Manager has placed anything, and the xiao_ble DTS has the Adafruit/UF2
+  # layout with no slots. Both images take the same overlay so the two maps cannot disagree.
+  CMAKE_ARGS+=(-DEXTRA_DTC_OVERLAY_FILE="${APP_DIR}/nrf52840_mcuboot_partitions.overlay")
+  CMAKE_ARGS+=(-Dmcuboot_EXTRA_DTC_OVERLAY_FILE="${APP_DIR}/nrf52840_mcuboot_partitions.overlay")
 fi
 if [[ "${PROFILE}" == "uart" ]]; then
-  CMAKE_ARGS+=(-DEXTRA_CONF_FILE="${APP_DIR}/prj_uart.conf")
+  OD_EXTRA_CONFS+=("${APP_DIR}/prj_uart.conf")
+fi
+# One -DEXTRA_CONF_FILE carrying a semicolon-separated list: two separate -D flags would not
+# accumulate, the last would win, and a uart build with chained MCUboot would silently drop
+# one of the two overlays.
+if [[ ${#OD_EXTRA_CONFS[@]} -gt 0 ]]; then
+  OD_EXTRA_CONF_LIST="$(IFS=';'; echo "${OD_EXTRA_CONFS[*]}")"
+  CMAKE_ARGS+=(-DEXTRA_CONF_FILE="${OD_EXTRA_CONF_LIST}")
 fi
 # PROFILE=quiet is picked up from the environment in CMakeLists.txt
 # (prj_quiet.conf + OD_LOW_POWER_QUIET).
