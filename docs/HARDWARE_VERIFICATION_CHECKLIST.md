@@ -1246,9 +1246,19 @@ chained behind the Adafruit bootloader. Opt-in behind `OD_NRF52840_MCUBOOT=1`.
 - [x] A first upload of the IDENTICAL image was correctly refused at the mark step with
       `IMAGE_SETTING_TEST_TO_ACTIVE_DENIED`. Recorded because it looks like a failure and
       is not: MCUboot will not mark the running image for test.
-- [ ] **Rollback on a bad image is NOT exercised.** The swap-back path -- boot a
-      deliberately broken image, let it fail to confirm, confirm MCUboot reverts -- is the
-      property dual-slot is being paid for and it remains unproven.
+- [x] **Rollback on a bad image.** Built an image with boot_write_img_confirmed() removed,
+      uploaded it over BLE and marked it for test. Reboot 1: MCUboot swapped it in and it
+      ran as `active=True confirmed=False`, good image preserved in slot1. Reboot 2:
+      MCUboot reverted -- slot0 back to the good image, confirmed, and the bad one demoted
+      to slot1. Unattended, over BLE, no physical contact.
+
+      WHAT THIS DOES AND DOES NOT PROTECT. The application calls
+      boot_write_img_confirmed() in main() just after opendisplay_ble_init(), so anything
+      reaching that line confirms itself. Rollback therefore covers an image that hangs or
+      faults BEFORE BLE is up; it does NOT cover one that boots cleanly and is broken
+      later -- a bad display driver, a config parser that corrupts state. Moving the
+      confirm later, or gating it on a health check, would widen the net; doing so is a
+      deliberate decision and has not been made.
 - [ ] **Images are signed with MCUboot's published debug key.** The build says so
       explicitly. Must not ship.
 - [ ] Fleet migration (erasing the SoftDevice on existing devices) is a per-device USB
