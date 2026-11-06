@@ -11,12 +11,20 @@
  * receives a body whose bounds are already guaranteed. od_config.c owns the shared aggregate,
  * instance caps and outcome logging above this structural walk.
  *
- * WHAT THIS DELIBERATELY DOES NOT CHANGE. Unknown packet IDs still abandon the rest of the
- * blob (skip-to-CRC), exactly as every shipped target does today. The size-table skip model
- * that would let an old device step over a NEW packet type and keep reading is an INCOMPATIBLE
- * WIRE CHANGE and is deferred (NEXT_STEPS_2026-08-05.md D4). The table below is arranged so
- * that model can be switched on later without re-cutting the walker -- but it is not switched
- * on, and a partial version must not arrive as a side effect of this promotion.
+ * TWO RANGES, TWO RULES FOR AN UNKNOWN ID.
+ *
+ *   0x00-0x7F  FROZEN at 0x2D. No length on the wire, so the size comes from the table below
+ *              and an id this build does not know ABANDONS THE REST OF THE BLOB -- the walk
+ *              cannot find the next packet without a size. (The size-table skip model that
+ *              would change this for legacy ids is still deferred, D4.)
+ *   0x80-0xFF  [number][id][length:2 LE][body]. An unknown id is STEPPED OVER by its declared
+ *              length and the walk continues. This is why every packet added after 0x2D lives
+ *              here: it is what lets a config carrying a new packet still load on firmware
+ *              that predates it.
+ *
+ * The declared length is attacker-controlled -- see the pre-auth note above. It is never added
+ * to an offset; od_span_split compares against what remains, so an oversized declaration
+ * truncates rather than reaching past the body region.
  *
  * Plain C99. No allocation, no storage access, no logging: this module reads a buffer and
  * reports. It cannot alter what it parses.
@@ -40,6 +48,17 @@ extern "C" {
 #define OD_CFG_TLV_HEADER_LEN 3u
 #define OD_CFG_TLV_CRC_LEN    2u
 
+/* Ids at or above this carry their own length; below it the size comes from the table. */
+#define OD_CFG_TLV_LEN_PREFIXED_MIN 0x80u
+
+/* The drive packets (protocol Rev 2), variable-length so they have no size-table entry.
+ * 0x2E-0x31 were burned by pre-release lab builds carrying fixed-size drafts of these and
+ * must never be reused. */
+#define OD_CFG_PKT_DISPLAY_MODE  0xAEu
+#define OD_CFG_PKT_DISPLAY_LUT   0xAFu
+#define OD_CFG_PKT_DISPLAY_CALIB 0xB0u
+#define OD_CFG_PKT_DISPLAY_PANEL 0xB1u
+
 enum od_config_tlv_result {
     OD_CFG_TLV_OK = 0,
     OD_CFG_TLV_TOO_SHORT,    /* smaller than header + CRC; nothing to parse */
@@ -57,25 +76,31 @@ enum od_config_tlv_result {
  */
 typedef bool (*od_config_tlv_packet_fn)(void *ctx, uint8_t packet_id, od_span_t body);
 
-/* Declared body size for a packet id, or 0 if this build does not know the id.
+/* Declared body size for a LEGACY (< 0x80) packet id, or 0 if this build does not know it.
  *
- * Exposed because the target's unknown-packet policy needs it and because it is the table a
- * future size-table skip model turns on. Sizes come from the canonical structs, never from a
+ * Returns 0 for every length-prefixed id as well: those carry their size on the wire, so there
+ * is nothing for a table to say about them. Callers must not read a 0 here as "unknown"
+ * without first checking the range. Sizes come from the canonical structs, never from a
  * hand-written number.
  */
 uint16_t od_config_tlv_body_size(uint8_t packet_id);
 
-/* Walk the blob, calling fn once per recognised packet.
+/* Walk the blob, calling fn once per packet whose body could be bounded.
  *
  * version_out receives the outer version byte when the blob is long enough to have one.
  *
- * UNKNOWN IDS END THE WALK, and that is current fleet behaviour, not an oversight -- see the
- * header comment. The walk stops cleanly and returns OD_CFG_TLV_OK: a config carrying a packet
- * this build does not know is not corrupt, it is newer.
+ * AN UNKNOWN LEGACY ID ENDS THE WALK; an unknown length-prefixed id does not -- see the two
+ * rules in the header comment. The walk stops cleanly and returns OD_CFG_TLV_OK: a config
+ * carrying a packet this build does not know is not corrupt, it is newer.
  *
- * unknown_id_out, when supplied, receives the id that ended the walk, or 0 if it ran to the
- * end. The walk deliberately does no logging of its own: od_config_parse() owns the complete
- * outcome and can report the unknown id alongside its other accounting.
+ * fn is called for length-prefixed packets whether or not this build knows them, because the
+ * body is bounded either way and a consumer that ignores one simply returns true. The walker
+ * keeps no list of which 0x80+ ids are "real".
+ *
+ * unknown_id_out, when supplied, receives the legacy id that ended the walk, or 0 if it ran to
+ * the end. Skipped length-prefixed ids are NOT reported here -- they did not end anything, and
+ * reporting them would make a forward-compatible config look like a truncated one. The walk
+ * deliberately does no logging of its own: od_config_parse() owns the complete outcome.
  */
 enum od_config_tlv_result od_config_tlv_walk(od_span_t blob,
                                              od_config_tlv_packet_fn fn, void *ctx,

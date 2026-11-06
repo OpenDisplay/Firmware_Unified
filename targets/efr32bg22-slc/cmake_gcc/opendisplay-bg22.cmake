@@ -84,6 +84,16 @@ if(OD_ENABLE_RTT AND NOT EXISTS "${SDK_PATH}/segger/systemview/SEGGER/SEGGER_RTT
     "Build with -DOD_ENABLE_RTT=OFF for a shipping image that needs no RTT.")
 endif()
 
+# The SOURCE has to follow the same condition as the guard above. An SDK pruned to the
+# components this target compiles against carries no segger/ at all, so listing SEGGER_RTT.c
+# unconditionally makes add_library() fail on a missing source and leaves `slc` with no sources
+# -- which surfaces as "No SOURCES given to target: slc", naming neither RTT nor the SDK.
+# Unquoted below on purpose: empty expands to no argument.
+set(OPD_SEGGER_RTT_SRC "")
+if(OD_ENABLE_RTT)
+  set(OPD_SEGGER_RTT_SRC "${SDK_PATH}/segger/systemview/SEGGER/SEGGER_RTT.c")
+endif()
+
 add_library(slc OBJECT
     "${SDK_PATH}/bluetooth_common/src/sli_bgcommon_debug_efr32.c"
     "${SDK_PATH}/bluetooth_le_controller/src/sl_btctrl_init.c"
@@ -105,7 +115,7 @@ add_library(slc OBJECT
     "${SDK_PATH}/platform_common/platform/common/src/sl_assert.c"
     "${SDK_PATH}/platform_common/platform/common/src/sl_slist.c"
     "${SDK_PATH}/platform_common/platform/common/src/sl_syscalls.c"
-    "${SDK_PATH}/segger/systemview/SEGGER/SEGGER_RTT.c"
+    ${OPD_SEGGER_RTT_SRC}
     "../od_rtt.c"
     "${SDK_PATH}/platform_core/platform/common/src/sl_core_cortexm.c"
     "${SDK_PATH}/platform_core/platform/driver/gpio/src/sl_gpio.c"

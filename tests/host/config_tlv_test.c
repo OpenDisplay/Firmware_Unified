@@ -87,6 +87,18 @@ static void blob_end(void)
     g_blob[g_len++] = 0x00;
 }
 
+/* A length-prefixed packet: [reserved][id][length:2 LE][body]. `declared` is written to the
+ * wire verbatim so a test can declare a length the blob does not actually carry. */
+static void blob_add_ex(uint8_t id, uint16_t declared, uint16_t actual, uint8_t fill)
+{
+    g_blob[g_len++] = 0;               /* reserved */
+    g_blob[g_len++] = id;
+    g_blob[g_len++] = (uint8_t)(declared & 0xFFu);
+    g_blob[g_len++] = (uint8_t)(declared >> 8);
+    memset(&g_blob[g_len], fill, actual);
+    g_len += actual;
+}
+
 /* --------------------------------------------------------------------------------- the walk --- */
 
 static void test_too_short(void)
@@ -327,6 +339,113 @@ static void test_crc_matches_shipped(void)
     CHECK(od_config_tlv_crc16(od_span_make(buf, 0)) == 0xFFFFu);
 }
 
+/* ------------------------------------------------------------------ length-prefixed range --- */
+
+/* The property the whole 0x80+ range exists for: a config carrying a packet this build does
+ * not know must still load, and every packet AFTER it must still be seen. In the frozen legacy
+ * range the same situation ends the walk, because there is no length to skip by. */
+static void test_unknown_length_prefixed_is_skipped(void)
+{
+    struct seen s; seen_init(&s);
+    uint8_t ended = 0xFFu;
+
+    CASE("an unknown 0x80+ id is stepped over and the walk continues");
+    blob_begin(1);
+    blob_add(0x01, 0xA1);                      /* SystemConfig */
+    blob_add_ex(0xC7u, 40u, 40u, 0xD7);        /* not a real id -- must be skipped by length */
+    blob_add(0x20, 0xA2);                      /* DisplayConfig, AFTER the unknown one */
+    blob_end();
+
+    CHECK(od_config_tlv_walk(od_span_make(g_blob, g_len), on_packet, &s, NULL, &ended)
+          == OD_CFG_TLV_OK);
+    /* fn is called for every bounded packet, unknown 0x80+ included. What matters is that the
+     * packet after it was reached -- in the legacy range it never would be. */
+    CHECK(s.count == 3);
+    CHECK(s.ids[0] == 0x01);
+    CHECK(s.ids[1] == 0xC7u);
+    CHECK(s.lens[1] == 40u);
+    CHECK(s.ids[2] == 0x20);
+    CHECK(s.lens[2] == od_config_tlv_body_size(0x20));
+    /* It did not END the walk, so it must not be reported as the id that did. */
+    CHECK(ended == 0u);
+}
+
+static void test_drive_packets_use_the_wire_length(void)
+{
+    struct seen s; seen_init(&s);
+
+    CASE("drive packet bodies come from the wire, not from the size table");
+    blob_begin(1);
+    blob_add_ex(OD_CFG_PKT_DISPLAY_PANEL, 25u, 25u, 0xB1);
+    blob_add_ex(OD_CFG_PKT_DISPLAY_LUT, 541u, 541u, 0xAF);   /* a full waveform slot */
+    blob_add_ex(OD_CFG_PKT_DISPLAY_MODE, 63u, 63u, 0xAE);
+    blob_end();
+
+    CHECK(od_config_tlv_walk(od_span_make(g_blob, g_len), on_packet, &s, NULL, NULL)
+          == OD_CFG_TLV_OK);
+    CHECK(s.count == 3);
+    CHECK(s.ids[0] == OD_CFG_PKT_DISPLAY_PANEL && s.lens[0] == 25u);
+    CHECK(s.ids[1] == OD_CFG_PKT_DISPLAY_LUT   && s.lens[1] == 541u);
+    CHECK(s.ids[2] == OD_CFG_PKT_DISPLAY_MODE  && s.lens[2] == 63u);
+
+    /* The table must stay silent about these: their size is not its business, and a caller
+     * that reads 0 as "unknown" without checking the range would reject every drive packet. */
+    CHECK(od_config_tlv_body_size(OD_CFG_PKT_DISPLAY_MODE) == 0u);
+    CHECK(od_config_tlv_body_size(OD_CFG_PKT_DISPLAY_LUT) == 0u);
+}
+
+/* The hostile case for this range. The declared length is attacker-controlled: the blob is
+ * parsed at boot from storage a client can write. An oversized declaration must truncate the
+ * walk, never be added to an offset and read past the body region. */
+static void test_length_prefixed_overclaim_is_truncation(void)
+{
+    struct seen s; seen_init(&s);
+
+    CASE("a 0x80+ packet claiming more than the blob holds is TRUNCATED");
+    blob_begin(1);
+    blob_add_ex(OD_CFG_PKT_DISPLAY_LUT, 4000u, 8u, 0xAF);   /* declares 4000, carries 8 */
+    blob_end();
+    CHECK(od_config_tlv_walk(od_span_make(g_blob, g_len), on_packet, &s, NULL, NULL)
+          == OD_CFG_TLV_TRUNCATED);
+    CHECK(s.count == 0);
+
+    CASE("0xFFFF cannot wrap the bounds arithmetic");
+    seen_init(&s);
+    blob_begin(1);
+    blob_add_ex(OD_CFG_PKT_DISPLAY_LUT, 0xFFFFu, 8u, 0xAF);
+    blob_end();
+    CHECK(od_config_tlv_walk(od_span_make(g_blob, g_len), on_packet, &s, NULL, NULL)
+          == OD_CFG_TLV_TRUNCATED);
+    CHECK(s.count == 0);
+
+    CASE("a length field straddling the CRC tail is TRUNCATED, not read");
+    seen_init(&s);
+    blob_begin(1);
+    g_blob[g_len++] = 0;                       /* reserved */
+    g_blob[g_len++] = OD_CFG_PKT_DISPLAY_LUT;  /* id, then only ONE length byte before the CRC */
+    g_blob[g_len++] = 0x10;
+    blob_end();
+    CHECK(od_config_tlv_walk(od_span_make(g_blob, g_len), on_packet, &s, NULL, NULL)
+          == OD_CFG_TLV_TRUNCATED);
+    CHECK(s.count == 0);
+}
+
+static void test_zero_length_prefixed_body(void)
+{
+    struct seen s; seen_init(&s);
+
+    CASE("a zero-length 0x80+ body is bounded, not an error");
+    blob_begin(1);
+    blob_add_ex(OD_CFG_PKT_DISPLAY_CALIB, 0u, 0u, 0x00);
+    blob_add(0x01, 0xA1);
+    blob_end();
+    CHECK(od_config_tlv_walk(od_span_make(g_blob, g_len), on_packet, &s, NULL, NULL)
+          == OD_CFG_TLV_OK);
+    CHECK(s.count == 2);
+    CHECK(s.ids[0] == OD_CFG_PKT_DISPLAY_CALIB && s.lens[0] == 0u);
+    CHECK(s.ids[1] == 0x01);     /* the packet after it is still reached */
+}
+
 int main(void)
 {
     test_too_short();
@@ -338,6 +457,10 @@ int main(void)
     test_callback_refusal();
     test_unknown_id_is_reported();
     test_body_size_table();
+    test_unknown_length_prefixed_is_skipped();
+    test_drive_packets_use_the_wire_length();
+    test_length_prefixed_overclaim_is_truncation();
+    test_zero_length_prefixed_body();
     test_crc_matches_shipped();
 
     printf("config_tlv: %u checks, %u failures\n", g_checks, g_failures);

@@ -45,18 +45,17 @@ endif()
 
 # Silicon Labs application properties.
 #
-# NOT IMPORTED. Like segger_rtt, this two-file vendored tree has no top-level
-# home in this repo and the migration plan does not mention it; where it belongs
-# is an open decision, not an oversight. The path below is unchanged from the
-# source repo so that the fix is a one-line repoint once that is settled.
-# APP PROPERTIES COMES FROM THE PINNED SDK TOO, and unlike RTT this one is NOT optional:
 # app_properties.c is what the Gecko Bootloader/AppLoader reads to validate the application, so
-# it gates the .gbl OTA path -- the only field-update mechanism any target in this repo has.
+# it gates the .gbl OTA path -- the only field-update mechanism any target in this repo has. It
+# is REQUIRED, not optional, and it comes from the pinned SDK rather than a vendored copy.
 #
-# The two files were byte-for-byte identical to the SDK's copy (verified by hash), so vendoring
-# them bought nothing. The target keeps its own config/app_properties_config.h and
-# config/sl_application_type.h: those carry the OpenDisplay signature, version, capabilities and
-# product id, which ARE ours and must not come from the SDK.
+# SDK_PATH must be a FULL Simplicity SDK. A tree pruned to just the components this target
+# compiles against carries no bootloader_interface/ and fails here -- see docs/TOOLCHAINS.md for
+# the pinned install location.
+#
+# The target keeps its own config/app_properties_config.h and config/sl_application_type.h:
+# those carry the OpenDisplay signature, version, capabilities and product id, which ARE ours
+# and must not come from the SDK.
 set(OPD_APP_PROPERTIES_SRC
     "${SDK_PATH}/bootloader_interface/platform/bootloader/app_properties/app_properties.c")
 if(NOT EXISTS "${OPD_APP_PROPERTIES_SRC}")
@@ -70,7 +69,6 @@ target_sources(slc PRIVATE "${OPD_APP_PROPERTIES_SRC}")
 target_include_directories(slc PUBLIC
     "${SDK_PATH}/bootloader_interface/platform/bootloader")
 target_include_directories(slc PUBLIC
-  "${OPD_APP_PROPERTIES_DIR}"
   "${CMAKE_CURRENT_LIST_DIR}/../config"
 )
 

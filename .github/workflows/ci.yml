@@ -1,0 +1,116 @@
+name: CI
+
+# The gate tools/check.sh describes, actually run. Four jobs rather than one because the three
+# target toolchains (ESP-IDF, nRF Connect, Simplicity SDK) have nothing in common and a single
+# image carrying all of them would be enormous and slow to pull. tools/ci_check.sh is what keeps
+# that split honest: the host job tolerates exactly the three target-build skips and fails on
+# any other skip, so coverage cannot quietly shrink.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host:
+    name: host gate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # clang is what the sanitizer and fuzz checks need; without it they SKIP, and
+      # tools/ci_check.sh treats an unexpected skip as a failure rather than letting the
+      # suite quietly stop covering them.
+      #
+      # python3-yaml is not optional either: tests/host/bench_dispatch_gate_test.py and
+      # nfc_read_tool_test.py import the esp32 CLI tooling, which imports yaml. Without it
+      # those two FAIL (not skip), so the gate goes red for a missing dependency rather than
+      # a real defect -- which is how a suite gets ignored.
+      - name: Install host toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang cmake ninja-build python3 python3-pip python3-venv python3-yaml
+
+      - name: check.sh (boundary, host suites, sanitizers, fuzz, wire corpus)
+        run: tools/ci_check.sh --fuzz-time 120
+
+  esp32:
+    name: esp32-idf
+    runs-on: ubuntu-24.04
+    # Pinned to the version docs/TOOLCHAINS.md pins; build.sh sources ESP-IDF itself and
+    # never expects it on PATH, which is exactly how this image is laid out.
+    container: espressif/idf:v5.5.4
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
+
+      - name: Build every board fragment + sdkconfig baseline
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh"
+          ( cd targets/esp32-idf && ./build.sh )
+          targets/esp32-idf/tools/sdkconfig_baseline.sh
+
+  nordic:
+    name: nordic-zephyr
+    runs-on: ubuntu-24.04
+    # VERIFY THIS TAG before relying on it -- it is the nRF Connect SDK version in
+    # docs/TOOLCHAINS.md (v3.3.1), but the image name/tag has not been confirmed from here.
+    container: ghcr.io/nrfconnect/sdk-nrf-toolchain:v3.3.1
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
+
+      - name: Build all three boards
+        shell: bash
+        run: ( cd targets/nordic-zephyr && ./build.sh --all )
+
+  silabs:
+    name: efr32bg22-slc
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
+
+      # No slc and no Java here on purpose. The BG22 job builds from the vendored pruned SDK
+      # and the committed autogen/, so CI needs only a cross compiler -- the pinned Simplicity
+      # SDK 2025.12.2 is NOT on the public GitHub mirror (that tops out at v2025.6.3), so a
+      # fetch-at-build-time job is not possible without changing the pinned version.
+      - name: Install cross toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi
+
+      - name: Headless build
+        shell: bash
+        env:
+          SIMPLICITY_SDK_DIR: ${{ github.workspace }}/third_party/simplicity_sdk
+        run: targets/efr32bg22-slc/build-and-flash.sh --clean --no-flash
+
+  gate:
+    name: all green
+    runs-on: ubuntu-24.04
+    needs: [host, esp32, nordic, silabs]
+    if: always()
+    steps:
+      # One required status check for branch protection, so adding a job above does not mean
+      # re-editing the protection rule. `needs` alone is not enough: a skipped or cancelled
+      # dependency does not fail a job that only lists it.
+      - name: Fail unless every job succeeded
+        run: |
+          results='${{ join(needs.*.result, " ") }}'
+          echo "job results: $results"
+          for r in $results; do
+            [ "$r" = "success" ] || { echo "::error::a required job did not succeed ($r)"; exit 1; }
+          done
+          echo "all required jobs succeeded"
