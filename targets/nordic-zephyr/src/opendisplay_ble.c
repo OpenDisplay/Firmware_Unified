@@ -40,9 +40,6 @@
 #include <zephyr/drivers/retained_mem.h>
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/kernel.h>   /* also CMSIS, for NVIC_SystemReset() */
-#if defined(CONFIG_RETENTION_BOOT_MODE)
-#include <zephyr/retention/bootmode.h>
-#endif
 #include <zephyr/settings/settings.h>
 #if defined(CONFIG_MCUMGR_TRANSPORT_BT_DYNAMIC_SVC_REGISTRATION)
 #include <zephyr/mgmt/mcumgr/transport/smp_bt.h>
@@ -370,42 +367,6 @@ static void enter_adafruit_dfu(void)
 }
 #endif
 
-/* Reboot into MCUboot's firmware loader.
- *
- * The MCUboot counterpart of enter_adafruit_dfu above, and the reason CMD_ENTER_DFU means
- * something in both compositions rather than only one. In firmware-updater mode the SMP server
- * is a separate permanent image that MCUboot boots INSTEAD of the application, so the
- * application cannot host the update itself -- all it can do is ask for the loader and reset.
- *
- * bootmode_set() writes the request through the retention API, which this build routes to
- * GPREGRET1 (zephyr,boot-mode in the partition overlay). That is the same register the Adafruit
- * path uses, which is safe because exactly one of these two functions is compiled in; the
- * watchdog deliberately keeps its breadcrumb in GPREGRET2 so neither can be clobbered.
- */
-#if defined(CONFIG_RETENTION_BOOT_MODE)
-static void enter_mcuboot_loader(void)
-{
-	const int rc = bootmode_set(BOOT_MODE_TYPE_BOOTLOADER);
-	int check;
-
-	if (rc != 0) {
-		od_log_error("ENTER_DFU: bootmode_set failed (%d); not resetting", rc);
-		return;
-	}
-	/* Read the request back before resetting. Three different stores have now been tried for
-	 * it and the device booted the application every time, which does not say WHERE the value
-	 * is lost -- a write that silently fails looks exactly like one a bootloader clears later.
-	 * This separates the two: a good readback here means the loss is downstream of us. */
-	check = bootmode_check(BOOT_MODE_TYPE_BOOTLOADER);
-	od_log_info("ENTER_DFU: boot mode set, readback=%d; rebooting into the MCUboot loader",
-		    check);
-	/* 1 s, not 250 ms: the log backend is deferred and the shorter wait lost this line to the
-	 * reset every time, which is why the question above went unanswered for so long. */
-	k_sleep(K_MSEC(1000));
-	NVIC_SystemReset();
-}
-#endif
-
 static void dfu_work_handler(struct k_work *work)
 {
 	ARG_UNUSED(work);
@@ -414,12 +375,8 @@ static void dfu_work_handler(struct k_work *work)
 	if (s_conn != NULL) {
 		(void)bt_conn_disconnect(s_conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
 	}
-	/* After the disconnect in both arms, so the host sees the link drop rather than a silent
-	 * stall. Exactly one of these is compiled in, and together they are what stops
-	 * CMD_ENTER_DFU being a no-op on this target in either composition. */
-#if defined(CONFIG_RETENTION_BOOT_MODE)
-	enter_mcuboot_loader();
-#elif !defined(CONFIG_BOOTLOADER_MCUBOOT)
+#if !defined(CONFIG_BOOTLOADER_MCUBOOT)
+	/* After the disconnect, so the host sees the link drop rather than a silent stall. */
 	enter_adafruit_dfu();
 #endif
 }

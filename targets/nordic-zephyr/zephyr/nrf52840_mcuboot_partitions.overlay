@@ -1,18 +1,18 @@
 /*
- * nRF52840 flash map for MCUboot CHAINED behind the Adafruit bootloader.
- * Applied to both the app and the mcuboot image, and only when OD_NRF52840_MCUBOOT=1.
+ * nRF52840 flash map for DUAL-SLOT MCUboot chained behind the Adafruit bootloader, with the
+ * SoftDevice erased. Applied to the application and the mcuboot image, only when
+ * OD_NRF52840_MCUBOOT=1.
  *
- * WHY A DEVICETREE OVERLAY WHEN pm_static_xiao_ble_nrf52840.yml ALREADY DESCRIBES THIS.
- * Partition Manager runs after every image has configured, but MCUboot's own CMakeLists
- * requires the slot0_partition NODELABEL during its configure -- it fails with "required
- * nodelabel not found: slot0_partition" before Partition Manager has placed anything. The
- * upstream xiao_ble board pulls in nrf52840_partition_uf2_sdv7.dtsi, which describes the
- * Adafruit/UF2 layout and has no MCUboot slots at all. So the slots must exist in DT as well,
- * and the two descriptions MUST agree: Partition Manager wins at runtime, and a DT map that
- * disagreed would place MCUboot's idea of a slot somewhere the image is not.
+ * Needed alongside pm_static_nrf52840_mcuboot.yml because MCUboot's own CMakeLists requires
+ * the slot0_partition NODELABEL during its configure -- it fails with "required nodelabel not
+ * found: slot0_partition" before Partition Manager has placed anything, and the upstream
+ * xiao_ble board pulls in nrf52840_partition_uf2_sdv7.dtsi, which describes the Adafruit/UF2
+ * layout and has no MCUboot slots. The two descriptions MUST agree: Partition Manager wins at
+ * runtime, and a DT map that disagreed would point MCUboot at a slot the image is not in.
  *
- * Addresses are forced by what is already on the board, not chosen -- see the header of
- * pm_static_xiao_ble_nrf52840.yml for why 0x27000 and 0xF4000 are fixed points.
+ * Addresses: see the header of the pm_static file. The short version is that the Adafruit
+ * bootloader starts the application at 0x1000 once the SoftDevice magic at 0x3004 is gone,
+ * which is hardware-verified, and that frees the 152 kB this layout spends on slot size.
  */
 
 /delete-node/ &reserved_partition_0;
@@ -26,51 +26,41 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 
-		/* MBR + SoftDevice s140 v7. The Adafruit bootloader needs the MBR; the
-		 * Zephyr app uses the SoftDevice CONTROLLER library instead and never
-		 * calls into s140. Reserved, not reclaimed: the Adafruit bootloader
-		 * derives the application start address from the SoftDevice info struct.
+		/* Nordic MBR. Still required: it owns the reset vector and forwards interrupts to
+		 * whatever the bootloader nominates, which after the SoftDevice erase is 0x1000.
 		 */
-		sd_reserved: partition@0 {
-			label = "SoftDevice";
+		mbr_partition: partition@0 {
+			label = "mbr";
 			read-only;
-			reg = <0x00000000 0x00027000>;
+			reg = <0x00000000 0x00001000>;
 		};
 
-		/* MCUboot, where the Adafruit bootloader jumps. */
-		boot_partition: partition@27000 {
+		/* MCUboot, where the Adafruit bootloader now jumps. */
+		boot_partition: partition@1000 {
 			label = "mcuboot";
-			reg = <0x00027000 0x0000C000>;
+			reg = <0x00001000 0x0000C000>;
 		};
 
-		slot0_partition: partition@33000 {
+		slot0_partition: partition@d000 {
 			label = "image-0";
-			reg = <0x00033000 0x00090000>;
+			reg = <0x0000D000 0x0006E000>;
 		};
 
-		/* The PERMANENT firmware loader, not a staging copy of the application:
-		 * FIRMWARE_LOADER_image_default.overlay points the loader's own
-		 * zephyr,code-partition at slot1_partition. Sized for an SMP server rather
-		 * than a second copy of the app, which is what buys the application 540 kB
-		 * instead of 368 kB.
-		 */
-		slot1_partition: partition@d7000 {
+		slot1_partition: partition@7b000 {
 			label = "image-1";
-			reg = <0x000D7000 0x00014000>;
+			reg = <0x0007B000 0x0006E000>;
 		};
 
-		/* 36 kB, not the 32 kB of the Adafruit-only layout: the two slots are
-		 * sector-aligned at 0x5C000 each and leave 0xEB000..0xEC000 spare, which
-		 * is absorbed here so storage ends exactly at the Adafruit bootloader.
+		/* 44 kB, ending exactly at the bootloader so it stays inside the 40 kB
+		 * DFU_APP_DATA_RESERVED span the bootloader preserves across a serial-DFU update.
 		 */
-		storage_partition: partition@eb000 {
+		storage_partition: partition@e9000 {
 			label = "storage";
-			reg = <0x000EB000 0x00009000>;
+			reg = <0x000E9000 0x0000B000>;
 		};
 
-		/* Described so nothing is ever placed over it. Erasing this is the one
-		 * change this board cannot recover from over USB: the bootloader exposes
-		 * serial DFU only, with no mass-storage fallback.
+		/* Described so nothing is ever placed over it. Erasing this is the one change this
+		 * board cannot recover from over USB: serial DFU only, no mass-storage fallback.
 		 */
 		adafruit_partition: partition@f4000 {
 			label = "adafruit-bootloader";
@@ -82,81 +72,9 @@
 
 / {
 	chosen {
-		/* The deleted code_partition was the chosen one; without this the build
-		 * resolves zephyr,code-partition to a node that no longer exists.
+		/* The deleted code_partition was the chosen one; without this the build resolves
+		 * zephyr,code-partition to a node that no longer exists.
 		 */
 		zephyr,code-partition = &slot0_partition;
-	};
-};
-
-/* Boot-mode retention, required by SB_CONFIG_MCUBOOT_MODE_FIRMWARE_UPDATER_BOOT_MODE_ENTRANCE.
- *
- * Without a zephyr,boot-mode chosen node MCUboot refuses to build -- boot/zephyr/io.c:
- * "Firmware loader selected without an entrance mode set" -- and the xiao_ble devicetree
- * has none.
- *
- * GPREGRET2, AFTER TWO OTHER STORES WERE MEASURED AND FAILED ON THIS CHAIN.
- *
- *   GPREGRET1 is the Adafruit bootloader's own handshake register, and Adafruit runs FIRST
- *   here. It reads the byte, does not recognise BOOT_MODE_TYPE_BOOTLOADER as one of its
- *   magics, and clears it, so MCUboot reads zero and boots the application. That Adafruit
- *   consumes the register is not inferred: the 0x4E serial-DFU path works and the device
- *   does not stay in DFU afterwards, which requires the byte to be read AND cleared.
- *
- *   A retained-RAM region at the top of sram0 (0x2003FFF0) booted the loader exactly once
- *   and then stopped. Consistent with the Adafruit bootloader's stack, which grows down from
- *   the top of RAM and so reaches those bytes first -- suspected, not proven.
- *
- * GPREGRET2 is the one byte on this board nothing else in the chain touches. It cost the
- * watchdog its breadcrumb, which moved to the retained-RAM region below.
- */
-&gpregret2 {
-	boot_mode0: retention@0 {
-		compatible = "zephyr,retention";
-		status = "okay";
-		reg = <0x0 0x1>;
-	};
-};
-
-/* Watchdog breadcrumb storage, displaced from GPREGRET2 by the boot mode above.
- *
- * od_hal_wdt picks this up by label and falls back to gpregret2 when it is absent, so the
- * default Adafruit-only build is unaffected.
- *
- * RAM rather than a register because there is no third register: this chain has exactly one
- * byte nothing else touches, and the boot mode now owns it. The objection od_hal_wdt records
- * against RAM -- that a bootloader's stack and bss may land on it -- is answered for MCUboot
- * by shrinking sram0 below this region, so neither image's linker can allocate here. It is
- * NOT answered for the Adafruit bootloader, which is why the region sits well below the top
- * of RAM rather than at it: Adafruit's stack grows down from the top, and the top is exactly
- * where the boot-mode experiment above was lost.
- *
- * A LOST BREADCRUMB IS A DEGRADED DIAGNOSTIC, NOT A FAULT. od_watchdog_app treats an
- * unreadable breadcrumb as "no previous strike", so the worst case is a missed strike count,
- * never a false one.
- */
-&sram0 {
-	/* 256 KiB less the 256 bytes carved out below. Shrinking sram0 is what makes the
-	 * region unowned; without it the linker would hand these addresses to an image. */
-	reg = <0x20000000 0x3FF00>;
-};
-
-/ {
-	od_retained_ram: memory@2003ff00 {
-		compatible = "zephyr,memory-region", "mmio-sram";
-		reg = <0x2003FF00 0x100>;
-		zephyr,memory-region = "RetainedMem";
-		status = "okay";
-
-		od_breadcrumb_mem: retainedmem {
-			compatible = "zephyr,retained-ram";
-			status = "okay";
-			#address-cells = <1>;
-			#size-cells = <1>;
-		};
-	};
-
-	chosen {
-		zephyr,boot-mode = &boot_mode0;
 	};
 };
