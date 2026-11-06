@@ -1722,3 +1722,41 @@ Nothing here is required for updates today. `CMD_ENTER_DFU` now reboots into the
 bootloader over BLE (hardware-verified round trip), so a device is reflashable over serial DFU
 without physical access. That closed the problem this work was chasing; MCUboot would only add
 atomic rollback and signature enforcement.
+
+## `Firmware_Silabs` — Unified implements three sequence escapes the Silabs branch still refuses
+
+Firmware_Unified's shared `od_epd` executor now runs `CS_SELECT` (`0x08`), `READ_SCRATCH`
+(`0x09`) and `WRITE_SCRATCH` (`0x0A`); Firmware_Silabs `feat/od-epd-driver` still has them
+capability-absent / refused at pre-scan. A `panels.yaml` sequence using them therefore drives a
+Unified BG22 device and is refused (`07 SEQ_UNSUPPORTED`) by a Firmware_Silabs one -- the same
+config, two answers.
+
+Either backport `seq_start()`, the two escape arms and the `read_bytes` io hook (plus
+`od_epd_io_silabs_set_cs2/_cs_select/_read`) to `newdriver/Firmware_Silabs`, or retire that
+branch in favour of Unified on BG22. Also extend `panels/seq_conformance.{c,py}` with the
+cases in `tests/host/epd_seq_test.c`, so the Python model agrees with the executor.
+
+Neither escape has run on hardware: no split-controller or read-back panel is on the bench
+(`HARDWARE_VERIFICATION_CHECKLIST.md`, BG22 parity section).
+
+## `Firmware_Unified` / BG22 — action-system defects found while landing `0xB2` canonically
+
+Found while specifying protocol 2.4 / structs 2.3 from `od_action.{h,c}` and `od_cmd_flash.c`;
+none is fixed here.
+
+- **BUTTON_PRESS matches by equality on `1 << button_id`**, so a multi-button mask (as the
+  trigger's documented `arg`) never fires, and `button_id` is masked to 3 bits, so buttons on
+  different BinaryInputs instances alias.
+- **BUTTON_LONG is never emitted**, yet entries using it count as active in `ACTION_INFO`.
+- **Comments disagree with the walk:** they say a bad slot / LED argument is rejected and one bad
+  entry is dropped "never the table"; the code validates neither and stops the whole walk at the
+  first malformed entry. `temp_poll` claims per-entry edge state; one shared bit is used.
+- **`ACTION_INFO.rejected` is 0 or 1**, and nothing reports how many `0xB2` copies a config holds
+  (see "Duplicate `0xB2` action tables" above).
+- **Silent failures:** `FLASH_INFO` returns stale stride/capacity when the store is unmounted;
+  `FLASH_DISPLAY` and the DISPLAY_SLOT effect fail without a report.
+- **Wire ambiguity, now in the canonical spec:** a `FLASH_ERASE` of all slots ACKs `[00][49][FF]`,
+  and an `ACTION_FIRE` `host_id` of `0xFE`/`0xFF` echoes as `[00][4D][FE|FF]` -- both the same
+  bytes as the session gate's 3-byte refusal frames. py-opendisplay disambiguates (accepts the
+  erase-all ACK only with no live session; limits `host_id` to `0x00`-`0xFD`); a cleaner fix is a
+  protocol change.

@@ -79,6 +79,29 @@ is `[00][40][chunk_no:2][total_len:2][tlv...]` (6-byte prefix) while the rest ar
 two bytes and shows up as a bogus "unknown packet type 0x00" immediately after the first packet.
 `device.py interrogate()` gets this right; hand-rolled readers must match it.
 
+### EFR32BG22 (`efr32bg22-slc`) — Firmware_Silabs `feat/od-epd-driver` parity, 2026-11-06
+
+Built (246,908 B; 7,044 B real headroom against 253,952) and host-tested only. **No row below has
+been run on a device yet.**
+
+- [ ] **16-colour on glass via `0x0085`.** Mode 1 (`colour16`, 3 passes) on ODBEEBA6: ACK reports
+      `[mode][passes=3][temp_c]`, three refreshes of ~20.6 / 1.8 / 1.8 s, the 4x4 index16 grid
+      visibly correct. The config is already on the unit (row above).
+- [ ] **Temp policy.** A mode whose window excludes the die temperature: REJECT NACKs `0x06`
+      with nothing driven; SUBSTITUTE answers with the substituted mode index.
+- [ ] **`READ_IDENT` (`0x0046`) pre-gate.** Answers `[proto_minor][0x03][1][1e 00 a8 00 80 01 03]`
+      on an ENCRYPTED unit with no session established.
+- [ ] **Boot screen after an OTA with no drive packets.** Boot logs "no drive packets; will retry";
+      writing the drive config then draws the QR without a power cycle, and the config-write ACK
+      arrives within py-opendisplay's 5 s bound (the redraw follows it).
+- [ ] **Burned `0x2E`–`0x31` walked past.** A config carrying them still drives its panel from the
+      `0xAE`–`0xB1` packets behind them.
+- [ ] **CS_SELECT (`0x08`).** Needs a split-controller panel with `cs_pin_2` wired; none on the
+      bench. Host-tested: sticky, reset to CS 0 per pass, refused before any I/O where unwired.
+- [ ] **READ/WRITE_SCRATCH (`0x09`/`0x0A`).** Needs a panel with a read-back path (UC8159 EEPROM,
+      or a 3-wire controller on `data_pin`); none on the bench. Host-tested: bounds, zeroed per
+      pass, read-then-write data path.
+
 ### EFR32BG22 (`efr32bg22-slc`) — Gate 2 blockers
 
 - [ ] **D1 liveness:** send `0x0073` with every loop count and delay zero and `group_repeats` raw

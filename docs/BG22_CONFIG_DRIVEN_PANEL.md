@@ -20,7 +20,9 @@ The firmware refuses rather than pretending:
 
 * `od_xfer_app_begin_full()` returns false when no `0xB1` is indexed, so the upload **fails**
   instead of completing against a panel that never changes;
-* `opendisplay_display_boot_apply()` skips the boot screen for the same reason.
+* `opendisplay_display_boot_apply()` skips the boot screen for the same reason — without
+  latching, so the next config write that brings drive packets draws it (after that write's
+  ACK, from the superloop) with no power cycle.
 
 That is the honest behaviour, but it does mean a unit is dark between the OTA and the config
 write. Order matters:
