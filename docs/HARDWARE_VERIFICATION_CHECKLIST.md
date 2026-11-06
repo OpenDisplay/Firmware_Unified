@@ -1125,3 +1125,85 @@ Merged in PR #90 (`4a61a7a`). Baseline before the change: ~2 mA idle while adver
       (2026-09-17, same test.)
 - [ ] Plug/unplug during BLE upload does not interrupt the upload; a serial-monitor log burst may
       drop characters but does not block firmware work; UF2 drag-and-drop remains functional.
+
+---
+
+## `efr32bg22-slc` on OD58FFC4 — config-driven panel, flash store, actions (2026-11-06)
+
+One board, one session: **OD58FFC4**, a Newton Pro 2.6" (2x CR2450) with a 184x360 BWRY
+panel and an SPI NOR fitted, in the thermal chamber with the camera on it. Before this
+session the BG22 target had never been built in this repo, so every row below is a first.
+
+**The board's identity fields are stale and were not corrected:** it reports
+`manufacturer_id=1 / board_type=1 / ic_type=1`, which the toolbox renders as
+"EN04 (nRF52840)" on a part that is a BG22. Nothing reads those fields here, but any
+row below that looks like it came from an nRF52 came from this BG22. Re-provisioning them
+is open follow-up.
+
+### Panel driven from config (`od_epd`, bb_epaper removed)
+
+- [x] Boot screen renders from the config's `DisplayConfig` + drive packets, with no
+      bb_epaper in the image. **bb_epaper is compiled out on this target entirely** — not
+      disabled at runtime — because the app overflowed its slot by 4116 B with both
+      renderers present. A config carrying the `0xAE`/`0xAF`/`0xB0`/`0xB1` drive packets is
+      therefore **required** on BG22, not optional.
+- [x] BLE image upload renders: 2953 B compressed, 22.5 s wall, camera-confirmed.
+- [ ] Partial refresh and `CMD_PARTIAL_WRITE` — not implemented on this target.
+
+### Find My (network A)
+
+- [x] Advertises on the address **derived** from the provisioned key, concurrent with normal
+      OpenDisplay advertising. Address and payload were checked byte-for-byte against the
+      derivation, not merely observed to be present.
+- [x] Survives a reboot. This row exists because it originally did **not**: the boot path
+      never synced network A, so a tag was findable after provisioning and silently not
+      after a power cycle.
+- [x] Host test `tests/host/net_a_test.c` sweeps all 256 values of `key[0]` to prove both
+      halves of the address are recoverable (the top two bits are forced for a static random
+      address, so a naive derivation loses them).
+- [ ] FMDN / network G — still `Firmware_Silabs`-only, not ported.
+
+### SPI NOR image store (`od_flash_nor` + `od_imgstore`)
+
+- [x] Probe identifies the part: **Puya, 512 KiB, 4 KB sectors**, giving **25 image slots** at
+      this panel's geometry. The proposal's slot arithmetic was written against a guessed
+      capacity and was corrected to these measured numbers.
+- [x] `0xAB` release-from-deep-power-down is issued before the JEDEC read. Required, not
+      defensive: a previously-slept part answers `0xFF` to everything and reads as an empty
+      socket. OpenDisplay only ever sent `0xB9` (power **down**).
+- [x] Preload without display: 2.3 s to store an image the panel never showed.
+- [x] Display-from-slot renders the preloaded image, camera-confirmed.
+- [x] Slot state values form a **descending bit lattice** (`0xFF` free -> `0xFE` writing ->
+      `0xFC` valid), and the digest is left erased until `finish()`. The first attempt used
+      `0xA5` for valid, which NOR cannot reach from `0xFE` (programming only clears bits:
+      `0xFE & 0xA5 = 0xA4`), and pre-zeroed the digest so every CRC ANDed to zero.
+- [x] A page program that would cross a 256-byte page boundary is refused. Hardware wraps to
+      the start of the same page and overwrites what was just written, reporting success.
+
+### Action system (`od_action`, config packet `0xB2`)
+
+- [x] Table loads and classifies: **entries=5 active=4 inactive=1 rejected=0** for a table
+      holding one entry whose effect this board cannot perform (buzzer). Inactive-not-dropped
+      is the contract — a newer firmware must start running the entry with no config rewrite.
+- [x] `0x004D` ACTION_FIRE drives a `DISPLAY_SLOT` step and the panel changes,
+      camera-confirmed. This is the row that proves a trigger -> sequence -> effect path end
+      to end without needing the physical event.
+- [x] `0xB2` is reached through `od_cfg_index`. This row exists because it originally was
+      not: the indexed-packet whitelist omitted `0xB2`, so the table loaded as `entries=0`
+      with no error anywhere.
+- [x] A config write reloads the table (`od_action_reload()` after `od_cfg_index_build()`, in
+      that order — the table is read *through* the index, so the other order validates
+      against the previous config's byte offsets).
+- [ ] **BUTTON_PRESS and NFC_FIELD triggers are unexercised.** Both need a physical press or
+      an NFC scan at the chamber; neither can be driven from here. The entries load active,
+      which is not the same as having fired.
+- [ ] Known limitation, recorded not fixed: the temperature edge state is **one shared bit**,
+      correct only while every temperature entry uses the same window.
+
+### Flash budget — a reporting bug worth knowing before trusting a build
+
+The SLC build script's "Free in application FLASH region" **overstates by 24576 bytes**: the
+`.nvm` NVM3 region lives inside the `0x44000` application slot and the script does not
+subtract it. Real ceiling is **253952**, not 278528. Acting on the reported figure is what
+made a 4116-byte overflow look like 26016 bytes of headroom. Fixing the script is open
+follow-up.
