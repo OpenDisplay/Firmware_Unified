@@ -5,7 +5,8 @@
 #include "opendisplay_display.h"
 #include "od_cfg_index.h"
 #include "od_net_a.h"
-#include "od_flash_probe.h"
+#include "od_imgstore.h"
+#include "od_color.h"
 #include "opendisplay_led.h"
 #include "opendisplay_pipe.h"
 #include "opendisplay_constants.h"
@@ -1833,20 +1834,33 @@ void opendisplay_ble_on_boot(uint8_t advertising_set_handle)
   od_net_a_invalidate();
   od_net_a_sync(od_config_findmy(&s_od_global_config));
 
-  /* DIAGNOSTIC -- published where a SCANNER can see it, because there is no J-Link on this rig
-   * and printf goes nowhere. dynamic_return[0..4] is zero on a device with no buttons or
-   * sensors mapped into the advertisement, which is this one. Remove with the probe. */
+  /* Mount the image store. Geometry-hashed so a board re-provisioned onto a different panel
+   * reformats rather than serving plane sets that would render as noise. */
   {
-    const od_flash_probe_result_t *fp = od_flash_probe_run(&s_od_global_config);
-    printf("[OD] flash probe: st=%u id=%02X %02X %02X sr=%02X\r\n",
-           (unsigned)fp->status, (unsigned)fp->manufacturer,
-           (unsigned)fp->mem_type, (unsigned)fp->capacity, (unsigned)fp->status_reg);
-    if (sizeof(dynamic_return) >= 5u) {
-      dynamic_return[0] = 0xF1u;        /* tag, so a stale frame is obvious */
-      dynamic_return[1] = fp->status;
-      dynamic_return[2] = fp->manufacturer;
-      dynamic_return[3] = fp->mem_type;
-      dynamic_return[4] = fp->capacity;
+    const struct DisplayConfig *d0 =
+        (s_od_global_config.display_count > 0u) ? &s_od_global_config.displays[0] : NULL;
+    const struct FlashConfig *fc = NULL;
+    for (uint8_t i = 0; i < s_od_global_config.flash_config_count; i++) {
+      if ((s_od_global_config.flash_configs[i].flags & OD_FLASH_FLAG_ENABLED) != 0u) {
+        fc = &s_od_global_config.flash_configs[i];
+        break;
+      }
+    }
+    if (d0 != NULL && fc != NULL) {
+      od_color_geometry_t g;
+      if (od_color_direct_geometry(d0->color_scheme, d0->pixel_width, d0->pixel_height, &g)
+          == OD_COLOR_OK) {
+        /* MISO is reserved[0]: canonical FlashConfig stops at `mode`, and the toolbox writes
+         * miso/wp/hold into the first three reserved bytes. */
+        const od_hal_spi_pins_t pins = {
+          .mosi = fc->mosi_pin, .miso = fc->reserved[0],
+          .sck = fc->sck_pin, .cs = fc->cs_pin,
+        };
+        const uint32_t ghash = ((uint32_t)d0->pixel_width << 16) ^
+                               ((uint32_t)d0->pixel_height << 4) ^
+                               (uint32_t)d0->color_scheme;
+        (void)od_imgstore_mount(&pins, ghash, g.total_bytes);
+      }
     }
   }
 

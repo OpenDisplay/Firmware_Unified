@@ -5,6 +5,8 @@
 #include "opendisplay_constants.h"
 #include "opendisplay_runtime.h"
 #include "od_epd_shim.h"
+#include "od_cmd_flash.h"
+#include "od_imgstore.h"
 #include "od_boot_payload.h"
 #include "od_caps.h"
 #include "od_xfer_app.h"
@@ -33,9 +35,15 @@ struct XferAppHardwareState {
   uint32_t plane_size;
   uint8_t current_plane;
   bool panel_up;
+  /* Set when CMD_FLASH_PRELOAD armed this upload: bytes go to a flash slot and the panel is
+   * never touched, so there is no refresh and no 20-second wait. */
+  bool to_flash;
 };
 
 static XferAppHardwareState s_xfer_app;
+
+/* -1 = nothing queued. Set by a command, consumed by the loop. */
+static int16_t s_pending_slot = -1;
 
 /* The rail has to be up before the controller is addressed. Without it a full frame is clocked
  * into an unpowered part, every write reports success, and the only symptom is the busy-wait
@@ -582,6 +590,10 @@ static bool render_boot_screen(const struct GlobalConfig *cfg)
 
 extern "C" void opendisplay_display_abort(void)
 {
+  if (s_xfer_app.to_flash) {
+    od_imgstore_abort();
+  }
+  od_cmd_flash_clear_arm();
   if (s_xfer_app.panel_up) {
     od_epd_shim_sleep();
   }
@@ -596,6 +608,13 @@ static bool xfer_app_write_full(uint32_t stream_offset, od_span_t data)
   if (stream_offset > s_xfer_app.geometry.total_bytes
       || data.n > s_xfer_app.geometry.total_bytes - stream_offset) {
     return false;
+  }
+
+  if (s_xfer_app.to_flash) {
+    /* Sequential by construction: od_imgstore streams and keeps no buffer, so it cannot
+     * honour an out-of-order chunk. The transfer layer delivers in order; refusing a gap is
+     * better than programming one image's bytes at another's offset. */
+    return od_imgstore_write(data.p, (uint32_t)data.n);
   }
 
   while (off < data.n) {
@@ -704,6 +723,21 @@ extern "C" bool od_xfer_app_begin_full(const od_color_geometry_t *geometry)
   }
 
   memset(&s_xfer_app, 0, sizeof(s_xfer_app));
+
+  /* PRELOAD: store instead of display. Checked before the panel is powered, so an upload
+   * bound for flash never spins the rail up or costs a refresh. */
+  uint8_t slot = 0u;
+  if (od_cmd_flash_take_arm(&slot)) {
+    if (!od_imgstore_begin(slot, d->pixel_width, d->pixel_height, d->color_scheme,
+                           1u, geometry->total_bytes)) {
+      return false;
+    }
+    s_xfer_app.mode = XFER_APP_FULL;
+    s_xfer_app.geometry = *geometry;
+    s_xfer_app.to_flash = true;
+    return true;
+  }
+
   display_power_set(true);
   /* Mode 0 by convention is the plain full refresh. */
   if (!od_epd_shim_begin(d->instance_number, 0u, d->rotation,
@@ -761,8 +795,17 @@ extern "C" bool od_xfer_app_refresh(uint8_t mode, bool *completed)
 {
   bool ok;
 
-  if (completed == nullptr || s_xfer_app.mode != XFER_APP_FULL
-      || !s_xfer_app.panel_up) {
+  if (completed == nullptr || s_xfer_app.mode != XFER_APP_FULL) {
+    return false;
+  }
+  if (s_xfer_app.to_flash) {
+    uint32_t digest = 0u;
+    const bool stored = od_imgstore_finish(&digest);
+    memset(&s_xfer_app, 0, sizeof(s_xfer_app));
+    *completed = stored;
+    return true;
+  }
+  if (!s_xfer_app.panel_up) {
     return false;
   }
   /* `mode` is not consulted: which waveform runs was fixed when the drive mode was selected
@@ -781,4 +824,72 @@ extern "C" bool od_xfer_app_refresh(uint8_t mode, bool *completed)
 extern "C" uint32_t od_xfer_app_now_ms(void)
 {
   return sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count());
+}
+
+/* ------------------------------------------------------------- display from a stored slot --- */
+
+extern "C" bool od_display_from_slot_arm(uint8_t index)
+{
+  const struct DisplayConfig *d = display_cfg();
+  od_imgstore_slot_t slot;
+
+  if (d == nullptr || s_xfer_app.mode != XFER_APP_IDLE) {
+    return false;
+  }
+  if (!od_imgstore_slot(index, &slot) || slot.state != OD_SLOT_VALID) {
+    return false;
+  }
+  /* A stored plane set is only meaningful for the panel it was rendered for. Refusing a
+   * mismatch here is the difference between "that slot is for another panel" and a frame that
+   * renders as noise and looks like a broken driver. */
+  if (slot.width != d->pixel_width || slot.height != d->pixel_height ||
+      slot.colour_scheme != d->color_scheme) {
+    return false;
+  }
+  s_pending_slot = (int16_t)index;
+  return true;
+}
+
+/* Runs from the application loop, not the command handler: the reply has to be queued before
+ * the panel takes its 10-20 s, or a successful display reports as a host timeout. */
+extern "C" void opendisplay_display_service(void)
+{
+  if (s_pending_slot < 0) {
+    return;
+  }
+  const uint8_t index = (uint8_t)s_pending_slot;
+  s_pending_slot = -1;
+
+  const struct DisplayConfig *d = display_cfg();
+  od_imgstore_slot_t slot;
+  if (d == nullptr || !od_imgstore_slot(index, &slot) || slot.state != OD_SLOT_VALID) {
+    return;
+  }
+
+  display_power_set(true);
+  if (!od_epd_shim_begin(d->instance_number, 0u, d->rotation,
+                         d->dc_pin, d->reset_pin, d->busy_pin, d->cs_pin,
+                         d->data_pin, d->clk_pin)) {
+    display_power_set(false);
+    return;
+  }
+  /* Streamed in the same 256-byte steps the transport uses. The decompression scratch is
+   * reused as the read buffer: this path owns the panel, so no transfer can be in flight
+   * competing for it, and a second buffer is RAM this part does not have. */
+  uint32_t off = 0u;
+  bool ok = true;
+  while (off < slot.payload_len && ok) {
+    uint32_t n = slot.payload_len - off;
+    if (n > OPENDISPLAY_DECOMPRESSION_CHUNK_SIZE) {
+      n = OPENDISPLAY_DECOMPRESSION_CHUNK_SIZE;
+    }
+    ok = od_imgstore_read(index, off, s_decompression_chunk, n)
+      && od_epd_shim_write(s_decompression_chunk, n);
+    off += n;
+  }
+  if (ok) {
+    (void)od_epd_shim_finish();
+  }
+  od_epd_shim_sleep();
+  display_power_set(false);
 }

@@ -292,6 +292,7 @@ add_library(slc OBJECT
     ${OD_SHARED_SOURCES_APP_LED}
     ${OD_SHARED_SOURCES_APP_EPD}
     ${OD_SHARED_SOURCES_APP_NET_A}
+    ${OD_SHARED_SOURCES_APP_IMGSTORE}
     ${OD_SHARED_SOURCES_HAL_LOG}
     "../od_hal_adv2.c"
 
@@ -301,7 +302,8 @@ add_library(slc OBJECT
     "../od_epd_io_silabs.c"
     "../od_epd_adapter.cpp"
     "../od_epd_shim.cpp"
-    "../od_flash_probe.c"
+    "../od_hal_spi.c"
+    "../od_cmd_flash.c"
 )
 
 target_include_directories(slc PUBLIC

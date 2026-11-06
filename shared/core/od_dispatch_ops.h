@@ -13,6 +13,39 @@
 
 #include "od_caps.h"
 
+/* Image-store opcodes are EXPERIMENTAL and target-local: the values live in each target's
+ * protocol_pending.h, not in shared/protocol/, because an opcode is real when the canonical
+ * repo says so. A target without OD_CAP_IMGSTORE expands these to nothing and answers the
+ * ordinary unknown-opcode NACK, which is the honest reply from a build with no flash. */
+#if OD_CAP_IMGSTORE
+/* EXPERIMENTAL OPCODES, DEFINED HERE RATHER THAN IN shared/protocol/.
+ *
+ * That directory is a byte-for-byte mirror of ../opendisplay-protocol and must not grow values
+ * the canonical repo has not assigned. These are not canonical yet: they are implemented and
+ * exercised on BG22 first, and a host that does not know them gets the ordinary unknown-opcode
+ * NACK. Landing them upstream -- and only then moving them into the mirror -- is required
+ * follow-up, not optional cleanup.
+ *
+ * The targets' own protocol_pending.h is the usual home for this kind of debt, but a value the
+ * SHARED dispatch table has to see cannot live in a target header: shared/ never includes one.
+ *
+ * 0x0047-0x004F is free between CMD_READ_IDENT (0x0046) and the power family at 0x0050. */
+#define OD_CMD_FLASH_INFO     0x0047u   /* chip identity + store geometry */
+#define OD_CMD_FLASH_LIST     0x0048u   /* per-slot state and CRC-32 digest */
+#define OD_CMD_FLASH_ERASE    0x0049u   /* one slot, or all when index is 0xFF */
+#define OD_CMD_FLASH_PRELOAD  0x004Au   /* store the NEXT upload instead of displaying it */
+#define OD_CMD_FLASH_DISPLAY  0x004Bu   /* display a stored slot */
+
+#define OD_DISPATCH_IMGSTORE_ROWS(X)                                                 \
+    X(OD_CMD_FLASH_INFO,       od_cmd_app_flash_info,      1u)                       \
+    X(OD_CMD_FLASH_LIST,       od_cmd_app_flash_list,      1u)                       \
+    X(OD_CMD_FLASH_ERASE,      od_cmd_app_flash_erase,     1u)                       \
+    X(OD_CMD_FLASH_PRELOAD,    od_cmd_app_flash_preload,   1u)                       \
+    X(OD_CMD_FLASH_DISPLAY,    od_cmd_app_flash_display,   1u)
+#else
+#define OD_DISPATCH_IMGSTORE_ROWS(X)
+#endif
+
 #define OD_DISPATCH_OPCODE_ROWS(X)                                                   \
     X(CMD_REBOOT,              od_cmd_app_reboot,          1u)                       \
     X(CMD_CONFIG_READ,         od_cmd_app_config_read,     1u)                       \
@@ -33,6 +66,7 @@
     X(CMD_PIPE_WRITE_START,    od_pipe_start,              1u)                       \
     X(CMD_PIPE_WRITE_DATA,     od_pipe_data,               (OD_CAP_PIPE ? 3u : 1u))  \
     X(CMD_PIPE_WRITE_END,      od_pipe_end,                (OD_CAP_PIPE ? 3u : 1u))  \
-    X(CMD_NFC_ENDPOINT,        od_nfc_frame,               1u)
+    X(CMD_NFC_ENDPOINT,        od_nfc_frame,               1u)                       \
+    OD_DISPATCH_IMGSTORE_ROWS(X)
 
 #endif /* OD_DISPATCH_OPS_H */

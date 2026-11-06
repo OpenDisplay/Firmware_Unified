@@ -276,6 +276,14 @@ set(OD_SHARED_SOURCES_APP_EPD
 # is 31 network-defined bytes on a key-derived address and od_hal_adv installs 16 bytes of MSD
 # on the device identity. Only BG22 takes this tier today; the others answer false from
 # od_hal_adv2_supported() and link none of it.
+# APP_IMGSTORE is the external SPI NOR image store: a real NOR driver and fixed-slot storage
+# over shared/hal/od_hal_spi.h. Needs a flash chip on config-named pins and a target
+# implementation of the SPI seam, so it is gated by OD_CAP_IMGSTORE and only BG22 takes it.
+set(OD_SHARED_SOURCES_APP_IMGSTORE
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_flash_nor.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_imgstore.c"
+)
+
 set(OD_SHARED_SOURCES_APP_NET_A
     "${CMAKE_CURRENT_LIST_DIR}/core/od_net_a.c"
 )

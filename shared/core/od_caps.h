@@ -29,6 +29,16 @@
 #define OD_CAP_NFC 1
 #endif
 
+/* External SPI NOR image store (od_imgstore + od_flash_nor over od_hal_spi).
+ *
+ * DEFAULT OFF, unlike the capabilities above. Those gate behaviour every target can perform;
+ * this one needs a flash chip on known pins and a target implementation of od_hal_spi, and a
+ * build that has neither must not route opcodes it cannot answer. Only efr32bg22-slc turns it
+ * on today. */
+#ifndef OD_CAP_IMGSTORE
+#define OD_CAP_IMGSTORE 0
+#endif
+
 #ifndef OD_XFER_DIRECT_AUTO_END
 #define OD_XFER_DIRECT_AUTO_END 0
 #endif

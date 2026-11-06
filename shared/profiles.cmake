@@ -27,7 +27,8 @@ set(OD_PROFILE_SILABS
     # DIVERGENCE_MATRIX 16; ratcheted by check.sh "silabs: BG22 has no buzzer runner".
     OD_CONFIG_WITH_BUZZER=0
     OD_CONFIG_WITH_WIFI=0
-    OD_CONFIG_WITH_DATA_EXTENDED=0)
+    OD_CONFIG_WITH_DATA_EXTENDED=0
+    OD_CAP_IMGSTORE=1)
 
 # Compile-time log level, one selector for every target.
 #

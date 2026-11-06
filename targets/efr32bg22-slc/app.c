@@ -31,6 +31,7 @@
 #include "sl_main_init.h"
 #include "app_assert.h"
 #include "app.h"
+#include "opendisplay_display.h"
 #include "opendisplay_ble.h"
 #include <stdio.h>
 
@@ -50,6 +51,10 @@ void app_init(void)
 void app_process_action(void)
 {
   opendisplay_ble_process();
+  /* A queued display-from-slot refresh runs HERE, not in the command handler: the panel takes
+   * 10-20 s and the ACK has to be on the wire long before that, or a successful display
+   * reports to the host as a timeout. */
+  opendisplay_display_service();
   if (app_is_process_required()) {
     /////////////////////////////////////////////////////////////////////////////
     // Put your additional application code here!                              //
