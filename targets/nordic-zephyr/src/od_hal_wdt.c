@@ -18,7 +18,20 @@
 #include <hal/nrf_wdt.h>
 
 #define OD_WDT_NODE      DT_ALIAS(watchdog0)
+
+/* GPREGRET2 normally; a board may displace the breadcrumb by defining od_breadcrumb_mem.
+ *
+ * The nRF52840 chained-MCUboot overlay does exactly that. In that chain GPREGRET1 belongs to
+ * the Adafruit bootloader, which reads and CLEARS it, so GPREGRET2 is the only register
+ * nothing else touches -- and MCUboot's boot-mode request has to have it, or the firmware
+ * loader can never be entered. The breadcrumb moves to a RAM region carved out of sram0.
+ * See nrf52840_mcuboot_partitions.overlay; the note below on why a register was preferred
+ * still stands, which is why this is a board opting out rather than a change of default. */
+#if DT_NODE_EXISTS(DT_NODELABEL(od_breadcrumb_mem))
+#define OD_RETAINED_NODE DT_NODELABEL(od_breadcrumb_mem)
+#else
 #define OD_RETAINED_NODE DT_NODELABEL(gpregret2)
+#endif
 
 #define OD_WDT_HAVE_WDT      DT_NODE_HAS_STATUS(OD_WDT_NODE, okay)
 #define OD_WDT_HAVE_RETAINED DT_NODE_HAS_STATUS(OD_RETAINED_NODE, okay)

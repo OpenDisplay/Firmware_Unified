@@ -91,20 +91,26 @@
 
 /* Boot-mode retention, required by SB_CONFIG_MCUBOOT_MODE_FIRMWARE_UPDATER_BOOT_MODE_ENTRANCE.
  *
- * Without it MCUboot refuses to build -- boot/zephyr/io.c: "Firmware loader selected without an
- * entrance mode set" -- because the sysbuild option only takes effect when a zephyr,boot-mode
- * chosen node exists, and the xiao_ble devicetree has none.
+ * Without a zephyr,boot-mode chosen node MCUboot refuses to build -- boot/zephyr/io.c:
+ * "Firmware loader selected without an entrance mode set" -- and the xiao_ble devicetree
+ * has none.
  *
- * GPREGRET1 carries it. That is the register MCUboot and the DFU handshake already own:
- * od_hal_wdt deliberately keeps its watchdog breadcrumb in GPREGRET2 so a strike write cannot
- * clobber a pending boot request, and the Adafruit-bootloader entry path in opendisplay_ble.c
- * writes this same register -- but that code is compiled out whenever MCUboot is present, so
- * exactly one owner exists in either composition.
+ * GPREGRET2, AFTER TWO OTHER STORES WERE MEASURED AND FAILED ON THIS CHAIN.
  *
- * One byte, no prefix or checksum: a boot mode is a single value, and the register is 1 byte
- * wide, so there is no room for either and nothing that needs them.
+ *   GPREGRET1 is the Adafruit bootloader's own handshake register, and Adafruit runs FIRST
+ *   here. It reads the byte, does not recognise BOOT_MODE_TYPE_BOOTLOADER as one of its
+ *   magics, and clears it, so MCUboot reads zero and boots the application. That Adafruit
+ *   consumes the register is not inferred: the 0x4E serial-DFU path works and the device
+ *   does not stay in DFU afterwards, which requires the byte to be read AND cleared.
+ *
+ *   A retained-RAM region at the top of sram0 (0x2003FFF0) booted the loader exactly once
+ *   and then stopped. Consistent with the Adafruit bootloader's stack, which grows down from
+ *   the top of RAM and so reaches those bytes first -- suspected, not proven.
+ *
+ * GPREGRET2 is the one byte on this board nothing else in the chain touches. It cost the
+ * watchdog its breadcrumb, which moved to the retained-RAM region below.
  */
-&gpregret1 {
+&gpregret2 {
 	boot_mode0: retention@0 {
 		compatible = "zephyr,retention";
 		status = "okay";
@@ -112,7 +118,44 @@
 	};
 };
 
+/* Watchdog breadcrumb storage, displaced from GPREGRET2 by the boot mode above.
+ *
+ * od_hal_wdt picks this up by label and falls back to gpregret2 when it is absent, so the
+ * default Adafruit-only build is unaffected.
+ *
+ * RAM rather than a register because there is no third register: this chain has exactly one
+ * byte nothing else touches, and the boot mode now owns it. The objection od_hal_wdt records
+ * against RAM -- that a bootloader's stack and bss may land on it -- is answered for MCUboot
+ * by shrinking sram0 below this region, so neither image's linker can allocate here. It is
+ * NOT answered for the Adafruit bootloader, which is why the region sits well below the top
+ * of RAM rather than at it: Adafruit's stack grows down from the top, and the top is exactly
+ * where the boot-mode experiment above was lost.
+ *
+ * A LOST BREADCRUMB IS A DEGRADED DIAGNOSTIC, NOT A FAULT. od_watchdog_app treats an
+ * unreadable breadcrumb as "no previous strike", so the worst case is a missed strike count,
+ * never a false one.
+ */
+&sram0 {
+	/* 256 KiB less the 256 bytes carved out below. Shrinking sram0 is what makes the
+	 * region unowned; without it the linker would hand these addresses to an image. */
+	reg = <0x20000000 0x3FF00>;
+};
+
 / {
+	od_retained_ram: memory@2003ff00 {
+		compatible = "zephyr,memory-region", "mmio-sram";
+		reg = <0x2003FF00 0x100>;
+		zephyr,memory-region = "RetainedMem";
+		status = "okay";
+
+		od_breadcrumb_mem: retainedmem {
+			compatible = "zephyr,retained-ram";
+			status = "okay";
+			#address-cells = <1>;
+			#size-cells = <1>;
+		};
+	};
+
 	chosen {
 		zephyr,boot-mode = &boot_mode0;
 	};
