@@ -1,4 +1,7 @@
 #include "od_board.h"
+#if defined(CONFIG_RETENTION_BOOT_MODE)
+#include <zephyr/retention/bootmode.h>
+#endif
 #include "od_hal_log.h"
 #include "od_log.h"
 #include "opendisplay_ble.h"
@@ -76,6 +79,23 @@ int main(void)
 	 * entirely. Arming comes after, so a hang inside boot_init cannot be masked by a reset. */
 	od_watchdog_app_boot();
 	od_watchdog_app_arm();
+
+#if defined(CONFIG_RETENTION_BOOT_MODE)
+	/* Report the boot-mode request AT BOOT, where the log is actually readable.
+	 *
+	 * Logging it next to the bootmode_set() call does not work on this board: a line emitted
+	 * immediately before a reset never reaches the USB console, however long the flush wait --
+	 * CMD_REBOOT's own "reboot" line is missing for the same reason. Reading it here instead
+	 * answers the question that matters, because MCUboot CONSUMES the request when it acts on
+	 * it:
+	 *   0 -- MCUboot saw the request and cleared it, or nothing ever wrote one
+	 *   1 -- the request survived to this point UNCONSUMED, so MCUboot did not act on it, and
+	 *        the fault is in MCUboot's entrance rather than in the store the app wrote to
+	 * Three stores were relocated before this distinction was available; it should have been
+	 * the first thing added. */
+	od_log_info("[BOOTMODE] bootloader request at boot: %d",
+		    bootmode_check(BOOT_MODE_TYPE_BOOTLOADER));
+#endif
 
 	od_board_early_init();
 	opendisplay_ble_init();

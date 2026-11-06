@@ -386,13 +386,22 @@ static void enter_adafruit_dfu(void)
 static void enter_mcuboot_loader(void)
 {
 	const int rc = bootmode_set(BOOT_MODE_TYPE_BOOTLOADER);
+	int check;
 
 	if (rc != 0) {
 		od_log_error("ENTER_DFU: bootmode_set failed (%d); not resetting", rc);
 		return;
 	}
-	od_log_info("ENTER_DFU: rebooting into the MCUboot firmware loader");
-	k_sleep(K_MSEC(250));
+	/* Read the request back before resetting. Three different stores have now been tried for
+	 * it and the device booted the application every time, which does not say WHERE the value
+	 * is lost -- a write that silently fails looks exactly like one a bootloader clears later.
+	 * This separates the two: a good readback here means the loss is downstream of us. */
+	check = bootmode_check(BOOT_MODE_TYPE_BOOTLOADER);
+	od_log_info("ENTER_DFU: boot mode set, readback=%d; rebooting into the MCUboot loader",
+		    check);
+	/* 1 s, not 250 ms: the log backend is deferred and the shorter wait lost this line to the
+	 * reset every time, which is why the question above went unanswered for so long. */
+	k_sleep(K_MSEC(1000));
 	NVIC_SystemReset();
 }
 #endif
