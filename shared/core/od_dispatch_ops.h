@@ -16,7 +16,9 @@
 /* Image-store opcodes are EXPERIMENTAL and target-local: the values live in each target's
  * protocol_pending.h, not in shared/protocol/, because an opcode is real when the canonical
  * repo says so. A target without OD_CAP_IMGSTORE expands these to nothing and answers the
- * ordinary unknown-opcode NACK, which is the honest reply from a build with no flash. */
+ * ordinary unrouted-opcode treatment, which is SILENCE rather than a NACK (od_dispatch's
+ * OD_FRAME_UNKNOWN_OPCODE logs and emits nothing) -- the honest reply from a build with no
+ * flash. */
 #if OD_CAP_IMGSTORE
 /* EXPERIMENTAL OPCODES, DEFINED HERE RATHER THAN IN shared/protocol/.
  *

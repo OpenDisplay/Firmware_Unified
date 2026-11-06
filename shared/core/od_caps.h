@@ -43,9 +43,11 @@
  *
  * DEFAULT OFF for the same reason as OD_CAP_IMGSTORE: it is answerable only by a target whose
  * display path is driven from config drive packets (0xAE-0xB1) and can run a mode's declared
- * pass count. A target without that must answer the ordinary unknown-opcode NACK rather than
- * claim an opcode it cannot honour -- and "unknown" is wire-visible, so the distinction is not
- * cosmetic.
+ * pass count. A target without that must leave the opcode unrouted rather than claim one it
+ * cannot honour. Unrouted means SILENT, not NACKed: od_dispatch's OD_FRAME_UNKNOWN_OPCODE logs
+ * and emits no frame, deliberately, so unknown-command traffic cannot stamp activity and hold
+ * an exclusive link open. Confirmed on hardware 2026-11-06 -- every sub-opcode of an unrouted
+ * 0x0084 timed out rather than answering.
  *
  * The protocol header calls this Silabs-first, and efr32bg22-slc is the only target that sets
  * it. The spec and the error namespace are already in shared/protocol; this gates the routing. */
@@ -58,7 +60,7 @@
  * DEFAULT OFF, and the default matters more here than for the other caps. The opcode BYPASSES
  * EVERY DRIVER-LEVEL SAFETY CHECK: a malformed sequence can leave the panel powered, mid-refresh
  * or driven with a DC-imbalanced waveform, which degrades e-paper permanently. A target that
- * does not need it should not answer it, and the unknown-opcode NACK is the honest reply.
+ * does not need it should not answer it at all; silence is what an unrouted opcode gets.
  *
  * It is not a security hole on its own -- the handler sits in the ordinary dispatch table and so
  * inherits the session gate, meaning an unauthenticated caller gets RESP_AUTH_REQUIRED and never
