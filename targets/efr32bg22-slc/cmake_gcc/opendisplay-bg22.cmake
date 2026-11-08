@@ -34,6 +34,24 @@ if(NOT DEFINED SDK_PATH OR SDK_PATH STREQUAL "")
       OUTPUT_STRIP_TRAILING_WHITESPACE
       ERROR_QUIET)
   endif()
+  # slt is rarely on PATH, and its conan package has a hashed directory name. Only a complete SDK
+  # counts, and with more than one installed the choice is left to SIMPLICITY_SDK_DIR.
+  if(SDK_PATH STREQUAL "")
+    file(GLOB _od_sdk_candidates "$ENV{HOME}/.silabs/slt/installs/conan/p/simpl*/p")
+    set(_od_sdk_complete "")
+    foreach(_od_sdk IN LISTS _od_sdk_candidates)
+      if(EXISTS "${_od_sdk}/bluetooth_le_host/src/sl_bt_stack_init.c" AND
+         EXISTS "${_od_sdk}/bootloader_interface/platform/bootloader/app_properties/app_properties.c")
+        list(APPEND _od_sdk_complete "${_od_sdk}")
+      endif()
+    endforeach()
+    list(LENGTH _od_sdk_complete _od_sdk_count)
+    if(_od_sdk_count EQUAL 1)
+      set(SDK_PATH "${_od_sdk_complete}")
+    elseif(_od_sdk_count GREATER 1)
+      message(WARNING "Several Simplicity SDKs found, set SIMPLICITY_SDK_DIR: ${_od_sdk_complete}")
+    endif()
+  endif()
 endif()
 if(SDK_PATH STREQUAL "" OR NOT EXISTS "${SDK_PATH}/bluetooth_le_host/src/sl_bt_stack_init.c")
   message(FATAL_ERROR
