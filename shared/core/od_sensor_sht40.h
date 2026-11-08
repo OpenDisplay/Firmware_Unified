@@ -33,6 +33,11 @@ void od_sensor_sht40_init(const struct od_config *cfg);
  * a wrap, and cannot be driven by a target that schedules differently. */
 void od_sensor_sht40_poll(const struct od_config *cfg, uint32_t now_ms);
 
+/* A fresh reading of the first configured SHT40, in whole degrees C, for a panel waveform choice.
+ * It bypasses the poll TTL and leaves the MSD alone. False when none is configured or it cannot
+ * be read. */
+bool od_sensor_sht40_read_temp_c(const struct od_config *cfg, int *temp_c_out);
+
 #ifdef __cplusplus
 }
 #endif

@@ -315,7 +315,10 @@ target's logic, there is no longer an untouched reference to capture from, and t
 becomes a description of what the unified firmware does rather than a regression baseline for
 what the fleet did. Bench time is the scarce input, not engineering effort.
 
-### 3.5 FastEPD writes no pixels to an IT8951 panel — *high severity, S3-only*
+### 3.5 ~~FastEPD writes no pixels to an IT8951 panel~~ — resolved
+
+IT8951 panels no longer use FastEPD (`targets/esp32-idf/src/display_it8951.cpp`), confirmed on an E1003 2026-11-08. The text below is the original report.
+
 
 All three `it8951WriteFramebuffer{1,2,4}Bit` functions in `third_party/FastEPD/src/FastEPD.inl`
 have `#ifdef ARDUINO` guards that fall through to **nothing** under ESP-IDF — 9 sites: `:2199`,

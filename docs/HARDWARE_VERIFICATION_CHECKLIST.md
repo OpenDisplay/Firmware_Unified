@@ -1266,6 +1266,12 @@ One board: ESP32-S3R8, 32 MB flash, ED103TC2 1872x1404, panel 3001. Image `s3-n1
 - [x] Config written over BLE, parsed at boot, panel initialised through FastEPD.
 - [x] Compressed PIPE full frame, 1,283 kB in 4.8 s, 7.1 s including refresh. 16 gray bands and
       fine stripes confirmed by eye; no camera or colorimetry.
+- [x] **IT8951 on `display_it8951.cpp`, FastEPD no longer used for this panel.** 16-gray full frame
+      streamed with no framebuffer: 5.3 s against 7.1 s, 8.36 MB PSRAM free against 6.39 MB. 1-bit
+      full frame and 0x76 partial update also confirmed by eye. Boot screen not separately checked.
+- [x] **Refresh temperature from the SHT4x, not a forced value.** Strips at forced 14/22/30 C: 22 C best
+      by eye. Real reading (24 C) sent before each refresh; grays and 1-bit partial confirmed by eye.
+      VCOM is still a fixed -1.5 V rather than the value labelled on this panel.
 - [x] **BLE OTA over mcumgr SMP** (`s3-n16r8-extuart`, plaintext). 1.28 MB in 75 s, booted and
       confirmed. A build that never confirms ran once, then rolled back by itself on the next reset.
 
