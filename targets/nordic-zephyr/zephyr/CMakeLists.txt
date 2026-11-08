@@ -133,6 +133,9 @@ if(CONFIG_OD_PLATFORM_NRF52840)
   target_compile_definitions(app PRIVATE
     OD_PLATFORM_NRF52840
     OD_BOARD_XIAO_NRF52840
+    # The module's QSPI flash. The nRF54 boards have no flash wired to this path.
+    OD_CAP_IMGSTORE=1
+    OD_IMGSTORE_WRITE_ONCE_HEADER=1
     OD_PLATFORM_NAME=\"nRF52840\"
     OPENDISPLAY_BUILD_ID=\"nrf52840\")
 elseif(CONFIG_OD_PLATFORM_NRF54)
@@ -303,7 +306,10 @@ target_sources(app PRIVATE ${OD_SHARED_SOURCES_PURE} ${OD_SHARED_SOURCES_HAL_CRY
 if(CONFIG_OD_PLATFORM_NRF52840)
   target_sources(app PRIVATE
     ${SRC_DIR}/platform/nrf52840/od_board_nrf52840.c
-    ${SRC_DIR}/platform/nrf52840/od_pin_codec_nrf52840.c)
+    ${SRC_DIR}/platform/nrf52840/od_pin_codec_nrf52840.c
+    ${SRC_DIR}/od_hal_spi.c
+    ${SRC_DIR}/od_cmd_flash.c
+    ${OD_SHARED_SOURCES_APP_IMGSTORE})
 elseif(CONFIG_SOC_NRF54LM20A)
   target_sources(app PRIVATE
     ${SRC_DIR}/platform/nrf54/od_board_nrf54lm20a.c

@@ -12,7 +12,17 @@
 #define SB_SECTORS 1u               /* the superblock owns the first sector */
 
 #define HDR_MAGIC  0x4C53444Fu      /* "ODSL" */
+/* OD_IMGSTORE_WRITE_ONCE_HEADER: for parts that corrupt a byte range programmed twice, measured
+ * on the XIAO module's Puya P25Q16H. The header owns its page and is programmed once, complete, at
+ * finish, so an unfinished slot has no magic and reads as free. */
+#ifndef OD_IMGSTORE_WRITE_ONCE_HEADER
+#define OD_IMGSTORE_WRITE_ONCE_HEADER 0
+#endif
+#if OD_IMGSTORE_WRITE_ONCE_HEADER
+#define HDR_SIZE   256u
+#else
 #define HDR_SIZE   32u              /* fits one page, so VALID is a single-page rewrite */
+#endif
 
 #define ERASE_TIMEOUT_MS  400u
 #define PROGRAM_TIMEOUT_MS 20u
@@ -27,6 +37,11 @@ static struct {
     uint32_t addr;        /* next flash address to program */
     uint32_t remaining;
     uint32_t crc;
+#if OD_IMGSTORE_WRITE_ONCE_HEADER
+    uint32_t payload_len;
+    uint16_t w, h;
+    uint8_t scheme, passes;
+#endif
 } s_w;
 
 uint32_t od_imgstore_crc32(uint32_t crc, const uint8_t *data, uint32_t len)
@@ -207,6 +222,14 @@ bool od_imgstore_begin(uint8_t index, uint16_t w, uint16_t h, uint8_t scheme,
         return false;
     }
 
+#if OD_IMGSTORE_WRITE_ONCE_HEADER
+    (void)hdr;
+    s_w.payload_len = payload_len;
+    s_w.w = w;
+    s_w.h = h;
+    s_w.scheme = scheme;
+    s_w.passes = passes;
+#else
     memset(hdr, 0, sizeof hdr);
     put32(&hdr[0], HDR_MAGIC);
     hdr[4] = OD_SLOT_WRITING;      /* flipped to VALID only after the payload is down */
@@ -223,6 +246,7 @@ bool od_imgstore_begin(uint8_t index, uint16_t w, uint16_t h, uint8_t scheme,
                                         PROGRAM_TIMEOUT_MS)) {
         return false;
     }
+#endif
 
     s_w.active = true;
     s_w.index = index;
@@ -279,6 +303,15 @@ bool od_imgstore_finish(uint32_t *digest_out)
      * back and rewriting it whole would work too, but only by accident: it would re-AND every
      * byte with itself and mask a field that was not actually reachable. */
     memset(hdr, 0xFF, sizeof hdr);
+#if OD_IMGSTORE_WRITE_ONCE_HEADER
+    put32(&hdr[0], HDR_MAGIC);
+    hdr[5] = s_w.scheme;
+    hdr[6] = s_w.passes;
+    hdr[7] = 0u;
+    hdr[8] = (uint8_t)s_w.w; hdr[9] = (uint8_t)(s_w.w >> 8);
+    hdr[10] = (uint8_t)s_w.h; hdr[11] = (uint8_t)(s_w.h >> 8);
+    put32(&hdr[12], s_w.payload_len);
+#endif
     hdr[4] = OD_SLOT_VALID;        /* 0xFE -> 0xFC, bits cleared only */
     put32(&hdr[16], s_w.crc);      /* 0xFFFFFFFF -> crc, bits cleared only */
     const bool ok = od_flash_nor_program_page_sync(slot_addr(s_w.index), hdr, sizeof hdr,

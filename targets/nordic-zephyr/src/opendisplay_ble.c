@@ -1,6 +1,10 @@
 #include "opendisplay_ble.h"
 #include "opendisplay_idle_wake.h"
 #include "od_log.h"
+#include "od_caps.h"
+#if OD_CAP_IMGSTORE
+#include "od_cmd_flash.h"
+#endif
 #include "opendisplay_config_parser.h"
 #include "opendisplay_config_storage.h"
 #include "opendisplay_cs.h"
@@ -994,6 +998,9 @@ void opendisplay_ble_reload_config_from_nvm(void)
 		memset(&s_od_global_config, 0, sizeof(s_od_global_config));
 	}
 	flash_powerdown_from_config();
+#if OD_CAP_IMGSTORE
+	od_flash_store_mount();
+#endif
 	od_smp_sync();
 	opendisplay_nfc_apply_config(&s_od_global_config);
 	/* Apply advertising TX power once the advertiser is active again. */
@@ -1043,6 +1050,11 @@ void opendisplay_ble_init(void)
 		/* No valid stored config, but a factory embed was just provisioned. */
 		config_loaded = loadGlobalConfig(&s_od_global_config);
 	}
+#if OD_CAP_IMGSTORE
+	if (config_loaded) {
+		od_flash_store_mount();
+	}
+#endif
 	if (config_loaded) {
 		od_log_info("config loaded: displays=%u",
 		       (unsigned)s_od_global_config.display_count);
@@ -1120,6 +1132,9 @@ void opendisplay_ble_process(void)
 	 * !epdRefreshInProgress) -- start_allowed unconditionally true, preserving current
 	 * behavior. */
 	(void)ble_service_advertising(true);
+#if OD_CAP_IMGSTORE
+	opendisplay_display_service();
+#endif
 }
 
 bool opendisplay_ble_advertising_active(void)

@@ -1232,6 +1232,11 @@ config-driven drive path.
       `sleep_timeout_ms` = 2000: mean 150.8 -> 141.0 uA. Same build with a 40 s refresh: 136.0 uA.
       A temporary System OFF build still drew 113.7 uA, so that is board and module hardware.
 
+- [x] **Image store on the XIAO module flash (0x0047-0x004B).** Build `9.9.24`, plaintext. Preload of
+      two 16128 B frames over compressed PIPE, about 1.2 s each and no refresh; both VALID with
+      distinct digests, kept across a reboot; empty slot refused; slot displayed and confirmed
+      correct by eye; single-slot erase. Idle afterwards 141.5 uA.
+
 Open:
 
 - [ ] `replace_without_overlap()` restoring the old record when the new one still does not fit.
@@ -1245,6 +1250,9 @@ Open:
       and 0x0085 arriving during an active PIPE upload. The panel run predates removing
       `od_xfer_reset()` from `od_cmd_drive.c`, which affects only a start during an active transfer.
 - [ ] What makes up the ~113 uA hardware floor below (PMIC, DC-DC, module LDO, `P0.17` LED path).
+- [ ] Image store: `FLASH_ERASE 0xFF` (py-opendisplay misreads the echoed `0xFF` as an integrity
+      failure), a preload interrupted mid-transfer, encrypted use, and why the first 60 s after a
+      BLE session averaged 178 uA.
 - [ ] Battery idle current with the settling change. nRF54L15 / nRF54LM20A take the same `main.c`
       and have not been run.
 

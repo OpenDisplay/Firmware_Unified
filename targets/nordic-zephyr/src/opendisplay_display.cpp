@@ -1,6 +1,7 @@
 #include "opendisplay_display.h"
 
 #include "od_color.h"
+#include "od_cmd_flash.h"
 #include "od_cmd_reply.h"
 #include "od_log.h"
 #include "od_xfer_app.h"
@@ -18,6 +19,9 @@
 #include "od_epd_nordic.h"
 #include "od_epd_spi.h"
 #include "od_hal_time.h"
+#include "od_imgstore.h"
+#include "od_txq.h"
+#include "od_xfer.h"
 #include "od_zephyr_compat.h"
 #include "od_watchdog_app.h"
 #include "bb_epaper.h"
@@ -60,6 +64,8 @@ struct XferAppHardwareState {
   uint32_t frame_bytes;
   uint8_t drive_passes;
   uint8_t drive_pass;
+  /* Bytes go to a flash slot; the panel is never touched. */
+  bool to_flash;
 };
 
 static XferAppHardwareState s_xfer_app;
@@ -563,6 +569,12 @@ extern "C" bool opendisplay_display_boot_apply(void)
 
 static void xfer_app_clear(void)
 {
+#if OD_CAP_IMGSTORE
+  if (s_xfer_app.to_flash) {
+    od_flash_store_abort();
+  }
+  od_cmd_flash_clear_arm();
+#endif
   if (s_xfer_app.panel_up) {
     if (s_xfer_app.mode == XFER_APP_DRIVE) {
       od_epd_nordic_sleep();
@@ -578,6 +590,11 @@ static void xfer_app_clear(void)
 
 static bool xfer_app_write_full(uint32_t stream_offset, od_span_t data)
 {
+#if OD_CAP_IMGSTORE
+  if (s_xfer_app.to_flash) {
+    return od_imgstore_write(data.p, (uint32_t)data.n);
+  }
+#endif
   uint32_t consumed = 0u;
 
   if (stream_offset > s_xfer_app.geometry.total_bytes
@@ -805,6 +822,24 @@ extern "C" bool od_xfer_app_begin_full(const od_color_geometry_t *geometry)
       || geometry->layout == OD_COLOR_LAYOUT_SPLIT_HALVES) {
     return false;
   }
+#if OD_CAP_IMGSTORE
+  /* Checked before the rail comes up, so a stored upload costs no refresh. */
+  {
+    uint8_t slot = 0u;
+
+    if (od_cmd_flash_take_arm(&slot)) {
+      if (!od_flash_store_begin(slot, d->pixel_width, d->pixel_height, d->color_scheme,
+                                geometry->total_bytes)) {
+        return false;
+      }
+      memset(&s_xfer_app, 0, sizeof(s_xfer_app));
+      s_xfer_app.mode = XFER_APP_FULL;
+      s_xfer_app.geometry = *geometry;
+      s_xfer_app.to_flash = true;
+      return true;
+    }
+  }
+#endif
   panel = opendisplay_map_epd(d->panel_ic_type);
   if (panel == EP_PANEL_UNDEFINED) {
     return false;
@@ -921,6 +956,15 @@ extern "C" bool od_xfer_app_refresh(uint8_t mode, bool *completed)
 {
   bool ok;
 
+#if OD_CAP_IMGSTORE
+  if (completed != nullptr && s_xfer_app.to_flash) {
+    const bool stored = od_flash_store_finish();
+
+    memset(&s_xfer_app, 0, sizeof(s_xfer_app));
+    *completed = stored;
+    return true;
+  }
+#endif
   if (completed == nullptr || s_xfer_app.mode == XFER_APP_IDLE || !s_xfer_app.panel_up) {
     return false;
   }
@@ -969,6 +1013,80 @@ extern "C" void od_xfer_app_set_displayed_etag(uint32_t etag)
 {
   s_displayed_etag = etag;
 }
+
+#if OD_CAP_IMGSTORE
+/* -1 = nothing queued. Set by a command, consumed by the loop. */
+static int16_t s_pending_slot = -1;
+
+extern "C" bool od_display_from_slot_arm(uint8_t index)
+{
+  const struct DisplayConfig *d = display_cfg();
+  od_imgstore_slot_t slot;
+  bool valid;
+
+  if (d == nullptr || s_xfer_app.mode != XFER_APP_IDLE) {
+    return false;
+  }
+  od_flash_store_wake();
+  valid = od_imgstore_slot(index, &slot) && slot.state == OD_SLOT_VALID;
+  od_flash_store_sleep();
+  /* A stored frame only means something on the panel it was rendered for. */
+  if (!valid || slot.width != d->pixel_width || slot.height != d->pixel_height
+      || slot.colour_scheme != d->color_scheme) {
+    return false;
+  }
+  s_pending_slot = (int16_t)index;
+  return true;
+}
+
+extern "C" void opendisplay_display_service(void)
+{
+  const struct DisplayConfig *d = display_cfg();
+  od_imgstore_slot_t slot;
+  od_color_geometry_t geometry;
+  uint8_t index;
+  uint32_t off = 0u;
+  bool ok;
+  bool completed = false;
+
+  if (s_pending_slot < 0 || od_txq_depth() != 0u || od_xfer_active()
+      || s_xfer_app.mode != XFER_APP_IDLE) {
+    return;
+  }
+  index = (uint8_t)s_pending_slot;
+  s_pending_slot = -1;
+  if (d == nullptr || od_color_direct_geometry(d->color_scheme, d->pixel_width, d->pixel_height,
+                                               &geometry) != OD_COLOR_OK) {
+    return;
+  }
+  od_flash_store_wake();
+  ok = od_imgstore_slot(index, &slot) && slot.state == OD_SLOT_VALID
+      && slot.payload_len == geometry.total_bytes;
+  if (ok) {
+    od_cmd_flash_clear_arm();
+    ok = od_xfer_app_begin_full(&geometry);
+  }
+  while (ok && off < slot.payload_len) {
+    uint32_t n = slot.payload_len - off;
+
+    if (n > OPENDISPLAY_DECOMPRESSION_CHUNK_SIZE) {
+      n = OPENDISPLAY_DECOMPRESSION_CHUNK_SIZE;
+    }
+    ok = od_imgstore_read(index, off, s_decompression_chunk, n)
+        && od_xfer_app_write(off, od_span_make(s_decompression_chunk, n)) == n;
+    off += n;
+  }
+  od_flash_store_sleep();
+  if (ok) {
+    ok = od_xfer_app_refresh(REFRESH_FULL, &completed) && completed;
+  } else if (s_xfer_app.mode != XFER_APP_IDLE) {
+    xfer_app_clear();
+  }
+  if (!ok) {
+    od_log_error("flash: display of slot %u failed", (unsigned)index);
+  }
+}
+#endif
 
 extern "C" uint32_t od_xfer_app_now_ms(void)
 {
