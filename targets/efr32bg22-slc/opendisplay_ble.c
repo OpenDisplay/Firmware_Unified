@@ -32,10 +32,11 @@
 #define MSD_PAYLOAD_LEN        OD_ADVERT_MSD_LEN
 #define OD_NAME_PREFIX         "OD"
 #ifndef OD_FW_VERSION
-#define OD_FW_VERSION ""
+#include "od_fw_version.h"
+#define OD_FW_VERSION OD_FW_VERSION_DEFAULT
 #endif
 #ifndef OD_APP_VERSION
-#define OD_APP_VERSION         0x0100u
+#define OD_APP_VERSION         0x0300u
 #endif
 
 static const char *fw_build_version_string(void)

@@ -205,7 +205,8 @@ float readBatteryVoltage();
 
 
 #ifndef BUILD_VERSION
-#define BUILD_VERSION "1.0.0"
+#include "od_fw_version.h"
+#define BUILD_VERSION OD_FW_VERSION_DEFAULT
 #endif
 #ifndef SHA
 #define SHA ""

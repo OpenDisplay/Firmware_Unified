@@ -111,7 +111,7 @@ target_include_directories(app PRIVATE
 )
 
 target_compile_definitions(app PRIVATE
-  OD_APP_VERSION=0x0100
+  OD_APP_VERSION=0x0300
   # Beside bb_epaper, not replacing it: only 0x0085 runs on od_epd.
   OD_CAP_DRIVE_WRITE=1
 )

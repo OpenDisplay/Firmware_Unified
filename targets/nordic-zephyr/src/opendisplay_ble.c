@@ -58,7 +58,8 @@
 #define OD_TX_POWER_DBM 8
 #endif
 #ifndef OD_FW_VERSION
-#define OD_FW_VERSION ""
+#include "od_fw_version.h"
+#define OD_FW_VERSION OD_FW_VERSION_DEFAULT
 #endif
 
 static const char *fw_build_version_string(void)
@@ -79,7 +80,7 @@ static const char *fw_build_version_string(void)
 }
 
 #ifndef OD_APP_VERSION
-#define OD_APP_VERSION         0x0100u
+#define OD_APP_VERSION         0x0300u
 #endif
 
 static uint8_t fw_major_from_build_version(void)

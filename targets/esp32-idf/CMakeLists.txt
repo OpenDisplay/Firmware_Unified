@@ -75,6 +75,9 @@ endif()
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
+if(NOT DEFINED PROJECT_VER)
+    set(PROJECT_VER "3.0.0")
+endif()
 project(opendisplay)
 
 # ---------------------------------------------------------------------------------------
