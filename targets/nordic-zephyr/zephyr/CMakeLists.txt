@@ -112,6 +112,8 @@ target_include_directories(app PRIVATE
 
 target_compile_definitions(app PRIVATE
   OD_APP_VERSION=0x0100
+  # Beside bb_epaper, not replacing it: only 0x0085 runs on od_epd.
+  OD_CAP_DRIVE_WRITE=1
 )
 
 if(OD_EPD_SPI_REQUIRE_SPIM)
@@ -234,6 +236,8 @@ target_sources(app PRIVATE
   ${SRC_DIR}/opendisplay_config_storage.c
   ${SRC_DIR}/opendisplay_display.cpp
   ${SRC_DIR}/od_epd_spi_nrfx.c
+  ${SRC_DIR}/od_epd_nordic.c
+  ${SRC_DIR}/od_cmd_drive.c
   ${SRC_DIR}/od_inflate_app.c
   ${SRC_DIR}/boot_screen.cpp
   ${SRC_DIR}/opendisplay_epd_map.c
@@ -286,6 +290,7 @@ target_sources(app PRIVATE ${OD_SHARED_SOURCES_PURE} ${OD_SHARED_SOURCES_HAL_CRY
                            ${OD_SHARED_SOURCES_APP_BUZZER}
                            ${OD_SHARED_SOURCES_APP_SENSOR}
                            ${OD_SHARED_SOURCES_APP_TOUCH}
+                           ${OD_SHARED_SOURCES_APP_EPD}
                            ${OD_SHARED_SOURCES_HAL_LOG})
 
 # The per-source INCLUDE_DIRECTORIES property that used to sit here is GONE, and its removal is

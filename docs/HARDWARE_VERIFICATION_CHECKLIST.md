@@ -1224,6 +1224,9 @@ config-driven drive path.
       SMP, config retained across the update. 1978 B -> 2882 B and back: both took the `-ENOSPC`
       path (`Config replace: retiring the old record first`), both ACKed, both read back
       identical, and the 1978 B record survived a reboot.
+- [x] **CMD_DRIVE_WRITE_START, 16 colours.** Build `9.9.12`, plaintext, uncompressed direct path,
+      mode 1 `colour16`, 3 passes x 16128 B, 21 C die. `render16.py --pattern index16` grid
+      confirmed by eye as correct; no camera or colorimetry.
 
 Open:
 
@@ -1234,6 +1237,9 @@ Open:
       later attempts on `9.9.11`, and its errno was never captured.
 - [ ] Boot refresh takes ~34 s on this panel, past the 30 s limit, so each boot logs
       `boot display: still running` and BLE starts 30 s in.
+- [ ] The drive path on nRF54L15 / nRF54LM20A (built, not run), compressed 0x0085, encrypted 0x0085,
+      and 0x0085 arriving during an active PIPE upload. The panel run predates removing
+      `od_xfer_reset()` from `od_cmd_drive.c`, which affects only a start during an active transfer.
 - [ ] Battery idle current with the settling change. nRF54L15 / nRF54LM20A take the same `main.c`
       and have not been run.
 

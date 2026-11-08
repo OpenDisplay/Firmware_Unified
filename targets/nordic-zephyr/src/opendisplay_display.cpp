@@ -15,6 +15,7 @@
 #include "boot_screen.h"
 #include "od_gpio.h"
 #include "od_epd_sizes.h"
+#include "od_epd_nordic.h"
 #include "od_epd_spi.h"
 #include "od_hal_time.h"
 #include "od_zephyr_compat.h"
@@ -42,6 +43,8 @@ enum XferAppMode {
   XFER_APP_IDLE = 0,
   XFER_APP_FULL,
   XFER_APP_PARTIAL,
+  /* The panel is up at a config-declared mode, on od_epd rather than bb_epaper. */
+  XFER_APP_DRIVE,
 };
 
 struct XferAppHardwareState {
@@ -54,6 +57,9 @@ struct XferAppHardwareState {
   uint32_t plane_size;
   uint8_t current_plane;
   bool panel_up;
+  uint32_t frame_bytes;
+  uint8_t drive_passes;
+  uint8_t drive_pass;
 };
 
 static XferAppHardwareState s_xfer_app;
@@ -558,7 +564,11 @@ extern "C" bool opendisplay_display_boot_apply(void)
 static void xfer_app_clear(void)
 {
   if (s_xfer_app.panel_up) {
-    bbepSleep(&s_epd, DEEP_SLEEP);
+    if (s_xfer_app.mode == XFER_APP_DRIVE) {
+      od_epd_nordic_sleep();
+    } else {
+      bbepSleep(&s_epd, DEEP_SLEEP);
+    }
     display_power_set(false);
   }
   od_epd_spi_deinit();
@@ -639,6 +649,125 @@ static bool xfer_app_write_partial(uint32_t stream_offset, od_span_t data)
     }
     consumed += chunk;
   }
+  return true;
+}
+
+/* A frame boundary is a pass boundary. finish runs the panel's refresh and blocks for it, which is
+ * also the flow control: the ACK of the chunk landing on the boundary arrives when the pass is off
+ * the glass. The rail stays up across passes, as the 16-colour behaviour was characterised. */
+static bool xfer_app_write_drive(uint32_t stream_offset, od_span_t data)
+{
+  size_t off = 0u;
+
+  while (off < data.n) {
+    const uint32_t logical = stream_offset + (uint32_t)off;
+    const uint32_t frame_end = (uint32_t)(s_xfer_app.drive_pass + 1u) * s_xfer_app.frame_bytes;
+    const uint32_t frame_start = frame_end - s_xfer_app.frame_bytes;
+    uint32_t chunk = (uint32_t)(data.n - off);
+
+    if (logical >= frame_end || logical < frame_start) {
+      return false;
+    }
+    if (chunk > frame_end - logical) {
+      chunk = frame_end - logical;
+    }
+    if (s_xfer_app.plane_size > 0u) {
+      const uint32_t plane_end = frame_start + s_xfer_app.plane_size;
+
+      if (logical == plane_end && !od_epd_nordic_next_plane()) {
+        return false;
+      }
+      if (logical < plane_end && chunk > plane_end - logical) {
+        chunk = plane_end - logical;
+      }
+    }
+    if (!od_epd_nordic_write(data.p + off, chunk)) {
+      return false;
+    }
+    off += chunk;
+
+    if (logical + chunk == frame_end && s_xfer_app.drive_pass + 1u < s_xfer_app.drive_passes) {
+      od_watchdog_app_phase(OD_WDT_PHASE_REFRESH_WAIT);
+      if (!od_epd_nordic_finish()) {
+        od_log_error("drive: pass %u refresh failed", (unsigned)s_xfer_app.drive_pass);
+        return false;
+      }
+      s_xfer_app.drive_pass++;
+      if (!od_epd_nordic_begin_pass(s_xfer_app.drive_pass)) {
+        od_log_error("drive: pass %u begin failed", (unsigned)s_xfer_app.drive_pass);
+        return false;
+      }
+      od_watchdog_app_phase(OD_WDT_PHASE_STREAM);
+    }
+  }
+  return true;
+}
+
+extern "C" const struct DisplayConfig *opendisplay_display_config(void)
+{
+  return display_cfg();
+}
+
+extern "C" void opendisplay_display_abort(void)
+{
+  xfer_app_clear();
+}
+
+extern "C" bool opendisplay_display_drive_panel_up(const struct DisplayConfig *d)
+{
+  if (!display_power_set(true)) {
+    return false;
+  }
+  if (!display_bus_acquire(d)) {
+    display_power_set(false);
+    return false;
+  }
+  od_epd_nordic_claim_pins(d);
+  od_watchdog_app_phase(OD_WDT_PHASE_INIT_SEQ);
+  return true;
+}
+
+extern "C" void opendisplay_display_drive_panel_down(void)
+{
+  display_power_set(false);
+  od_epd_spi_deinit();
+  (void)od_epd_spi_fault_reset();
+}
+
+extern "C" bool opendisplay_display_drive_adopt(const od_color_geometry_t *geometry, uint8_t passes,
+                                                bool compressed, const uint8_t *payload,
+                                                uint16_t payload_len)
+{
+  const uint64_t total = geometry != nullptr
+      ? (uint64_t)geometry->total_bytes * passes : 0u;
+
+  if (total == 0u || total > UINT32_MAX) {
+    return false;
+  }
+  /* A compressed stream declares its uncompressed length, and passes*frame is the only value
+   * accepted, so a host with the wrong pass count is told at START. */
+  if (compressed) {
+    uint32_t declared;
+
+    if (payload == nullptr || payload_len < 4u) {
+      return false;
+    }
+    declared = (uint32_t)payload[0] | ((uint32_t)payload[1] << 8)
+             | ((uint32_t)payload[2] << 16) | ((uint32_t)payload[3] << 24);
+    if (declared != (uint32_t)total) {
+      od_log_error("drive: declared %u != passes*frame %u", (unsigned)declared, (unsigned)total);
+      return false;
+    }
+  }
+  memset(&s_xfer_app, 0, sizeof(s_xfer_app));
+  s_xfer_app.mode = XFER_APP_DRIVE;
+  s_xfer_app.geometry = *geometry;
+  s_xfer_app.geometry.total_bytes = (uint32_t)total;
+  s_xfer_app.frame_bytes = geometry->total_bytes;
+  s_xfer_app.drive_passes = passes;
+  s_xfer_app.plane_size = geometry->layout == OD_COLOR_LAYOUT_CONTROLLER_PLANES
+      ? geometry->part_bytes[0] : 0u;
+  s_xfer_app.panel_up = true;
   return true;
 }
 
@@ -752,10 +881,14 @@ extern "C" uint32_t od_xfer_app_write(uint32_t stream_offset, od_span_t data)
     return 0u;
   }
   od_watchdog_app_phase(OD_WDT_PHASE_STREAM);
-  accepted = s_xfer_app.mode == XFER_APP_FULL
-      ? xfer_app_write_full(stream_offset, data)
-      : s_xfer_app.mode == XFER_APP_PARTIAL
-          && xfer_app_write_partial(stream_offset, data);
+  if (s_xfer_app.mode == XFER_APP_DRIVE) {
+    accepted = xfer_app_write_drive(stream_offset, data);
+  } else {
+    accepted = s_xfer_app.mode == XFER_APP_FULL
+        ? xfer_app_write_full(stream_offset, data)
+        : s_xfer_app.mode == XFER_APP_PARTIAL
+            && xfer_app_write_partial(stream_offset, data);
+  }
   return accepted && !od_epd_spi_faulted() ? (uint32_t)data.n : 0u;
 }
 
@@ -793,6 +926,18 @@ extern "C" bool od_xfer_app_refresh(uint8_t mode, bool *completed)
   }
   if (od_epd_spi_faulted()) {
     return false;
+  }
+  if (s_xfer_app.mode == XFER_APP_DRIVE) {
+    /* The mode already names the waveform, so the refresh byte selects nothing. */
+    (void)mode;
+    od_watchdog_app_phase(OD_WDT_PHASE_REFRESH_WAIT);
+    ok = od_epd_nordic_finish();
+    od_epd_nordic_sleep();
+    display_power_set(false);
+    memset(&s_xfer_app, 0, sizeof(s_xfer_app));
+    opendisplay_touch_resume_after_refresh();
+    *completed = ok;
+    return true;
   }
   if (s_xfer_app.mode == XFER_APP_PARTIAL) {
     int refresh_mode = REFRESH_PARTIAL;

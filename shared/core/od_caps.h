@@ -49,8 +49,7 @@
  * an exclusive link open. Confirmed on hardware 2026-11-06 -- every sub-opcode of an unrouted
  * 0x0084 timed out rather than answering.
  *
- * The protocol header calls this Silabs-first, and efr32bg22-slc is the only target that sets
- * it. The spec and the error namespace are already in shared/protocol; this gates the routing. */
+ * The protocol header calls this Silabs-first; efr32bg22-slc and nordic-zephyr set it. The spec and the error namespace are already in shared/protocol; this gates the routing. */
 #ifndef OD_CAP_DRIVE_WRITE
 #define OD_CAP_DRIVE_WRITE 0
 #endif
