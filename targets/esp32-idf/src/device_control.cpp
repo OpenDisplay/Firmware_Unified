@@ -1,3 +1,4 @@
+#include "od_smp.h"
 #include "device_control.h"
 #include "od_adv_app.h"
 #include "structs.h"
@@ -578,10 +579,8 @@ void enterDFUMode() {
     // Banner logged by the dispatcher (commandName() in communication.cpp).
 
 
-    od_log_info("ESP32: Rebooting (OTA typically handled via WiFi)");
-    od_hal_delay_ms(100);
-    esp32_ble_deinit_before_restart();
-    esp_restart();
+    od_log_info("ENTER_DFU: unlocking SMP OTA");
+    od_smp_unlock();
 }
 
 od_cmd_result_t handleDeepSleepCommand(const od_cmd_ctx_t *ctx, const uint8_t* payload, uint16_t payloadLen) {

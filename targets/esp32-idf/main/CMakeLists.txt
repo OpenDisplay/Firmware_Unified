@@ -196,7 +196,7 @@ idf_component_register(
         # this target cannot drift from the host build's view of shared/.
         ${OD_SHARED_INCLUDE_DIRS}
     REQUIRES
-        bt nvs_flash esp_timer driver esp_wifi esp_event mbedtls spiffs vfs esp_adc
+        app_update bt nvs_flash esp_timer driver esp_wifi esp_event mbedtls spiffs vfs esp_adc
         # esp_lcd: FastEPD drives the S3 LCD peripheral for parallel e-paper
         esp_lcd esp_psram
         # mdns: vendored under ../components/mdns (ESP-IDF dropped it from core in v5.0).

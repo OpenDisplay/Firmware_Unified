@@ -8,6 +8,7 @@
  * ABOUT an opcode before any handler runs, so they stay on od_dispatch.h rather than moving here.
  */
 
+#include "od_reply.h"
 #include "od_cmd_app.h"
 
 #include "buzzer_control.h"
@@ -57,8 +58,11 @@ extern "C" od_cmd_result_t od_cmd_app_read_msd(const od_cmd_ctx_t *ctx, od_span_
 
 extern "C" od_cmd_result_t od_cmd_app_enter_dfu(const od_cmd_ctx_t *ctx, od_span_t body)
 {
-    (void)ctx; (void)body;
-    enterDFUMode();                   /* also does not return on success */
+    const uint8_t ok[] = { 0x00u, RESP_ENTER_DFU };
+
+    (void)body;
+    (void)od_reply(ctx->r, &ctx->rp, ok, sizeof(ok));
+    enterDFUMode();
     return OD_CMD_OK;
 }
 

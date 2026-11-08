@@ -1,3 +1,4 @@
+#include "od_smp.h"
 #include "communication.h"
 #include "structs.h"
 #include "config_parser.h"
@@ -675,4 +676,8 @@ od_frame_outcome_t od_dispatch_app_frame(const od_reply_t *rp, uint8_t* data, ui
         od_txq_reset();
     }
     return outcome;
+}
+
+extern "C" bool od_smp_encryption_on(void) {
+    return securityConfig.encryption_enabled != 0u;
 }

@@ -8,6 +8,7 @@
  * NimBLE's C API has no equivalent of NimBLEServer::getConnectedCount().
  */
 
+#include "../src/od_smp.h"
 #include "od_ble.h"
 
 #include <string.h>
@@ -300,6 +301,47 @@ static int od_gatt_access(uint16_t conn_handle, uint16_t attr_handle,
     }
 }
 
+static uint16_t s_smp_val_handle;
+static uint8_t s_smp_rx[OD_BLE_MAX_FRAME];
+
+/* mcumgr SMP over BLE. These UUIDs are fixed by the mcumgr transport. */
+static const ble_uuid128_t od_smp_svc_uuid = BLE_UUID128_INIT(
+    0x84, 0xAA, 0x60, 0x74, 0x52, 0x8A, 0x8B, 0x86, 0xD3, 0x4C, 0xB7, 0x1D, 0x1D, 0xDC, 0x53, 0x8D);
+static const ble_uuid128_t od_smp_chr_uuid = BLE_UUID128_INIT(
+    0x48, 0x7C, 0x99, 0x74, 0x11, 0x26, 0x9E, 0xAE, 0x01, 0x4E, 0xCE, 0xFB, 0x28, 0x78, 0x2E, 0xDA);
+
+static int od_smp_access(uint16_t conn_handle, uint16_t attr_handle,
+                         struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    uint16_t len = 0;
+
+    (void)attr_handle; (void)arg;
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        return 0;
+    }
+    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    if (ble_hs_mbuf_to_flat(ctxt->om, s_smp_rx, sizeof(s_smp_rx), &len) != 0) {
+        return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    }
+    od_smp_rx(conn_handle, s_smp_rx, len);
+    return 0;
+}
+
+static const struct ble_gatt_chr_def od_smp_chrs[] = {
+    {
+        .uuid       = &od_smp_chr_uuid.u,
+        .access_cb  = od_smp_access,
+        .arg        = NULL,
+        .descriptors = NULL,
+        .flags      = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE_NO_RSP | BLE_GATT_CHR_F_NOTIFY,
+        .min_key_size = 0,
+        .val_handle = &s_smp_val_handle,
+    },
+    { 0 }
+};
+
 static const struct ble_gatt_chr_def od_chrs[] = {
     {
         .uuid       = &od_chr_uuid.u,
@@ -323,6 +365,12 @@ static const struct ble_gatt_svc_def od_svcs[] = {
         .uuid            = &od_svc_uuid.u,
         .includes        = NULL,
         .characteristics = od_chrs,
+    },
+    {
+        .type            = BLE_GATT_SVC_TYPE_PRIMARY,
+        .uuid            = &od_smp_svc_uuid.u,
+        .includes        = NULL,
+        .characteristics = od_smp_chrs,
     },
     { 0 }
 };
@@ -405,6 +453,7 @@ static int od_gap_event(struct ble_gap_event *event, void *arg)
         return 0;
 
     case BLE_GAP_EVENT_DISCONNECT: {
+        od_smp_link_lost();
         /* OD-INSTRUMENTATION: pairs with the CONNECT line above so handles can be matched.
          * A DISCONNECT for a handle that never produced a CONNECT line is the signature of
          * the defect. */
@@ -869,6 +918,37 @@ bool od_ble_notify_handle(uint16_t conn_handle, const uint8_t *data, uint16_t le
      * do not free it here. It fails when conn_handle is not connected or has not subscribed,
      * which is what makes a stale handle a false return rather than a misdelivery. */
     return ble_gatts_notify_custom(conn_handle, s_chr_val_handle, om) == 0;
+}
+
+extern "C" void od_ble_smp_fast_link(uint16_t conn_handle)
+{
+    const struct ble_gap_upd_params params = {
+        .itvl_min = 6,               /* 7.5 ms */
+        .itvl_max = 12,              /* 15 ms */
+        .latency = 0,
+        .supervision_timeout = 400,  /* 4 s */
+        .min_ce_len = 0,
+        .max_ce_len = 0,
+    };
+
+    (void)ble_gap_update_params(conn_handle, &params);
+}
+
+extern "C" int od_ble_smp_notify(uint16_t conn_handle, const uint8_t *data, size_t len)
+{
+    const uint16_t mtu = ble_att_mtu(conn_handle);
+    const size_t chunk = mtu > 3u ? (size_t)(mtu - 3u) : 0u;
+    const size_t n = len < chunk ? len : chunk;
+
+    for (int tries = 0; n > 0u && tries < 50; tries++) {
+        struct os_mbuf *om = ble_hs_mbuf_from_flat(data, (uint16_t)n);
+
+        if (om != NULL && ble_gatts_notify_custom(conn_handle, s_smp_val_handle, om) == 0) {
+            return (int)n;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    return -1;
 }
 
 uint8_t od_ble_connected_count(void)

@@ -1266,14 +1266,16 @@ One board: ESP32-S3R8, 32 MB flash, ED103TC2 1872x1404, panel 3001. Image `s3-n1
 - [x] Config written over BLE, parsed at boot, panel initialised through FastEPD.
 - [x] Compressed PIPE full frame, 1,283 kB in 4.8 s, 7.1 s including refresh. 16 gray bands and
       fine stripes confirmed by eye; no camera or colorimetry.
-- [x] `CMD_ENTER_DFU` only reboots this target; no firmware-update path exists.
+- [x] **BLE OTA over mcumgr SMP** (`s3-n16r8-extuart`, plaintext). 1.28 MB in 75 s, booted and
+      confirmed. A build that never confirms ran once, then rolled back by itself on the next reset.
 
 Open:
 
 - [ ] A variant with FastEPD, 32 MB and the CH343 console; `s3-n32r8-extuart` has no FastEPD.
 - [ ] Whether a config stored by older firmware survives the move to this firmware. This unit came
       up with no stored config in NVS.
-- [ ] ESP32 OTA over BLE or Wi-Fi, which is unimplemented.
+- [ ] ESP32 OTA with encryption on (unlock through `CMD_ENTER_DFU`), a corrupt image, a host other
+      than BlueZ, and any ESP32 variant besides this S3 on hardware.
 
 ---
 

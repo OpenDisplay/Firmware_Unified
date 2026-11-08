@@ -1,3 +1,4 @@
+#include "od_smp.h"
 #include "main.h"
 #include "boot_screen.h"
 #include "buzzer_control.h"
@@ -209,6 +210,7 @@ void setup() {
             updatemsdata();
             ble.startAdvertising();
             od_log_info("Device ready: %s", bleDeviceName);
+            od_smp_confirm_running();
             od_log_info("Waiting for BLE connections...");
         }
     }
@@ -1357,4 +1359,9 @@ bool powerDownExternalFlash(uint8_t mosiPin, uint8_t misoPin, uint8_t sckPin, ui
     od_log_warn("External flash power-down not implemented for ESP32");
     return false;
     return false;
+}
+
+extern "C" void od_smp_note_activity(void) {
+    linkStampOwnerCommand();
+    lastActivityMs = od_hal_uptime_ms();
 }
