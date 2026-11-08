@@ -1127,6 +1127,17 @@ bool opendisplay_ble_advertising_active(void)
 	return s_adv.active;
 }
 
+bool opendisplay_ble_advertising_settling(void)
+{
+	if (s_adv.faulted || !s_adv.stack_ready) {
+		return false;
+	}
+	if (s_adv_restart_pending || s_adv.payload_dirty) {
+		return true;
+	}
+	return s_adv.desired && !s_adv.active && s_adv.connection_count == 0u;
+}
+
 void opendisplay_ble_schedule_dfu(void)
 {
 	od_log_info("ENTER_DFU: unlocking SMP OTA");

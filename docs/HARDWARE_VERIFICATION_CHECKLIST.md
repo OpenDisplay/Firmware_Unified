@@ -1206,6 +1206,33 @@ Merged in PR #90 (`4a61a7a`). Baseline before the change: ~2 mA idle while adver
 
 ---
 
+## nRF52840 EN04 (OD114608) — 2.9" BWRY, advertiser settling (2026-11-08)
+
+One board, USB powered: EN04, GDEY029F51H 168x384 BWRY (panel 0x001E through bb_epaper),
+plaintext, dual-slot MCUboot layout, serial-DFU flash. Build `9.9.10`, working tree on `2ac1a46`
+plus the `opendisplay_ble_advertising_settling()` change. 4-colour only: this target has no
+config-driven drive path.
+
+- [x] **A configured device stays visible.** With `sleep_timeout_ms` = 2000: 36 scanner sightings
+      in 90 s, against about one every few minutes on the previous build at the same range.
+- [x] Website-built config (EN04 + 2.9" BWRY + USB power, security packet removed), 1978 B: write
+      after CONFIG_CLEAR, reboot, read back byte-identical, no parser warning. The 0xAE-0xB1
+      packets are walked past.
+- [x] Compressed PIPE upload, 16128 B frame, 36.5 s including refresh. Labelled black, white,
+      yellow and red bands confirmed by eye to match their labels; no camera or colorimetry.
+
+Open:
+
+- [ ] **Replacing a stored ~2 kB config fails.** 1978 B over a 1980 B record NACKs the last chunk
+      (`Config storage write failed`); it needs CONFIG_CLEAR first. `SETTINGS_NVS_SECTOR_COUNT=2`
+      is the suspect; the errno was not captured.
+- [ ] Boot refresh takes ~34 s on this panel, past the 30 s limit, so each boot logs
+      `boot display: still running` and BLE starts 30 s in.
+- [ ] Battery idle current with the settling change. nRF54L15 / nRF54LM20A take the same `main.c`
+      and have not been run.
+
+---
+
 ## `efr32bg22-slc` on OD58FFC4 — config-driven panel, flash store, actions (2026-11-06)
 
 One board, one session: **OD58FFC4**, a Newton Pro 2.6" (2x CR2450) with a 184x360 BWRY

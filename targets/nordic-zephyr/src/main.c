@@ -22,6 +22,7 @@ enum idle_wait_result {
 static enum idle_wait_result idle_wait_until(int64_t deadline_ms)
 {
 	const uint32_t chunk_ms = 1000u;
+	const uint32_t settle_step_ms = 5u;
 
 	for (;;) {
 		int64_t now_ms;
@@ -46,6 +47,11 @@ static enum idle_wait_result idle_wait_until(int64_t deadline_ms)
 		}
 		remaining_ms = deadline_ms - now_ms;
 		step_ms = (remaining_ms > (int64_t)chunk_ms) ? chunk_ms : (uint32_t)remaining_ms;
+		/* An MSD refresh is stop -> program -> start, one step per pass. Sleeping a full
+		 * chunk between steps leaves the advertiser off for the whole refresh interval. */
+		if (opendisplay_ble_advertising_settling() && step_ms > settle_step_ms) {
+			step_ms = settle_step_ms;
+		}
 		if (opendisplay_idle_wait(step_ms)) {
 			return IDLE_WAIT_INTERRUPTED;
 		}
