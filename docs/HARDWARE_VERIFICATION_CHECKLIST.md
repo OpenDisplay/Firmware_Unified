@@ -1220,12 +1220,18 @@ config-driven drive path.
       packets are walked past.
 - [x] Compressed PIPE upload, 16128 B frame, 36.5 s including refresh. Labelled black, white,
       yellow and red bands confirmed by eye to match their labels; no camera or colorimetry.
+- [x] **A config too large to coexist with its predecessor replaces it.** Build `9.9.11` over BLE
+      SMP, config retained across the update. 1978 B -> 2882 B and back: both took the `-ENOSPC`
+      path (`Config replace: retiring the old record first`), both ACKed, both read back
+      identical, and the 1978 B record survived a reboot.
 
 Open:
 
-- [ ] **Replacing a stored ~2 kB config fails.** 1978 B over a 1980 B record NACKs the last chunk
-      (`Config storage write failed`); it needs CONFIG_CLEAR first. `SETTINGS_NVS_SECTOR_COUNT=2`
-      is the suspect; the errno was not captured.
+- [ ] `replace_without_overlap()` restoring the old record when the new one still does not fit.
+      Not exercised; a record that passes NVS's size check yet fails after the delete was not
+      constructed.
+- [ ] The original failure itself (1978 B over 1980 B NACKing on `9.9.10`) did not recur in four
+      later attempts on `9.9.11`, and its errno was never captured.
 - [ ] Boot refresh takes ~34 s on this panel, past the 30 s limit, so each boot logs
       `boot display: still running` and BLE starts 30 s in.
 - [ ] Battery idle current with the settling change. nRF54L15 / nRF54LM20A take the same `main.c`
