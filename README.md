@@ -129,7 +129,8 @@ tools/sync_protocol_header.py --check    # fail if any copy drifted (CI/pre-comm
 ## Versioning and releases
 
 **Semantic versioning, one version line for the whole repository.** Decided 2026-07-25,
-resolving docs/DESIGN_REVIEW_2026-07-25.md § F6. Tags are `vMAJOR.MINOR.PATCH`; the four
+resolving docs/DESIGN_REVIEW_2026-07-25.md § F6. Tags are `MAJOR.MINOR.PATCH` (`release.yml`
+also accepts a leading `v`; see docs/RELEASE_ARTEFACTS.md § 1); the four
 per-repo schemes this repo replaces (ESP32 `BUILD_VERSION "1.0.0"`, nRF54 `OD_APP_VERSION`
 `0x0100`, Silabs `0x0019`) do not carry over.
 
@@ -173,35 +174,34 @@ one. Older firmware **omits** the trailing patch byte and a host must read a mis
 patch `0`, which the canonical header already mandates. And `major`/`minor` stay at fixed
 offsets ahead of the SHA, so an old host parsing a new device still gets a correct major.minor.
 
-### The first release is `v2.0.0`
+### The first release is `3.0.0`
 
-Deliberately not `v1.0.0`, and deliberately not `v0.1.0`. Every shipped firmware reports a
-version below 2.0 — ESP32 `1.0.0`, nRF54L15 `1.0`, EFR32BG22 `0.25` — so starting at 2 makes
-**`major >= 2` mean "built from `Firmware_Unified`"**. That recovers a *codebase* identity on
-the wire even though target identity is still missing, and it guarantees no unified build can
-be confused with a legacy one by version alone. This is a deliberate deviation from semver's
-"start at 0.1.0" convention, taken because the version namespace is shared with deployed
-devices that cannot be renumbered.
+The original plan was `v2.0.0`, so that "major ≥ 2" would mean "built from
+`Firmware_Unified`". That no longer works: `Firmware` reached 2.27 and `Firmware_Silabs` 2.3
+while this repo was being built. 3.0.0 is the first number above every shipped line (ESP32
+2.27.x, nRF54 1.1.x, BG22 2.3.x). It is also the MAJOR bump that the config-driven drive,
+the ESP32 NVS move and the nRF52840 bootloader change call for anyway (CHANGELOG.md).
 
-During the migration the repo ships nothing and cuts no release tag; `v2.0.0` is cut when the
-first target passes hardware verification (Gate 2 in docs/MIGRATION.md). A release records
-**which targets were built and hardware-verified at that tag** — targets are verified
-separately by construction, and a target that was not rebuilt keeps reporting the older version
-on real devices. That is expected, not a defect.
+Release mechanics:
 
-Two cautions, both live as of 2026-08-05:
+- the artefact contract is [docs/RELEASE_ARTEFACTS.md](docs/RELEASE_ARTEFACTS.md);
+- the go/no-go list is [docs/RELEASE_CHECKLIST_3.0.md](docs/RELEASE_CHECKLIST_3.0.md);
+- the per-target steps are [docs/UPGRADING.md](docs/UPGRADING.md).
 
-- **`git tag` is not empty, and none of it is a release.** 44 tags (`0.1` … `0.64`, `beta-*`,
-  `test7`) arrived with the `Firmware` import history. No `v*` tag exists. Do not read the
-  legacy tags as versions of this repo.
-- **Gate 2 is not fully met, so `v2.0.0` is not yet cuttable.** The ESP32 target's Gate 2
-  tracking item was closed *by decision*, with an uncompressed image push and an
-  interrupted-transfer recovery never exercised. Closing the item did not change what the gate
-  covers.
+A tag builds every target with that version stamped in and creates a **draft** release; a
+maintainer publishes it. 3.x is published only from this repository, under names no 2.x
+updater matches.
 
-> **Do not couple this to `OD_PROTOCOL_VERSION`.** Both happen to be 2.x today and they are
+A release records **which targets were built and hardware-verified at that tag**. Targets are
+verified separately by construction, and a device that was not updated keeps reporting its
+older version. That is expected, not a defect.
+
+`git tag` holds five tags (`0.0.1-design`, `0.1.0`, `0.1.1`, `0.2.0`, `nrf51822-v0.1.0`). They came with
+imported history and are not releases of this repo.
+
+> **Do not couple this to `OD_PROTOCOL_VERSION`.** They are
 > unrelated numbers on different schedules: the protocol version (`2.2`) is the wire contract
-> owned by `opendisplay-protocol`, and firmware `2.0.0` is this repo's build. A firmware patch
+> owned by `opendisplay-protocol`, and firmware `3.0.0` is this repo's build. A firmware patch
 > release does not touch the protocol version, and a protocol MINOR bump does not require a
 > firmware MAJOR.
 
@@ -211,8 +211,8 @@ The ESP32 target builds every board with one command, which sources ESP-IDF itse
 
 ```bash
 cd targets/esp32-idf
-./build.sh                 # all 11 boards -> release/, with a MANIFEST
-./build.sh --release       # the 9 shipping boards; excludes the two -debug ones
+./build.sh                 # every board -> release/, with a MANIFEST
+./build.sh --release       # the shipping boards; excludes the -debug ones
 ./build.sh s3-n16r8        # or just one; ./build.sh --list to see them
 tools/run_host_tests.sh    # host tests under ASan+UBSan and TSan+UBSan
 tools/sdkconfig_baseline.sh
@@ -225,9 +225,9 @@ board list, its release/debug variants and the kernel each board runs on are in
 
 All three toolchains are installed on the primary dev box (ESP-IDF v5.5.4, nRF Connect SDK
 v3.3.1 with west v1.5.0, Simplicity SDK 2025.12.2), though **none is on `PATH`** — each needs
-an activation step, listed in [docs/TOOLCHAINS.md](docs/TOOLCHAINS.md). Only ESP-IDF has
-actually built anything here; for the other two only version strings have been run. CI still
-carries more weight than usual: one machine with one set of versions is not a build matrix.
+an activation step, listed in [docs/TOOLCHAINS.md](docs/TOOLCHAINS.md). All three build both
+here and in CI (`.github/workflows/build.yml`, pinned containers and SDKs). CI is the reference:
+one machine with one set of versions is not a build matrix.
 
 Host-runnable tests for `shared/` need none of that — see [tests/](tests/README.md):
 

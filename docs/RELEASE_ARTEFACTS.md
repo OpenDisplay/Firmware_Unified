@@ -144,7 +144,7 @@ Opt-in builds with `OD_NRF52840_MCUBOOT=0` (Adafruit-only layout) produce
 | `opendisplay-bg22-ota.gbl` | `gbl` | — | **BLE OTA** through the Gecko bootloader's AppLoader (unsigned GBL) |
 | `opendisplay-bg22-app.s37` | `s37` | — | Application, SWD (`commander flash`) |
 | `opendisplay-bg22-app.hex` | `hex` | — | Application, SWD |
-| `opendisplay-bg22-bootloader.s37` | `bootloader-s37` | — | Gecko bootloader + AppLoader, virgin boards only. **Not in CI releases yet**: the blob is not in this repo (`targets/efr32bg22-slc/README.md`). |
+| `opendisplay-bg22-bootloader.s37` | `bootloader-s37` | — | Gecko bootloader + AppLoader, virgin boards only. The collector renames the target's `bootloader-apploader.s37` to this name. The blob arrives with the bg22 branch (`v3/bg22` 0db5265). Until that merges, CI releases carry no bootloader and the `usb-install` flow says so. Flash it before `-app.s37`. |
 
 The build itself writes `opendisplay-bg22.{gbl,s37,hex,out}`. `collect.py` renames those to
 the names above and drops the `.out` ELF.
