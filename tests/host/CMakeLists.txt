@@ -541,6 +541,26 @@ add_executable(od_display_test display_test.c
 target_link_libraries(od_display_test od_shared)
 add_test(NAME display COMMAND od_display_test)
 
+# xfer_split: a SPLIT_HALVES upload through od_xfer into od_display on a recorded bus, under
+# OD_XFER_SPLIT_HALVES=1 (ESP32's composition). od_xfer_panel_info_t changes size with the flag,
+# so every unit that includes od_xfer_app.h is compiled again with it, ahead of od_shared.
+add_library(od_xfer_split STATIC
+    ${CMAKE_CURRENT_LIST_DIR}/../../shared/core/od_xfer.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../shared/core/od_xfer_direct.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../shared/core/od_xfer_partial.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../shared/core/od_pipe.c)
+target_include_directories(od_xfer_split PUBLIC ${OD_SHARED_INCLUDE_DIRS})
+target_compile_definitions(od_xfer_split PUBLIC OD_XFER_SPLIT_HALVES=1)
+add_executable(od_xfer_split_test xfer_split_test.c
+    ../../shared/core/od_display.c
+    ../../shared/core/od_epd_cfg.c
+    ../../shared/core/od_epd.c
+    ../../shared/core/od_cfg_index.c
+    od_log_test_stub.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../third_party/qrcode/qrcode.c)
+target_link_libraries(od_xfer_split_test od_xfer_split od_shared)
+add_test(NAME xfer_split COMMAND od_xfer_split_test)
+
 # config: the parsed aggregate -- instance caps, the Firmware zero-key rule, string termination,
 # and what a truncated blob leaves behind. Downstream of the pre-auth surface od_config_tlv
 # guards, so the cases are the ones where a hostile blob still reaches storage.
