@@ -11,6 +11,10 @@ extern "C" {
 
 void od_it8951_set_panel(int8_t mosi, int8_t miso, int8_t sclk, int8_t cs, int8_t busy, int8_t rst,
                          int8_t en, int8_t ite_en, uint16_t width, uint16_t height, bool gray16);
+/* Panel mounting and VCOM. Mirrored (ED103TC2) reverses each row; unmirrored (M5Paper ED047TC1)
+ * sends gray rows as-is and bit-reverses 1-bit bytes. vcom_mv 0 keeps the controller's stored
+ * VCOM. Defaults: mirrored, 1500 mV. Call before od_it8951_epaper_begin(). */
+void od_it8951_set_layout(bool mirrored, uint16_t vcom_mv);
 /* The next refresh uses this temperature; invalid selects the default. */
 void od_it8951_set_temperature(bool valid, int temp_c);
 bool od_it8951_init_failed(void);

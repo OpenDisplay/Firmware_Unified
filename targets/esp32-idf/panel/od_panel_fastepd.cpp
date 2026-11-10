@@ -33,7 +33,8 @@ static bool s_init_ok      = false;
 static bool fastepd_ops_claims(uint16_t panel_ic_type, uint8_t display_technology)
 {
     const bool it8951 = (panel_ic_type == OD_PANEL_IC_ED103TC2_1872X1404 ||
-                         panel_ic_type == OD_PANEL_IC_ED103TC2_1872X1404_4GRAY);
+                         panel_ic_type == OD_PANEL_IC_ED103TC2_1872X1404_4GRAY ||
+                         panel_ic_type == OD_PANEL_IC_M5PAPER_960X540);
     const bool parallel = (panel_ic_type == OD_PANEL_IC_INKPLATE5V2_1280X720 ||
                            panel_ic_type == OD_PANEL_IC_INKPLATE10_1200X825 ||
                            panel_ic_type == OD_PANEL_IC_M5PAPERS3_960X540);

@@ -93,6 +93,19 @@ void opendisplay_fastepd_load_pins_from_display(const struct DisplayConfig* d, c
                 s_ite_en = fastepd_aux_pin(sys->pwr_pin_3, 21);
             }
             break;
+        case OD_PANEL_IC_M5PAPER_960X540:
+            // M5Paper: the IT8951 reset is not wired; GPIO23 gates the IT8951 supply, so
+            // reset_pin doubles as RST/EN/ITE_EN. pwr_pin_2/3 are the board's power latch here,
+            // never panel enables. Defaults are the M5Paper's own pins.
+            s_sclk = (d->clk_pin != 0xFF) ? (int8_t)d->clk_pin : 14;
+            s_mosi = (d->data_pin != 0xFF) ? (int8_t)d->data_pin : 12;
+            s_miso = (d->dc_pin != 0xFF) ? (int8_t)d->dc_pin : 13;
+            s_cs = (d->cs_pin != 0xFF) ? (int8_t)d->cs_pin : 15;
+            s_busy = (d->busy_pin != 0xFF) ? (int8_t)d->busy_pin : 27;
+            s_rst = (d->reset_pin != 0xFF) ? (int8_t)d->reset_pin : 23;
+            s_en = s_rst;
+            s_ite_en = s_rst;
+            break;
         default:
             break;
     }
@@ -107,7 +120,23 @@ bool fastepd_init_failed(void) {
 static bool panel_is_it8951(void) {
     if (globalConfig.display_count < 1) return false;
     const uint16_t ic = globalConfig.displays[0].panel_ic_type;
-    return ic == OD_PANEL_IC_ED103TC2_1872X1404 || ic == OD_PANEL_IC_ED103TC2_1872X1404_4GRAY;
+    return ic == OD_PANEL_IC_ED103TC2_1872X1404 || ic == OD_PANEL_IC_ED103TC2_1872X1404_4GRAY ||
+           ic == OD_PANEL_IC_M5PAPER_960X540;
+}
+
+static bool fastepd_panel_is_4gray(void);
+
+// ED047TC1 (M5Paper) is mounted unmirrored and keeps the IT8951's stored VCOM; ED103TC2 (E1003)
+// is mirrored at 1500 mV.
+static void it8951_load_panel(void) {
+    if (globalConfig.displays[0].panel_ic_type == OD_PANEL_IC_M5PAPER_960X540) {
+        od_it8951_set_layout(false, 0u);
+    } else {
+        od_it8951_set_layout(true, 1500u);
+    }
+    od_it8951_set_panel(s_mosi, s_miso, s_sclk, s_cs, s_busy, s_rst, s_en, s_ite_en,
+                        globalConfig.displays[0].pixel_width,
+                        globalConfig.displays[0].pixel_height, fastepd_panel_is_4gray());
 }
 
 static void update_it8951_temperature(void) {
@@ -244,9 +273,7 @@ void fastepd_prepare_hardware(void) {
     if (panel_is_it8951()) {
         opendisplay_fastepd_load_pins_from_display(&globalConfig.displays[0], &globalConfig.system_config,
                                                    globalConfig.displays[0].panel_ic_type);
-        od_it8951_set_panel(s_mosi, s_miso, s_sclk, s_cs, s_busy, s_rst, s_en, s_ite_en,
-                            globalConfig.displays[0].pixel_width,
-                            globalConfig.displays[0].pixel_height, fastepd_panel_is_4gray());
+        it8951_load_panel();
         od_it8951_prepare_hardware();
         return;
     }
@@ -261,9 +288,7 @@ void fastepd_epaper_begin(void) {
     if (panel_is_it8951()) {
         opendisplay_fastepd_load_pins_from_display(&globalConfig.displays[0], &globalConfig.system_config,
                                                    globalConfig.displays[0].panel_ic_type);
-        od_it8951_set_panel(s_mosi, s_miso, s_sclk, s_cs, s_busy, s_rst, s_en, s_ite_en,
-                            globalConfig.displays[0].pixel_width,
-                            globalConfig.displays[0].pixel_height, fastepd_panel_is_4gray());
+        it8951_load_panel();
         od_it8951_epaper_begin();
         return;
     }

@@ -7,6 +7,7 @@
 #include "od_session.h"
 #include "od_session_app.h"
 #include "power_latch.h"
+#include "protocol_pending.h"  // OD_PANEL_IC_M5PAPER_960X540
 #include "wifi_service.h"  // OPENDISPLAY_HAS_WIFI + lanActivePort()/lanTlsEnabled()
 
 #include <stdio.h>
@@ -27,6 +28,7 @@
 #define DEVICE_FLAG_NM420_INIT (1 << 5)
 #endif
 void nm420_init();
+void m5paper_init();
 
 extern struct od_config globalConfig;
 extern uint8_t activeLedInstance;
@@ -310,6 +312,10 @@ void full_config_init() {
         }
         if (globalConfig.loaded && (globalConfig.system_config.device_flags & DEVICE_FLAG_NM420_INIT)) {
             nm420_init();
+        }
+        if (globalConfig.loaded && globalConfig.display_count > 0 &&
+            globalConfig.displays[0].panel_ic_type == OD_PANEL_IC_M5PAPER_960X540) {
+            m5paper_init();
         }
         // Must run after config load: latch pins/flag come from globalConfig.
         powerLatchBegin();
