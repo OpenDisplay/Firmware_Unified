@@ -36,6 +36,11 @@ bool od_xfer_adopt_full(const od_reply_t *owner, const od_color_geometry_t *geom
                         uint32_t expected_bytes, bool compressed, od_span_t inline_data);
 #endif
 
+/* End the active transfer, if any, as replaced (aborting its hardware through the app).
+ * For a START handler that is about to take the panel itself, as 0x0085 does before
+ * od_xfer_adopt_full: refused or not, the old transfer cannot outlive its panel. */
+void od_xfer_replace_active(void);
+
 void od_xfer_reset(void);
 bool od_xfer_active(void);
 bool od_xfer_owns_hardware(void);

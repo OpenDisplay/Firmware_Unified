@@ -76,7 +76,7 @@ extern "C" int od_display_drive_write_start(uint8_t mode, uint8_t refresh, uint8
 
     /* Takes ownership: a drive session and a direct write share one panel object. The transfer
      * that held it ends here too, or a refused START leaves it active with no panel. */
-    od_xfer_reset();
+    od_xfer_replace_active();
     opendisplay_display_abort();
 
     temp_c = drive_temp_c();

@@ -107,7 +107,6 @@ struct od_xfer_terminal_snapshot {
 
 od_xfer_state_t *od_xfer_state(void);
 bool od_xfer_owner_matches(const od_cmd_ctx_t *ctx);
-void od_xfer_replace_active(void);
 void od_xfer_clear_state(void);
 void od_xfer_abort_active(od_xfer_abort_reason_t reason, bool clear_etag);
 bool od_xfer_peer_warning_allowed(void);

@@ -46,7 +46,7 @@ static uint8_t drive_begin(uint8_t *mode, uint8_t flags, od_span_t tail, uint8_t
      * descriptor this load is about to replace. The transfer that owned that panel ends with
      * it, accepted or refused: the app abort does not touch od_xfer, and a transfer left
      * active with no panel behind it defers the display service until it times out. */
-    od_xfer_reset();
+    od_xfer_replace_active();
     od_drive_app_abort();
     if (d == NULL || !od_epd_cfg_load(d, od_drive_app_bus())) {
         return OD_ERR_DRIVE_NO_CONFIG;
