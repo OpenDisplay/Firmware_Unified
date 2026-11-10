@@ -32,6 +32,17 @@ extern "C" {
 
 #define OD_CFG_INDEX_MAX 32u
 
+/* 0xB3 display_controller: PROVISIONAL, not yet in opendisplay-protocol (docs/
+ * CONFIG_DRIVEN_DISPLAY.md, "Built-in controller drivers"). Indexed only where a target sets
+ * OD_CFG_INDEX_CONTROLLER=1; everywhere else it is skipped like any unknown length-prefixed id.
+ * The fallback value goes when the canonical header defines the id. */
+#ifndef OD_CFG_INDEX_CONTROLLER
+#define OD_CFG_INDEX_CONTROLLER 0
+#endif
+#ifndef OD_PKT_DISPLAY_CONTROLLER
+#define OD_PKT_DISPLAY_CONTROLLER 0xB3u
+#endif
+
 typedef struct {
     uint8_t  type;      /* config packet id (0x01, 0x20, 0xAE, ...) */
     uint8_t  instance;  /* instance_number -- body[0], NOT the header byte */

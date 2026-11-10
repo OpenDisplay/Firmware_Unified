@@ -85,6 +85,9 @@ int od_cfg_index_build(void)
             case OD_PKT_DISPLAY_CAL:
             case OD_PKT_DISPLAY_PANEL:
             case OD_PKT_ACTION_TABLE:
+#if OD_CFG_INDEX_CONTROLLER
+            case OD_PKT_DISPLAY_CONTROLLER:
+#endif
                 break;
             default:
                 /* Skippable, which is the whole point of the range. It costs no index slot:
