@@ -1533,7 +1533,7 @@ esp32_all_and_baseline() {
 if [ "$DO_ESP32" = 1 ]; then
     check "esp32: all fragments + sdkconfig baseline" esp32_all_and_baseline
 else
-    skip "esp32: all fragments + sdkconfig baseline" "needs --esp32/--targets (builds 10 fragments)"
+    skip "esp32: all fragments + sdkconfig baseline" "needs --esp32/--targets (builds every board fragment)"
 fi
 
 # ====================================================================================== nordic ==
