@@ -1,6 +1,9 @@
-/* Drive packets for three panels, copied from the panel database (v3/panel-data 64922a9,
- * panels/generated/drive_presets.json, framed_hex): [number][id][len:2 LE][body] each, ready to
- * append after the legacy packets. Regenerate when that database changes. */
+/* Drive packets for three panels from the panel database (panels/generated/drive_presets.json,
+ * framed_hex): [number][id][len:2 LE][body] each, ready to append after the legacy packets.
+ * EP29YR and EP74R are the top-level (default class) entries. EP42B is deliberately the
+ * targets.bg22 view: its partial mode has NO WINDOW step, which display_test's "a rectangle
+ * smaller than the panel needs a sequence with WINDOW" case relies on. tests/panels
+ * (DisplayPresets) fails when these bytes drift from the database; regenerate from there. */
 
 /* 0x001E EP29YR_168x384 168x384 scheme 3, modes 0 full x1, 1 colour16 x3 */
 static const uint8_t k_preset_EP29YR[] = {
@@ -100,7 +103,7 @@ static const uint8_t k_preset_EP29YR[] = {
     0x01, 0x8A, 0x00, 0x13, 0x00, 0x6F, 0x03, 0x0A, 0x06, 0x06, 0x03,
 };
 
-/* 0x0002 EP42B_400x300 400x300 scheme 0, modes 0 full x1, 1 fast x1, 2 partial x1 */
+/* 0x0002 EP42B_400x300 400x300 scheme 0, modes 0 full x1, 1 fast x1, 2 partial x1 (targets.bg22) */
 static const uint8_t k_preset_EP42B[] = {
     0x00, 0xB1, 0x1C, 0x00, 0x00, 0x01, 0x00, 0x30, 0x75, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x03,
     0x0F, 0x02, 0x3F, 0x22, 0x02, 0x22, 0x83, 0x01, 0x20, 0x00, 0x01, 0x02, 0x10, 0x03, 0x00, 0x00,

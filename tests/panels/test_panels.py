@@ -357,6 +357,22 @@ class Glass(unittest.TestCase):
 
 
 @unittest.skipUnless(os.environ.get("OD_PANELS_STALE") == "1", "set OD_PANELS_STALE=1 (needs the bb_epaper clone)")
+class DisplayPresets(unittest.TestCase):
+    """tests/host/display_presets.inc is copied from this database; catch it drifting."""
+    WANT = (("EP29YR", "0x001E", None), ("EP42B", "0x0002", "bg22"), ("EP74R", "0x0024", None))
+
+    def test_inc_matches_database(self):
+        import re
+        src = (REPO / "tests" / "host" / "display_presets.inc").read_text()
+        for name, pid, cls in self.WANT:
+            m = re.search(r"k_preset_%s\[\] = \{(.*?)\};" % name, src, re.S)
+            self.assertIsNotNone(m, name)
+            got = bytes(int(x, 16) for x in re.findall(r"0x([0-9A-Fa-f]{2})", m.group(1))).hex()
+            ent = PRESETS["panels"][pid]
+            want = ent["framed_hex"] if cls is None else ent["targets"][cls]["framed_hex"]
+            self.assertEqual(got, want, f"{name} ({pid}, {cls or 'default'}) is stale")
+
+
 class Stale(unittest.TestCase):
     def test_generated_is_current(self):
         import subprocess
