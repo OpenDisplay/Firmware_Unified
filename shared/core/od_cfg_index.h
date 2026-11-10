@@ -67,6 +67,10 @@ uint32_t od_cfg_read(const od_cfg_entry_t *e, uint16_t off, uint8_t *dst, uint16
 /* Payload length of the stored config, for diagnostics. */
 uint32_t od_cfg_blob_len(void);
 
+/* Rebuilds the index, then: does display `instance` have a 0xB1 panel head and at least one
+ * 0xAE mode with a sequence? False is the "needs migration" state of a 2.x config. */
+bool od_cfg_has_drive_data(uint8_t instance);
+
 #ifdef __cplusplus
 }
 #endif

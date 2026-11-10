@@ -90,6 +90,7 @@ static int esc_arg_bytes(uint8_t esc)
         case OD_EPD_ESC_READ_SCRATCH:  return 2;
         case OD_EPD_ESC_WRITE_SCRATCH: return 3;
         case OD_EPD_ESC_LUT_SLICE:     return 4;
+        case OD_EPD_ESC_FILL:          return 3;
         default:                       return -1;
     }
 }
@@ -149,6 +150,34 @@ int od_epd_validate(const od_epd_t *e)
             i += 3u + (uint16_t)cnt * 2u;
             continue;
         }
+        if (esc == OD_EPD_ESC_WINDOW) {
+#if OD_EPD_WITH_WINDOW
+            if (i + 2u >= len) {
+                return OD_ERR_SEQ;
+            }
+            uint8_t cnt = seq[i + 2u];
+            if (cnt == 0u || cnt > 32u ||
+                (uint32_t)i + 3u + (uint32_t)cnt * 2u > len) {
+                return OD_ERR_SEQ;
+            }
+            for (uint8_t k = 0u; k < cnt; k++) {
+                const uint8_t kind = seq[i + 3u + k * 2u];
+                const uint8_t v = seq[i + 4u + k * 2u];
+                if (kind == OD_EPD_WIN_KIND_GEOM) {
+                    if ((v & 0xC0u) != 0u ||
+                        ((v & OD_EPD_WIN_MIRROR) != 0u && (v & 0x07u) >= OD_EPD_WIN_WIDTH)) {
+                        return OD_ERR_SEQ;
+                    }
+                } else if (kind != OD_EPD_WIN_KIND_LITERAL) {
+                    return OD_ERR_SEQ;
+                }
+            }
+            i += 3u + (uint16_t)cnt * 2u;
+            continue;
+#else
+            return OD_ERR_UNSUP;
+#endif
+        }
         int args = esc_arg_bytes(esc);
         if (args < 0) {
             /* Unknown escape -- including the reserved 0x80+ length-carrying
@@ -186,6 +215,15 @@ int od_epd_validate(const od_epd_t *e)
         }
         if (esc == OD_EPD_ESC_SET_PIN && seq[i + 3u] > 2u) {
             return OD_ERR_SEQ;      /* level is 0, 1 or 2 (Hi-Z) */
+        }
+        if (esc == OD_EPD_ESC_FILL) {
+#if OD_EPD_WITH_WINDOW
+            if ((seq[i + 4u] & 0x03u) > 2u || (seq[i + 4u] & 0x7Cu) != 0u) {
+                return OD_ERR_SEQ;
+            }
+#else
+            return OD_ERR_UNSUP;
+#endif
         }
         i += 2u + (uint16_t)args;
     }
@@ -238,9 +276,60 @@ static int stream_lut(od_epd_t *e, uint8_t slot, uint8_t vsn1,
  * Returns OD_OK at end of sequence, 1 when it paused on the image marker, or a
  * negative error. `e->seq_pos` is where to resume.
  */
-static int run_sequence(od_epd_t *e, const uint8_t *hdr, bool have_hdr,
-                        uint8_t slot, uint8_t vsn1, uint16_t lut_len)
+#if OD_EPD_WITH_WINDOW
+static uint16_t win_value(const od_epd_t *e, uint8_t desc)
 {
+    const uint8_t sel = (uint8_t)(desc & 0x07u);
+    uint32_t v;
+    uint32_t dim;
+
+    switch (sel) {
+        case OD_EPD_WIN_X0:     v = e->win_x; break;
+        case OD_EPD_WIN_X1:     v = (uint32_t)e->win_x + e->win_w - 1u; break;
+        case OD_EPD_WIN_Y0:     v = e->win_y; break;
+        case OD_EPD_WIN_Y1:     v = (uint32_t)e->win_y + e->win_h - 1u; break;
+        case OD_EPD_WIN_W_LAST: v = (uint32_t)e->desc->width - 1u; break;
+        case OD_EPD_WIN_H_LAST: v = (uint32_t)e->desc->height - 1u; break;
+        case OD_EPD_WIN_WIDTH:  v = e->win_w; break;
+        default:                v = e->win_h; break;
+    }
+    if ((desc & OD_EPD_WIN_MIRROR) != 0u) {
+        dim = (sel == OD_EPD_WIN_Y0 || sel == OD_EPD_WIN_Y1 || sel == OD_EPD_WIN_H_LAST)
+            ? e->desc->height : e->desc->width;
+        v = (v < dim) ? dim - 1u - v : 0u;
+    }
+    if ((desc & OD_EPD_WIN_DIV8) != 0u) {
+        v >>= 3;
+    }
+    return (uint16_t)v;
+}
+
+static void run_fill(od_epd_t *e, uint8_t cmd, uint8_t value, uint8_t flags)
+{
+    static const uint8_t bpp_of[3] = { 1u, 2u, 4u };
+    const bool rect = (flags & OD_EPD_FILL_RECT) != 0u;
+    const uint32_t w = rect ? e->win_w : e->desc->width;
+    const uint32_t h = rect ? e->win_h : e->desc->height;
+    uint32_t left = ((w * bpp_of[flags & 0x03u] + 7u) / 8u) * h;
+    uint8_t buf[32];
+
+    memset(buf, value, sizeof buf);
+    e->io->cmd(cmd);
+    while (left > 0u) {
+        const uint32_t n = left < sizeof buf ? left : (uint32_t)sizeof buf;
+        e->io->data(buf, n);
+        left -= n;
+    }
+}
+#endif
+
+static int run_sequence(od_epd_t *e)
+{
+    const uint8_t *hdr = e->lut_hdr;
+    const bool have_hdr = e->lut_have;
+    const uint8_t slot = e->lut_slot;
+    const uint8_t vsn1 = e->lut_vsn1;
+    const uint16_t lut_len = e->lut_len;
     const uint8_t *seq = e->seq;
     uint16_t len = e->seq_len;
     uint16_t i = e->seq_pos;
@@ -391,6 +480,41 @@ static int run_sequence(od_epd_t *e, const uint8_t *hdr, bool have_hdr,
             i += 6u;
             continue;
         }
+#if OD_EPD_WITH_WINDOW
+        if (esc == OD_EPD_ESC_FILL) {
+            if ((uint32_t)i + 5u > len) {
+                return OD_ERR_SEQ;
+            }
+            run_fill(e, seq[i + 2u], seq[i + 3u], seq[i + 4u]);
+            i += 5u;
+            continue;
+        }
+        if (esc == OD_EPD_ESC_WINDOW) {
+            if (i + 2u >= len) {
+                return OD_ERR_SEQ;
+            }
+            uint8_t cnt = seq[i + 2u];
+            if (cnt == 0u || cnt > sizeof(buf) ||
+                (uint32_t)i + 3u + (uint32_t)cnt * 2u > len) {
+                return OD_ERR_SEQ;
+            }
+            const uint8_t *p = &seq[i + 3u];
+            for (uint8_t k = 0; k < cnt; k++) {
+                if (p[k * 2u] == OD_EPD_WIN_KIND_GEOM) {
+                    const uint16_t v = win_value(e, p[k * 2u + 1u]);
+                    buf[k] = (uint8_t)(((p[k * 2u + 1u] & OD_EPD_WIN_HIGH) != 0u) ? (v >> 8) : v);
+                } else {
+                    buf[k] = p[k * 2u + 1u];
+                }
+            }
+            e->io->cmd(buf[0]);
+            if (cnt > 1u) {
+                e->io->data(&buf[1], (size_t)(cnt - 1u));
+            }
+            i += 3u + (uint16_t)cnt * 2u;
+            continue;
+        }
+#endif
         if (esc == OD_EPD_ESC_WAVE) {
             if (i + 2u >= len) {
                 return OD_ERR_SEQ;
@@ -444,17 +568,96 @@ int od_epd_select_mode(od_epd_t *e, uint8_t mode)
     e->mode = mode;
     e->pass = 0;
     e->paused = false;
+    od_epd_set_window(e, 0u, 0u, e->desc->width, e->desc->height);
     return OD_OK;
 }
+
+/* Resolve a pass's waveform. Only the 7-byte analog header is read into RAM -- the body is
+ * streamed later, at the marker. An absent slot is not an error here; a LUT step that needs
+ * one is (run_sequence). */
+static int resolve_lut(od_epd_t *e, uint8_t slot, uint8_t vsn1)
+{
+    uint16_t lut_len = 0u;
+
+    e->lut_have = false;
+    e->lut_slot = slot;
+    e->lut_vsn1 = vsn1;
+    e->lut_len = 0u;
+    if (slot != 0xFFu && e->io->lut_info && e->io->lut_read &&
+        e->io->lut_info(slot, &lut_len)) {
+        if (lut_len < 7u) {
+            return OD_ERR_LUT;   /* too short to carry an analog header */
+        }
+        if (e->io->lut_read(slot, 0u, e->lut_hdr, 7u) != 7u) {
+            return OD_ERR_LUT;
+        }
+        if (vsn1 != 0u) {
+            e->lut_hdr[3] = vsn1;
+        }
+        e->lut_len = lut_len;
+        e->lut_have = true;
+    }
+    return OD_OK;
+}
+
+void od_epd_set_window(od_epd_t *e, uint16_t x, uint16_t y, uint16_t w, uint16_t h)
+{
+    if (e == NULL) {
+        return;
+    }
+    e->win_x = x;
+    e->win_y = y;
+    e->win_w = w;
+    e->win_h = h;
+}
+
+#if OD_EPD_WITH_WINDOW
+/* A validated sequence only. A rectangle smaller than the panel can only be addressed by a
+ * sequence that places the RAM window itself; one without WINDOW would write the rectangle's
+ * bytes from the panel origin. */
+static bool seq_uses_window(const od_epd_t *e)
+{
+    uint16_t i = 0u;
+
+    while ((uint32_t)i + 1u < e->seq_len) {
+        const uint8_t n = e->seq[i];
+        uint8_t esc;
+        int args;
+
+        if (n != OD_EPD_ESC) {
+            i = (uint16_t)(i + 1u + n);
+            continue;
+        }
+        esc = e->seq[i + 1u];
+        if (esc == OD_EPD_SEQ_END) {
+            return false;
+        }
+        if (esc == OD_EPD_ESC_WINDOW) {
+            return true;
+        }
+        if (esc == OD_EPD_ESC_WAVE) {
+            i = (uint16_t)(i + 3u + (uint16_t)e->seq[i + 2u] * 2u);
+            continue;
+        }
+        args = esc_arg_bytes(esc);
+        if (args < 0) {
+            return false;
+        }
+        i = (uint16_t)(i + 2u + (uint16_t)args);
+    }
+    return false;
+}
+
+static bool window_is_panel(const od_epd_t *e)
+{
+    return e->win_x == 0u && e->win_y == 0u &&
+           e->win_w == e->desc->width && e->win_h == e->desc->height;
+}
+#endif
 
 int od_epd_begin_pass(od_epd_t *e, uint8_t pass)
 {
     const od_epd_mode_t *m = &e->active;
-    uint8_t  hdr[7];
-    bool     have_hdr = false;
-    uint16_t lut_len = 0;
-    uint8_t  slot;
-    uint8_t  vsn1;
 
     if (pass >= m->passes) {
         return OD_ERR_MODE;
@@ -481,24 +684,17 @@ int od_epd_begin_pass(od_epd_t *e, uint8_t pass)
             return vrc;
         }
     }
+#if OD_EPD_WITH_WINDOW
+    if (!window_is_panel(e) && !seq_uses_window(e)) {
+        return OD_ERR_UNSUP;
+    }
+#endif
     seq_start(e);
-
-    /* Resolve this pass's waveform. Only the 7-byte analog header is read into
-     * RAM -- the 528-byte body is streamed later, at the marker. */
-    slot = m->lut_slot[pass];
-    vsn1 = m->vsn1[pass];
-    if (slot != 0xFFu && e->io->lut_info && e->io->lut_read &&
-        e->io->lut_info(slot, &lut_len)) {
-        if (lut_len < 7u) {
-            return OD_ERR_LUT;   /* too short to carry an analog header */
+    {
+        int lrc = resolve_lut(e, m->lut_slot[pass], m->vsn1[pass]);
+        if (lrc != OD_OK) {
+            return lrc;
         }
-        if (e->io->lut_read(slot, 0u, hdr, 7u) != 7u) {
-            return OD_ERR_LUT;
-        }
-        if (vsn1 != 0u) {
-            hdr[3] = vsn1;
-        }
-        have_hdr = true;
     }
 
     e->io->reset(10);
@@ -506,7 +702,7 @@ int od_epd_begin_pass(od_epd_t *e, uint8_t pass)
         return OD_ERR_BUSY;
     }
 
-    int rc = run_sequence(e, hdr, have_hdr, slot, vsn1, lut_len);
+    int rc = run_sequence(e);
     if (rc < 0) {
         return rc;
     }
@@ -547,7 +743,7 @@ int od_epd_next_plane(od_epd_t *e)
         return OD_ERR_STATE;
     }
     e->paused = false;
-    int rc = run_sequence(e, NULL, false, 0xFFu, 0u, 0u);
+    int rc = run_sequence(e);
     if (rc < 0) {
         return rc;
     }
@@ -567,7 +763,76 @@ int od_epd_finish_pass(od_epd_t *e)
     /* The tail -- power-on, refresh opcode, BUSY wait -- is the remainder of
      * the same sequence. A panel needing a different refresh command or an
      * extra register poke after the frame needs no code change here. */
-    int rc = run_sequence(e, NULL, false, 0xFFu, 0u, 0u);
+    int rc = run_sequence(e);
+    return (rc < 0) ? rc : OD_OK;
+}
+
+/* Offset just past the LAST image marker of a validated sequence, or 0 when it has none. */
+static uint16_t after_last_image(const uint8_t *seq, uint16_t len)
+{
+    uint16_t i = 0u;
+    uint16_t after = 0u;
+
+    while (i < len) {
+        const uint8_t n = seq[i];
+        if (n != OD_EPD_ESC) {
+            i = (uint16_t)(i + 1u + n);
+            continue;
+        }
+        if (i + 1u >= len) {
+            break;
+        }
+        const uint8_t esc = seq[i + 1u];
+        if (esc == OD_EPD_SEQ_END) {
+            break;
+        }
+        if (esc == OD_EPD_ESC_WAVE || esc == OD_EPD_ESC_WINDOW) {
+            i = (uint16_t)(i + 3u + (uint16_t)seq[i + 2u] * 2u);
+            continue;
+        }
+        i = (uint16_t)(i + 2u + (uint16_t)esc_arg_bytes(esc));
+        if (esc == OD_EPD_ESC_IMAGE || esc == OD_EPD_ESC_IMAGE_SLICE) {
+            after = i;
+        }
+    }
+    return after;
+}
+
+int od_epd_finish_with_tail(od_epd_t *e, uint8_t mode)
+{
+    od_epd_mode_t m;
+    uint16_t at;
+    int rc;
+
+    if (!e || !e->paused) {
+        return OD_ERR_STATE;
+    }
+    if (mode >= e->desc->mode_count || !e->io->mode_read(mode, &m) ||
+        m.seq_len == 0u || m.seq_len > OD_EPD_SEQ_MAX) {
+        return OD_ERR_MODE;
+    }
+    e->paused = false;
+    e->seq_len = e->io->seq_read(mode, 0u, e->seq, m.seq_len);
+    if (e->seq_len != m.seq_len) {
+        return OD_ERR_SEQ;
+    }
+    rc = od_epd_validate(e);
+    if (rc != OD_OK) {
+        return rc;
+    }
+    at = after_last_image(e->seq, e->seq_len);
+    if (at == 0u) {
+        return OD_ERR_SEQ;      /* a tail is defined by the image marker it follows */
+    }
+    rc = resolve_lut(e, m.lut_slot[0], m.vsn1[0]);
+    if (rc != OD_OK) {
+        return rc;
+    }
+    e->seq_pos = at;
+    rc = run_sequence(e);
+    if (rc == 1) {
+        return OD_ERR_SEQ;      /* only the last marker's tail may run here */
+    }
     return (rc < 0) ? rc : OD_OK;
 }
 
@@ -583,7 +848,8 @@ int od_epd_sleep(od_epd_t *e)
     e->seq_len = e->desc->sleep_seq_len;
     e->seq_pos = 0u;
     e->paused = false;
+    e->lut_have = false;
     seq_start(e);
-    int rc = run_sequence(e, NULL, false, 0xFFu, 0u, 0u);
+    int rc = run_sequence(e);
     return (rc < 0) ? rc : OD_OK;
 }

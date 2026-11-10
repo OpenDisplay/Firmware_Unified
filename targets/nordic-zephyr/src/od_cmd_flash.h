@@ -24,9 +24,9 @@ void od_flash_store_abort(void);
 void od_flash_store_wake(void);
 void od_flash_store_sleep(void);
 
-/* Implemented in opendisplay_display.cpp. Runs from the loop, so the ACK leaves before the refresh. */
+/* Implemented in opendisplay_display.c; opendisplay_display_service() runs it from the loop, so
+ * the ACK leaves before the refresh. */
 bool od_display_from_slot_arm(uint8_t index);
-void opendisplay_display_service(void);
 
 #ifdef __cplusplus
 }

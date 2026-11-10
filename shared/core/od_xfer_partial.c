@@ -94,6 +94,11 @@ od_cmd_result_t od_xfer_partial_start(const od_cmd_ctx_t *ctx, od_span_t body)
         od_xfer_log_start_refused("Partial write", OD_XFER_START_PANEL_GEOMETRY, -1, true);
         return partial_fail(ctx, 0x76u, OD_ERR_PARTIAL_UNSUPPORTED);
     }
+    if (panel.needs_migration) {
+        od_xfer_log_start_refused("Partial write", OD_XFER_START_NEEDS_MIGRATION,
+                                  OD_ERR_NEEDS_MIGRATION, false);
+        return partial_fail(ctx, 0x76u, OD_ERR_NEEDS_MIGRATION);
+    }
     if (!panel.partial_enabled || !panel.geometry.partial_supported) {
         od_xfer_log_start_refused("Partial write", OD_XFER_START_PARTIAL_UNSUPPORTED,
                                   -1, false);

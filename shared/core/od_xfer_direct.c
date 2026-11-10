@@ -41,7 +41,15 @@ od_cmd_result_t od_xfer_direct_start(const od_cmd_ctx_t *ctx, od_span_t body)
     od_xfer_replace_active();
     od_xfer_app_prepare_start();
     memset(&panel, 0, sizeof panel);
-    if (!od_xfer_app_panel_info(&panel) || panel.geometry.total_bytes == 0u) {
+    if (od_xfer_app_panel_info(&panel) && panel.needs_migration) {
+        const uint8_t nack[] = { RESP_NACK, RESP_DIRECT_WRITE_START_ACK,
+                                 OD_ERR_NEEDS_MIGRATION, 0u };
+        od_xfer_log_start_refused("Direct write", OD_XFER_START_NEEDS_MIGRATION,
+                                  OD_ERR_NEEDS_MIGRATION, false);
+        od_xfer_reply_error(ctx, nack, (uint16_t)sizeof nack);
+        return OD_CMD_NACK;
+    }
+    if (panel.geometry.total_bytes == 0u) {
         od_xfer_log_start_refused("Direct write", OD_XFER_START_PANEL_GEOMETRY, -1, true);
         od_xfer_reply_simple_error(ctx, RESP_DIRECT_WRITE_START_ACK);
         return OD_CMD_NACK;

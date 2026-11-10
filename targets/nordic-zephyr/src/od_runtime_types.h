@@ -23,7 +23,7 @@
  * of them -- a backward-compatible carve, per that header's own MINOR-bump policy.
  *
  * NAMING. targets/esp32-idf calls its equivalent src/structs.h. This one is not called that
- * because this target's include path also carries third_party/bb_epaper and the panel and uzlib
+ * because this target's include path also carries third_party/ and the panel and uzlib
  * directories, where a header named structs.h is a collision waiting to happen; the od_ prefix
  * matches the rest of this target's local headers.
  */

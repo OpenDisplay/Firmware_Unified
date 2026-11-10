@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 
+#include "od_config_carry.h"
 #include "od_config_store.h"
 
 /* Framing, CRC and bounds are shared/core's; the medium is src/od_hal_nvs.c. What is left here
@@ -21,7 +22,8 @@ bool saveConfig(uint8_t *config_data, uint32_t len)
 	if (config_data == NULL) {
 		return false;
 	}
-	return od_config_store_save(workspace, sizeof(workspace), config_data, len)
+	/* A config without 0x80+ packets keeps the stored drive packets (od_config_carry.h). */
+	return od_config_store_save_carry(workspace, sizeof(workspace), config_data, len, NULL)
 	       == OD_CONFIG_STORE_OK;
 }
 
