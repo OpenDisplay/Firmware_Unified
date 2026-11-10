@@ -58,7 +58,8 @@ bool od_display_partial_available(void);
 /* Ordinary full frame, mode 0. `geometry` is the wire layout of DisplayConfig 0x20's scheme. */
 od_display_rc_t od_display_begin_full(const od_color_geometry_t *geometry);
 /* Partial update of a byte-aligned rectangle: the wire carries the OLD plane then the NEW plane,
- * plane_bytes each, which the "partial" mode's two image markers take in that order. */
+ * plane_bytes each, which the "partial" mode's two image markers (IMAGE, IMAGE or IMAGE_SLICE
+ * 0/2, 1/2) take in that order. */
 od_display_rc_t od_display_begin_partial(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
                                          uint32_t plane_bytes);
 /* CMD_DRIVE_WRITE_START: the handler has selected the mode and opened pass 0. */

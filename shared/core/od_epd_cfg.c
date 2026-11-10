@@ -560,7 +560,7 @@ static uint32_t marker_budget(const od_epd_cfg_stream_t *s)
     if (s->layout == OD_COLOR_LAYOUT_SPLIT_HALVES && of == 2u && part < 2u) {
         return s->part_bytes[part];
     }
-    unit = s->plane_size != 0u ? s->plane_size : s->frame_bytes;
+    unit = (of == 1u && s->plane_size != 0u) ? s->plane_size : s->frame_bytes;
     b = unit / of;
     return part + 1u == of ? unit - b * (uint32_t)(of - 1u) : b;
 }

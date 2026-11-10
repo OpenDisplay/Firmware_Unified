@@ -611,6 +611,50 @@ void od_epd_set_window(od_epd_t *e, uint16_t x, uint16_t y, uint16_t w, uint16_t
     e->win_h = h;
 }
 
+#if OD_EPD_WITH_WINDOW
+/* A validated sequence only. A rectangle smaller than the panel can only be addressed by a
+ * sequence that places the RAM window itself; one without WINDOW would write the rectangle's
+ * bytes from the panel origin. */
+static bool seq_uses_window(const od_epd_t *e)
+{
+    uint16_t i = 0u;
+
+    while ((uint32_t)i + 1u < e->seq_len) {
+        const uint8_t n = e->seq[i];
+        uint8_t esc;
+        int args;
+
+        if (n != OD_EPD_ESC) {
+            i = (uint16_t)(i + 1u + n);
+            continue;
+        }
+        esc = e->seq[i + 1u];
+        if (esc == OD_EPD_SEQ_END) {
+            return false;
+        }
+        if (esc == OD_EPD_ESC_WINDOW) {
+            return true;
+        }
+        if (esc == OD_EPD_ESC_WAVE) {
+            i = (uint16_t)(i + 3u + (uint16_t)e->seq[i + 2u] * 2u);
+            continue;
+        }
+        args = esc_arg_bytes(esc);
+        if (args < 0) {
+            return false;
+        }
+        i = (uint16_t)(i + 2u + (uint16_t)args);
+    }
+    return false;
+}
+
+static bool window_is_panel(const od_epd_t *e)
+{
+    return e->win_x == 0u && e->win_y == 0u &&
+           e->win_w == e->desc->width && e->win_h == e->desc->height;
+}
+#endif
+
 int od_epd_begin_pass(od_epd_t *e, uint8_t pass)
 {
     const od_epd_mode_t *m = &e->active;
@@ -640,6 +684,11 @@ int od_epd_begin_pass(od_epd_t *e, uint8_t pass)
             return vrc;
         }
     }
+#if OD_EPD_WITH_WINDOW
+    if (!window_is_panel(e) && !seq_uses_window(e)) {
+        return OD_ERR_UNSUP;
+    }
+#endif
     seq_start(e);
     {
         int lrc = resolve_lut(e, m->lut_slot[pass], m->vsn1[pass]);

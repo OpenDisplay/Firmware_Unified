@@ -224,6 +224,10 @@ bool od_display_adopt_drive(const od_color_geometry_t *frame, uint8_t passes, bo
                             od_span_t tail)
 {
     if (!od_epd_cfg_stream_init(&s_stream, frame, passes, compressed, tail.p, (uint16_t)tail.n)) {
+        /* The handler brought the panel up; no session owns it yet, so take it down here. */
+        od_epd_cfg_sleep();
+        od_drive_app_panel_down();
+        phase(OD_DISPLAY_PHASE_IDLE);
         return false;
     }
     s_session = SESSION_DRIVE;

@@ -47,8 +47,16 @@
 extern "C" {
 #endif
 
-#define OD_EPD_SEQ_MAX        128u   /* measured: real sequences are 62-101 B */
-#define OD_EPD_MAX_SEQ_STEPS   64u
+/* One mode's sequence is held in od_epd_t for the whole pass (the walk pauses at the image
+ * marker), so this is RAM. 512 B / 96 steps fits every bb_epaper flow the panel database encodes
+ * (the longest needs 424 B and 80 steps). BG22 keeps 128 / 64 through its profile: there a
+ * longer mode is refused at select, and the host sees the panel as not drivable in that mode. */
+#ifndef OD_EPD_SEQ_MAX
+#define OD_EPD_SEQ_MAX        512u
+#endif
+#ifndef OD_EPD_MAX_SEQ_STEPS
+#define OD_EPD_MAX_SEQ_STEPS   96u
+#endif
 #define OD_EPD_LUT_BYTES      535u   /* 7-byte analog header + 528-byte body */
 #define OD_EPD_SLEEP_SEQ_MAX   16u
 #define OD_EPD_SCRATCH_LEN     16u   /* READ_SCRATCH/WRITE_SCRATCH buffer, zeroed per sequence */

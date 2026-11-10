@@ -106,9 +106,11 @@ int     od_epd_cfg_last_rc(void);
 /* One CMD_DRIVE_WRITE_START transfer: `passes` frames back to back. A frame boundary is a pass
  * boundary, and the refresh at that boundary blocks inside the write, which is also the flow
  * control -- the ACK of the chunk landing on it arrives once the pass is off the glass. */
-/* Every image marker the walk pauses on consumes a budget of the frame: a whole frame, one
- * controller plane (CONTROLLER_PLANES), one half (SPLIT_HALVES with IMAGE_SLICE x/2), or
- * frame/of for IMAGE_SLICE. The writer advances to the next marker when a budget is spent, so a
+/* Every image marker the walk pauses on consumes a budget of the frame. IMAGE takes one
+ * controller plane on a CONTROLLER_PLANES frame and the whole frame otherwise. IMAGE_SLICE
+ * part/of takes frame/of -- the protocol's "slices divide the frame" -- except on SPLIT_HALVES,
+ * where x/2 takes that half's exact size. So a two-plane frame reads the same as IMAGE, IMAGE or
+ * IMAGE_SLICE 0/2, 1/2, which is how the partial OLD/NEW planes are encoded. The writer advances to the next marker when a budget is spent, so a
  * sequence that declares fewer markers than the layout needs fails loudly mid-stream. */
 typedef struct {
     uint32_t frame_bytes;
