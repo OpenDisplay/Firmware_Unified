@@ -185,6 +185,46 @@ else()
     message(STATUS "od: non-FastEPD board -- Group5 from bb_epaper")
 endif()
 
+# Factory provisioning, the IDF form of the PlatformIO pre-script scripts/factory_config_gen.py:
+#   OPENDISPLAY_FACTORY_CONFIG_HEX="BD 00 01 ..." idf.py ... reconfigure build
+#       embeds a config packet that the first boot with no stored config saves to NVS
+#       (tryProvisionFactoryEmbed()).
+#   OPENDISPLAY_FACTORY_CLEAR_CONFIG=1 idf.py ... reconfigure build
+#       builds a one-shot image that erases the stored config on every boot.
+# -DOD_FACTORY_CONFIG_HEX / -DOD_FACTORY_CLEAR_CONFIG=1 work the same. Both are read at
+# CONFIGURE time and deliberately not kept in the cache: a build directory reused for a
+# normal image must not keep shipping a factory config, so every reconfigure without them
+# drops the embed. The generated source lives in the build tree, never in src/.
+if(NOT CMAKE_BUILD_EARLY_EXPANSION)
+    set(od_factory_hex "$ENV{OPENDISPLAY_FACTORY_CONFIG_HEX}")
+    if(DEFINED OD_FACTORY_CONFIG_HEX)
+        set(od_factory_hex "${OD_FACTORY_CONFIG_HEX}")
+        unset(OD_FACTORY_CONFIG_HEX CACHE)
+    endif()
+    set(od_factory_clear "$ENV{OPENDISPLAY_FACTORY_CLEAR_CONFIG}")
+    if(DEFINED OD_FACTORY_CLEAR_CONFIG)
+        set(od_factory_clear "${OD_FACTORY_CLEAR_CONFIG}")
+        unset(OD_FACTORY_CLEAR_CONFIG CACHE)
+    endif()
+    set(OD_FACTORY_DEFINES "")
+    if(od_factory_clear MATCHES "^(1|[Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|[Oo][Nn])$")
+        list(APPEND OD_FACTORY_DEFINES FACTORY_CLEAR_CONFIG_ON_BOOT=1)
+        message(STATUS "od: factory clear build (FACTORY_CLEAR_CONFIG_ON_BOOT)")
+    elseif(NOT od_factory_hex STREQUAL "")
+        idf_build_get_property(od_python PYTHON)
+        set(od_factory_cpp "${CMAKE_BINARY_DIR}/od_generated/factory_config_data.cpp")
+        execute_process(
+            COMMAND ${od_python} ${CMAKE_CURRENT_LIST_DIR}/../tools/factory_config_embed.py
+                    --out "${od_factory_cpp}" --hex "${od_factory_hex}"
+            RESULT_VARIABLE od_factory_rc)
+        if(NOT od_factory_rc EQUAL 0)
+            message(FATAL_ERROR "od: factory config packet rejected (see above)")
+        endif()
+        list(APPEND OD_APP_SOURCES ${od_factory_cpp})
+        list(APPEND OD_FACTORY_DEFINES FACTORY_HAS_EMBED=1)
+    endif()
+endif()
+
 idf_component_register(
     SRCS ${OD_APP_SOURCES}
     INCLUDE_DIRS
@@ -302,6 +342,7 @@ endif()
 # Arduino/PlatformIO plumbing (ARDUINO_USB_*, board_build.*) which became sdkconfig instead.
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     ${OD_BOARD_DEFINES}
+    ${OD_FACTORY_DEFINES}
     OD_XFER_DIRECT_AUTO_END=1
     # This target has no tag. It must be set HERE, with the commit that adds od_nfc.c to the
     # aggregate: od_core_reset() names od_nfc_reset(), so the machine is linked from that moment
