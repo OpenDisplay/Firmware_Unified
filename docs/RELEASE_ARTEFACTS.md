@@ -230,6 +230,9 @@ Field rules:
   `web-manifest-update`, `web-manifest-install`, `merged-hex`, `ota`, `smp-dfu-zip`,
   `nrfutil-dfu-zip`, `gbl`, `s37`, `hex`, `bootloader-s37`. An unknown `type` must be ignored,
   not guessed at.
+- `erases_config` is `true` when the device's existing config (and encryption key) is not
+  usable afterwards, `false` when it is kept, and `null` when that has not been established.
+  A consumer must treat `null` as `true` for anything it tells the user.
 - `flows` keys:
   - `usb-install`: first install, or a 2.x → 3.x move over USB;
   - `usb-update`: 3.x → 3.x over USB, keeping the config;
