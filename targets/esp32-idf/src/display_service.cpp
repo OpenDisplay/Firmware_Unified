@@ -225,6 +225,24 @@ static void pwrmgmLockGive(void) {
     __atomic_store_n(&pwrmgmLock, 0, __ATOMIC_RELEASE);
 }
 
+// After controller power-off / deep sleep, wait before cutting VDD so the board's boost caps
+// and VCOM can bleed. 50 ms is too short on EP42B (SSD16xx 400x300): the refresh looks right,
+// then the image darkens over the following minutes.
+static const uint16_t EPD_POST_SLEEP_BLEED_MS = 200;
+
+// bbepSleep() on SSD16xx only sends deep sleep; it does not run the analog/HV shutdown. Send
+// EOPT discharge frames (0x3F=0x22) and the power-off sequence (0x22=0x83: clock on, analog off,
+// OSC off, then 0x20) while SPI is still up.
+static void epdSsd16xxPowerOffDischarge(void) {
+    if (bbep.chip_type != BBEP_CHIP_SSD16xx) return;
+    if (!bbep.is_awake) return;
+    bbepCMD2(&bbep, 0x3F, 0x22);
+    bbepCMD2(&bbep, SSD1608_DISP_CTRL2, 0x83);
+    bbepWriteCmd(&bbep, SSD1608_MASTER_ACTIVATE);
+    od_watchdog_app_service();
+    bbepWaitBusy(&bbep);
+}
+
 // Lock-held core (callers must hold pwrmgmLock). Split out so Release/Tick can
 // power off without re-taking the non-recursive lock.
 static void epdSessionForceOffLocked(void) {
@@ -238,8 +256,9 @@ static void epdSessionForceOffLocked(void) {
         fastepd_mark_hw_deinitialized();
 #endif
     } else {
+        epdSsd16xxPowerOffDischarge();
         bbepSleep(&bbep, 1);
-        od_hal_delay_ms(50);
+        od_hal_delay_ms(EPD_POST_SLEEP_BLEED_MS);
         /* Release the SPI bus and device now that the controller is asleep and no further
          * bytes are going out. Must be AFTER bbepSleep(), which still needs the bus to send
          * the sleep command, and BEFORE pwrmgm(false), which cuts the rail and parks the pins.
