@@ -139,12 +139,16 @@ static bool io_mode_read(uint8_t index, od_epd_mode_t *out)
  * packet-header byte. The header's first byte is a don't-care that the two
  * writers disagree about -- py-opendisplay puts the instance index there, the
  * web toolbox puts a running counter -- so matching on it would make a
- * toolbox-built config unable to find its own waveforms. */
+ * toolbox-built config unable to find its own waveforms. Slot numbers are per display, so
+ * the body's instance_number must match as well. */
+static uint8_t s_lut_instance;
+
 static const od_cfg_entry_t *find_lut(uint8_t slot)
 {
     for (int i = 0; i < od_cfg_index_count(); i++) {
         const od_cfg_entry_t *e = od_cfg_index_entry(i);
-        if (e != NULL && e->type == OD_PKT_DISPLAY_LUT && e->sub == slot) {
+        if (e != NULL && e->type == OD_PKT_DISPLAY_LUT && e->instance == s_lut_instance &&
+            e->sub == slot) {
             return e;
         }
     }
@@ -296,6 +300,7 @@ extern "C" int od_epd_desc_from_config(od_panel_desc_t *out, uint8_t display_ins
     }
     memset(out, 0, sizeof(*out));
     s_mode_entry_count = 0u;
+    s_lut_instance = display_instance;
 
     /* Geometry and colour scheme come from 0x20, which is already parsed and
      * resident -- re-reading it from NVM3 would be churn for no saving. */

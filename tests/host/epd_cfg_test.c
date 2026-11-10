@@ -312,7 +312,7 @@ static void test_two_displays(void)
 {
     fx_cfg_t c;
 
-    CASE("LUT-INSTANCE-BLIND: display 1 gets display 0's waveform for the same slot number");
+    CASE("LUT-INSTANCE-BLIND: display 1 gets its own waveform for the same slot number");
     begin_cfg(&c, 2u);
     add_panel(&c, 0u);
     add_mode(&c, 0u, 0u, "full", 0, 0, 0, 0u, SEQ_PLAIN, sizeof SEQ_PLAIN);
@@ -331,8 +331,8 @@ static void test_two_displays(void)
     const char *at = strstr(fx_trace, "C 20\nD ");
     CHECK(at != NULL);
     /* 0xAF.instance_number is "display instance this slot belongs to" in the contract;
-     * find_lut() matches body[1] only, so the first 0xAF with slot 0 -- display 0's -- wins. */
-    KNOWN_BUG("LUT-INSTANCE-BLIND", at != NULL && strncmp(at + 7, "a0 a1", 5) == 0);
+     * find_lut() matches it with lut_slot, so display 1 streams its own waveform. */
+    CHECK(at != NULL && strncmp(at + 7, "a0 a1", 5) == 0);
 
     CASE("display 0 in the same config is unaffected");
     CHECK(load(&g_d0));
