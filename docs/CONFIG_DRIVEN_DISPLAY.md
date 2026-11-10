@@ -106,7 +106,7 @@ A 2.x config after an OTA has a display (0x20) but no 0xAE/0xB1. Firmware then d
 - The **boot screen is skipped**, and not latched: the first config write that brings drive
   packets shows it (Nordic, from the loop once the link is idle).
 - The image store refuses to display a slot.
-- Hosts learn the state from READ_IDENT (below). The MSD has no free status bit (bit 3 is
+- Hosts learn the state from READ_IDENT's NEEDS_MIGRATION flag (below). The MSD has no free status bit (bit 3 is
   ENCRYPTION_ENABLED, bits 4-7 the loop counter), so it does not carry this.
 
 ## READ_IDENT (0x0046)
@@ -116,6 +116,17 @@ Shared handler `shared/core/od_cmd_ident.c` on every target that sets `OD_CAP_RE
 `[ACK][0x46][proto_minor][fw_target][count][7 B per display: ic_type LE, w LE, h LE, scheme]`.
 `fw_target` on Nordic: nRF52840 answers 0x01 (FIRMWARE), nRF54 answers 0x02 (NRF54); this is a
 maintainer question.
+
+**Trailing flags byte (provisional)**, after the records:
+
+| bit | name | meaning |
+|---|---|---|
+| 0 | CONFIG_DRIVEN | this firmware drives panels only from drive packets (`OD_IDENT_CONFIG_DRIVEN`, default 1) |
+| 1 | NEEDS_MIGRATION | a configured display has no 0xB1 + 0xAE for its instance: write a config with drive packets |
+| 2-7 | reserved, 0 | |
+
+A host that reads `count * 7` bytes after the header never sees it, and a 2.x firmware simply
+does not send it, so "no flags byte" means "not config-driven / unknown".
 
 ## code_map
 

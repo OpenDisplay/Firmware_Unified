@@ -408,22 +408,7 @@ uint8_t od_epd_cfg_mode_count(void)
 
 bool od_epd_cfg_has_drive_data(const struct DisplayConfig *d)
 {
-    bool panel = false;
-    bool mode = false;
-
-    if (d == NULL || od_cfg_index_build() < 0) {
-        return false;
-    }
-    for (int i = 0; i < od_cfg_index_count(); i++) {
-        const od_cfg_entry_t *e = od_cfg_index_entry(i);
-
-        if (e == NULL || e->instance != d->instance_number) {
-            continue;
-        }
-        panel = panel || (e->type == OD_PKT_DISPLAY_PANEL && e->len >= PANEL_OFF_SLEEPSEQ);
-        mode = mode || (e->type == OD_PKT_DISPLAY_MODE && e->len > MODE_OFF_SEQ);
-    }
-    return panel && mode;
+    return d != NULL && od_cfg_has_drive_data(d->instance_number);
 }
 
 static char lower(char c)

@@ -937,6 +937,8 @@ if(Python3_FOUND)
         ../../shared/core/od_cmd_spi_raw.c
         ../../targets/efr32bg22-slc/od_cmd_silabs.c
         ../../shared/core/od_cmd_ident.c
+        ../../shared/core/od_cfg_index.c
+        nvs_empty_test_stub.c
         ../../targets/efr32bg22-slc/od_inflate_app.c
         ${OD_VEC_INC})
     target_include_directories(od_dispatch_corpus_silabs_test PRIVATE
@@ -963,6 +965,8 @@ if(Python3_FOUND)
         ../../shared/core/od_cmd_spi_raw.c
         ../../targets/efr32bg22-slc/od_cmd_silabs.c
         ../../shared/core/od_cmd_ident.c
+        ../../shared/core/od_cfg_index.c
+        nvs_empty_test_stub.c
         ../../targets/efr32bg22-slc/od_inflate_app.c
         ../../targets/efr32bg22-slc/opendisplay_pipe.c
         ../../targets/efr32bg22-slc/od_hal_radio.c)
