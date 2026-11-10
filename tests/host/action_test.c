@@ -266,12 +266,11 @@ static void test_validator_vs_runner(void)
     CHECK(od_action_stats()->rejected == 1u && od_action_stats()->active == 0u);
     od_action_trigger(OD_TRIG_HOST, 0u);
     (void)run(1000u, 40u);
-    /* find_entry() re-checks only len >= 6 and the packet bound, not step_count against
-     * entry_len or OD_ACTION_MAX_STEPS -- the bound od_action.h says makes a table judgeable
-     * without running it. */
-    KNOWN_BUG("ACT-REJECTED-RUNS", g_led == 0u);
+    /* find_entry() walks with the same entry_at() as reload, so an entry reload rejects
+     * (past OD_ACTION_MAX_STEPS, or step_count disagreeing with entry_len) never runs. */
+    CHECK(g_led == 0u);
 
-    CASE("ACT-REJECTED-RUNS: step_count larger than entry_len runs into the next entry's bytes");
+    CASE("ACT-REJECTED-RUNS: step_count larger than entry_len does not run into the next entry");
     t.n = 0u;
     ent(&t, OD_TRIG_HOST, 0u, true, 1u, ST_LED);
     t.b[5] = 2u;                          /* claims two steps, holds one */
@@ -280,21 +279,35 @@ static void test_validator_vs_runner(void)
     CHECK(od_action_stats()->rejected == 1u);
     od_action_trigger(OD_TRIG_HOST, 0u);
     (void)run(1000u, 10u);
-    /* Step 2 is the next entry's header [0a 04 03 04] read as effect 0x0a (unknown: delay
-     * only). Harmless here only because 0x0a is not an effect id; an entry_len of 3 would
-     * read as DISPLAY_SLOT. */
-    KNOWN_BUG("ACT-REJECTED-RUNS", g_led == 0u);
+    /* Run, its step 2 would be the next entry's header [0a 04 03 04] read as a step. */
+    CHECK(g_led == 0u);
 
-    CASE("ACT-RELOAD-STOPS: one malformed entry hides every entry after it from the stats");
-    /* od_action.h: "a fault found here drops one entry, never the table". reload() breaks
-     * on the first fault; find_entry() still runs the later entries, so the device acts
-     * on entries its own stats say do not exist. */
-    CHECK(od_action_stats()->entries == 0u);
+    CASE("ACT-RELOAD-STOPS: one malformed entry drops that entry, not the ones after it");
+    /* od_action.h: "a fault found here drops one entry, never the table". The entry after
+     * the rejected one is counted and runs: the stats describe what the device does. */
     fx_reset();
     od_action_trigger(OD_TRIG_NFC_FIELD, 0x0403u);
     (void)run(5000u, 10u);
     CHECK(g_slot == 1u);
-    KNOWN_BUG("ACT-RELOAD-STOPS", od_action_stats()->entries == 1u);
+    CHECK(od_action_stats()->entries == 1u && od_action_stats()->active == 1u);
+
+    CASE("an entry_len running past the packet ends the walk: nothing after it is found");
+    t.n = 0u;
+    ent(&t, OD_TRIG_HOST, 0u, true, 1u, ST_LED);
+    t.b[0] = 200u;                        /* past the 0xB2 body */
+    store(&t);
+    CHECK(od_action_stats()->rejected == 1u && od_action_stats()->entries == 0u);
+    od_action_trigger(OD_TRIG_HOST, 0u);
+    (void)run(6000u, 10u);
+    CHECK(g_led == 0u);
+
+    CASE("fewer than six trailing bytes are ignored, not rejected");
+    t.n = 0u;
+    ent(&t, OD_TRIG_HOST, 0u, true, 1u, ST_LED);
+    t.b[t.n++] = 0u;
+    t.b[t.n++] = 0u;
+    store(&t);
+    CHECK(od_action_stats()->entries == 1u && od_action_stats()->rejected == 0u);
 
     CASE("an unknown effect keeps the entry, inactive");
     t.n = 0u;

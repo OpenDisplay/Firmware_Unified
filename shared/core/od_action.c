@@ -35,6 +35,26 @@ static const od_cfg_entry_t *table(void)
     return od_cfg_find(OD_PKT_ACTION_TABLE, 0u);
 }
 
+/* The one entry walk every reader shares, so the validator and the runner cannot disagree
+ * about which entries exist. Reads the header at `off` into h. Returns entry_len, the step to
+ * the next entry, or 0 when the walk ends (no room for a header, or an entry_len that is
+ * shorter than a header or runs past the packet: nothing after it can be located). *ok is
+ * false for an entry that can be stepped over but must not run: entry_len disagreeing with
+ * step_count, or more than OD_ACTION_MAX_STEPS steps. */
+static uint8_t entry_at(const od_cfg_entry_t *e, uint16_t off, uint8_t *h, bool *ok)
+{
+    if ((uint32_t)off + OD_ACTION_ENTRY_HDR > e->len ||
+        od_cfg_read(e, off, h, OD_ACTION_ENTRY_HDR) != OD_ACTION_ENTRY_HDR) {
+        return 0u;
+    }
+    if (h[0] < OD_ACTION_ENTRY_HDR || (uint32_t)off + h[0] > e->len) {
+        return 0u;
+    }
+    *ok = h[0] == OD_ACTION_ENTRY_HDR + (uint16_t)h[5] * OD_ACTION_STEP_LEN &&
+          h[5] <= OD_ACTION_MAX_STEPS;
+    return h[0];
+}
+
 static bool effect_known(uint8_t e)
 {
     switch (e) {
@@ -111,17 +131,12 @@ static void temp_poll(uint32_t now_ms)
     }
     uint16_t off = 0u;
     uint8_t n = 0u;
-    while (off + OD_ACTION_ENTRY_HDR <= e->len && n < OD_ACTION_TEMP_MAX) {
-        uint8_t h[OD_ACTION_ENTRY_HDR];
-        if (od_cfg_read(e, off, h, sizeof h) != sizeof h) {
-            break;
-        }
-        const uint8_t len = h[0];
-        if (len < OD_ACTION_ENTRY_HDR || (uint16_t)(off + len) > e->len) {
-            break;
-        }
+    uint8_t len;
+    uint8_t h[OD_ACTION_ENTRY_HDR];
+    bool ok = false;
+    while (n < OD_ACTION_TEMP_MAX && (len = entry_at(e, off, h, &ok)) != 0u) {
         const uint8_t trig = h[1];
-        if (trig == OD_TRIG_TEMP_ENTER || trig == OD_TRIG_TEMP_EXIT) {
+        if (ok && (trig == OD_TRIG_TEMP_ENTER || trig == OD_TRIG_TEMP_EXIT)) {
             const uint16_t bit = (uint16_t)(1u << n);
             const uint16_t arg = (uint16_t)(h[2] | ((uint16_t)h[3] << 8));
             const bool was_in = (s_temp.inside & bit) != 0u;
@@ -141,7 +156,8 @@ static void temp_poll(uint32_t now_ms)
 }
 
 /* Walk the table once, counting. Also the validator: a fault found here drops one
- * entry, never the table, so one bad entry cannot silence the rest. */
+ * entry, never the table, so one bad entry cannot silence the rest -- unless its entry_len
+ * cannot be trusted to find the next one (entry_at), which ends the walk. */
 void od_action_reload(void)
 {
     const od_cfg_entry_t *e = table();
@@ -161,25 +177,24 @@ void od_action_reload(void)
         s_stats.tables++;
     }
     uint16_t off = 0u;
-    while (off + OD_ACTION_ENTRY_HDR <= e->len) {
-        uint8_t h[OD_ACTION_ENTRY_HDR];
-        if (od_cfg_read(e, off, h, sizeof h) != sizeof h) {
-            break;
-        }
-        const uint8_t len = h[0];
+    for (;;) {
+        uint8_t h[OD_ACTION_ENTRY_HDR] = { 0 };
+        bool ok = false;
+        const uint8_t len = entry_at(e, off, h, &ok);
         const uint8_t trig = h[1];
         const uint8_t steps = h[5];
 
-        /* entry_len is the only thing linking one entry to the next, so a value
-         * that disagrees with step_count would desynchronise the whole walk, not
-         * just this entry. Stop rather than guess. */
-        if (len < OD_ACTION_ENTRY_HDR || (uint16_t)(off + len) > e->len ||
-            len != OD_ACTION_ENTRY_HDR + (uint16_t)steps * OD_ACTION_STEP_LEN ||
-            steps > OD_ACTION_MAX_STEPS) {
-            od_log_warn("action: malformed entry at +%u (len %u, steps %u)",
-                        (unsigned)off, (unsigned)len, (unsigned)steps);
-            s_stats.rejected++;
-            break;
+        if (len == 0u || !ok) {
+            if (len != 0u || (uint32_t)off + OD_ACTION_ENTRY_HDR <= e->len) {
+                od_log_warn("action: malformed entry at +%u (len %u, steps %u)",
+                            (unsigned)off, (unsigned)h[0], (unsigned)steps);
+                s_stats.rejected++;
+            }
+            if (len == 0u) {
+                break;
+            }
+            off = (uint16_t)(off + len);
+            continue;
         }
         s_stats.entries++;
 
@@ -235,15 +250,10 @@ static int32_t find_entry(uint8_t trigger, uint16_t arg, uint8_t *steps_out)
         return -1;
     }
     uint16_t off = 0u;
-    while (off + OD_ACTION_ENTRY_HDR <= e->len) {
-        uint8_t h[OD_ACTION_ENTRY_HDR];
-        if (od_cfg_read(e, off, h, sizeof h) != sizeof h) {
-            break;
-        }
-        const uint8_t len = h[0];
-        if (len < OD_ACTION_ENTRY_HDR || (uint16_t)(off + len) > e->len) {
-            break;
-        }
+    uint8_t len;
+    uint8_t h[OD_ACTION_ENTRY_HDR];
+    bool ok = false;
+    while ((len = entry_at(e, off, h, &ok)) != 0u) {
         const uint16_t targ = (uint16_t)(h[2] | ((uint16_t)h[3] << 8));
         const bool enabled = (h[4] & 0x01u) != 0u;
 
@@ -251,7 +261,7 @@ static int32_t find_entry(uint8_t trigger, uint16_t arg, uint8_t *steps_out)
          * any button in it; every other trigger matches its arg exactly. */
         const bool arg_ok = targ == 0u || targ == arg
                             || (trigger == OD_TRIG_BUTTON_PRESS && (targ & arg) != 0u);
-        if (enabled && h[1] == trigger && arg_ok) {
+        if (ok && enabled && h[1] == trigger && arg_ok) {
             *steps_out = h[5];
             return (int32_t)off;
         }
