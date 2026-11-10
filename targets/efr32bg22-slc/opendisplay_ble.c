@@ -1075,7 +1075,7 @@ static void od_nfc_init_sequence(void)
   }
 
   sl_udelay_wait(14000);
-  (void)od_nfc_field_detect_refresh(sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count()), true);
+  (void)od_nfc_field_detect_refresh(od_hal_uptime_ms(), true);
 
   if (s_od_nfc_has_pwr_pin) {
     GPIO_PinOutClear(s_od_nfc_pwr_port, s_od_nfc_pwr_pin);
@@ -1603,7 +1603,7 @@ static void chip_id_hex6(char out[7])
 static void update_msd_payload(bool quick)
 {
   float chip_temperature = EMU_TemperatureGet();
-  uint32_t now_ms = sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count());
+  uint32_t now_ms = od_hal_uptime_ms();
   bool measure_batt = !quick
                       && ((s_batt_voltage_mv_cache == 0u)
                           || ((now_ms - s_last_batt_measure_ms) > OD_MSD_UPDATE_INTERVAL_MS));
@@ -1920,7 +1920,7 @@ void opendisplay_ble_on_boot(uint8_t advertising_set_handle)
   if (!od_advertising_api_ok(
           od_apply_advertising_timing(
               advertising_set_handle,
-              sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count())),
+              od_hal_uptime_ms()),
           "boot advertising timing")) {
     return;
   }
@@ -1941,7 +1941,7 @@ static bool opendisplay_ble_restart_advertising(uint8_t advertising_set_handle)
       !od_advertising_api_ok(
           od_apply_advertising_timing(
               advertising_set_handle,
-              sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count())),
+              od_hal_uptime_ms()),
           "advertising restart timing")) {
     return false;
   }
@@ -1960,7 +1960,7 @@ void opendisplay_ble_on_event(sl_bt_msg_t *evt)
   switch (SL_BT_MSG_ID(evt->header)) {
     case sl_bt_evt_connection_opened_id:
       g_connection = evt->data.evt_connection_opened.connection;
-      s_connection_open_ms = sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count());
+      s_connection_open_ms = od_hal_uptime_ms();
       s_connection_timeout_close_requested = false;
       reboot_flag = 0u;
       printf("[OD] connection opened handle=%u\r\n", (unsigned)g_connection);
@@ -2001,7 +2001,7 @@ void opendisplay_ble_process(void)
 {
   opendisplay_pipe_process();
   opendisplay_led_process();
-  uint32_t now_ms = sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count());
+  uint32_t now_ms = od_hal_uptime_ms();
   od_publish_button_msd(s_adv_handle, now_ms);
   if (s_adv_handle != 0xFFu) {
     od_advertising_interval_tick(s_adv_handle, now_ms);
