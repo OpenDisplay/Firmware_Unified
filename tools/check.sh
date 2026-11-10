@@ -537,7 +537,7 @@ transfer_logging_target_strings_absent() {
     absent_or_fail "retired target-owned transfer diagnostic returned" \
         'Shared transfer timeout - aborting session|dw init begin|Refresh timed out' \
         targets/esp32-idf/src/display_service.cpp \
-        targets/nordic-zephyr/src/opendisplay_display.cpp
+        targets/nordic-zephyr/src/opendisplay_display.c
 }
 check "transfer: retired target logging strings absent" transfer_logging_target_strings_absent
 
@@ -1073,17 +1073,8 @@ check "log profile: one compile-time selector" log_profile_selector
 
 nordic_epd_spi_ownership() {
     local rc=0 hits count
-    local adapter=targets/nordic-zephyr/panel/od_bbep_zephyr_io.inl
     local backend=targets/nordic-zephyr/src/od_epd_spi_nrfx.c
     local fallback=targets/nordic-zephyr/src/od_epd_spi_bitbang.c
-
-    hits=$(grep -nE '\bbb_spi_bitbang\b|od_gpio_write[[:space:]]*\([[:space:]]*pBBEP->i(CLK|MOSI)' \
-           "$adapter" || true)
-    if [ -n "$hits" ]; then
-        echo "$hits"
-        echo "bb_epaper adapter regained a per-edge generic GPIO loop"
-        rc=1
-    fi
 
     hits=$(grep -nE '\bod_(pin_decode|gpio_write)[[:space:]]*\(|\bgpio_pin_(set|configure)[[:space:]]*\(' \
            "$fallback" || true)
@@ -1138,6 +1129,22 @@ nordic_epd_spi_ownership() {
     return $rc
 }
 check "nordic: EPD SPI ownership" nordic_epd_spi_ownership
+
+# PERMANENT. Nordic drives every panel from the config's drive packets (shared/core/od_display.c).
+# A panel library, a panel-id table or a framebuffer renderer coming back is a second display path
+# that a config without drive packets would silently fall into.
+nordic_panel_library_absent() {
+    local rc=0
+    absent_or_fail "bb_epaper or a panel-id table returned to the Nordic build" \
+        '\bbb_epaper\b|\bBBEPDISP\b|\bbbep[A-Z][A-Za-z]*[[:space:]]*\(|\bopendisplay_map_epd\b' \
+        targets/nordic-zephyr/src targets/nordic-zephyr/panel || rc=1
+    if grep -nE 'bb_epaper|Group5' targets/nordic-zephyr/zephyr/CMakeLists.txt; then
+        echo "Nordic CMake compiles or includes bb_epaper again"
+        rc=1
+    fi
+    return $rc
+}
+check "nordic: no panel library" nordic_panel_library_absent
 
 # ================================================================================== host suites ==
 # The real boundary enforcement: shared/ compiled for the host at -std=c99 -Wall -Wextra -Werror

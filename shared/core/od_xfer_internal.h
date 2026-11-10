@@ -60,6 +60,7 @@ typedef enum {
     OD_XFER_START_SPLIT_LAYOUT,
     OD_XFER_START_ZERO_SIZE,
     OD_XFER_START_SIZE_MISMATCH,
+    OD_XFER_START_NEEDS_MIGRATION,
 } od_xfer_start_cause_t;
 
 typedef enum {

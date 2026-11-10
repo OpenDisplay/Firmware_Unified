@@ -508,6 +508,7 @@ static void update_msd_payload(void)
 	adv.battery_10mv = battery_voltage_10mv;
 	adv.reboot_flag = (s_reboot_flag != 0u);
 	adv.connection_requested = (s_connection_requested != 0u);
+	adv.encryption_enabled = od_security_enabled_snapshot();
 	adv.loop_counter = s_msd_loop_counter;
 	od_advert_build(&adv, msd_payload);
 
@@ -1004,6 +1005,11 @@ void opendisplay_ble_reload_config_from_nvm(void)
 #endif
 	od_smp_sync();
 	opendisplay_nfc_apply_config(&s_od_global_config);
+	/* A live config change is a reboot as far as a host is concerned: the flag tells a scanner
+	 * to re-read the device, and the MSD picks up the new encryption state. */
+	s_reboot_flag = 1;
+	opendisplay_ble_update_msd(true);
+	opendisplay_display_request_boot();
 	/* Apply advertising TX power once the advertiser is active again. */
 	__atomic_store_n(&s_adv_txp_pending, (uint8_t)1, __ATOMIC_RELEASE);
 	/* Called from od_cmd_config.c's handlers, which run on the loop thread -- safe to request
@@ -1100,7 +1106,7 @@ void opendisplay_ble_init(void)
 	 * esp32-idf/main.cpp's "SoftDevice must start before display/SPI; advertising starts
 	 * after boot screen" -- the BT stack is already up (bt_enable() above), but nothing may
 	 * be able to CONNECT yet, because a connected central can push a direct-write immediately,
-	 * and the shared transfer adapter touches the same BBEPDISP state and the
+	 * and the shared transfer adapter touches the same od_display session and the
 	 * same panel GPIOs/SPI device the boot-display work queue thread is mid-sequence on, with
 	 * no lock between them. A wedge on either side used to surface as a frozen, unpainted
 	 * boot screen with no way to tell why. The timeout keeps a genuinely stuck render from
@@ -1133,9 +1139,7 @@ void opendisplay_ble_process(void)
 	 * !epdRefreshInProgress) -- start_allowed unconditionally true, preserving current
 	 * behavior. */
 	(void)ble_service_advertising(true);
-#if OD_CAP_IMGSTORE
 	opendisplay_display_service();
-#endif
 }
 
 bool opendisplay_ble_advertising_active(void)

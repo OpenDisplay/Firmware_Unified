@@ -104,7 +104,6 @@ target_include_directories(app PRIVATE
   ${OD_SHARED_INCLUDE_DIRS}
   ${SRC_DIR}
   ${THIRD_PARTY_DIR}
-  ${THIRD_PARTY_DIR}/bb_epaper/src
   ${PANEL_DIR}
   ${THIRD_PARTY_DIR}/uzlib/src
   ${GEN_DIR}
@@ -112,9 +111,11 @@ target_include_directories(app PRIVATE
 
 target_compile_definitions(app PRIVATE
   OD_APP_VERSION=0x0300
-  # Beside bb_epaper, not replacing it: only 0x0085 and 0x0084 run on od_epd.
+  # Every display path runs on od_epd from the drive packets (shared/core/od_display.h); there
+  # is no panel library and no panel-id table on this target.
   OD_CAP_DRIVE_WRITE=1
   OD_CAP_SPI_RAW=1
+  OD_CAP_READ_IDENT=1
 )
 
 if(OD_EPD_SPI_REQUIRE_SPIM)
@@ -138,12 +139,15 @@ if(CONFIG_OD_PLATFORM_NRF52840)
     OD_CAP_IMGSTORE=1
     OD_IMGSTORE_WRITE_ONCE_HEADER=1
     OD_PLATFORM_NAME=\"nRF52840\"
-    OPENDISPLAY_BUILD_ID=\"nrf52840\")
+    OPENDISPLAY_BUILD_ID=\"nrf52840\"
+    # READ_IDENT byte 3: the nRF52840 board replaces the "Firmware" nRF52840 build.
+    OD_IDENT_TARGET=OD_IDENT_TARGET_FIRMWARE)
 elseif(CONFIG_OD_PLATFORM_NRF54)
   target_compile_definitions(app PRIVATE
     OD_PLATFORM_NRF54
     OD_PLATFORM_NAME=\"nRF54\"
-    OPENDISPLAY_BUILD_ID=\"nrf54\")
+    OPENDISPLAY_BUILD_ID=\"nrf54\"
+    OD_IDENT_TARGET=OD_IDENT_TARGET_NRF54)
   if(CONFIG_SOC_NRF54LM20A)
     target_compile_definitions(app PRIVATE OD_BOARD_NRF54LM20A)
   elseif(CONFIG_SOC_NRF54L15)
@@ -238,12 +242,10 @@ target_sources(app PRIVATE
   ${SRC_DIR}/opendisplay_button.c
   ${SRC_DIR}/opendisplay_config_parser.c
   ${SRC_DIR}/opendisplay_config_storage.c
-  ${SRC_DIR}/opendisplay_display.cpp
+  ${SRC_DIR}/opendisplay_display.c
   ${SRC_DIR}/od_epd_spi_nrfx.c
   ${SRC_DIR}/od_epd_nordic.c
   ${SRC_DIR}/od_inflate_app.c
-  ${SRC_DIR}/boot_screen.cpp
-  ${SRC_DIR}/opendisplay_epd_map.c
   ${SRC_DIR}/opendisplay_led.c
   ${SRC_DIR}/od_touch_app.c
   ${SRC_DIR}/opendisplay_buzzer.c
@@ -259,9 +261,6 @@ target_sources(app PRIVATE
   ${SRC_DIR}/factory_config.c
   ${GEN_DIR}/factory_config_data.c
   ${THIRD_PARTY_DIR}/qrcode/qrcode.c
-  # OUR glue TU, not the vendored bb_epaper.cpp -- see panel/od_bbep_zephyr.cpp for why.
-  ${PANEL_DIR}/od_bbep_zephyr.cpp
-  ${THIRD_PARTY_DIR}/bb_epaper/src/Group5.cpp
 )
 
 if(NOT OD_EPD_SPI_REQUIRE_SPIM)
@@ -295,6 +294,8 @@ target_sources(app PRIVATE ${OD_SHARED_SOURCES_PURE} ${OD_SHARED_SOURCES_HAL_CRY
                            ${OD_SHARED_SOURCES_APP_TOUCH}
                            ${OD_SHARED_SOURCES_APP_EPD}
                            ${OD_SHARED_SOURCES_APP_DRIVE}
+                           ${OD_SHARED_SOURCES_APP_DISPLAY}
+                           ${OD_SHARED_SOURCES_APP_IDENT}
                            ${OD_SHARED_SOURCES_APP_SPI_RAW}
                            ${OD_SHARED_SOURCES_HAL_LOG})
 

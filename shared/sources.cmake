@@ -262,11 +262,13 @@ set(OD_SHARED_SOURCES_HAL_WDT
 # of holding them, because one waveform is 539 bytes against 32 KB of RAM on BG22. It needs
 # HAL_NVS for the medium.
 #
-# Taking this tier does not retire a target's vendored panel library. bb_epaper and od_epd are
-# chosen per DEVICE at runtime, on whether that device's config carries drive packets -- a
-# device provisioned before the drive packets existed still has to light up.
+# A config without drive packets drives nothing: there is no fallback panel table, and such a
+# device reports "needs migration" (docs/CONFIG_DRIVEN_DISPLAY.md). od_config_carry keeps the
+# stored drive packets across a config write that has none (a 2.x client); it reads them
+# through od_cfg_index, which is why it lives here and not beside od_config_store.
 set(OD_SHARED_SOURCES_APP_EPD
     "${CMAKE_CURRENT_LIST_DIR}/core/od_cfg_index.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_config_carry.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_epd.c"
 )
 
@@ -282,6 +284,20 @@ set(OD_SHARED_SOURCES_APP_EPD
 set(OD_SHARED_SOURCES_APP_DRIVE
     "${CMAKE_CURRENT_LIST_DIR}/core/od_cmd_drive.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_epd_cfg.c"
+)
+
+# APP_DISPLAY is the config-driven display path every target shares (od_display.h): ordinary and
+# partial uploads, multi-pass drive transfers, the boot screen and the image store, all from the
+# drive packets. It implements the panel half of od_boot_app.h, so a target taking it supplies
+# only the identity half. Needs APP_EPD, APP_DRIVE, APP_BOOT and the od_display_app.h seam.
+set(OD_SHARED_SOURCES_APP_DISPLAY
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_display.c"
+)
+
+# APP_IDENT is the CMD_READ_IDENT (0x0046) handler. Needs the od_ident_app.h seam and an
+# OD_IDENT_TARGET definition. Compiles to nothing unless OD_CAP_READ_IDENT.
+set(OD_SHARED_SOURCES_APP_IDENT
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_cmd_ident.c"
 )
 
 # APP_SPI_RAW is the CMD_SPI_RAW wire handler. Needs the od_spi_raw_app.h seam and

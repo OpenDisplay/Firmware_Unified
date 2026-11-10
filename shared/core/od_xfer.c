@@ -224,6 +224,7 @@ static const char *start_cause_text(od_xfer_start_cause_t cause)
     case OD_XFER_START_SPLIT_LAYOUT: return "split-panel layout unsupported";
     case OD_XFER_START_ZERO_SIZE: return "zero declared size";
     case OD_XFER_START_SIZE_MISMATCH: return "declared size mismatch";
+    case OD_XFER_START_NEEDS_MIGRATION: return "config has no drive packets";
     case OD_XFER_START_OK: return "accepted";
     }
     return "";
@@ -697,7 +698,13 @@ od_xfer_start_cause_t od_xfer_pipe_arm_full(const od_cmd_ctx_t *ctx, uint32_t to
     }
     od_xfer_app_prepare_start();
     memset(&panel, 0, sizeof panel);
-    if (!od_xfer_app_panel_info(&panel) || panel.geometry.total_bytes == 0u) {
+    if (!od_xfer_app_panel_info(&panel)) {
+        return OD_XFER_START_PANEL_GEOMETRY;
+    }
+    if (panel.needs_migration) {
+        return OD_XFER_START_NEEDS_MIGRATION;
+    }
+    if (panel.geometry.total_bytes == 0u) {
         return OD_XFER_START_PANEL_GEOMETRY;
     }
     if (panel.geometry.layout == OD_COLOR_LAYOUT_SPLIT_HALVES) {
@@ -743,6 +750,13 @@ od_xfer_start_cause_t od_xfer_pipe_arm_partial(const od_cmd_ctx_t *ctx, uint32_t
     if (!od_xfer_app_panel_info(&panel)) {
         od_xfer_app_set_displayed_etag(0u);
         return OD_XFER_START_PANEL_GEOMETRY;
+    }
+    if (panel.needs_migration) {
+        od_xfer_app_set_displayed_etag(0u);
+        if (err_out != NULL) {
+            *err_out = OD_ERR_NEEDS_MIGRATION;
+        }
+        return OD_XFER_START_NEEDS_MIGRATION;
     }
     if (!panel.partial_enabled || !panel.geometry.partial_supported) {
         od_xfer_app_set_displayed_etag(0u);

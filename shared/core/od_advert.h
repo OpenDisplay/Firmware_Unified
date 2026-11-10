@@ -83,6 +83,8 @@ struct od_advert_inputs {
 
     bool reboot_flag;            /* rebooted since the host last read */
     bool connection_requested;   /* device wants the host to connect */
+    /* App-layer encryption active: encryption_enabled with a non-zero master key. */
+    bool encryption_enabled;
 
     /* Free-running liveness nibble; only the low 4 bits reach the wire. The caller owns the
      * counter because it is per-device state with a target-specific update cadence -- see
