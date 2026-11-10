@@ -9,7 +9,7 @@
  * every bus event is printed in the grammar of bbep_rec_io.inl, plus:
  *   T <ms>        io->reset(hold)
  *   P <ref> <l>   io->set_pin(ref, level)
- *   I <part> <of> the walk paused on an image marker (frame bytes are the host's)
+ *   I <part> <of> <cs> the walk paused on an image marker (frame bytes are the host's)
  * Exit status: 0 ok, otherwise 10 + (-od_epd rc).
  */
 #include <stddef.h>
@@ -225,7 +225,7 @@ int main(int argc, char **argv)
         int imgs = count_images(e.seq, e.seq_len);
         if (imgs < 1) return 20;
         for (int k = 0; k < imgs; k++) {
-            printf("I %u %u\n", e.img_part, e.img_of);
+            printf("I %u %u %d\n", e.img_part, e.img_of, g_cs);
             if (k + 1 < imgs) {
                 rc = od_epd_next_plane(&e);
                 if (rc) return 10 - rc;

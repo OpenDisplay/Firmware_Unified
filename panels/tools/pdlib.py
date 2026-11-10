@@ -345,7 +345,7 @@ def normalise(events: list[str], side: str) -> list[tuple]:
                 else:
                     toks.append(("IMAGE", n, cs))
             else:
-                toks.append(("IMAGE", (int(t[1]), int(t[2])), None))
+                toks.append(("IMAGE", (int(t[1]), int(t[2])), cs_of(t[3]) if len(t) > 3 else None))
             i += 1; continue
         if k == "P":
             toks.append(("PIN", int(t[1]), int(t[2]))); i += 1; continue
@@ -437,16 +437,22 @@ def tokens_to_steps(toks: list[tuple], layout: str, flow: str) -> tuple[list[tup
     return steps, sorted(req), sorted(blocked)
 
 
-def fit_steps(steps: list[tuple], limit: int, allow_lut: bool = True) -> tuple[list[tuple], bytes, list[str]]:
+def fit_steps(steps: list[tuple], limit: int, allow_lut: bool = True,
+              before_image_only: bool = False) -> tuple[list[tuple], bytes, list[str]]:
     """Move the largest register payloads into a LUT slot (streamed with LUT_SLICE) until the
-    sequence fits. -> (steps, slot_bytes, blocked)."""
+    sequence fits. -> (steps, slot_bytes, blocked).
+
+    before_image_only restricts the moves to steps ahead of the first image marker: od_epd
+    resumes after a marker without the pass's slot, so a LUT_SLICE there fails with RC_LUT."""
     steps = list(steps)
     slot = bytearray()
     while len(encode_steps(steps)) > limit or count_steps(steps) > MAX_STEPS or \
             any(s[0] == "cmd" and len(s[2]) > 254 for s in steps):
         if not allow_lut:
             return steps, bytes(slot), ["SEQ_MAX"]
-        cand = [(len(s[2]), i) for i, s in enumerate(steps) if s[0] == "cmd" and len(s[2]) > 6]
+        first_img = next((i for i, s in enumerate(steps) if s[0] in ("image", "slice")), len(steps))
+        cand = [(len(s[2]), i) for i, s in enumerate(steps) if s[0] == "cmd" and len(s[2]) > 6
+                and (not before_image_only or i < first_img)]
         if not cand:
             return steps, bytes(slot), ["SEQ_MAX"]
         _, i = max(cand)
@@ -486,10 +492,6 @@ def native_scheme(p: dict) -> int:
 def pixel_blockers(p: dict) -> list[str]:
     f = p["flags"]
     out = []
-    if f & (0x2000 | 0x0200):
-        out.append("PIXEL_XFORM")   # SSD2683 2-bit BW / 1->4bpp expansion in firmware
-    if f & 0x0400:
-        out.append("PIXEL_XFORM")   # split_panel.cpp clamps Spectra nibbles 4,7-15 -> 0
     if f & 0x0080:
         out.append("CS_EVERY_BYTE")
     if p["chip"] == "IT8951":
