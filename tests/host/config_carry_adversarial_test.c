@@ -239,7 +239,7 @@ static void test_stray_tail(void)
     const drive_set_t *none = NULL;
 
     (void)none;
-    CASE("CARRY-STRAY: one stray byte before the incoming CRC hides every carried packet");
+    CASE("CARRY-STRAY: one stray byte before the incoming CRC does not hide the carried packets");
     store_panel_config(&FX_PANELS[3]);
     const drive_set_t before = drive_set();
     legacy_config(&c, 400u);
@@ -252,11 +252,12 @@ static void test_stray_tail(void)
     const enum od_config_store_result rc = carry(&c, &carried);
     CHECK(rc == OD_CONFIG_STORE_OK);
     CHECK(carried == 6u);
-    /* The packets were appended AFTER the stray byte, so the walk now reads
-     * [stray][number-of-first-carried] as a legacy header, id = that number byte, which is an
-     * unknown legacy id and abandons the tail. The write "succeeded" and the panel is dead. */
+    /* Appended after the stray byte, the walk would read [stray][number-of-first-carried] as
+     * a legacy header with an unknown id and abandon the tail. The carry inserts them right
+     * after the last whole packet instead; the stray byte moves behind them. */
     const drive_set_t after = drive_set();
-    KNOWN_BUG("CARRY-STRAY", same_set(&before, &after) || rc != OD_CONFIG_STORE_OK);
+    CHECK(same_set(&before, &after));
+    CHECK(stored_record_sound());
 }
 
 static void test_index_full(void)
@@ -267,7 +268,7 @@ static void test_index_full(void)
     uint8_t carried = 0u;
 
     memset(&led, 0, sizeof led);
-    CASE("CARRY-INDEX-FULL: a stored config past 32 packets loses drive packets on carry");
+    CASE("CARRY-INDEX-FULL: a stored config past 32 packets keeps all its drive packets");
     fx_cfg_begin(&c, 1u);
     fx_cfg_legacy_head(&c, &d);
     for (int i = 0; i < 24; i++) {
@@ -279,9 +280,9 @@ static void test_index_full(void)
     legacy_config(&c, 400u);
     const enum od_config_store_result rc = carry(&c, &carried);
     CHECK(rc == OD_CONFIG_STORE_OK);
-    /* The carry enumerates od_cfg_index, which stops at 32 entries, so the last two drive
-     * packets (a LUT slot and the 0xB0) are dropped -- silently, with OK returned. */
-    KNOWN_BUG("CARRY-INDEX-FULL", carried == 6u || rc != OD_CONFIG_STORE_OK);
+    /* The carry walks the stored record itself rather than od_cfg_index (32 entries), so the
+     * last two drive packets (a LUT slot and the 0xB0) are not dropped. */
+    CHECK(carried == 6u);
 }
 
 static void test_corrupt_store(void)
@@ -289,7 +290,7 @@ static void test_corrupt_store(void)
     fx_cfg_t c;
     uint8_t carried = 0u;
 
-    CASE("CARRY-CORRUPT: drive packets from a record that fails its CRC-32 are carried");
+    CASE("CARRY-CORRUPT: a stored record that fails its CRC-32 refuses the legacy write");
     store_panel_config(&FX_PANELS[0]);
     fx_nvs[OD_CONFIG_STORE_HEADER_SIZE + 200u] ^= 0x40u;   /* inside a drive packet */
     {
@@ -298,11 +299,54 @@ static void test_corrupt_store(void)
         CHECK(od_config_store_load(out, &n) == OD_CONFIG_STORE_CORRUPT);
     }
     legacy_config(&c, 400u);
-    CHECK(carry(&c, &carried) == OD_CONFIG_STORE_OK);
-    /* The boot path refuses that record; the carry copies its bytes into a fresh record with a
-     * VALID CRC-32 -- corruption laundered into a config the device will now trust. */
-    KNOWN_BUG("CARRY-CORRUPT", carried == 0u);
-    CHECK(stored_record_sound());
+    {
+        static uint8_t snap[FX_NVS_CAP];
+        const uint32_t snap_len = fx_nvs_len;
+        const unsigned writes = fx_nvs_writes;
+        memcpy(snap, fx_nvs, fx_nvs_len);
+        /* Carrying would launder the bad bytes into a record with a valid CRC-32; storing as
+         * sent would drop whatever drive data it held. Fail closed: refused, nothing written. */
+        CHECK(carry(&c, &carried) == OD_CONFIG_STORE_UNSAFE_CARRY);
+        CHECK(carried == 0u);
+        CHECK(fx_nvs_writes == writes);
+        CHECK(fx_nvs_len == snap_len && memcmp(snap, fx_nvs, snap_len) == 0);
+    }
+
+    CASE("a 3.x config (0x80+ packets) still replaces a corrupt record");
+    {
+        fx_cfg_t c3;
+        struct DisplayConfig d = fx_display(0u, 400u, 300u, 0u);
+        fx_cfg_begin(&c3, 1u);
+        fx_cfg_legacy_head(&c3, &d);
+        fx_cfg_panel(&c3, &FX_PANELS[0], 0u);
+        fx_cfg_finish(&c3);
+        CHECK(carry(&c3, &carried) == OD_CONFIG_STORE_OK && carried == 0u);
+        CHECK(stored_record_sound());
+    }
+
+    CASE("a stored record with a bad magic refuses the legacy write");
+    store_panel_config(&FX_PANELS[0]);
+    fx_nvs[0] ^= 0x01u;
+    CHECK(carry(&c, &carried) == OD_CONFIG_STORE_UNSAFE_CARRY);
+
+    CASE("a stored record whose walk cannot reach its end (unknown legacy id) refuses");
+    {
+        fx_cfg_t cs;
+        struct DisplayConfig d = fx_display(0u, 400u, 300u, 0u);
+        fx_cfg_begin(&cs, 1u);
+        fx_cfg_legacy_head(&cs, &d);
+        fx_cfg_legacy(&cs, 0x3Au, pad, 4u);
+        fx_cfg_panel(&cs, &FX_PANELS[0], 0u);
+        fx_cfg_finish(&cs);
+        fx_cfg_store(&cs);
+    }
+    CHECK(carry(&c, &carried) == OD_CONFIG_STORE_UNSAFE_CARRY);
+
+    CASE("nothing stored: the legacy config is stored as sent");
+    fx_nvs_present = false;
+    fx_nvs_len = 0u;
+    CHECK(carry(&c, &carried) == OD_CONFIG_STORE_OK && carried == 0u);
+    CHECK(fx_nvs_len == OD_CONFIG_STORE_HEADER_SIZE + c.n);
 }
 
 static void test_caps(void)
@@ -367,7 +411,7 @@ static void test_power_cut(void)
     CASE("CARRY-READFAIL: a medium read failure at every read the carry makes");
     {
         unsigned wiped = 0u, refused = 0u, completed = 0u;
-        for (int k = 0; k < 60; k++) {
+        for (int k = 0; k < 2000; k++) {
             store_panel_config(&FX_PANELS[3]);
             const drive_set_t before = drive_set();
             static uint8_t snap[FX_NVS_CAP];
@@ -398,10 +442,9 @@ static void test_power_cut(void)
         printf("  read-failure sweep: %u refused, %u completed, %u WIPED the drive data\n",
                refused, completed, wiped);
         CHECK(refused > 0u && completed > 0u);
-        /* A failure inside od_cfg_index_build ends the walk early and looks exactly like "this
-         * config has no (or fewer) drive packets": the carry then stores the legacy config with
-         * nothing or a subset appended and returns OK. */
-        KNOWN_BUG("CARRY-READFAIL", wiped == 0u);
+        /* A read failure anywhere in the stored-side walk refuses the write (IO); it is never
+         * mistaken for "this config has fewer drive packets". */
+        CHECK(wiped == 0u);
     }
 
     CASE("the write itself failing: IO reported, previous record still on the medium");

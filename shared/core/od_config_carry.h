@@ -29,7 +29,17 @@ extern "C" {
  * workspace, so its bound is min(OD_CONFIG_MAX_SIZE, workspace_cap - header). A merge that does
  * not fit is refused OD_CONFIG_STORE_TOO_BIG with nothing written: storing the config without
  * the drive packets is the loss this exists to prevent. `carried_out` (may be NULL) is set to
- * the number of packets carried over. */
+ * the number of packets carried over.
+ *
+ * FAIL CLOSED on the stored side. Before a legacy write, the stored record is checked the way
+ * od_config_store_load checks it (magic, length, CRC-32) and walked to its end straight off the
+ * medium (every drive packet, no index cap). A read failure returns OD_CONFIG_STORE_IO; a record
+ * that fails a check or cannot be walked returns OD_CONFIG_STORE_UNSAFE_CARRY. Both write
+ * nothing. Nothing stored at all is not a failure: the config is stored as sent. A device in
+ * that state still takes a 3.x config (or the zero-length 0xB1 wipe), which bypasses the carry.
+ *
+ * The carried packets are inserted right after the incoming config's last whole packet, so a
+ * stray byte the TLV walk ignores cannot hide them from the boot walk. */
 enum od_config_store_result od_config_store_save_carry(void *workspace, uint32_t workspace_cap,
                                                        const uint8_t *payload, uint32_t len,
                                                        uint8_t *carried_out);

@@ -62,7 +62,11 @@ enum od_config_store_result {
      * truncated (docs/MEMORY_CONSTRAINTS.md item 3). */
     OD_CONFIG_STORE_TOO_BIG,
     /* The medium failed. */
-    OD_CONFIG_STORE_IO
+    OD_CONFIG_STORE_IO,
+    /* od_config_store_save_carry only: the stored record a legacy write would carry drive
+     * packets from fails its checks (magic, length, CRC-32, or a walk that cannot reach its
+     * end). Refused with nothing written (od_config_carry.h). */
+    OD_CONFIG_STORE_UNSAFE_CARRY
 };
 
 /* Where the payload lives inside a caller's workspace. */
