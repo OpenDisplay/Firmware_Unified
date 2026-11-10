@@ -91,10 +91,13 @@ cc -std=c11 -Wall -Wextra -Werror -O1 -fsanitize=undefined,address -DOD_CFG_INDE
 cc -std=c11 -Wall -Wextra -Werror -O1 -fsanitize=undefined,address \
     -I ../../shared/core -I ../../shared/hal -I ../../shared/protocol -I ../../shared \
     -c ../../shared/core/od_config_tlv.c -o "$OUT/od_config_tlv_ctrl.o"
+cc -std=c11 -Wall -Wextra -Werror -O1 -fsanitize=undefined,address \
+    -I ../../shared/core -I ../../shared/hal -I ../../shared/protocol -I ../../shared \
+    -c ../../shared/core/od_config_store.c -o "$OUT/od_config_store_ctrl.o"
 g++ -std=c++17 -Wall -Wextra -Werror -O1 -fsanitize=undefined,address -DOD_CFG_INDEX_CONTROLLER=1 \
     -I ../../shared/core -I ../../shared/hal -I ../../shared/protocol -I ../../shared -I src \
     tools/test_controller_esp.cpp src/od_controller_esp.cpp \
-    "$OUT/od_cfg_index_ctrl.o" "$OUT/od_config_tlv_ctrl.o" -o "$OUT/test_controller_esp"
+    "$OUT/od_cfg_index_ctrl.o" "$OUT/od_config_tlv_ctrl.o" "$OUT/od_config_store_ctrl.o" -o "$OUT/test_controller_esp"
 "$OUT/test_controller_esp"
 
 echo "==> all host tests passed"

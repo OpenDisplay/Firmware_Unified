@@ -58,16 +58,16 @@ static void store_packet(uint8_t id, const uint8_t *body, uint16_t len)
     g_payload_len += 4u + len;
 }
 
+/* The record is framed by the shared od_config_store, which writes it back through the fake
+ * od_hal_nvs below. The two trailing payload bytes stand in for the config CRC. */
 static void store_commit()
 {
+    static uint8_t work[sizeof g_store];
     const uint32_t data_len = g_payload_len + 2u;
-    const uint32_t magic = OD_CONFIG_STORE_MAGIC;
 
-    for (unsigned i = 0; i < 4u; i++) {
-        g_store[i] = (uint8_t)(magic >> (8u * i));
-        g_store[12u + i] = (uint8_t)(data_len >> (8u * i));
-    }
-    g_store_len = OD_CONFIG_STORE_HEADER_SIZE + data_len;
+    std::memcpy(od_config_store_payload(work), &g_store[OD_CONFIG_STORE_HEADER_SIZE], data_len);
+    CHECK(od_config_store_save(work, sizeof work, od_config_store_payload(work), data_len) ==
+          OD_CONFIG_STORE_OK);
 }
 
 extern "C" int od_hal_nvs_init(void) { return OD_HAL_NVS_OK; }
@@ -84,7 +84,13 @@ extern "C" int od_hal_nvs_read(uint32_t offset, void *buf, uint32_t len)
     std::memcpy(buf, &g_store[offset], len);
     return OD_HAL_NVS_OK;
 }
-extern "C" int od_hal_nvs_write(const void *, uint32_t) { return OD_HAL_NVS_EIO; }
+extern "C" int od_hal_nvs_write(const void *record, uint32_t len)
+{
+    if (len > sizeof g_store) return OD_HAL_NVS_E2BIG;
+    std::memcpy(g_store, record, len);
+    g_store_len = len;
+    return OD_HAL_NVS_OK;
+}
 extern "C" int od_hal_nvs_erase(void) { g_store_len = 0u; return OD_HAL_NVS_OK; }
 
 static void display(uint16_t ic, uint8_t instance)
