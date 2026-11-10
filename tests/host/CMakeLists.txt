@@ -1123,6 +1123,8 @@ else()
     message(WARNING "od: ${OD_REPLAY_SCRIPT} missing — replay_vectors NOT registered.")
 endif()
 
+include(${CMAKE_CURRENT_LIST_DIR}/drive_coverage.cmake)
+
 # --------------------------------------------------------------------------------------------
 # Fuzz targets (tests/fuzz/), Clang only -- -fsanitize=fuzzer is a Clang feature and gcc has no
 # libFuzzer. Added here rather than as a separate project so the SAME configure step CI already
