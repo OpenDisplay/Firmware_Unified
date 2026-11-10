@@ -3,7 +3,6 @@
 Firmware_Unified: one repo for all OpenDisplay firmware targets, replacing four repos
 (`Firmware`, `Firmware_NRF54`, `Firmware_Silabs`, `Firmware_NRF`) that each reimplemented the
 same wire protocol, config parsing, transfer state machines, compression and session encryption.
-`../CLAUDE.md` covers the wider workspace.
 
 **ALL SIX SOURCE REPOS ARE CHECKED OUT AS SIBLINGS AND ARE READABLE — USE THEM.** `../Firmware`,
 `../Firmware_NRF54`, `../Firmware_Silabs`, `../Firmware_NRF`, plus `../opendisplay-protocol` (the
@@ -47,8 +46,8 @@ test-scope narrative in this file, it belongs in the checklist instead.
   itemized per-target/per-opcode record; update it alongside this section whenever a hardware
   test runs, and read it (not this file) for row-level evidence.
 - **CI** (`.github/workflows/`): `ci.yml` runs the host gate plus all three target builds
-  (`build.yml`) on every push and PR; `release.yml` builds and drafts a release for a `vX.Y.Z`
-  tag. Locally, `tools/check.sh` (repo root) is the same gate. Plain invocation covers host tests, sanitizers, fuzz targets and the wire corpus; `--targets` adds all
+  (`build.yml`) on every push and PR; `release.yml` builds and drafts a release for an `X.Y.Z`
+  (or `vX.Y.Z`) tag. The released file set is `docs/RELEASE_ARTEFACTS.md`. Locally, `tools/check.sh` (repo root) is the same gate. Plain invocation covers host tests, sanitizers, fuzz targets and the wire corpus; `--targets` adds all
   three target families and is required before merge. A skip is not a pass — read the summary,
   which exits 2 on any skip. Codex sandbox failures involving the Nordic Zephyr cache or
   LeakSanitizer under `ptrace`, and their exact rerun procedure, are recorded in
@@ -158,13 +157,14 @@ before proposing anything under `shared/`; extend the pattern as targets are imp
 10. **Import working drivers as-is**; only shared logic is refactored.
 11. **First `shared/` source: `shared/core/od_adv_control.c`** (portable BLE advertising/
     lifecycle). `od_config.c` is the first *protocol* subsystem promoted.
-12. **`OD_CONFIG_MAX_SIZE` is 4096 — except BG22, which is 2048** (C13, 2026-08-17). It was a
+12. **`OD_CONFIG_MAX_SIZE` is 4096 — except BG22, which is 3120** (C13, 2026-08-17; raised from
+    2048 to 3120 in `6d5f262` so a 16-colour config fits, with `NVM3_DEFAULT_MAX_OBJECT_SIZE` 3136). It was a
     global cap for exactly the right reason: a per-target limit is a wire divergence a host
     **cannot interrogate**, and `MAX_CONFIG_SIZE` was dropped from the capability bytes *because*
     the value had become uniform. That reason has not gone away; it was outweighed on a 32 KB
     part, where 4096 costs +2 KB of NVM3 record against a ~10.5 KB heap. So the constant is now
-    `#ifndef`-guarded in `od_config_asm.h` and set per target — 4096 on ESP32 and Nordic, 2048 on
-    BG22 via `target_compile_definitions`.
+    `#ifndef`-guarded in `od_config_asm.h` and set per target — 4096 on ESP32 and Nordic, 3120 on
+    BG22 via `shared/profiles.cmake`.
     **Two things make that safe, and neither is optional.** `od_config_asm_start()` bounds the
     declared total against `OD_CONFIG_MAX_SIZE` as well as the 4,000-byte transferable ceiling —
     without it any cap below 4,000 is a remotely triggerable buffer overflow from a two-byte
@@ -207,11 +207,11 @@ Installed, but **none on `PATH`** — `which idf.py west` returning nothing ≠ 
 | Toolchain | Version | Activate with |
 |---|---|---|
 | ESP-IDF | v5.5.4 | `source ~/esp/esp-idf/export.sh` |
-| nRF Connect SDK / west | v3.3.1 / west v1.5.0 | `nrfutil toolchain-manager launch --ncs-version v3.3.1 -- <cmd>` |
+| nRF Connect SDK / west | v3.3.1 / west v1.5.0 | `targets/nordic-zephyr/build.sh` sources `ncs-env.sh` itself (or `nrfutil toolchain-manager launch --ncs-version v3.3.1 -- <cmd>` where that nrfutil command is installed) |
 | Simplicity SDK | 2025.12.2 | `slt`; `slc` also needs the bundled Java on `PATH` |
 
 Pin one ESP-IDF release; floors ≥ 5.1 (C6), ≥ 5.2 (`driver/i2c_master.h` — not the deprecated
-`driver/i2c.h`). Only ESP-IDF has built anything here. **Do not claim a build passes without
+`driver/i2c.h`). All three toolchains build in CI (`.github/workflows/build.yml`). **Do not claim a build passes without
 running it.** docs/TOOLCHAINS.md has the version pins and the Arduino-API replacement census.
 
 ## Protocol header — do not hand-edit

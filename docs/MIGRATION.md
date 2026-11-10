@@ -58,7 +58,7 @@ the procedure.
 
 | Chip | Shipped? | Bootloader today | OTA-capable partitions? | Consequence |
 |---|---|---|---|---|
-| **ESP32-S3** | **yes** | IDF 2nd-stage | **yes** — `default_8/16/32MB.csv` carry `app0` + `app1` | OTA is *unimplemented*, not unavailable. Nothing structural blocks updating the fleet |
+| **ESP32-S3** | **yes** | IDF 2nd-stage | **yes** — `default_8/16/32MB.csv` carry `app0` + `app1` | BLE OTA over mcumgr SMP with app rollback since `7372072` (verified on E1003, plaintext only; checklist). Needs the rollback-enabled 3.x bootloader from one USB flash |
 | **ESP32-C6** | **yes** | IDF 2nd-stage | **no** — `huge_app.csv` has `app0` only | Cannot OTA without repartitioning, and repartitioning *is* a physical reflash. Field units are bench-update-only |
 | **nRF52840** | **yes** | Adafruit UF2 | n/a | Moving to MCUboot replaces the bootloader → physical reflash of every deployed unit |
 | **nRF54L15** | **no** | — | — | Greenfield. No compatibility burden of any kind |

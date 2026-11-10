@@ -37,7 +37,8 @@ write. Order matters:
 
 Generate the packets with `newdriver/Firmware_Silabs/panels/migrate_drive_config.py`, which
 emits them from `panels.yaml`. A 2.6" config with two modes and two waveforms is ~1.7 KB
-against this target's 2048-byte cap.
+against this target's 3120-byte cap (`OD_CONFIG_MAX_SIZE`, raised from 2048 in `6d5f262`; a
+16-colour 2.9" config measures 2112 B).
 
 ## Why bb_epaper had to go rather than stay as a fallback
 
@@ -47,7 +48,9 @@ the real ceiling for application text is **253952 bytes**. Before this change th
 app image from the slot without accounting for `.nvm`; see the note below). Adding od_epd's
 5256 bytes overflowed by ~4 KB.
 
-Dropping bb_epaper freed 14760 bytes. The image is now 237752 with ~16 KB of headroom.
+Dropping bb_epaper freed 14760 bytes, leaving 237752 B and ~16 KB of headroom at that commit.
+**Later features have spent most of it:** at `6df2d6e` the image is 247,104 B against the
+253,952 B ceiling, which leaves **6,848 B**. Porting FMDN (network G) costs about another 1.9 KB.
 
 **The build script's "Free in application FLASH region" is overstated by 24576 bytes** on this
 target. It is the number you would reach for before adding a feature, and it will tell you
