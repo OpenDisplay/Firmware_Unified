@@ -3,7 +3,9 @@
 #
 #     targets/esp32-idf/tools/run_host_tests.sh
 #
-# Today that is src/link_owner.cpp, the connection-ownership arbiter. It is target code
+# src/link_owner.cpp, the connection-ownership arbiter, plus the AXP2101 helpers
+# (src/sensor_axp2101.h and the register map pinned by tests/host/axp2101_registers_test.c).
+# link_owner is target code
 # rather than shared/ code, so it is not covered by tests/host/ -- but it is the one file in
 # the target whose bugs are genuinely cross-task (BLE claims run on the NimBLE host task, LAN
 # claims and every release on the loop task) and therefore unreachable by inspection. It is
@@ -71,5 +73,15 @@ if have_tsan; then
 else
     echo "==> link_owner: TSan pass SKIPPED -- no ThreadSanitizer in this toolchain" >&2
 fi
+
+echo "==> sensor_axp2101: ASan + UBSan"
+g++ -std=c++17 -Wall -Wextra -Werror -O1 -fsanitize=undefined,address -I ../../shared/protocol -I src \
+    tools/test_sensor_axp2101.cpp -o "$OUT/test_sensor_axp2101"
+"$OUT/test_sensor_axp2101"
+
+echo "==> axp2101 register map"
+cc -std=c11 -Wall -Wextra -Werror -O1 ../../tests/host/axp2101_registers_test.c \
+    -o "$OUT/axp2101_registers_test"
+"$OUT/axp2101_registers_test"
 
 echo "==> all host tests passed"

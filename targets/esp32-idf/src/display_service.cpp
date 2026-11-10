@@ -23,6 +23,7 @@
 #include "buzzer_control.h"
 #include "od_sensor_sht40.h"
 #include "od_sensor_bq27220.h"
+#include "sensor_axp2101.h"
 #include "communication.h"
 #include "boot_screen.h"
 #include "link_owner.h"
@@ -1579,6 +1580,10 @@ static float readBatteryVoltageUncached() {
         if (gaugeV >= 0.0f) {
             return gaugeV;
         }
+    }
+    const float pmicV = axp2101BatteryVoltageVolts(globalConfig.sensors, globalConfig.sensor_count);
+    if (pmicV >= 0.0f) {
+        return pmicV;
     }
     if (globalConfig.power_option.battery_sense_pin == 0xFF) return -1.0;
     uint8_t sensePin = globalConfig.power_option.battery_sense_pin;
