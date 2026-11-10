@@ -166,6 +166,13 @@ add_executable(od_net_a_test net_a_test.c
 target_link_libraries(od_net_a_test od_shared)
 add_test(NAME net_a COMMAND od_net_a_test)
 
+# od_action over a fake od_cfg_index and fake effects, so od_shared (which carries the real
+# index) is not linked.
+add_executable(od_action_test action_test.c od_log_test_stub.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../shared/core/od_action.c)
+target_include_directories(od_action_test PRIVATE ${OD_SHARED_INCLUDE_DIRS})
+add_test(NAME action COMMAND od_action_test)
+
 add_executable(od_boot_screen_test boot_screen_test.c
     ${CMAKE_CURRENT_LIST_DIR}/../../third_party/qrcode/qrcode.c)
 target_link_libraries(od_boot_screen_test od_shared)

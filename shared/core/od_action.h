@@ -56,7 +56,9 @@ enum od_action_trigger {
     /* arg packs the window as two SIGNED bytes: low = min C, high = max C.
      * ENTER fires on outside->inside, EXIT on inside->outside -- EDGES, not
      * levels. A level would re-fire every poll and turn a warm room into a
-     * refresh loop that flattens the battery. */
+     * refresh loop that flattens the battery. EXIT needs the reading 3 C past
+     * the window (hysteresis, see od_action.c), so sensor dither at an edge
+     * cannot chatter. */
     OD_TRIG_TEMP_ENTER = 6,
     OD_TRIG_TEMP_EXIT = 7
 };
@@ -96,6 +98,7 @@ typedef struct {
     uint8_t last_trigger;   /* the trigger that last started a sequence */
     uint8_t fire_count;     /* sequences started since boot, wraps */
     int8_t  last_temp_c;    /* most recent sample, for diagnosing a window */
+    uint8_t tables;         /* 0xB2 packets in the config; only the first is run */
 } od_action_stats_t;
 
 /* Re-read the table. Call after any config write, and once at boot.
