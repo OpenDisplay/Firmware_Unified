@@ -120,9 +120,10 @@ static od_display_rc_t open_pass(const struct DisplayConfig *d, const od_color_g
         return OD_DISPLAY_PANEL;
     }
     if (!od_epd_cfg_begin_pass(0u)) {
-        const bool unsup = od_epd_cfg_last_rc() == OD_EPD_RC_UNSUP;
+        const int rc = od_epd_cfg_last_rc();
+        const bool unsup = rc == OD_EPD_RC_UNSUP;
 
-        od_log_error("display: pass 0 begin failed rc=%d", od_epd_cfg_last_rc());
+        od_log_error("display: pass 0 begin failed rc=%d", rc);
         od_epd_cfg_sleep();
         od_drive_app_panel_down();
         phase(OD_DISPLAY_PHASE_IDLE);
