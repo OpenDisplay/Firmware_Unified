@@ -186,7 +186,9 @@ for b in "${BOARDS[@]}"; do
         done
     fi
 
-    if idf.py -B "build/$b" -DSDKCONFIG="build/$b/sdkconfig" -DOD_BOARD="$b" build; then
+    # OD_FW_VERSION, as on the other two targets: a release tag stamps the same version on all.
+    if idf.py -B "build/$b" -DSDKCONFIG="build/$b/sdkconfig" -DOD_BOARD="$b" \
+        ${OD_FW_VERSION:+-DPROJECT_VER="${OD_FW_VERSION}"} build; then
         BUILT+=("$b")
     else
         FAILED+=("$b")

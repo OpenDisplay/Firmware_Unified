@@ -13,8 +13,15 @@
 static od_xfer_state_t s_xfer;
 static volatile uint8_t s_log_quiet;
 static bool s_sink_failed;
+
+#if OD_LOG_EFFECTIVE_LEVEL >= OD_LOG_ERROR
+/* The last sink write, read only by the terminal failure record. */
 static uint32_t s_sink_offset;
 static uint32_t s_sink_offered;
+#define SINK_NOTE(off, n) (s_sink_offset = (off), s_sink_offered = (n))
+#else
+#define SINK_NOTE(off, n) ((void)(off), (void)(n))
+#endif
 
 #if OD_LOG_EFFECTIVE_LEVEL >= OD_LOG_ERROR
 static struct {
@@ -645,8 +652,7 @@ static bool stream_sink(void *ctx, od_mut_span_t bytes)
         return false;
     }
     consumed = od_xfer_app_write(state->written_bytes, od_mut_span_const(bytes));
-    s_sink_offset = state->written_bytes;
-    s_sink_offered = (uint32_t)bytes.n;
+    SINK_NOTE(state->written_bytes, (uint32_t)bytes.n);
     if (consumed != (uint32_t)bytes.n) {
         s_sink_failed = true;
         return false;
@@ -669,8 +675,7 @@ od_xfer_stream_result_t od_xfer_stream_push(od_span_t input, bool final)
         return OD_XFER_STREAM_INVALID;
     }
     s_sink_failed = false;
-    s_sink_offset = 0u;
-    s_sink_offered = 0u;
+    SINK_NOTE(0u, 0u);
     status = od_zlib_pump_push(input, final, scratch, stream_sink, &s_xfer);
     if (status == OD_ZLIB_PUMP_ERROR) {
         return s_sink_failed ? OD_XFER_STREAM_WRITE_FAILED : OD_XFER_STREAM_INFLATE_FAILED;
@@ -878,8 +883,7 @@ od_xfer_stream_result_t od_xfer_pipe_consume(od_span_t payload)
     if (payload.n == 0u) {
         return OD_XFER_STREAM_OK;
     }
-    s_sink_offset = s_xfer.written_bytes;
-    s_sink_offered = (uint32_t)payload.n;
+    SINK_NOTE(s_xfer.written_bytes, (uint32_t)payload.n);
     consumed = od_xfer_app_write(s_xfer.written_bytes, payload);
     if (consumed != (uint32_t)payload.n) {
         return OD_XFER_STREAM_WRITE_FAILED;

@@ -46,8 +46,9 @@ test-scope narrative in this file, it belongs in the checklist instead.
   opcodes, other subsystems — is scoped or open. `docs/HARDWARE_VERIFICATION_CHECKLIST.md` is the
   itemized per-target/per-opcode record; update it alongside this section whenever a hardware
   test runs, and read it (not this file) for row-level evidence.
-- **No CI.** `tools/check.sh` (repo root) is the only gate, and nothing runs it but you. Plain
-  invocation covers host tests, sanitizers, fuzz targets and the wire corpus; `--targets` adds all
+- **CI** (`.github/workflows/`): `ci.yml` runs the host gate plus all three target builds
+  (`build.yml`) on every push and PR; `release.yml` builds and drafts a release for a `vX.Y.Z`
+  tag. Locally, `tools/check.sh` (repo root) is the same gate. Plain invocation covers host tests, sanitizers, fuzz targets and the wire corpus; `--targets` adds all
   three target families and is required before merge. A skip is not a pass — read the summary,
   which exits 2 on any skip. Codex sandbox failures involving the Nordic Zephyr cache or
   LeakSanitizer under `ptrace`, and their exact rerun procedure, are recorded in
