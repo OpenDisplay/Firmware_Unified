@@ -47,3 +47,10 @@ target_link_libraries(od_epd_cfg_test od_shared)
 target_compile_definitions(od_epd_cfg_test PRIVATE
     OD_GOLDEN_DIR="${CMAKE_CURRENT_LIST_DIR}/../vectors/epd_golden")
 add_test(NAME epd_cfg COMMAND od_epd_cfg_test)
+
+# od_action over a stored 0xB2 table: every trigger, temperature edges, validator vs runner,
+# uptime wrap. No other suite links od_action.c.
+add_executable(od_action_test action_test.c od_log_test_stub.c
+    ${OD_SHARED_CORE}/od_action.c ${OD_SHARED_CORE}/od_cfg_index.c)
+target_link_libraries(od_action_test od_shared)
+add_test(NAME action COMMAND od_action_test)
