@@ -71,8 +71,12 @@ target_include_directories(od_fuzz_config_drive PRIVATE ${CMAKE_CURRENT_LIST_DIR
                            ${CMAKE_CURRENT_LIST_DIR}/../host)
 target_compile_options(od_fuzz_config_drive PRIVATE ${OD_FUZZ_FLAGS})
 target_link_options(od_fuzz_config_drive PRIVATE ${OD_FUZZ_FLAGS})
+# New units go to a build-tree directory (libFuzzer writes into the FIRST corpus dir), so a
+# gate run never dirties the committed corpus.
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/config_drive_new)
 add_test(NAME fuzz_config_drive
          COMMAND od_fuzz_config_drive -runs=2000 -print_final_stats=0
+                 ${CMAKE_CURRENT_BINARY_DIR}/config_drive_new
                  ${CMAKE_CURRENT_LIST_DIR}/corpus/config_drive)
 set_tests_properties(fuzz_config_drive PROPERTIES
                      ENVIRONMENT "UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1")
