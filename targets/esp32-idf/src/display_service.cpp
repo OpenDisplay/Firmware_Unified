@@ -158,6 +158,32 @@ static void initBbepPanelSession() {
     od_hal_delay_ms(200);
 }
 
+// Boot-time panel presence check. After a hardware reset every controller reports idle on BUSY
+// within milliseconds. A BUSY line that stays busy means no panel, or one that does not respond,
+// and every later BUSY wait would run into its timeout (~10 min for the boot screen). BUSY is
+// active-low on UC81xx and active-high on the SSD16xx family. Dual chip-select panels are not
+// probed.
+static const uint32_t EPD_BOOT_PROBE_TIMEOUT_MS = 2000;
+
+static bool bootPanelResponds() {
+    const DisplayConfig& d = globalConfig.displays[0];
+    if ((bbep.iFlags & BBEP_SPLIT_BUFFER) || d.busy_pin == OD_PIN_UNUSED ||
+        d.reset_pin == OD_PIN_UNUSED) {
+        return true;
+    }
+    od_hal_gpio_config_input(d.busy_pin, false, false);
+    od_hal_gpio_config_output(d.reset_pin, false);
+    od_hal_delay_ms(20);
+    od_hal_gpio_write(d.reset_pin, true);
+    const int busyIdle = (bbep.chip_type == BBEP_CHIP_UC81xx) ? 1 : 0;
+    const uint32_t start = od_hal_uptime_ms();
+    do {
+        od_hal_delay_ms(10);
+        if (od_hal_gpio_read(d.busy_pin) == busyIdle) return true;
+    } while (od_hal_uptime_ms() - start < EPD_BOOT_PROBE_TIMEOUT_MS);
+    return false;
+}
+
 // ---------------------------------------------------------------------------
 // EPD panel power session (keep-alive) — see the state-machine design.
 // pwrmgm() owns the OFF<->(ACTIVE) rail transitions and is the sole rail actuator;
@@ -1474,6 +1500,11 @@ void initDisplay(){
         bbepSetRotation(&bbep, rotation);
         od_log_info("Height: %u", globalConfig.displays[0].pixel_height);
         od_log_info("Width: %u", globalConfig.displays[0].pixel_width);
+        if (!bootPanelResponds()) {
+            od_log_warn("Panel not responding (BUSY stays busy after reset) - skipping boot screen");
+            pwrmgm(false);   // raw rail cut: epdSessionForceOff() would send sleep and wait on BUSY
+            return;
+        }
         initBbepPanelSession();
         if (! (globalConfig.displays[0].transmission_modes & OD_TRANSMISSION_MODE_CLEAR_ON_BOOT)){
             bool bootOk = refreshBootScreenFull();
