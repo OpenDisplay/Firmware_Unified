@@ -6,6 +6,7 @@
 #include "power_latch.h"
 #include "buzzer_control.h"
 #include "od_log.h"
+#include "wake_button.h"
 #include <string.h>
 
 void enterDeepSleep(bool force = false, uint16_t overrideSleepSeconds = 0);
@@ -226,7 +227,9 @@ static void pollAdcButtons() {
                                  ((l->press_count & 0x0F) << 3) |
                                  ((state & 0x01) << 7));
         if (l->byte_index < 11) dynamicreturndata[l->byte_index] = data;
+        if (state != 0u) od_adv_app_boost();   // before the publish, which picks the interval
         updatemsdata();
+        if (state != 0u) buttonPressFeedback();
         od_log_debug("ADC btn pin %u adc=%d idx=%d id=%u cnt=%u state=%u",
                     l->pin, adc, btn, l->last_button_id, l->press_count, state);
     }
@@ -398,6 +401,73 @@ od_cmd_result_t handleLedStop(const od_cmd_ctx_t *ctx, uint8_t* data, uint16_t l
 }
 
 
+static void ledButtonPressAlert(void) {
+    if (s_led_running) {
+        return;   // a LED_ACTIVATE run owns the pins
+    }
+    const struct LedConfig* led = nullptr;
+    for (uint8_t i = 0; i < globalConfig.led_count; i++) {
+        const struct LedConfig* cand = &globalConfig.leds[i];
+        if ((cand->led_flags & OD_LED_FLAG_BUTTON_PRESS) == 0u) continue;
+        if (cand->led_1_r == 0xFF && cand->led_2_g == 0xFF &&
+            cand->led_3_b == 0xFF && cand->led_4 == 0xFF) continue;
+        led = cand;
+        break;
+    }
+    if (led == nullptr) {
+        return;
+    }
+    const uint8_t pins[4] = {led->led_1_r, led->led_2_g, led->led_3_b, led->led_4};
+    const uint8_t inv[4] = {OD_LED_FLAG_LED1_INVERT, OD_LED_FLAG_LED2_INVERT,
+                            OD_LED_FLAG_LED3_INVERT, OD_LED_FLAG_LED4_INVERT};
+    for (int c = 0; c < 4; c++) {
+        if (pins[c] != 0xFF) od_hal_gpio_write(pins[c], (led->led_flags & inv[c]) == 0u);
+    }
+    od_hal_delay_ms(60);
+    for (int c = 0; c < 4; c++) {
+        if (pins[c] != 0xFF) od_hal_gpio_write(pins[c], (led->led_flags & inv[c]) != 0u);
+    }
+}
+
+void buttonPressFeedback(void) {
+    ledButtonPressAlert();
+    passiveBuzzerButtonPressAlert();
+}
+
+// Boost first, publish second: on a target with interval states the publish picks the interval,
+// so a boost after it would only reach the release.
+static void publishButtonMsd(ButtonState* btn, uint8_t pressed) {
+    if (btn == nullptr || btn->byte_index >= 11) {
+        return;
+    }
+    btn->current_state = pressed ? 1u : 0u;
+    dynamicreturndata[btn->byte_index] = (uint8_t)((btn->button_id & 0x07u) |
+                                                   ((btn->press_count & 0x0Fu) << 3) |
+                                                   ((btn->current_state & 0x01u) << 7));
+    od_adv_app_boost();
+    updatemsdata();
+}
+
+void buttonWakeDeliverSyntheticClick(void) {
+    const int idx = wakeButtonFindIndex();
+    if (idx < 0) {
+        return;
+    }
+    ButtonState* btn = &buttonStates[idx];
+    btn->press_count = (uint8_t)((btn->press_count + 1u) & 0x0Fu);
+    od_log_info("Button wake: synthetic click id=%u pin=%u", btn->button_id, btn->pin);
+    publishButtonMsd(btn, 1u);   // before the blocking feedback, so scanners see it first
+    buttonPressFeedback();
+    // Still held: leave current_state=1 so the real release edge fires the ISR. Released during
+    // boot: publish the release, or a host never sees the lift.
+    const bool pinState = (od_hal_gpio_read(btn->pin) != 0);
+    const bool stillHeld = btn->inverted ? !pinState : pinState;
+    if (!stillHeld) {
+        od_hal_delay_ms(80);
+        publishButtonMsd(btn, 0u);
+    }
+}
+
 void processButtonEvents() {
     powerButtonPoll();
     pollConfiguredPowerOffButtons();   // no-op unless the board declares a latch
@@ -417,22 +487,12 @@ void processButtonEvents() {
             uint8_t logicalState = logicalPressed ? 1 : 0;
             btn->current_state = logicalState;
             od_log_debug("Button: %u, Press count: %u, Current state: %u", btn->button_id, btn->press_count, btn->current_state);
-            uint8_t buttonData = (btn->button_id & 0x07) |
-                                 ((btn->press_count & 0x0F) << 3) |
-                                 ((btn->current_state & 0x01) << 7);
-            if (btn->byte_index < 11) {
-                dynamicreturndata[btn->byte_index] = buttonData;
+            // Publish before feedback: the LED/buzzer delays would postpone the advertisement.
+            publishButtonMsd(btn, logicalState);
+            if (logicalState != 0u) {
+                buttonPressFeedback();
             }
         }
-        // ORDER IS LOAD-BEARING on a target with advertising-interval states: the publish
-        // chooses the interval there, so a boost requested after it lands too late to affect the
-        // packet it exists for -- the press goes out slow and only the release goes out boosted,
-        // so a host sees "not pressed" reliably and "pressed" almost never. THAT IS AN nRF
-        // FAILURE, not this target's: nothing here selects among interval states, and
-        // od_adv_app_boost() is a no-op. The order costs nothing and is kept so the sequence
-        // reads correctly wherever this code is.
-        od_adv_app_boost();
-        updatemsdata();
     }
 }
 

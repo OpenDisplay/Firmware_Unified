@@ -27,6 +27,8 @@
 #include "boot_screen.h"
 #include "link_owner.h"
 #include "session_guard.h"
+#include "od_session.h"
+#include "od_session_app.h"
 #include "touch_input.h"
 #include "od_zlib_pump.h"
 #include "od_xfer.h"
@@ -1640,13 +1642,21 @@ void updatemsdata(){
     }
     struct od_advert_inputs adv;
     memset(&adv, 0, sizeof adv);
-    adv.dynamic = dynamicreturndata;
+    // No display configured: the dynamic area is all 0xFF, which hosts read as "unprovisioned".
+    static const uint8_t kDynamicUnconfigured[11] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                                                     0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    adv.dynamic = (globalConfig.display_count == 0) ? kDynamicUnconfigured : dynamicreturndata;
     adv.chip_temperature_c = chipTemperature;
     adv.battery_10mv = batteryVoltage10mv;
     adv.reboot_flag = rebootFlag;
     adv.connection_requested = connectionRequested;
     adv.loop_counter = mloopcounter;
     od_advert_build(&adv, msd_payload);
+    // Status bit 3 = application-layer encryption active (enabled and a non-zero key), as the
+    // Firmware 2.x fleet advertises it. od_advert_build() has no input for it, so it is set here.
+    if (od_session_security_enabled(od_session_app_security())) {
+        msd_payload[15] |= OD_MSD_STATUS_ENCRYPTION_ENABLED;
+    }
     // Skip the (relatively expensive) advertisement rebuild when nothing changed;
     // the loop counter still advances so successive advertisements stay
     // distinguishable. Both targets used to keep their own copy of this check

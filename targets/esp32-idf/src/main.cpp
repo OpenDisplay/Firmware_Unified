@@ -223,6 +223,9 @@ void setup() {
     updatemsdata();
     if (is_deep_sleep_wake) { od_log_info("[wake] >> initButtons"); od_log_flush(); }
     initButtons();
+    if (woke_by_button) {
+        buttonWakeDeliverSyntheticClick();
+    }
     if (is_deep_sleep_wake) { od_log_info("[wake] >> initTouchInput"); od_log_flush(); }
     initTouchInput();
     if (is_deep_sleep_wake) {
