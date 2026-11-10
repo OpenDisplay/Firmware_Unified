@@ -1359,6 +1359,15 @@ if [ "$DO_LATEST" = 1 ]; then
     fi
 fi
 
+# ================================================================================ panel data ==
+# panels/generated/drive_presets.json: schema, packet layout + CRC, the od_epd replay against the
+# recorded bb_epaper streams, the config size budget, and the glass entries' website bytes.
+if command -v python3 >/dev/null 2>&1; then
+    check "panel data: drive presets vs od_epd" python3 tests/panels/test_panels.py
+else
+    skip "panel data: drive presets vs od_epd" "python3 not installed"
+fi
+
 # ======================================================================================= esp32 ==
 # THE SHIM IS GONE, and this is what keeps it gone. It replaces compat/ratchet.sh, whose metric
 # was "how many files INCLUDE a shim header" -- a count that reached 0 while three call sites
