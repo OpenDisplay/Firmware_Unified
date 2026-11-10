@@ -37,6 +37,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential clang cmake ninja-build python3 python3-pip python3-venv python3-yaml
 
+      # uv runs the wire corpus against the pinned py-opendisplay (and fetches the Python 3.13
+      # it needs). Without it that check SKIPs, which ci_check.sh rightly refuses.
+      - uses: astral-sh/setup-uv@v6
+
       - name: check.sh (boundary, host suites, sanitizers, fuzz, wire corpus)
         run: tools/ci_check.sh --fuzz-time 120
 

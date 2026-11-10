@@ -53,8 +53,10 @@ if [ "$rc" -ne 2 ]; then
 fi
 
 # Exit 2: pull the reprinted "not checked:" block out of the summary and judge each line.
-# sed from the marker to EOF; the block is the last thing check.sh prints.
-mapfile -t skipped < <(sed -n '/^not checked:/,$p' "$LOG" | tail -n +2 | sed 's/^ *//' | grep -v '^$')
+# sed from the marker to EOF; the block is the last thing check.sh prints. Colour codes are
+# stripped first: check.sh prints the marker in yellow, and the escape sits before it.
+mapfile -t skipped < <(sed 's/\x1b\[[0-9;]*m//g' "$LOG" | sed -n '/^not checked:/,$p' \
+    | tail -n +2 | sed 's/^ *//' | grep -v '^$')
 
 if [ "${#skipped[@]}" -eq 0 ]; then
     echo "::error::check.sh exited 2 but printed no 'not checked:' block -- cannot verify what was skipped"
