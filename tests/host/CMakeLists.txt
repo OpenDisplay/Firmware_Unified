@@ -285,6 +285,17 @@ add_executable(od_config_store_cap_test config_store_test.c)
 target_link_libraries(od_config_store_cap_test od_shared_silabs)
 add_test(NAME config_store_cap COMMAND od_config_store_cap_test)
 
+# config_carry: od_config_carry over a fake medium, at both config caps.
+add_executable(od_config_carry_test config_carry_test.c
+    ../../shared/core/od_config_carry.c ../../shared/core/od_cfg_index.c)
+target_link_libraries(od_config_carry_test od_shared)
+add_test(NAME config_carry COMMAND od_config_carry_test)
+
+add_executable(od_config_carry_cap_test config_carry_test.c
+    ../../shared/core/od_config_carry.c ../../shared/core/od_cfg_index.c)
+target_link_libraries(od_config_carry_cap_test od_shared_silabs)
+add_test(NAME config_carry_cap COMMAND od_config_carry_cap_test)
+
 # i2c_contract: shared/hal/od_hal_i2c.h as an EXECUTABLE contract. The assertions are about
 # framing and bus selection -- where STOPs fall, and which pins an operation reaches -- because
 # those are what an engine gets wrong while still returning plausible bytes. Bound here to a
@@ -382,7 +393,9 @@ add_executable(od_silabs_storage_test
     silabs_storage_test.c
     fake_silabs/nvm3_fake.c
     ../../targets/efr32bg22-slc/od_hal_nvs.c
-    ../../targets/efr32bg22-slc/opendisplay_config_storage.c)
+    ../../targets/efr32bg22-slc/opendisplay_config_storage.c
+    ../../shared/core/od_config_carry.c
+    ../../shared/core/od_cfg_index.c)
 # The TARGET's own config/ is on the path, not a stub copy of it: the storage guard compares
 # OD_CONFIG_MAX_SIZE against NVM3_DEFAULT_MAX_OBJECT_SIZE, and a hand-mirrored copy of the
 # second one silently stops testing the real relationship the moment either moves.
@@ -514,6 +527,19 @@ add_test(NAME config_tlv COMMAND od_config_tlv_test)
 add_executable(od_epd_seq_test epd_seq_test.c ../../shared/core/od_epd.c)
 target_link_libraries(od_epd_seq_test od_shared)
 add_test(NAME epd_seq COMMAND od_epd_seq_test)
+
+# display: the shared config-driven display path (od_display -> od_epd_cfg -> od_epd) from a
+# stored config record to the bytes on a recorded panel bus, for every colour class, the real
+# panel data in display_presets.inc, the boot screen and a config without drive packets.
+add_executable(od_display_test display_test.c
+    ../../shared/core/od_display.c
+    ../../shared/core/od_epd_cfg.c
+    ../../shared/core/od_epd.c
+    ../../shared/core/od_cfg_index.c
+    od_log_test_stub.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../third_party/qrcode/qrcode.c)
+target_link_libraries(od_display_test od_shared)
+add_test(NAME display COMMAND od_display_test)
 
 # config: the parsed aggregate -- instance caps, the Firmware zero-key rule, string termination,
 # and what a truncated blob leaves behind. Downstream of the pre-auth surface od_config_tlv
@@ -923,12 +949,16 @@ if(Python3_FOUND)
         ../../targets/efr32bg22-slc/od_cmd_drive.c
         ../../shared/core/od_cmd_spi_raw.c
         ../../targets/efr32bg22-slc/od_cmd_silabs.c
+        ../../shared/core/od_cmd_ident.c
+        ../../shared/core/od_cfg_index.c
+        nvs_empty_test_stub.c
         ../../targets/efr32bg22-slc/od_inflate_app.c
         ${OD_VEC_INC})
     target_include_directories(od_dispatch_corpus_silabs_test PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/fake_silabs
         ../../targets/efr32bg22-slc)
     target_compile_definitions(od_dispatch_corpus_silabs_test PRIVATE
+        OD_IDENT_TARGET=OD_IDENT_TARGET_SILABS
         OPENDISPLAY_BUILD_ID="1a2b3c4d")
     target_link_libraries(od_dispatch_corpus_silabs_test od_session_fake_silabs)
     add_dependencies(od_dispatch_corpus_silabs_test od_vectors_generated)
@@ -947,6 +977,9 @@ if(Python3_FOUND)
         ../../targets/efr32bg22-slc/od_cmd_drive.c
         ../../shared/core/od_cmd_spi_raw.c
         ../../targets/efr32bg22-slc/od_cmd_silabs.c
+        ../../shared/core/od_cmd_ident.c
+        ../../shared/core/od_cfg_index.c
+        nvs_empty_test_stub.c
         ../../targets/efr32bg22-slc/od_inflate_app.c
         ../../targets/efr32bg22-slc/opendisplay_pipe.c
         ../../targets/efr32bg22-slc/od_hal_radio.c)
@@ -955,6 +988,7 @@ if(Python3_FOUND)
         ../../targets/efr32bg22-slc)
     target_compile_definitions(od_silabs_fault_test PRIVATE
         OD_TEST_REAL_SILABS_PIPE=1
+        OD_IDENT_TARGET=OD_IDENT_TARGET_SILABS
         OPENDISPLAY_BUILD_ID="1a2b3c4d")
     target_link_libraries(od_silabs_fault_test od_session_fake_silabs)
     add_test(NAME silabs_fault COMMAND od_silabs_fault_test)

@@ -31,13 +31,6 @@ static od_cmd_result_t nack(const od_cmd_ctx_t *ctx, uint8_t err, uint8_t mode)
     return OD_CMD_NACK;
 }
 
-/* min == max == 0 is the zero-filled "no window declared". */
-static bool mode_temp_ok(const od_epd_cfg_mode_t *m, int8_t t)
-{
-    return (m->temp_min_c == 0 && m->temp_max_c == 0) ||
-           (t >= m->temp_min_c && t <= m->temp_max_c);
-}
-
 /* Returns 0, or an OD_ERR_DRIVE_* code with the panel left down. */
 static uint8_t drive_begin(uint8_t *mode, uint8_t flags, od_span_t tail, uint8_t *passes,
                            int8_t *temp_c, od_color_geometry_t *geom)
@@ -56,27 +49,11 @@ static uint8_t drive_begin(uint8_t *mode, uint8_t flags, od_span_t tail, uint8_t
         return OD_ERR_DRIVE_NO_CONFIG;
     }
 
-    if (!od_epd_cfg_select(*mode, &hdr)) {
-        return OD_ERR_DRIVE_BAD_MODE;
-    }
     *temp_c = od_drive_app_temp_c();
-    if (*temp_c != OD_DRIVE_TEMP_UNKNOWN && !mode_temp_ok(&hdr, *temp_c)) {
-        if (hdr.temp_policy == OD_DRIVE_TEMP_REJECT) {
-            return OD_ERR_DRIVE_TEMP_RANGE;
-        }
-        if (hdr.temp_policy == OD_DRIVE_TEMP_SUBSTITUTE) {
-            const uint8_t count = od_epd_cfg_mode_count();
-            uint8_t i;
-
-            for (i = 0u; i < count; i++) {
-                if (od_epd_cfg_select(i, &hdr) && mode_temp_ok(&hdr, *temp_c)) {
-                    break;
-                }
-            }
-            if (i >= count) {
-                return OD_ERR_DRIVE_TEMP_RANGE;
-            }
-            *mode = i;
+    {
+        const uint8_t err = od_epd_cfg_select_policy(mode, *temp_c, &hdr);
+        if (err != 0u) {
+            return err;
         }
     }
     if (od_color_direct_geometry(hdr.color_scheme == 0xFFu ? d->color_scheme : hdr.color_scheme,

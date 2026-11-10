@@ -4,6 +4,7 @@
 #include "od_cfg_index.h"
 #include "od_epd.h"
 #include "od_log.h"
+#include "opendisplay_protocol.h"
 #include "opendisplay_structs.h"
 
 #include <stddef.h>
@@ -37,6 +38,11 @@ _Static_assert(offsetof(struct DisplayLutHead, crc16) == LUT_OFF_CRC, "0xAF crc"
 _Static_assert(sizeof(struct DisplayPanelHead) == PANEL_OFF_SLEEPSEQ, "0xB1 head size");
 
 #define RAW_BUSY_POLL_MS 2u
+
+/* DriveSeqPinRef -> DisplayConfig pin byte, filled at load. */
+#define PINREF_AUX_COUNT 6u
+static uint8_t s_aux_pins[PINREF_AUX_COUNT];
+static uint8_t s_named_pins[6];   /* RESET, DC, CS, CS_2, DATA, CLK */
 
 static od_epd_t s_epd;
 static od_panel_desc_t s_desc;
@@ -221,9 +227,46 @@ static bool io_lut_info(uint8_t slot, uint16_t *len_out)
     return true;
 }
 
-/* The optional hooks stay NULL, so a sequence using SET_PIN, CS_SELECT or READ_SCRATCH is refused
- * at validation with SEQ_UNSUPPORTED before any panel I/O. */
-static const od_epd_io_t s_io = {
+/* 0xFF when the reference names nothing wired. Aux pins treat 0x00 as unwired too: legacy
+ * configs carry 0 in those ex-reserved bytes. */
+static uint8_t resolve_pin_ref(uint8_t ref)
+{
+    uint8_t raw = 0xFFu;
+
+    if (ref < PINREF_AUX_COUNT) {
+        raw = s_aux_pins[ref] == 0x00u ? 0xFFu : s_aux_pins[ref];
+    } else if (ref >= OD_SEQ_PINREF_RESET && ref <= OD_SEQ_PINREF_CLK) {
+        raw = s_named_pins[ref - OD_SEQ_PINREF_RESET];
+    }
+    return raw;
+}
+
+static bool io_set_pin(uint8_t ref, uint8_t level)
+{
+    const uint8_t pin = resolve_pin_ref(ref);
+
+    if (pin == 0xFFu) {
+        od_log_warn("drive: SET_PIN ref 0x%02X unwired", (unsigned)ref);
+        return false;
+    }
+    return s_bus->pin_write(pin, level);
+}
+
+static bool io_cs_select(uint8_t which)
+{
+    return s_bus->cs_select(which);
+}
+
+static bool io_read_bytes(uint8_t ref, uint8_t *dst, uint8_t n)
+{
+    const uint8_t pin = resolve_pin_ref(ref);
+
+    return pin != 0xFFu && s_bus->read_bytes(pin, dst, n);
+}
+
+/* Optional hooks are filled at load from what the bus offers; a NULL one makes od_epd refuse
+ * the matching escape at validation with SEQ_UNSUPPORTED before any panel I/O. */
+static od_epd_io_t s_io = {
     .cmd = io_cmd,
     .data = io_data,
     .reset = io_reset,
@@ -293,6 +336,25 @@ bool od_epd_cfg_load(const struct DisplayConfig *d, const od_epd_cfg_bus_t *bus)
     }
     memcpy(s_desc.sleep_seq, &body[PANEL_OFF_SLEEPSEQ], OD_EPD_SLEEP_SEQ_MAX);
 
+    s_aux_pins[0] = d->aux_pin_1;
+    s_aux_pins[1] = d->aux_pin_2;
+    s_aux_pins[2] = d->aux_pin_3;
+    s_aux_pins[3] = d->aux_pin_4;
+    s_aux_pins[4] = d->aux_pin_5;
+    s_aux_pins[5] = d->aux_pin_6;
+    s_named_pins[0] = d->reset_pin;
+    s_named_pins[1] = d->dc_pin;
+    s_named_pins[2] = d->cs_pin;
+    s_named_pins[3] = d->cs_pin_2;
+    s_named_pins[4] = d->data_pin;
+    s_named_pins[5] = d->clk_pin;
+    s_io.set_pin = bus->pin_write != NULL ? io_set_pin : NULL;
+    /* Offered only where a distinct second CS is wired, so a split-controller sequence on a
+     * single-CS board is refused at validation instead of halfway through a pass. */
+    s_io.cs_select = (bus->cs_select != NULL && d->cs_pin_2 != 0xFFu && d->cs_pin_2 != d->cs_pin)
+                   ? io_cs_select : NULL;
+    s_io.read_bytes = bus->read_bytes != NULL ? io_read_bytes : NULL;
+
     if (od_epd_init(&s_epd, &s_desc, &s_io) != OD_EPD_RC_OK) {
         return load_result(LOAD_INIT);
     }
@@ -330,9 +392,109 @@ bool od_epd_cfg_select(uint8_t mode, od_epd_cfg_mode_t *out)
     return true;
 }
 
+bool od_epd_cfg_code_map(uint8_t out[4])
+{
+    if (!s_loaded || out == NULL) {
+        return false;
+    }
+    memcpy(out, s_desc.code_map, sizeof(s_desc.code_map));
+    return true;
+}
+
 uint8_t od_epd_cfg_mode_count(void)
 {
     return s_loaded ? s_desc.mode_count : 0u;
+}
+
+bool od_epd_cfg_has_drive_data(const struct DisplayConfig *d)
+{
+    return d != NULL && od_cfg_has_drive_data(d->instance_number);
+}
+
+static char lower(char c)
+{
+    return (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
+}
+
+int od_epd_cfg_find_mode(const char *name)
+{
+    if (!s_loaded || name == NULL) {
+        return -1;
+    }
+    for (uint8_t m = 0u; m < s_desc.mode_count; m++) {
+        const od_cfg_entry_t *e = mode_entry(m);
+        char n[12];
+        size_t k;
+
+        if (e == NULL || od_cfg_read(e, MODE_OFF_NAME, (uint8_t *)n, sizeof n) != sizeof n) {
+            continue;
+        }
+        for (k = 0u; k < sizeof n; k++) {
+            if (lower(n[k]) != lower(name[k])) {
+                break;
+            }
+            if (name[k] == '\0') {
+                return (int)m;
+            }
+        }
+        if (k == sizeof n && name[k] == '\0') {
+            return (int)m;
+        }
+    }
+    return -1;
+}
+
+/* min == max == 0 is the zero-filled "no window declared". */
+static bool mode_temp_ok(const od_epd_cfg_mode_t *m, int8_t t)
+{
+    return (m->temp_min_c == 0 && m->temp_max_c == 0) ||
+           (t >= m->temp_min_c && t <= m->temp_max_c);
+}
+
+uint8_t od_epd_cfg_select_policy(uint8_t *mode, int8_t temp_c, od_epd_cfg_mode_t *out)
+{
+    od_epd_cfg_mode_t hdr;
+
+    if (mode == NULL || !od_epd_cfg_select(*mode, &hdr)) {
+        return OD_ERR_DRIVE_BAD_MODE;
+    }
+    if (temp_c != OD_EPD_CFG_TEMP_UNKNOWN && !mode_temp_ok(&hdr, temp_c)) {
+        if (hdr.temp_policy == OD_DRIVE_TEMP_REJECT) {
+            return OD_ERR_DRIVE_TEMP_RANGE;
+        }
+        if (hdr.temp_policy == OD_DRIVE_TEMP_SUBSTITUTE) {
+            const uint8_t count = od_epd_cfg_mode_count();
+            uint8_t i;
+
+            for (i = 0u; i < count; i++) {
+                if (od_epd_cfg_select(i, &hdr) && mode_temp_ok(&hdr, temp_c)) {
+                    break;
+                }
+            }
+            if (i >= count) {
+                return OD_ERR_DRIVE_TEMP_RANGE;
+            }
+            *mode = i;
+        }
+    }
+    if (out != NULL) {
+        *out = hdr;
+    }
+    return 0u;
+}
+
+void od_epd_cfg_set_window(uint16_t x, uint16_t y, uint16_t w, uint16_t h)
+{
+    od_epd_set_window(&s_epd, x, y, w, h);
+}
+
+bool od_epd_cfg_finish_with_tail(uint8_t mode)
+{
+    if (!s_in_pass) {
+        return false;
+    }
+    s_in_pass = false;
+    return od_epd_finish_with_tail(&s_epd, mode) == OD_EPD_RC_OK && !bus_faulted();
 }
 
 bool od_epd_cfg_begin_pass(uint8_t pass)
@@ -381,6 +543,22 @@ int od_epd_cfg_last_rc(void)
 
 /* --- multi-pass stream ---------------------------------------------------------------------- */
 
+/* Bytes the marker the walk is paused on takes (see od_epd_cfg_stream_t). */
+static uint32_t marker_budget(const od_epd_cfg_stream_t *s)
+{
+    const uint8_t part = s_epd.img_part;
+    const uint8_t of = s_epd.img_of == 0u ? 1u : s_epd.img_of;
+    uint32_t unit;
+    uint32_t b;
+
+    if (s->layout == OD_COLOR_LAYOUT_SPLIT_HALVES && of == 2u && part < 2u) {
+        return s->part_bytes[part];
+    }
+    unit = (of == 1u && s->plane_size != 0u) ? s->plane_size : s->frame_bytes;
+    b = unit / of;
+    return part + 1u == of ? unit - b * (uint32_t)(of - 1u) : b;
+}
+
 bool od_epd_cfg_stream_init(od_epd_cfg_stream_t *s, const od_color_geometry_t *frame,
                             uint8_t passes, bool compressed, const uint8_t *tail,
                             uint16_t tail_len)
@@ -408,7 +586,11 @@ bool od_epd_cfg_stream_init(od_epd_cfg_stream_t *s, const od_color_geometry_t *f
     s->frame_bytes = frame->total_bytes;
     s->total_bytes = (uint32_t)total;
     s->passes = passes;
+    s->layout = (uint8_t)frame->layout;
+    s->part_bytes[0] = frame->part_bytes[0];
+    s->part_bytes[1] = frame->part_bytes[1];
     s->plane_size = frame->layout == OD_COLOR_LAYOUT_CONTROLLER_PLANES ? frame->part_bytes[0] : 0u;
+    s->marker_end = marker_budget(s);
     return true;
 }
 
@@ -429,18 +611,24 @@ bool od_epd_cfg_stream_write(od_epd_cfg_stream_t *s, uint32_t stream_offset,
         if (logical >= frame_end || logical < frame_start) {
             return false;
         }
-        if (chunk > frame_end - logical) {
-            chunk = frame_end - logical;
-        }
-        if (s->plane_size > 0u) {
-            const uint32_t plane_end = frame_start + s->plane_size;
-
-            if (logical == plane_end && !od_epd_cfg_next_plane()) {
+        /* The marker's budget is spent but the frame is not: the next bytes belong to the
+         * sequence's next image marker (plane 1, slice 1, ...). */
+        if (logical == s->marker_end) {
+            if (!od_epd_cfg_next_plane()) {
+                od_log_error("drive: sequence has no image marker for offset %u",
+                             (unsigned)logical);
                 return false;
             }
-            if (logical < plane_end && chunk > plane_end - logical) {
-                chunk = plane_end - logical;
-            }
+            s->marker_end = logical + marker_budget(s);
+        }
+        if (s->marker_end > frame_end) {
+            s->marker_end = frame_end;
+        }
+        if (logical > s->marker_end) {
+            return false;
+        }
+        if (chunk > s->marker_end - logical) {
+            chunk = s->marker_end - logical;
         }
         if (!od_epd_cfg_write(data + off, chunk)) {
             return false;
@@ -460,6 +648,7 @@ bool od_epd_cfg_stream_write(od_epd_cfg_stream_t *s, uint32_t stream_offset,
                 od_log_error("drive: pass %u begin failed", (unsigned)s->pass);
                 return false;
             }
+            s->marker_end = frame_end + marker_budget(s);
             if (phase != NULL) {
                 phase(false);
             }

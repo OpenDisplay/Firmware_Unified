@@ -59,9 +59,7 @@ until the script is fixed.
 
 ## Scope
 
-**esp32-idf and nordic-zephyr still use bb_epaper and are unaffected.** Neither has an
-`od_hal`-style IO backend for od_epd, so removing it there would leave them with no panel
-driver at all. `third_party/bb_epaper` stays vendored for them.
-
-Driving a panel from config on those targets needs an od_epd IO implementation first — the
-BG22 one is `targets/efr32bg22-slc/od_epd_io_silabs.c`, ~315 lines over `em_gpio`/`em_cmu`.
+**nordic-zephyr is config-driven too**, through the shared path `shared/core/od_display.c`
+(see docs/CONFIG_DRIVEN_DISPLAY.md); it no longer builds bb_epaper. **esp32-idf still uses
+bb_epaper**, so `third_party/bb_epaper` stays vendored for it. BG22 keeps its own adapter
+(`od_epd_adapter.cpp`, `od_epd_shim.cpp`) rather than od_display, for flash.

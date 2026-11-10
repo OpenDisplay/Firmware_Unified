@@ -25,7 +25,18 @@ typedef struct {
     uint16_t width;
     uint16_t height;
     bool partial_enabled;
+    /* The config has a display but no drive packets for it (od_display_needs_migration()).
+     * Every upload start refuses with OD_ERR_NEEDS_MIGRATION before the panel is touched. */
+    bool needs_migration;
 } od_xfer_panel_info_t;
+
+/* NACK data byte for "this config cannot drive the panel; write a config with drive packets".
+ * Shared by the 0x70 START ([FF][70][08][00]), the 0x76 START (OD_ERR_PARTIAL_* namespace) and
+ * the PIPE 0x80 START (OD_ERR_PIPE_START_* namespace): 0x08 is free in both. Provisional until
+ * opendisplay-protocol assigns it. */
+#ifndef OD_ERR_NEEDS_MIGRATION
+#define OD_ERR_NEEDS_MIGRATION 0x08u
+#endif
 
 typedef enum {
     OD_XFER_BARRIER_PROCEED = 0,

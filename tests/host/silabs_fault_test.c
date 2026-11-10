@@ -666,10 +666,11 @@ static void test_read_ident(void)
     CHECK(od_txq_process() == 1u);
     CHECK(fake_silabs_sent_n == 1u);
     f = fake_silabs_sent[0].data;
-    CHECK(fake_silabs_sent[0].len == 5u);
+    CHECK(fake_silabs_sent[0].len == 6u);
     CHECK(f[0] == RESP_ACK && f[1] == RESP_READ_IDENT);
     CHECK(f[2] == (uint8_t)OD_PROTOCOL_VERSION_MINOR && f[3] == OD_IDENT_TARGET_SILABS);
     CHECK(f[4] == 0u);
+    CHECK(f[5] == 0x01u);   /* config-driven firmware; no display, so nothing to migrate */
 
     CASE("READ_IDENT reports each display's ic type, geometry and colour scheme, LE, PLAINTEXT");
     setup();
@@ -687,12 +688,13 @@ static void test_read_ident(void)
     od_txq_release(&r);
     CHECK(od_txq_process() == 1u);
     f = fake_silabs_sent[0].data;
-    CHECK(fake_silabs_sent[0].len == 12u);
+    CHECK(fake_silabs_sent[0].len == 13u);
     CHECK(f[4] == 1u);
     CHECK(f[5] == 0x1Eu && f[6] == 0x00u);
     CHECK(f[7] == 168u && f[8] == 0u);
     CHECK(f[9] == 0x80u && f[10] == 0x01u);
     CHECK(f[11] == 3u);
+    CHECK(f[12] == 0x03u);  /* a display with no drive packets stored: needs migration */
 }
 
 int main(void)

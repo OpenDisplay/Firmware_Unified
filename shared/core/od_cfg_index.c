@@ -173,3 +173,24 @@ uint32_t od_cfg_read(const od_cfg_entry_t *e, uint16_t off, uint8_t *dst, uint16
 }
 
 uint32_t od_cfg_blob_len(void) { return s_blob_len; }
+
+bool od_cfg_has_drive_data(uint8_t instance)
+{
+    bool panel = false;
+    bool mode = false;
+
+    if (od_cfg_index_build() < 0) {
+        return false;
+    }
+    for (int i = 0; i < (int)s_count; i++) {
+        const od_cfg_entry_t *e = &s_index[i];
+
+        if (e->instance != instance) {
+            continue;
+        }
+        panel = panel || (e->type == OD_PKT_DISPLAY_PANEL &&
+                          e->len >= sizeof(struct DisplayPanelHead));
+        mode = mode || (e->type == OD_PKT_DISPLAY_MODE && e->len > sizeof(struct DisplayModeHead));
+    }
+    return panel && mode;
+}

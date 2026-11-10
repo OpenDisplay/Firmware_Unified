@@ -4,6 +4,7 @@
 #include <stdio.h>
 
 #include "nvm3_default_config.h"
+#include "od_config_carry.h"
 #include "od_config_store.h"
 
 /* The record must fit ONE NVM3 object. Nothing checks this at runtime -- od_hal_nvs_write()
@@ -55,7 +56,8 @@ bool saveConfig(uint8_t *config_data, uint32_t len)
     return false;
   }
 
-  rc = od_config_store_save(s_cfg.record, sizeof(s_cfg.record), config_data, len);
+  /* A config without 0x80+ packets keeps the stored drive packets (od_config_carry.h). */
+  rc = od_config_store_save_carry(s_cfg.record, sizeof(s_cfg.record), config_data, len, NULL);
   if (rc != OD_CONFIG_STORE_OK) {
     printf("[OD] config save failed rc=%d len=%u\r\n", (int)rc, (unsigned)len);
   }

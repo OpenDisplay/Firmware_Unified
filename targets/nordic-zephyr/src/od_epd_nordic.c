@@ -12,7 +12,8 @@
 #define PIN_UNUSED 0xFFu
 
 static uint8_t s_dc = PIN_UNUSED;
-static uint8_t s_cs = PIN_UNUSED;
+static uint8_t s_cs = PIN_UNUSED;     /* the CS the next cmd/data frames */
+static uint8_t s_cs_pins[2] = { PIN_UNUSED, PIN_UNUSED };
 static uint8_t s_rst = PIN_UNUSED;
 static uint8_t s_busy = PIN_UNUSED;
 
@@ -62,6 +63,31 @@ static void bus_delay_ms(uint32_t ms)
     od_msleep((int32_t)ms);
 }
 
+static bool bus_pin_write(uint8_t pin, uint8_t level)
+{
+    if (pin == PIN_UNUSED || level > 2u) {
+        return false;
+    }
+    if (level == 2u) {
+        od_gpio_configure_input(pin, false, false);
+    } else {
+        od_gpio_configure_output(pin, level != 0u);
+    }
+    return true;
+}
+
+/* Dual-controller panels: od_epd only offers CS_SELECT when cs_pin_2 is a distinct pin. */
+static bool bus_cs_select(uint8_t which)
+{
+    if (which > 1u || s_cs_pins[which] == PIN_UNUSED) {
+        return false;
+    }
+    s_cs = s_cs_pins[which];
+    return true;
+}
+
+/* read_bytes stays NULL: the Nordic panel bus is write-only (MOSI/SCK through nrfx), so
+ * READ_SCRATCH is refused at validation rather than returning garbage. */
 static const od_epd_cfg_bus_t s_bus = {
     .cmd = bus_cmd,
     .data = bus_data,
@@ -70,6 +96,8 @@ static const od_epd_cfg_bus_t s_bus = {
     .delay_ms = bus_delay_ms,
     .now_ms = od_hal_uptime_ms,
     .faulted = od_epd_spi_faulted,
+    .pin_write = bus_pin_write,
+    .cs_select = bus_cs_select,
 };
 
 const od_epd_cfg_bus_t *od_epd_nordic_bus(void)
@@ -82,14 +110,18 @@ void od_epd_nordic_claim_pins(const struct DisplayConfig *d)
     const bool idle_high = od_epd_cfg_busy_idle_level() != 0u;
 
     s_dc = d->dc_pin;
-    s_cs = d->cs_pin;
+    s_cs_pins[0] = d->cs_pin;
+    s_cs_pins[1] = d->cs_pin_2 != d->cs_pin ? d->cs_pin_2 : PIN_UNUSED;
+    s_cs = s_cs_pins[0];
     s_rst = d->reset_pin;
     s_busy = d->busy_pin;
     if (s_dc != PIN_UNUSED) {
         od_gpio_configure_output(s_dc, true);
     }
-    if (s_cs != PIN_UNUSED) {
-        od_gpio_configure_output(s_cs, true);
+    for (unsigned i = 0u; i < 2u; i++) {
+        if (s_cs_pins[i] != PIN_UNUSED) {
+            od_gpio_configure_output(s_cs_pins[i], true);
+        }
     }
     if (s_rst != PIN_UNUSED) {
         od_gpio_configure_output(s_rst, true);

@@ -406,10 +406,12 @@ od_cmd_result_t od_pipe_start(const od_cmd_ctx_t *ctx, od_span_t body)
 #endif
     cause = od_xfer_pipe_arm_full(ctx, total, compressed);
     if (cause != OD_XFER_START_OK) {
-        od_xfer_log_start_refused("PIPE", cause, OD_ERR_PIPE_START_SIZE_MISMATCH,
+        error = cause == OD_XFER_START_NEEDS_MIGRATION ? OD_ERR_NEEDS_MIGRATION
+                                                       : OD_ERR_PIPE_START_SIZE_MISMATCH;
+        od_xfer_log_start_refused("PIPE", cause, error,
                                   cause == OD_XFER_START_PANEL_GEOMETRY
                                   || cause == OD_XFER_START_SPLIT_LAYOUT);
-        pipe_send_start_nack(ctx, OD_ERR_PIPE_START_SIZE_MISMATCH);
+        pipe_send_start_nack(ctx, error);
         return OD_CMD_NACK;
     }
 

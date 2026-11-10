@@ -109,8 +109,9 @@ void od_advert_build(const struct od_advert_inputs *in, uint8_t *out)
     if (in->connection_requested) {
         status |= OD_MSD_STATUS_CONNECTION_REQUESTED;
     }
-    /* OD_MSD_STATUS_RESERVED_3 is never set: it is reserved and must be 0, and a device that
-     * sets it teaches a host to tolerate it. */
+    if (in->encryption_enabled) {
+        status |= OD_MSD_STATUS_ENCRYPTION_ENABLED;
+    }
     status |= (uint8_t)((in->loop_counter << OD_MSD_STATUS_MAIN_LOOP_COUNTER_SHIFT)
                         & OD_MSD_STATUS_MAIN_LOOP_COUNTER_MASK);
 
