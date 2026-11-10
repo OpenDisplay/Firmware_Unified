@@ -519,3 +519,78 @@ def sha256(path: Path) -> str:
 def dump_json(obj, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(obj, indent=1, sort_keys=False) + "\n")
+
+# ----------------------------------------------------------------------------- panels.yaml
+
+_WAVE_TOKENS = {f"@w{i}": i for i in range(7)}
+_WAVE_TOKENS["@vcom"] = 0xFF
+_POLICY = {"advisory": 0, "substitute": 1, "reject": 2, "advise": 0, "discourage": 1, "refuse": 2}
+
+
+def encode_yaml_steps(steps: list[str]) -> bytes:
+    """panels.yaml step strings -> sequence bytes; same encoding as py-opendisplay
+    panel_drive.encode_sequence (the encoder the website presets were built with)."""
+    out = bytearray()
+    for raw in steps:
+        s = raw.strip()
+        if s in ("@busy", "@image", "@lut"):
+            out += bytes([0, ESC[s[1:]]])
+        elif s.startswith("@delay"):
+            ms = int(s.split()[1], 10)
+            out += bytes([0, ESC["delay"], ms & 0xFF, ms >> 8])
+        else:
+            toks = s.split()
+            parsed = [(1, _WAVE_TOKENS[t]) if t in _WAVE_TOKENS else (0, int(t, 16)) for t in toks]
+            if any(w for w, _ in parsed):
+                out += bytes([0, ESC["subst"], len(parsed)])
+                for w, v in parsed:
+                    out += bytes([0xFF if w else 0x00, v])
+            else:
+                out += bytes([len(parsed)]) + bytes(v for _, v in parsed)
+    return bytes(out + bytes([0, 0]))
+
+
+def yaml_panel_packets(entry: dict, waves: dict[str, bytes], palette: dict) -> list[tuple[int, int, bytes]]:
+    """One panels.yaml entry -> [(number, pid, body)] in the order the website ships them:
+    0xB1, 0xAE per mode, 0xAF per waveform slot, 0xB0 per multi-pass mode."""
+    seqs = {k: encode_yaml_steps(v) for k, v in (entry.get("init_sequences") or {}).items()}
+    slot_of: dict[str, int] = {}
+    luts: list[tuple[int, int, bytes]] = []
+    modes: list[tuple[int, int, bytes]] = []
+    mode_meta = []
+    for mi, m in enumerate(entry.get("modes") or []):
+        slots = []
+        for w in (m.get("lut_per_pass") or [None] * m.get("passes", 1))[:8]:
+            if not w:
+                slots.append(0xFF)
+                continue
+            if w not in slot_of:
+                slot_of[w] = len(slot_of)
+                luts.append((slot_of[w], PKT_LUT, lut_body(slot_of[w], waves[w])))
+            slots.append(slot_of[w])
+        tg = m.get("temp_gate") or entry.get("temp_gate") or {}
+        body = mode_body(mi, m["name"], seqs[m["init"]], passes=m.get("passes", 1),
+                         scheme=int(m.get("color_scheme", 0xFF)), slots=slots,
+                         vsn1=[v or 0 for v in (m.get("vsn1_per_pass") or [])],
+                         tmin=int(tg.get("min_c", 0)), tmax=int(tg.get("max_c", 0)),
+                         policy=_POLICY.get(str(tg.get("policy", "advise")), 0))
+        modes.append((mi, PKT_MODE, body))
+        mode_meta.append(m)
+    busy = entry.get("busy") or {}
+    colour = entry.get("colour") or {}
+    sleep = encode_yaml_steps(entry["sleep_sequence"]) if entry.get("sleep_sequence") else b""
+    pan = panel_body(busy_usable=bool(busy.get("usable", True)), idle=int(busy["idle_level"]),
+                     timeout=int(busy.get("timeout_ms", 30000)), fixed=int(busy.get("fixed_delay_ms", 0)),
+                     code_map=list(colour.get("code_map") or [0, 1, 2, 3]), mode_count=len(modes),
+                     sleep=sleep, lut_supported=bool((entry.get("lut") or {}).get("supported")))
+    out = [(0, PKT_PANEL, pan)] + modes + luts
+    swap = colour.get("palette_code_swap")
+    for (mi, _, _), m in zip(modes, mode_meta):
+        if m.get("passes", 1) <= 1:
+            continue
+        ents = []
+        for e in palette["entries"]:
+            codes = tuple(swap[c] for c in e["codes"]) if swap else tuple(e["codes"])
+            ents.append((codes, tuple(e["lab"])))
+        out.append((PKT_CAL, PKT_CAL, cal_body(mi, ents, measured=False)))
+    return out
