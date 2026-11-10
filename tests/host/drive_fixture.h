@@ -54,6 +54,8 @@ static uint32_t fx_nvs_len;
 static bool     fx_nvs_present;
 static unsigned fx_nvs_reads;
 static int      fx_nvs_fail_after = -1;   /* fail the Nth read from now (0 = next), -1 never */
+static bool     fx_nvs_write_fail;        /* next write returns EIO, medium untouched */
+static unsigned fx_nvs_writes;
 
 int od_hal_nvs_init(void) { return OD_HAL_NVS_OK; }
 
@@ -88,6 +90,11 @@ int od_hal_nvs_read(uint32_t offset, void *buf, uint32_t len)
 
 int od_hal_nvs_write(const void *record, uint32_t len)
 {
+    ++fx_nvs_writes;
+    if (fx_nvs_write_fail) {
+        fx_nvs_write_fail = false;
+        return OD_HAL_NVS_EIO;
+    }
     if (len > FX_NVS_CAP) {
         return OD_HAL_NVS_EIO;
     }
