@@ -37,3 +37,13 @@ foreach(variant IN ITEMS default silabs)
     target_link_libraries(od_config_carry_adversarial${sfx}_test ${lib})
     add_test(NAME config_carry_adversarial${sfx} COMMAND od_config_carry_adversarial${sfx}_test)
 endforeach()
+
+# od_epd_cfg + od_epd over the representative real panels (golden traces) and synthetic edges.
+# Default profile only: BG22's smaller OD_EPD_SEQ_MAX is a target compile definition, not part
+# of od_shared_silabs, so a _bg22 variant here would not test the BG22 interpreter limits.
+add_executable(od_epd_cfg_test epd_cfg_test.c od_log_test_stub.c
+    ${OD_SHARED_CORE}/od_epd_cfg.c ${OD_SHARED_CORE}/od_epd.c ${OD_SHARED_CORE}/od_cfg_index.c)
+target_link_libraries(od_epd_cfg_test od_shared)
+target_compile_definitions(od_epd_cfg_test PRIVATE
+    OD_GOLDEN_DIR="${CMAKE_CURRENT_LIST_DIR}/../vectors/epd_golden")
+add_test(NAME epd_cfg COMMAND od_epd_cfg_test)

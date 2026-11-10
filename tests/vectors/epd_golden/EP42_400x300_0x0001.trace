@@ -1,0 +1,27 @@
+# EP42_400x300_0x0001: 1 modes, code_map 00 01 02 03, idle 1
+# mode 0 passes 1 scheme 0 frame 15000
+R 10
+C 04
+C 00
+D 1f 0b
+C 61
+D 01 90 01 2c
+C 50
+D 97
+C 13
+D[5000] crc32=9be3ca5f
+D[10000] crc32=17255a83
+C 04
+C 00
+D 1f 0b
+C 61
+D 01 90 01 2c
+C 50
+D 97
+C 12
+# sleep
+C 50
+D 17
+C 02
+C 07
+D a5

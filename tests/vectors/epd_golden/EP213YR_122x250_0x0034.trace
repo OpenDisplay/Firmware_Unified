@@ -1,0 +1,37 @@
+# EP213YR_122x250_0x0034: 2 modes, code_map 00 01 02 03, idle 1
+# mode 0 passes 1 scheme 3 frame 7750
+R 10
+C e9
+D 01
+C 04
+C 10
+D[2583] crc32=bfdeda88
+D[5167] crc32=c21a2faf
+C e9
+D 01
+C 04
+C 12
+D 00
+# mode 1 passes 1 scheme 3 frame 7750
+R 10
+C e9
+D 01
+C 04
+C 10
+D[2583] crc32=d15793fc
+D[5167] crc32=238a8899
+C e0
+D 02
+C e6
+D 5a
+C a5
+C e9
+D 01
+C 04
+C 12
+D 00
+# sleep
+C 02
+D 00
+C 07
+D a5

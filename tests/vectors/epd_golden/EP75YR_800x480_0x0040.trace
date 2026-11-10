@@ -1,0 +1,186 @@
+# EP75YR_800x480_0x0040: 2 modes, code_map 00 01 03 02, idle 1
+# mode 0 passes 1 scheme 255 frame 96000
+R 10
+C 00
+D 0f 29
+C 06
+D 0f 8b 93 a1
+C 41
+D 00
+C 50
+D 37
+C 60
+D 02 02
+C 61
+D 03 20 01 e0
+C 62
+D 98 98 98 75 ca b2 98 7e
+C 65
+D 00 00 00 00
+C e7
+D 1c
+C e3
+D 00
+C e9
+D 01
+C 30
+D 08
+C 04
+C e0
+D 02
+C e6
+D 5a
+C a5
+D 00
+C 10
+D[32000] crc32=e3fadf3a
+D[64000] crc32=07875363
+C 12
+D 00
+# mode 1 passes 3 scheme 10 frame 96000
+R 10
+C 00
+D 0f a9
+C 06
+D 0f 8b 93 a1
+C 41
+D 00
+C 50
+D 37
+C 60
+D 02 02
+C 61
+D 03 20 01 e0
+C 62
+D 98 98 98 75 ca b2 98 7e
+C 65
+D 00 00 00 00
+C e7
+D 1c
+C e3
+D 00
+C e9
+D 01
+C 30
+D 08
+C 04
+C e0
+D 02
+C e6
+D 5a
+C a5
+D 00
+C 20
+D 00 22 78 2d 22 20 08 ef 7f ff ff ff 65 7f ff ff ff ff 7f 7f ff 7f af ef 3f af 7f ef fd ef 7f ff 7f 7f ff 3c 3c e6 f5 ef ef 7f ff 00 87 7d ef be be 3f ef ef 7f ff af ef ff ef ff ff ff ff ff 7f
+D ff ff ff ff ff ff ff ff ff ff 7f ff ff ff ff ff ff ff ff ff ff 7f ff ff ff ff ff ff ff ff ff ef dd df 69 6d ff ef ff ff ff ef 7f de de 7f af ef 3f af 7f ef fd ef de fe 7f 7f ff 3c 6f ed 6f af
+D ef ff b1 7f 6f af 7e 7f fd 7e 6f 6f b5 ff ef ef 2d ef 7f 3f ff ef 6f d6 ff ef be 6f ef 2d ff ff ef ef d3 d6 7f ef bc ef 6f bf f7 ef ef ff ff ff ff ff ef ff ff ff ff ef bb fb b4 7c ff ef ff ff
+D ff ef 7f de de 7f af ef 3f af 7f ef fd ef de ff 7f 7f ff 3c ff 6c ef ef ef de de 6f ef ef be fd ef 3f bf ef df df 7d af ff bf ef 7f bd ef ef ff f7 d9 ef 73 ef ac 7d ff ef ff ff ff ff ff ff ff
+D ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ef dd df 36 f7 ff ef ff ff ff ef 7f de de 7f af ef 3f af 7f ef fd ef de fe 7f 7f ff 3c 6d 6c 6e ef ef f2 9d ef 6f 2f 7e 7f 7f 7e 6f ef 9d df ef e7
+D 7f bf 7f ef 6f af ef d9 f7 7f ed af ef 7a fd ff ef ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ef dd df aa ef ff ef ff ff ff ef 7f de de 7f af ef 3f af 7f ef fd ef de b7
+D 7f 7f ff 3c af 7d 7f af ef f2 b5 ef 6f af 7e af bf 6e 6f ef d6 ff ef be ed 6f bd 3f ff ef 6f 94 ff ef 6d 2f ef 6f ad ff ef ef bd f6 ef 7d be ef fd 7e ff ef ff ff ff ff ff ff ff ff ff ff ff ef
+D ff ff ff ff 65 7f ff ff ff ff 7f ff ff 7f af ef 3f af 7f ef fd ef ff ba 7f 7f ff 3c 3c 87 be ef ef fb ff e7 00 ff ef ff ff ff ff ef ff ff ff af ff ef ed ff ff ef ef ff bf be be ff ef fd ec 6d
+D ef ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
+C 10
+D[32000] crc32=4f525733
+D[64000] crc32=616f84a1
+C 12
+D 00
+R 10
+C 00
+D 0f a9
+C 06
+D 0f 8b 93 a1
+C 41
+D 00
+C 50
+D 37
+C 60
+D 02 02
+C 61
+D 03 20 01 e0
+C 62
+D 98 98 98 75 ca b2 98 7e
+C 65
+D 00 00 00 00
+C e7
+D 1c
+C e3
+D 00
+C e9
+D 01
+C 30
+D 08
+C 04
+C e0
+D 02
+C e6
+D 5a
+C a5
+D 00
+C 20
+D 00 14 78 14 14 24 08 ef 7f ff 3d ed fe ef ee 6f af ef ef 7f ff ed ad ed ef ff ff ff ff ff 7f ff ff ff ff ff ff ff ff ff ff 7f ff ff ff ff ff ff ff ff ff ff 7f ff ff ff ff ff ff ff ff ff ff 7f
+D ff ff ff ff ff ff ff ff ff ff 7f ff ff ff ff ff ff ff ff ff ff 7f ff ff ff ff ff ff ff ff ff ef f7 de ee ed af ef bd ef 7f 6f ef bb db ed 3f 6f ef ef ff ff ef ff ff ff ff ff ff ff ff ff ff ff
+D ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ef ff ff 3d ed fe ef ee 6f
+D af ef ef ff ff ed ad ed ef ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
+D ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ef f5 ff 7c ed bf ef ee 6f af ef ef f9 ff 3f be af ef ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
+D ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ef fd bf 3f 2f 37 ef ef ef 2f ef ef f3 ff 2f af 2e ef ff ff ff ff ff ff ff
+D ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ef
+D be ba bd 6d fe ef ee 6f af ef ef ba ff ed ad ed ef ff ef ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
+D ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
+C 10
+D[32000] crc32=c2fb30c6
+D[64000] crc32=4080e463
+C 12
+D 00
+R 10
+C 00
+D 0f a9
+C 06
+D 0f 8b 93 a1
+C 41
+D 00
+C 50
+D 37
+C 60
+D 02 02
+C 61
+D 03 20 01 e0
+C 62
+D 98 98 98 75 ca b2 98 7e
+C 65
+D 00 00 00 00
+C e7
+D 1c
+C e3
+D 00
+C e9
+D 01
+C 30
+D 08
+C 04
+C e0
+D 02
+C e6
+D 5a
+C a5
+D 00
+C 20
+D 00 14 78 41 14 24 08 ef 7f ff 3d ed fe ef ee 6f af ef ef 7f ff ed ad ed ef ff ff ff ff ff 7f ff ff ff ff ff ff ff ff ff ff 7f ff ff ff ff ff ff ff ff ff ff 7f ff ff ff ff ff ff ff ff ff ff 7f
+D ff ff ff ff ff ff ff ff ff ff 7f ff ff ff ff ff ff ff ff ff ff 7f ff ff ff ff ff ff ff ff ff ef f7 de ee ed af ef bd ef 7f 6f ef bb db ed 3f 6f ef ef ff ff ef ff ff ff ff ff ff ff ff ff ff ff
+D ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ef ff ff 3d ed fe ef ee 6f
+D af ef ef ff ff ed ad ed ef ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
+D ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ef f5 ff 7c ed bf ef ee 6f af ef ef f9 ff 3f be af ef ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
+D ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ef fd bf 3f 2f 37 ef ef ef 2f ef ef f3 ff 2f af 2e ef ff ff ff ff ff ff ff
+D ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ef
+D be ba bd 6d fe ef ee 6f af ef ef ba ff ed ad ed ef ff ef ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
+D ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
+C 10
+D[32000] crc32=2fd21acd
+D[64000] crc32=c265f6e7
+C 12
+D 00
+# sleep
+C 02
+D 00
+C 07
+D a5
