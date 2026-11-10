@@ -56,6 +56,8 @@ _build/
 *.uf2
 *.map
 *.gbl
+# Panel waveform data (535 B 0xAF LUT bodies) is source, not build output.
+!panels/waves/*.bin
 
 # Release output. `targets/esp32-idf/build.sh` delivers merged, ready-to-flash images here.
 # The *.bin rule above already covers the images; this also catches MANIFEST.txt, which is
