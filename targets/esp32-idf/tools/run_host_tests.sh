@@ -84,4 +84,17 @@ cc -std=c11 -Wall -Wextra -Werror -O1 ../../tests/host/axp2101_registers_test.c 
     -o "$OUT/axp2101_registers_test"
 "$OUT/axp2101_registers_test"
 
+echo "==> od_controller_esp (0xB3 display_controller): ASan + UBSan"
+cc -std=c11 -Wall -Wextra -Werror -O1 -fsanitize=undefined,address -DOD_CFG_INDEX_CONTROLLER=1 \
+    -I ../../shared/core -I ../../shared/hal -I ../../shared/protocol -I ../../shared \
+    -c ../../shared/core/od_cfg_index.c -o "$OUT/od_cfg_index_ctrl.o"
+cc -std=c11 -Wall -Wextra -Werror -O1 -fsanitize=undefined,address \
+    -I ../../shared/core -I ../../shared/hal -I ../../shared/protocol -I ../../shared \
+    -c ../../shared/core/od_config_tlv.c -o "$OUT/od_config_tlv_ctrl.o"
+g++ -std=c++17 -Wall -Wextra -Werror -O1 -fsanitize=undefined,address -DOD_CFG_INDEX_CONTROLLER=1 \
+    -I ../../shared/core -I ../../shared/hal -I ../../shared/protocol -I ../../shared -I src \
+    tools/test_controller_esp.cpp src/od_controller_esp.cpp \
+    "$OUT/od_cfg_index_ctrl.o" "$OUT/od_config_tlv_ctrl.o" -o "$OUT/test_controller_esp"
+"$OUT/test_controller_esp"
+
 echo "==> all host tests passed"

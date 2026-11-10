@@ -276,7 +276,9 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     # boot_screen.cpp picks the od_display sink or the FastEPD framebuffer per frame.
     OD_DISPLAY_SHARED_BOOT_SINK=0
     # Dual-controller panels: the drive stream walks a split frame by IMAGE_SLICE, one CS each.
-    OD_XFER_SPLIT_HALVES=1)
+    OD_XFER_SPLIT_HALVES=1
+    # 0xB3 display_controller (provisional) selects IT8951 / parallel panels' built-in driver.
+    OD_CFG_INDEX_CONTROLLER=1)
 
 # FastEPD selects its IO backend with `#ifdef ARDUINO / #elif defined(__LINUX__)`. Under IDF
 # NEITHER was defined, so every it8951 transport function in FastEPD.inl compiled to an EMPTY

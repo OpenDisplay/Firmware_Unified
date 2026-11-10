@@ -230,8 +230,19 @@ static bool bus_up(void)
     return true;
 }
 
+/* A negative pin is not wired (a 0xB3 controller description may leave EN/ITE_EN out). */
+static void pin_level(int8_t pin, int level)
+{
+    if (pin >= 0) {
+        gpio_set_level((gpio_num_t)pin, level);
+    }
+}
+
 static void pin_out(int8_t pin, int level)
 {
+    if (pin < 0) {
+        return;
+    }
     gpio_reset_pin((gpio_num_t)pin);
     gpio_set_direction((gpio_num_t)pin, GPIO_MODE_OUTPUT);
     gpio_set_level((gpio_num_t)pin, level);
@@ -259,8 +270,8 @@ static bool init_controller(void)
         return false;
     }
     vTaskDelay(pdMS_TO_TICKS(100));
-    gpio_set_level((gpio_num_t)s_en, 1);
-    gpio_set_level((gpio_num_t)s_ite_en, 1);
+    pin_level(s_en, 1);
+    pin_level(s_ite_en, 1);
     vTaskDelay(pdMS_TO_TICKS(100));
     gpio_set_level((gpio_num_t)s_rst, 0);
     vTaskDelay(pdMS_TO_TICKS(10));
@@ -543,8 +554,8 @@ static void power_down(void)
     stream_close();
     set_running(false);
     write_cmd(CMD_SLEEP);
-    gpio_set_level((gpio_num_t)s_en, 0);
-    gpio_set_level((gpio_num_t)s_ite_en, 0);
+    pin_level(s_en, 0);
+    pin_level(s_ite_en, 0);
     s_hw_ready = false;
 }
 

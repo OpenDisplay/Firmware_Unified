@@ -1,5 +1,6 @@
 #include "config_parser.h"
 #include "od_config_carry.h"
+#include "od_controller_esp.h"
 #include "factory_config.h"
 #include "structs.h"
 #include "od_log.h"
@@ -272,6 +273,7 @@ bool loadGlobalConfig(){
     uint32_t configLen = OD_CONFIG_MAX_SIZE;
     if (!loadConfig(configData, &configLen)) {
         od_config_reset(&globalConfig);
+        od_controller_esp_reload();
         return false;
     }
 
@@ -280,6 +282,7 @@ bool loadGlobalConfig(){
      * so `loaded` is what consumers must read, not the counts. */
     const enum od_config_tlv_result walk =
         od_config_parse(&globalConfig, od_span_make(configData, configLen), nullptr);
+    od_controller_esp_reload();
     if (walk != OD_CFG_TLV_OK) return false;
 
     if (globalConfig.led_count > 0) {

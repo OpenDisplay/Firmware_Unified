@@ -36,6 +36,7 @@
 #include "od_xfer.h"
 #include "od_xfer_app.h"
 #include "od_display.h"
+#include "od_controller_esp.h"
 #include "od_display_esp.h"
 #include "od_epd_esp.h"
 #if defined(OPENDISPLAY_FASTEPD)
@@ -165,22 +166,20 @@ void checkTransferTimeouts(void) {
 extern uint8_t staticRowBuffer[BOOT_ROW_BUFFER_SIZE];
 
 
+/* IT8951 and parallel panels are on FastEPD's built-in drivers; od_controller_esp says which
+ * (0xB3, or the legacy panel_ic_type table). Every other panel is driven from drive packets. */
 bool displayConfigUsesNativeDriver(const struct DisplayConfig *d) {
 #if !defined(OPENDISPLAY_FASTEPD)
     (void)d;
     return false;
 #else
     if (d == nullptr) return false;
-    // IT8951 over SPI: E Ink ED103TC2 (Seeed reTerminal), M5Paper.
-    const bool it8951 = (d->panel_ic_type == OD_PANEL_IC_ED103TC2_1872X1404 ||
-                         d->panel_ic_type == OD_PANEL_IC_ED103TC2_1872X1404_4GRAY ||
-                         d->panel_ic_type == OD_PANEL_IC_M5PAPER_960X540);
-    // FastEPD native parallel: Soldered Inkplate 5V2 / 10, M5Stack PaperS3.
-    const bool parallel = (d->panel_ic_type == OD_PANEL_IC_INKPLATE5V2_1280X720 ||
-                           d->panel_ic_type == OD_PANEL_IC_INKPLATE10_1200X825 ||
-                           d->panel_ic_type == OD_PANEL_IC_M5PAPERS3_960X540);
-    if (!it8951 && !parallel) return false;
-    return d->display_technology == 0 || d->display_technology == 1;
+    if (globalConfig.display_count > 0 && d == &globalConfig.displays[0]) {
+        return od_controller_esp()->cls != OD_CTRL_CLASS_COMMAND;
+    }
+    struct od_controller_desc desc;
+    od_controller_esp_describe(d, &globalConfig.system_config, &desc);
+    return desc.cls != OD_CTRL_CLASS_COMMAND;
 #endif
 }
 
@@ -933,8 +932,7 @@ void initDisplay(){
 int displayBootBitsPerPixel(uint8_t colorScheme) {
     if (colorScheme == OD_COLOR_SCHEME_GRAY8) return 0;
 #if defined(OPENDISPLAY_FASTEPD)
-    if (globalConfig.display_count > 0 &&
-        globalConfig.displays[0].panel_ic_type == OD_PANEL_IC_ED103TC2_1872X1404_4GRAY) {
+    if (displayUsesNativeDriver() && (od_controller_esp()->flags & OD_CTRL_FLAG_GRAY16) != 0u) {
         return 4;
     }
 #endif
@@ -1102,9 +1100,9 @@ struct NativeXferState {
 
 static NativeXferState nativeXfer = {};
 
-/* ED103TC2 4-gray takes a FastEPD 4-bpp framebuffer whatever its legacy scheme says. */
+/* A GRAY16-flagged controller takes a FastEPD 4-bpp framebuffer whatever the scheme says. */
 static od_color_status_t nativeGeometry(const struct DisplayConfig& d, od_color_geometry_t* geometry) {
-    if (d.panel_ic_type == OD_PANEL_IC_ED103TC2_1872X1404_4GRAY) {
+    if ((od_controller_esp()->flags & OD_CTRL_FLAG_GRAY16) != 0u) {
         memset(geometry, 0, sizeof(*geometry));
         if (d.pixel_width == 0u || d.pixel_height == 0u) return OD_COLOR_BAD_GEOMETRY;
         const uint64_t rowBytes = ((uint64_t)d.pixel_width + 1u) / 2u;
