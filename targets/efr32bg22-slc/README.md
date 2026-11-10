@@ -192,6 +192,14 @@ Project options exposed by the wrapper: `OD_ENABLE_RTT`, `OD_GENERATE_GBL_OTA`,
 `OD_APP_VERSION`, `OD_SL_APPLICATION_VERSION`, `OD_TNB132M_BOOT_PROBE`,
 `OD_TNB132M_WRITE_NDEF`, `OD_TNB132M_NDEF_TEXT`.
 
+**Application version (app properties).** `SL_APPLICATION_VERSION` is derived from
+`OD_FW_VERSION` (else `OD_APP_VERSION`) as `(major << 16) | (minor << 8) | patch` — 3.0.0 is
+196608. Firmware_Silabs 2.x used `(major << 8) | minor` (2.3.0 = 515, max 65535), so 3.x is
+always above the 2.x fleet. The shipped bootloader (`bootloader-artifact/`) is built with
+`BOOTLOADER_ROLLBACK_PROTECTION 0`, so no version is refused on OTA today; the encoding only
+keeps that safe if rollback protection is ever enabled. `OD_SL_APPLICATION_VERSION` still
+overrides. A release build must pass `OD_FW_VERSION=<tag>` so the number tracks the tag.
+
 **`slc generate` needs to be pointed at a real SDK.** It requires component metadata
 (`.slcc`/`.slce`); the source-only `-cp` copy in the source repo at `simplicity_sdk_2025.12.2`
 has zero `.slcc` files, so a bare `slc generate` fails there with "no valid sdk could be
