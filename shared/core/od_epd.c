@@ -413,6 +413,9 @@ static int run_sequence(od_epd_t *e)
             if ((uint32_t)i + 3u > len) {
                 return OD_ERR_SEQ;
             }
+            if (seq[i + 2u] > 1u) {
+                return OD_ERR_SEQ;
+            }
             if (e->io->cs_select == NULL || !e->io->cs_select(seq[i + 2u])) {
                 return OD_ERR_UNSUP;
             }
@@ -484,6 +487,9 @@ static int run_sequence(od_epd_t *e)
         if (esc == OD_EPD_ESC_FILL) {
             if ((uint32_t)i + 5u > len) {
                 return OD_ERR_SEQ;
+            }
+            if ((seq[i + 4u] & 0x03u) > 2u) {
+                return OD_ERR_SEQ;  /* bpp code indexes bpp_of[3] */
             }
             run_fill(e, seq[i + 2u], seq[i + 3u], seq[i + 4u]);
             i += 5u;
@@ -849,7 +855,16 @@ int od_epd_sleep(od_epd_t *e)
     e->seq_pos = 0u;
     e->paused = false;
     e->lut_have = false;
+    /* The sleep sequence is config data like any mode sequence: same validator, before any
+     * panel I/O. run_sequence() relies on it (FILL's bpp code, CS_SELECT's range). */
+    int rc = od_epd_validate(e);
+    if (rc != OD_OK) {
+        return rc;
+    }
     seq_start(e);
-    int rc = run_sequence(e);
+    rc = run_sequence(e);
+    if (rc == 1) {
+        return OD_ERR_SEQ;      /* an image marker has no frame to take here */
+    }
     return (rc < 0) ? rc : OD_OK;
 }

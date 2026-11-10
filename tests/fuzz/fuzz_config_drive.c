@@ -23,10 +23,6 @@
 
 #include <limits.h>
 
-#ifndef OD_FUZZ_EXERCISE_SLEEP
-#define OD_FUZZ_EXERCISE_SLEEP 0
-#endif
-
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size);
 
 void od_action_app_led(uint8_t colour, uint8_t brightness) { (void)colour; (void)brightness; }
@@ -124,13 +120,7 @@ static void drive(uint8_t ctl, int8_t temp)
         (void)od_epd_cfg_finish();
     }
     od_epd_cfg_raw_busy(50u, NULL, NULL);
-#if OD_FUZZ_EXERCISE_SLEEP
-    /* Off by default: od_epd_sleep() runs the 0xB1 sleep sequence without od_epd_validate(),
-     * so a FILL with bpp code 3 reads past bpp_of[] (bug EPD-SLEEP-UNVALIDATED). Left on, every
-     * run rediscovers that one crash and finds nothing else. Rebuild with
-     * -DOD_FUZZ_EXERCISE_SLEEP=1 once it is fixed. */
     od_epd_cfg_sleep();
-#endif
 }
 
 static void actions(int8_t temp)

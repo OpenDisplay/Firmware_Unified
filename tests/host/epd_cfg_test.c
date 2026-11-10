@@ -716,28 +716,52 @@ static void test_sleep_sequence(void)
     od_epd_cfg_bus_t bus = FX_BUS;
     struct DisplayConfig d;
 
-    CASE("EPD-SLEEP-UNVALIDATED: the 0xB1 sleep sequence skips od_epd_validate()");
     bus.cs_select = fx_cs;
+    d = g_d0;
+    d.cs_pin_2 = 9u;
+    {
+        /* EPD-SLEEP-UNVALIDATED: the 0xB1 sleep sequence goes through od_epd_validate() like
+         * a mode sequence, and a refused one touches nothing -- not even the CS reset.
+         * CS_SELECT 5 used to reach the hook; FILL with bpp code 3 read past bpp_of[] in
+         * run_fill() (fuzz_config_drive, tests/fuzz/corpus/config_drive/regress_sleep_fill_bpp3). */
+        static const struct { const char *name; uint8_t s[6]; uint8_t n; } bad[] = {
+            { "sleep seq: CS_SELECT 5 is refused before I/O",      { 0, 8, 5, 0, 0 },     5u },
+            { "sleep seq: FILL bpp code 3 is refused before I/O",  { 0, 0x0D, 0x24, 0xFF, 3 }, 5u },
+            { "sleep seq: truncated plain step is refused",        { 4, 0x10, 1 },        3u },
+            { "sleep seq: unknown escape is refused",              { 0, 0x7E },           2u },
+        };
+        for (unsigned k = 0u; k < sizeof bad / sizeof bad[0]; k++) {
+            CASE(bad[k].name);
+            begin_cfg(&c, 1u);
+            fx_cfg_ext(&c, OD_PKT_DISPLAY_PANEL, g_b, panel_body(g_b, 0u, bad[k].s, bad[k].n));
+            add_mode(&c, 0u, 0u, "full", 0, 0, 0, 0xFFu, SEQ_NOLUT, sizeof SEQ_NOLUT);
+            fx_cfg_finish(&c);
+            fx_cfg_store(&c);
+            fx_bus_clear();
+            fx_busy_level = 1;
+            CHECK(od_epd_cfg_load(&d, &bus));
+            g_cs_last = -1;
+            od_epd_cfg_sleep();
+            CHECK(g_cs_last == -1);
+            CHECK(fx_cmd_count == 0u);
+        }
+    }
+
+    CASE("sleep seq: a valid one still runs (CS reset, then the step)");
     begin_cfg(&c, 1u);
     {
-        /* CS_SELECT 5: the validator refuses any value but 0/1 (od_epd.c), the runtime walk
-         * hands it to the hook unchecked. FILL with bpp code 3 in the same position reads
-         * past bpp_of[] in run_fill() -- found by fuzz_config_drive, crash input in
-         * tests/fuzz/crashes_open/. This probe is the safe half of the same defect. */
-        const uint8_t s[] = { 0, 8, 5, 0, 0 };
+        const uint8_t s[] = { 2, 0x10, 0x01, 0, 8, 1 };
         fx_cfg_ext(&c, OD_PKT_DISPLAY_PANEL, g_b, panel_body(g_b, 0u, s, sizeof s));
     }
     add_mode(&c, 0u, 0u, "full", 0, 0, 0, 0xFFu, SEQ_NOLUT, sizeof SEQ_NOLUT);
     fx_cfg_finish(&c);
     fx_cfg_store(&c);
-    d = g_d0;
-    d.cs_pin_2 = 9u;
     fx_bus_clear();
-    fx_busy_level = 1;
-    g_cs_last = -1;
     CHECK(od_epd_cfg_load(&d, &bus));
+    g_cs_last = -1;
     od_epd_cfg_sleep();
-    KNOWN_BUG("EPD-SLEEP-UNVALIDATED", g_cs_last != 5);
+    CHECK(fx_cmd_count == 1u);
+    CHECK(g_cs_last == 1);
 
     CASE("a sleep_seq_len past 16 B is dropped, not truncated");
     begin_cfg(&c, 1u);
