@@ -102,8 +102,12 @@ bool od_flash_nor_init(const od_hal_spi_pins_t *pins, od_flash_nor_info_t *out)
     s_info.mem_type = id[1];
     s_info.capacity_code = id[2];
     /* Codes outside this range are not a size. Refusing is better than deriving a capacity
-     * that would let the store address past the end of the part. */
-    if (id[2] >= 0x10u && id[2] <= 0x1Cu) {
+     * that would let the store address past the end of the part. The ceiling is 0x18 (16 MiB)
+     * because every opcode here sends a 3-byte address: on a 32 MiB+ part an address at or
+     * above 16 MiB aliases onto the bottom of the array, where the superblock lives. Such a
+     * part is refused rather than clamped, since some boot in 4-byte address mode, where
+     * no 3-byte command addresses what it names. */
+    if (id[2] >= 0x10u && id[2] <= 0x18u) {
         s_info.size_bytes = 1uL << id[2];
         s_info.present = true;
     } else {

@@ -222,7 +222,7 @@ static void test_nor(void)
     CHECK(s_pd);
     CHECK(od_flash_nor_init(&PINS, &info));
 
-    CASE("id 00 / FF (floating bus) and capacity codes outside 0x10..0x1C are absent");
+    CASE("id 00 / FF (floating bus) and capacity codes outside 0x10..0x18 are absent");
     s_id[0] = 0xFFu;
     CHECK(!od_flash_nor_init(&PINS, &info));
     s_id[0] = 0x00u;
@@ -232,12 +232,17 @@ static void test_nor(void)
     s_id[2] = 0x1Du;
     CHECK(!od_flash_nor_init(&PINS, &info));
 
-    CASE("NOR-4BYTE: a 32 MiB part (code 0x19) is accepted at full size on 3-byte addressing");
-    s_id[2] = 0x19u;
-    CHECK(od_flash_nor_init(&PINS, &info));
-    /* addr3() drops bit 24; no 0xB7 / 4-byte opcodes are sent, so every address >= 16 MiB
-     * aliases onto the bottom of the part (or a bank register's current bank). */
-    KNOWN_BUG("NOR-4BYTE", info.size_bytes <= SIM_MAX);
+    CASE("NOR-4BYTE: 32..256 MiB parts (codes 0x19..0x1C) are refused on 3-byte addressing");
+    /* addr3() drops bit 24 and no 4-byte opcodes are sent, so an address >= 16 MiB would
+     * alias onto the bottom of the part. */
+    for (uint8_t code = 0x19u; code <= 0x1Cu; code++) {
+        s_id[2] = code;
+        CHECK(!od_flash_nor_init(&PINS, &info));
+        CHECK(info.size_bytes == 0u && !info.present);
+    }
+    CASE("a 16 MiB part (code 0x18) is the largest accepted");
+    s_id[2] = 0x18u;
+    CHECK(od_flash_nor_init(&PINS, &info) && info.size_bytes == (1uL << 24));
     s_id[2] = 0x10u;
     CHECK(od_flash_nor_init(&PINS, &info));
 
@@ -462,18 +467,11 @@ static void test_power_cut(void)
 
 static void test_4byte_alias(void)
 {
-    CASE("NOR-4BYTE: a 32 MiB part, slots past 16 MiB alias onto the superblock");
+    CASE("NOR-4BYTE: a 32 MiB part does not mount, so no slot can alias onto the superblock");
     sim_power_on(SIM_MAX, 0x19u);         /* 16 MiB of real array behind 3-byte addressing */
-    CHECK(od_imgstore_mount(&PINS, GEOM, 600000u));
-    const uint8_t n = od_imgstore_status()->slot_count;
-    CHECK(n == 32u);
-    CHECK(put_image(0u, 0x11u, 4000u, 256u, NULL));
-    /* Slot 27 spans 16261120..16863231: its second sector erase is address 0x1000000, which
-     * 3-byte addressing sends as 0x000000 -- the superblock. */
-    CHECK(put_image(27u, 0x22u, 4000u, 256u, NULL));
-    od_imgstore_unmount();
-    const bool kept = od_imgstore_mount(&PINS, GEOM, 600000u) && image_is(0u, 0x11u, 4000u);
-    KNOWN_BUG("NOR-4BYTE", kept);
+    /* Mounted at 32 MiB, slot 27 (16261120..16863231) erased 0x1000000, which 3-byte
+     * addressing sends as 0x000000 -- the superblock. */
+    CHECK(!od_imgstore_mount(&PINS, GEOM, 600000u));
     od_imgstore_unmount();
 }
 
