@@ -1,7 +1,7 @@
 #include "display_service.h"
 #include "od_cmd_reply.h"
 
-#include <bb_epaper.h>
+#include <stdio.h>
 #include <string.h>
 #include "od_hal_i2c.h"
 #include "od_hal_i2c_esp.h"
@@ -35,18 +35,18 @@
 #include "od_zlib_pump.h"
 #include "od_xfer.h"
 #include "od_xfer_app.h"
-#include "od_drive_esp.h"
+#include "od_display.h"
+#include "od_display_esp.h"
+#include "od_epd_esp.h"
 #if defined(OPENDISPLAY_FASTEPD)
 #include "display_fastepd.h"
 #endif
 
 #include "wifi_service.h"
-#include "od_bbep_stream.h"
 
 #include "ble_transport.h"
 #include "od_rxq.h"
 
-extern BBEPDISP bbep;
 extern struct od_config globalConfig;
 extern uint8_t msd_payload[16];
 extern uint8_t dynamicreturndata[11];
@@ -59,7 +59,6 @@ extern bool displayPowerState;
 // EPD_KEEPALIVE_MAX_S live in display_service.h.
 extern volatile uint8_t pwrmgmState;
 extern uint32_t pwrmgmOffDeadlineMs;
-extern volatile uint8_t pwrmgmLock;
 extern uint8_t decompressionChunk[OPENDISPLAY_DECOMPRESSION_CHUNK_SIZE];
 volatile bool epdRefreshInProgress = false;
 
@@ -84,402 +83,7 @@ void endRefresh(void) {
 extern uint32_t displayed_etag;
 
 void pwrmgm(bool onoff);
-void bbepInitIO(BBEPDISP *pBBEP, uint8_t u8DC, uint8_t u8RST, uint8_t u8BUSY, uint8_t u8CS, uint8_t u8MOSI, uint8_t u8SCK, uint32_t u32Speed);
-void bbepWakeUp(BBEPDISP *pBBEP);
-void bbepSendCMDSequence(BBEPDISP *pBBEP, const uint8_t *pSeq);
-void bbepRefresh(BBEPDISP *pBBEP, int iMode);
-void bbepSleep(BBEPDISP *pBBEP, int iMode);
-void bbepSetAddrWindow(BBEPDISP *pBBEP, int x, int y, int cx, int cy);
-void bbepStartWrite(BBEPDISP *pBBEP, int iPlane);
-void bbepWriteData(BBEPDISP *pBBEP, uint8_t *pData, int iLen);
-void bbepFill(BBEPDISP *pBBEP, unsigned char ucColor, int iPlane);
-void bbepWriteCmd(BBEPDISP *pBBEP, uint8_t cmd);
-void bbepCMD2(BBEPDISP *pBBEP, uint8_t cmd1, uint8_t cmd2);
-void bbepWaitBusy(BBEPDISP *pBBEP);
-/* NOT an upstream bb_epaper function -- provided by panel/od_bbep_idf_io.inl, this target's own
- * IO backend. Upstream has no teardown at all, which is what made every re-init a workaround:
- * the bus was never released, so a second spi_bus_initialize() could only fail. See
- * docs/BBEPAPER_IO_BACKENDS.md. */
-void bbepDeInitIO(void);
-bool bbepIsBusy(BBEPDISP *pBBEP);
 void flashLed(uint8_t color, uint8_t brightness);
-bool waitforrefresh(int timeout);
-
-static bool nrfVbusPresent() { return true; }
-
-static void epdBsPinLowIfNrf() {
-}
-
-// Battery boot: power-cycle the panel rail once. pwrmgm(true) already waits ~900 ms
-// per enable; extra delays here are only for rail discharge between off/on.
-static void prepareEpdRailForBoot() {
-    epdBsPinLowIfNrf();
-    pwrmgm(true);
-}
-
-// bb_epaper 71f6e70 replaced EP397/EP426 full-init RAM windows with SET_ORIENTATION
-// (flip180=0 → 0x11=0x02 on 800-wide) while part inits and our partial helpers still
-// use the pre-change windows. Re-apply those so full and partial share one map.
-static void epdAlignCustomPartialRamMode(void) {
-    uint8_t uc[4];
-    if (bbep.type == EP397_800x480 || bbep.type == EP397_800x480_4GRAY) {
-        bbepCMD2(&bbep, SSD1608_DATA_MODE, 0x01);
-        bbepWriteCmd(&bbep, SSD1608_SET_RAMXPOS);
-        uc[0] = 0x00; uc[1] = 0x00; uc[2] = 0x1f; uc[3] = 0x03;
-        bbepWriteData(&bbep, uc, 4);
-        bbepWriteCmd(&bbep, SSD1608_SET_RAMYPOS);
-        uc[0] = 0xdf; uc[1] = 0x01; uc[2] = 0x00; uc[3] = 0x00;
-        bbepWriteData(&bbep, uc, 4);
-        bbepWriteCmd(&bbep, SSD1608_SET_RAMXCOUNT);
-        uc[0] = 0x00; uc[1] = 0x00;
-        bbepWriteData(&bbep, uc, 2);
-        bbepWriteCmd(&bbep, SSD1608_SET_RAMYCOUNT);
-        uc[0] = 0x00; uc[1] = 0x00;
-        bbepWriteData(&bbep, uc, 2);
-    } else if (bbep.type == EP426_800x480 || bbep.type == EP426_800x480_4GRAY) {
-        bbepCMD2(&bbep, SSD1608_DATA_MODE, 0x02);
-        bbepWriteCmd(&bbep, SSD1608_SET_RAMXPOS);
-        uc[0] = 0x1f; uc[1] = 0x03; uc[2] = 0x00; uc[3] = 0x00;
-        bbepWriteData(&bbep, uc, 4);
-        bbepWriteCmd(&bbep, SSD1608_SET_RAMYPOS);
-        uc[0] = 0x00; uc[1] = 0x00; uc[2] = 0xdf; uc[3] = 0x01;
-        bbepWriteData(&bbep, uc, 4);
-        bbepWriteCmd(&bbep, SSD1608_SET_RAMXCOUNT);
-        uc[0] = 0x1f; uc[1] = 0x03;
-        bbepWriteData(&bbep, uc, 2);
-        bbepWriteCmd(&bbep, SSD1608_SET_RAMYCOUNT);
-        uc[0] = 0x00; uc[1] = 0x00;
-        bbepWriteData(&bbep, uc, 2);
-    }
-}
-
-static void initBbepPanelSession() {
-    const DisplayConfig& d = globalConfig.displays[0];
-    bbepInitIO(&bbep, d.dc_pin, d.reset_pin, d.busy_pin, d.cs_pin, d.data_pin, d.clk_pin, 8000000);
-    bbepWakeUp(&bbep);
-    bbepSendCMDSequence(&bbep, bbep.pInitFull);
-    epdAlignCustomPartialRamMode();
-    od_hal_delay_ms(200);
-}
-
-// Boot-time panel presence check. After a hardware reset every controller reports idle on BUSY
-// within milliseconds. A BUSY line that stays busy means no panel, or one that does not respond,
-// and every later BUSY wait would run into its timeout (~10 min for the boot screen). BUSY is
-// active-low on UC81xx and active-high on the SSD16xx family. Dual chip-select panels are not
-// probed.
-static const uint32_t EPD_BOOT_PROBE_TIMEOUT_MS = 2000;
-
-static bool bootPanelResponds() {
-    const DisplayConfig& d = globalConfig.displays[0];
-    if ((bbep.iFlags & BBEP_SPLIT_BUFFER) || d.busy_pin == OD_PIN_UNUSED ||
-        d.reset_pin == OD_PIN_UNUSED) {
-        return true;
-    }
-    od_hal_gpio_config_input(d.busy_pin, false, false);
-    od_hal_gpio_config_output(d.reset_pin, false);
-    od_hal_delay_ms(20);
-    od_hal_gpio_write(d.reset_pin, true);
-    const int busyIdle = (bbep.chip_type == BBEP_CHIP_UC81xx) ? 1 : 0;
-    const uint32_t start = od_hal_uptime_ms();
-    do {
-        od_hal_delay_ms(10);
-        if (od_hal_gpio_read(d.busy_pin) == busyIdle) return true;
-    } while (od_hal_uptime_ms() - start < EPD_BOOT_PROBE_TIMEOUT_MS);
-    return false;
-}
-
-// ---------------------------------------------------------------------------
-// EPD panel power session (keep-alive) — see the state-machine design.
-// pwrmgm() owns the OFF<->(ACTIVE) rail transitions and is the sole rail actuator;
-// these helpers own the ACTIVE<->WARM transitions plus the keep-alive timer.
-// ---------------------------------------------------------------------------
-
-// Which init sequence is loaded in the controller (partial vs full). Panel-init
-// bookkeeping, not power state — stays file-static here (Phase 2a uses it).
-static bool epdSessionInitWasPartial = false;
-// Phase 2b plane-consistency flag: true after a successful partial refresh leaves
-// both controller planes consistent. Cleared on ForceOff / full-frame acquire.
-// Not consulted for fill-skip in Phase 1 (full-frame skip is unconditional-safe).
-static bool epdPlanesPrepared = false;
-
-static bool epdSessionUsesFastepd(void) {
-#if defined(OPENDISPLAY_FASTEPD)
-    return fastepd_driver_used();
-#else
-    return false;
-#endif
-}
-
-// Keep-alive window from config: screen_timeout_seconds, clamped to EPD_KEEPALIVE_MAX_S;
-// 0 (also the old-blob/factory default) -> Release powers the panel straight down.
-// Forced to 0 on AXP2101 boards regardless of config (PMIC warm idle draw unmeasured) —
-// announced on the log whenever the override suppresses a non-zero configured value.
-static uint32_t epdKeepAliveWindowMs(void) {
-    uint8_t s = globalConfig.power_option.screen_timeout_seconds;
-    for (uint8_t i = 0; i < globalConfig.sensor_count; i++) {
-        if (globalConfig.sensors[i].sensor_type == OD_SENSOR_TYPE_AXP2101) {
-            if (s != 0) {
-                od_log_info("[EPD session] AXP2101 present - keep-alive forced off (screen_timeout_seconds ignored)");
-            }
-            return 0;
-        }
-    }
-    if (s > EPD_KEEPALIVE_MAX_S) s = EPD_KEEPALIVE_MAX_S;
-    return (uint32_t)s * 1000;
-}
-
-// Session try-lock, now UNCONTENDED on both targets and kept as defence in depth.
-//
-// It existed because nRF dispatched commands on the Bluefruit write-callback
-// task while the keep-alive tick ran on loop(): a transfer could Acquire on one
-// task while ForceOff rail-cut on the other. Phase 3 moved nRF dispatch to
-// loop(), so every Acquire/Release/ForceOff/tick caller is now that single task
-// (see docs/PLAN_BLE_TRANSPORT_ABSTRACTION_2026-07-27.md).
-//
-// Kept rather than deleted: it is nearly free, it still guards against a future
-// caller arriving from an ISR or another task, and the try-lock in the tick is
-// what keeps a rail-cut from landing mid-init regardless of who calls it.
-static void pwrmgmLockTake(void) {
-    // The yield here is now belt-and-braces. It was load-bearing under the old
-    // model: this ran on the Bluefruit callback task, which outranks the loop
-    // task holding the lock during the tick's ForceOff (SPI ops + od_hal_delay_ms(50)), so
-    // a bare busy-spin starved the lower-priority holder forever on the single
-    // core (priority-inversion livelock). With one task there is nothing to spin
-    // against, but od_hal_delay_ms(1) is vTaskDelay and stays correct if that ever changes.
-    while (__atomic_exchange_n(&pwrmgmLock, 1, __ATOMIC_ACQUIRE)) { od_hal_delay_ms(1); }
-}
-static bool pwrmgmLockTryTake(void) {
-    return __atomic_exchange_n(&pwrmgmLock, 1, __ATOMIC_ACQUIRE) == 0;
-}
-static void pwrmgmLockGive(void) {
-    __atomic_store_n(&pwrmgmLock, 0, __ATOMIC_RELEASE);
-}
-
-// After controller power-off / deep sleep, wait before cutting VDD so the board's boost caps
-// and VCOM can bleed. 50 ms is too short on EP42B (SSD16xx 400x300): the refresh looks right,
-// then the image darkens over the following minutes.
-static const uint16_t EPD_POST_SLEEP_BLEED_MS = 200;
-
-static bool panel_is_ep426(void) {
-    return bbep.type == EP426_800x480 || bbep.type == EP426_800x480_4GRAY;
-}
-
-// bbepSleep() on SSD16xx only sends deep sleep; it does not run the analog/HV shutdown. Send
-// EOPT discharge frames (0x3F=0x22) and the power-off sequence (0x22=0x83: clock on, analog off,
-// OSC off, then 0x20) while SPI is still up. EP426 skips both the sequence and the bleed: there
-// it burns ~1 s at high current for no visible gain.
-static void epdSsd16xxPowerOffDischarge(void) {
-    if (bbep.chip_type != BBEP_CHIP_SSD16xx) return;
-    if (!bbep.is_awake) return;
-    if (panel_is_ep426()) return;
-    bbepCMD2(&bbep, 0x3F, 0x22);
-    bbepCMD2(&bbep, SSD1608_DISP_CTRL2, 0x83);
-    bbepWriteCmd(&bbep, SSD1608_MASTER_ACTIVATE);
-    od_watchdog_app_service();
-    bbepWaitBusy(&bbep);
-}
-
-// Lock-held core (callers must hold pwrmgmLock). Split out so Release/Tick can
-// power off without re-taking the non-recursive lock.
-static void epdSessionForceOffLocked(void) {
-    if (pwrmgmState == PWR_OFF) return;   // idempotent
-    od_log_info("[EPD session] force off");
-    if (epdSessionUsesFastepd()) {
-#if defined(OPENDISPLAY_FASTEPD)
-        fastepd_direct_sleep();
-        // Rail is about to drop: force the next push to fully re-init the TCON
-        // rather than wake() a power-cycled IT8951 (garbled refresh otherwise).
-        fastepd_mark_hw_deinitialized();
-#endif
-    } else {
-        epdSsd16xxPowerOffDischarge();
-        bbepSleep(&bbep, 1);
-        if (!panel_is_ep426()) od_hal_delay_ms(EPD_POST_SLEEP_BLEED_MS);
-        /* Release the SPI bus and device now that the controller is asleep and no further
-         * bytes are going out. Must be AFTER bbepSleep(), which still needs the bus to send
-         * the sleep command, and BEFORE pwrmgm(false), which cuts the rail and parks the pins.
-         *
-         * This is what makes the next cold bring-up a clean spi_bus_initialize() rather than a
-         * re-init of a bus nobody owns -- and re-initialising is not optional, because
-         * configureDisplayPinsLowPower() inside pwrmgm(false) takes SCLK/MOSI back as plain
-         * GPIO and only spi_bus_initialize() re-attaches them to the peripheral. Idempotent,
-         * so the abort paths that reach here twice cost nothing. */
-        bbepDeInitIO();
-    }
-    pwrmgm(false);   // -> PWR_OFF, clears deadline
-    epdPlanesPrepared = false;
-}
-
-/* Whether pwrmgm() will drive an AXP2101 PMIC on this board, i.e. whether its timing includes
- * initAXP2101() over I2C on top of the rail assert and the 800 ms settle. Same scan pwrmgm()
- * itself does -- duplicated rather than exported because it exists only to label a log line,
- * and a second caller of a one-line predicate is cheaper than a new cross-file dependency. */
-static bool epdRailUsesAxp2101(void) {
-    for (uint8_t i = 0; i < globalConfig.sensor_count; i++) {
-        if (globalConfig.sensors[i].sensor_type == OD_SENSOR_TYPE_AXP2101) return true;
-    }
-    return false;
-}
-
-// Bring the panel up for a transfer/refresh. Returns true iff it was COLD (rail
-// was off) — callers may need to (re)open the address window regardless.
-static bool epdSessionAcquire(bool partialInit) {
-    pwrmgmLockTake();
-    bool cold;
-    const uint32_t tAcquire = od_hal_uptime_ms();
-    if (pwrmgmState == PWR_OFF) {
-        od_log_info("[EPD session] acquire: COLD bring-up");
-        /* pwrmgm(true) FIRST, and timed: it asserts the panel rail, waits 800 ms for it to
-         * settle, and -- when an AXP2101 PMIC is configured -- runs initAXP2101() over I2C.
-         * That is the largest unattributed block on this path and it runs before any panel
-         * byte moves, so a stall here must not be misread as a panel that will not answer. */
-        uint32_t tRail = od_hal_uptime_ms();
-        pwrmgm(true);   // -> PWR_ACTIVE (guarded; real transition)
-        od_log_debug("[EPD cold] pwrmgm(on) %u ms (rail + 800 ms settle%s)",
-                     (unsigned)(od_hal_uptime_ms() - tRail),
-                     epdRailUsesAxp2101() ? " + AXP2101 I2C" : "");
-        if (!epdSessionUsesFastepd()) {
-            const DisplayConfig& d = globalConfig.displays[0];
-            /* Per-step timing. A cold bring-up is three vendor calls and, when the panel
-             * is not answering, each one silently burns a full BUSY timeout (5 s B/W,
-             * 30 s multi-colour) inside bb_epaper and returns success. From the outside
-             * that is one opaque 16-30 s stall between "COLD bring-up" and the next line
-             * -- which blocks loop(), so queued BLE responses cannot be notified and the
-             * host times out. Naming the step that costs the time is the difference
-             * between reading a log and guessing. Cheap: four log lines per cold acquire,
-             * not per transfer. */
-            uint32_t tStep = od_hal_uptime_ms();
-            bbepInitIO(&bbep, d.dc_pin, d.reset_pin, d.busy_pin, d.cs_pin, d.data_pin, d.clk_pin, 8000000);
-            od_log_debug("[EPD cold] bbepInitIO %u ms", (unsigned)(od_hal_uptime_ms() - tStep));
-
-            tStep = od_hal_uptime_ms();
-            bbepWakeUp(&bbep);
-            od_log_debug("[EPD cold] bbepWakeUp %u ms", (unsigned)(od_hal_uptime_ms() - tStep));
-
-            const uint8_t* initSeq = partialInit ? (bbep.pInitPart ? bbep.pInitPart : bbep.pInitFull)
-                                                 : bbep.pInitFull;
-            tStep = od_hal_uptime_ms();
-            bbepSendCMDSequence(&bbep, initSeq);
-            od_log_debug("[EPD cold] initSeq (%s) %u ms",
-                         partialInit ? "partial" : "full", (unsigned)(od_hal_uptime_ms() - tStep));
-            tStep = od_hal_uptime_ms();
-            epdAlignCustomPartialRamMode();
-            od_log_debug("[EPD cold] alignRamMode %u ms", (unsigned)(od_hal_uptime_ms() - tStep));
-            epdSessionInitWasPartial = partialInit;
-        }
-        cold = true;
-    } else {
-        // WARM re-acquire (or, defensively, an already-ACTIVE re-entry).
-        od_log_info(pwrmgmState == PWR_ACTIVE ? "[EPD session] acquire: already ACTIVE (defensive)"
-                                              : "[EPD session] acquire: WARM re-acquire");
-        pwrmgmState = PWR_ACTIVE;
-        pwrmgmOffDeadlineMs = 0;   // cancel keep-alive
-        // Phase 1: full re-init on warm re-acquire (HW reset => registers identical
-        // to cold, safest). Phase 2a will skip bbepWakeUp + resend only on change.
-        if (!epdSessionUsesFastepd()) {
-            /* Same breakdown as the cold path. A WARM re-acquire skips the rail and the
-             * SPI bring-up, so if it ALSO stalls then the panel is not answering for a
-             * reason unrelated to power -- which is worth being able to tell apart. */
-            uint32_t tStep = od_hal_uptime_ms();
-            bbepWakeUp(&bbep);
-            od_log_debug("[EPD warm] bbepWakeUp %u ms", (unsigned)(od_hal_uptime_ms() - tStep));
-            const uint8_t* initSeq = partialInit ? (bbep.pInitPart ? bbep.pInitPart : bbep.pInitFull)
-                                                 : bbep.pInitFull;
-            tStep = od_hal_uptime_ms();
-            bbepSendCMDSequence(&bbep, initSeq);
-            od_log_debug("[EPD warm] initSeq (%s) %u ms",
-                         partialInit ? "partial" : "full", (unsigned)(od_hal_uptime_ms() - tStep));
-            epdAlignCustomPartialRamMode();
-            epdSessionInitWasPartial = partialInit;
-        }
-        cold = false;
-    }
-    /* The total, so the per-step lines above can be checked to add up. A large total with
-     * small parts means the time is somewhere still uninstrumented -- which is exactly the
-     * ambiguity the first instrumented build left, and the reason this line exists. */
-    od_log_info("[EPD session] acquire done: %s, %u ms total",
-                cold ? "COLD" : "WARM", (unsigned)(od_hal_uptime_ms() - tAcquire));
-    pwrmgmLockGive();
-    return cold;
-}
-
-// Finish a transfer/refresh. On success (and when keep-alive is enabled) the panel
-// stays powered + AWAKE and enters PWR_WARM with an armed deadline; otherwise it is
-// powered fully down now.
-static void epdSessionRelease(bool refreshSuccess) {
-    pwrmgmLockTake();
-    if (pwrmgmState == PWR_OFF) { pwrmgmLockGive(); return; }   // nothing to release
-    uint32_t window = epdKeepAliveWindowMs();
-    if (window == 0 || !refreshSuccess) {
-        od_log_info(refreshSuccess ? "[EPD session] release: keep-alive disabled, powering off"
-                                   : "[EPD session] release: refresh failed, powering off");
-        epdSessionForceOffLocked();
-    } else {
-        pwrmgmState = PWR_WARM;
-        pwrmgmOffDeadlineMs = od_hal_uptime_ms() + window;
-        // Controller stays AWAKE (no bbepSleep; is_awake stays 1); rail/SPI stay up.
-        od_log_info("[EPD session] release: panel warm-idle, off in %u ms", (unsigned)window);
-    }
-    pwrmgmLockGive();
-}
-
-void epdSessionForceOff(void) {
-    pwrmgmLockTake();
-    epdSessionForceOffLocked();
-    pwrmgmLockGive();
-}
-
-void epdSessionTick(void) {
-    if (pwrmgmState != PWR_WARM) return;   // fast pre-check (only WARM arms the timer)
-    if (!pwrmgmLockTryTake()) return;      // held by a transfer -> skip this pass
-    // Re-check under the lock: a transfer may have moved us out of WARM meanwhile.
-    if (pwrmgmState == PWR_WARM && (int32_t)(od_hal_uptime_ms() - pwrmgmOffDeadlineMs) >= 0) {
-        od_log_info("[EPD session] keep-alive expired — powering panel off");
-        epdSessionForceOffLocked();
-    }
-    pwrmgmLockGive();
-}
-
-bool epdSessionIsWarm(void) {
-    return pwrmgmState == PWR_WARM;
-}
-
-static bool refreshBootScreenFull() {
-    if (!writeBootScreenWithQr()) {
-        od_log_warn("Boot screen render failed");
-        return false;
-    }
-    od_log_info("EPD refresh: FULL (boot)");
-    touchSuspendForEpdRefresh();
-    bbepRefresh(&bbep, REFRESH_FULL);
-    return waitforrefresh(60);
-}
-
-static bool panel_skips_bbep_set_addr_window(void);
-static void partial_set_addr_window(BBEPDISP *pBBEP, int x, int y, int cx, int cy);
-static void partial_prepare_panel_ram_for(uint16_t x, uint16_t y, uint16_t width,
-                                          uint16_t height);
-static bool partial_refresh_for(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
-                                int refreshMode);
-
-enum XferAppMode : uint8_t {
-    XFER_APP_IDLE = 0,
-    XFER_APP_FULL,
-    XFER_APP_PARTIAL,
-};
-
-struct XferAppHardwareState {
-    XferAppMode mode;
-    od_color_geometry_t geometry;
-    uint16_t width;
-    uint16_t height;
-    uint16_t x;
-    uint16_t y;
-    uint32_t plane_bytes;
-    uint8_t current_plane;
-};
-
-static XferAppHardwareState xferApp = {};
 
 // od_txq's only drainer is the loop task, which is the same task running these handlers -- so
 // anything queued here stays queued until we return. Call od_cmd_flush_before_refresh() before any
@@ -557,147 +161,37 @@ void checkTransferTimeouts(void) {
 #define AXP2101_REG_IRQ_STATUS2 0x49
 #define AXP2101_REG_IRQ_STATUS3 0x4A
 #define AXP2101_REG_LDO_ONOFF_CTRL1 0x91
-#define FONT_BASE_WIDTH 8
-#define FONT_BASE_HEIGHT 8
-#define FONT_SMALL_THRESHOLD 264
 
-extern const uint8_t writelineFont[] PROGMEM;
 extern uint8_t staticRowBuffer[BOOT_ROW_BUFFER_SIZE];
 
-int bbepSetPanelType(BBEPDISP *pBBEP, int iPanel);
-void bbepSetRotation(BBEPDISP *pBBEP, int iRotation);
 
-int mapEpd(int id){
-    switch(id) {
-        case 0x0000: return EP_PANEL_UNDEFINED;
-        case 0x0001: return EP42_400x300;
-        case 0x0002: return EP42B_400x300;
-        case 0x0003: return EP213_122x250;
-        case 0x0004: return EP213B_122x250;
-        case 0x0005: return EP293_128x296;
-        case 0x0006: return EP294_128x296;
-        case 0x0007: return EP295_128x296;
-        case 0x0008: return EP295_128x296_4GRAY;
-        case 0x0009: return EP266_152x296;
-        case 0x000A: return EP102_80x128;
-        case 0x000B: return EP27B_176x264;
-        case 0x000C: return EP29R_128x296;
-        case 0x000D: return EP122_192x176;
-        case 0x000E: return EP154R_152x152;
-        case 0x000F: return EP42R_400x300;
-        case 0x0010: return EP42R2_400x300;
-        case 0x0011: return EP37_240x416;
-        case 0x0012: return EP37B_240x416;
-        case 0x0013: return EP213_104x212;
-        case 0x0014: return EP75_800x480;
-        case 0x0015: return EP75_800x480_4GRAY;
-        case 0x0016: return EP75_800x480_4GRAY_V2;
-        case 0x0017: return EP29_128x296;
-        case 0x0018: return EP29_128x296_4GRAY;
-        case 0x0019: return EP213R_122x250;
-        case 0x001A: return EP154_200x200;
-        case 0x001B: return EP154B_200x200;
-        case 0x001C: return EP266YR_184x360;
-        case 0x001D: return EP29YR_128x296;
-        case 0x001E: return EP29YR_168x384;
-        case 0x001F: return EP583_648x480;
-        case 0x0020: return EP296_128x296;
-        case 0x0021: return EP26R_152x296;
-        case 0x0022: return EP73_800x480;
-        case 0x0023: return EP73_SPECTRA_800x480;
-        case 0x0024: return EP74R_640x384;
-        case 0x0025: return EP583R_600x448;
-        case 0x0026: return EP75R_800x480;
-        case 0x0027: return EP426_800x480;
-        case 0x0028: return EP426_800x480_4GRAY;
-        case 0x0029: return EP29R2_128x296;
-        case 0x002A: return EP41_640x400;
-        case 0x002B: return EP81_SPECTRA_1024x576;
-        case 0x002C: return EP7_960x640;
-        case 0x002D: return EP213R2_122x250;
-        case 0x002E: return EP29Z_128x296;
-        case 0x002F: return EP29Z_128x296_4GRAY;
-        case 0x0030: return EP213Z_122x250;
-        case 0x0031: return EP213Z_122x250_4GRAY;
-        case 0x0032: return EP154Z_152x152;
-        case 0x0033: return EP579_792x272;
-        case 0x0034: return EP213YR_122x250;
-        case 0x0035: return EP37YR_240x416;
-        case 0x0036: return EP35YR_184x384;
-        case 0x0037: return EP397YR_800x480;
-        case 0x0038: return EP154YR_200x200;
-        case 0x0039: return EP266YR2_184x360;
-        case 0x003A: return EP42YR_400x300;
-        case 0x003B: return EP75_800x480_GEN2;
-        case 0x003C: return EP75_800x480_4GRAY_GEN2;
-        case 0x003D: return EP215YR_160x296;
-        case 0x003E: return EP1085_1360x480;
-        case 0x003F: return EP31_240x320;
-        case 0x0040: return EP75YR_800x480;
-        case 0x0041: return EP_PANEL_UNDEFINED;
-        case 0x0042: return EP_PANEL_UNDEFINED;
-        case 0x0043: return EP154_200x200_4GRAY;
-        case 0x0044: return EP42B_400x300_4GRAY;
-        case 0x0045: return EP397_800x480;
-        case 0x0046: return EP397_800x480_4GRAY;
-        case 0x0047: return EP368_792x528;
-        case 0x0048: return EP368_792x528_4GRAY;
-        case 0x0049: return EP213ZZ_122x250;
-        case 0x004A: return EP40_SPECTRA_400x600;
-        case 0x004B: return EP27_176x264;
-        case 0x004C: return EP27_176x264_4GRAY;
-        // 1004 (JD79668 4.2in BWRY) is the controller-side name of the EP42YR class: same
-        // UC81xx-family command set, same init sequence.
-        case OD_PANEL_IC_JD79668_420_BWRY: return EP42YR_400x300;
-        default: return EP_PANEL_UNDEFINED;
-    }
+bool displayConfigUsesNativeDriver(const struct DisplayConfig *d) {
+#if !defined(OPENDISPLAY_FASTEPD)
+    (void)d;
+    return false;
+#else
+    if (d == nullptr) return false;
+    // IT8951 over SPI: E Ink ED103TC2 (Seeed reTerminal), M5Paper.
+    const bool it8951 = (d->panel_ic_type == OD_PANEL_IC_ED103TC2_1872X1404 ||
+                         d->panel_ic_type == OD_PANEL_IC_ED103TC2_1872X1404_4GRAY ||
+                         d->panel_ic_type == OD_PANEL_IC_M5PAPER_960X540);
+    // FastEPD native parallel: Soldered Inkplate 5V2 / 10, M5Stack PaperS3.
+    const bool parallel = (d->panel_ic_type == OD_PANEL_IC_INKPLATE5V2_1280X720 ||
+                           d->panel_ic_type == OD_PANEL_IC_INKPLATE10_1200X825 ||
+                           d->panel_ic_type == OD_PANEL_IC_M5PAPERS3_960X540);
+    if (!it8951 && !parallel) return false;
+    return d->display_technology == 0 || d->display_technology == 1;
+#endif
+}
+
+bool displayUsesNativeDriver(void) {
+    return globalConfig.display_count > 0 && displayConfigUsesNativeDriver(&globalConfig.displays[0]);
 }
 
 bool fastepd_driver_used(void) {
-#if !defined(OPENDISPLAY_FASTEPD)
-    return false;
-#else
-    if (globalConfig.display_count < 1) return false;
-    const struct DisplayConfig& d = globalConfig.displays[0];
-    // FastEPD IT8951 (SPI) path: E Ink ED103TC2 (Seeed reTerminal).
-    const bool it8951 = (d.panel_ic_type == OD_PANEL_IC_ED103TC2_1872X1404 ||
-                         d.panel_ic_type == OD_PANEL_IC_ED103TC2_1872X1404_4GRAY ||
-                         d.panel_ic_type == OD_PANEL_IC_M5PAPER_960X540);
-    // FastEPD native parallel path: Soldered Inkplate 5V2 / 10, M5Stack PaperS3.
-    const bool parallel = (d.panel_ic_type == OD_PANEL_IC_INKPLATE5V2_1280X720 ||
-                           d.panel_ic_type == OD_PANEL_IC_INKPLATE10_1200X825 ||
-                           d.panel_ic_type == OD_PANEL_IC_M5PAPERS3_960X540);
-    if (!it8951 && !parallel) return false;
-    if (d.display_technology != 0 && d.display_technology != 1) return false;
-    return true;
-#endif
+    return displayUsesNativeDriver();
 }
 
-bool waitforrefresh(int timeout){
-#if defined(OPENDISPLAY_FASTEPD)
-    if (fastepd_driver_used()) return fastepd_wait_refresh(timeout);
-#endif
-    // Poll at 10 ms (was 100 ms) so a ~0.5 s refresh returns up to ~90 ms sooner.
-    // BUSY asserts within µs of MASTER_ACTIVATE, so the i==0 "never went busy"
-    // error check stays valid at a 10 ms first poll. Loop bound scales x10
-    // (timeout*100 iterations of 10 ms); dot cadence every 50 iters keeps ~0.5 s/dot.
-    for (size_t i = 0; i < (size_t)(timeout * 100); i++){
-        od_hal_delay_ms(10);
-        if(i % 50 == 0) od_log_raw(".");
-        if(!bbepIsBusy(&bbep)){
-            if(i == 0){
-                od_log_error("Epaper not busy after refresh command - refresh may not have started");
-                return false;
-            }
-            od_log_raw(".\n");
-            od_log_info("Refresh took %.2f seconds", (float)i / 100);
-//            od_hal_delay_ms(200);   // EXTRA DELAY HERE IS UNNEEDED AND JUST SLOWS THINGS DOWN
-            return true;
-        }
-    }
-    od_log_warn("Refresh busy remained asserted at timeout");
-    return false;
-}
 
 static bool s_wire_open_display_ready = false;
 static int8_t s_wire_sda_pin = -1;
@@ -894,16 +388,16 @@ void initio(){
             bool invertBlue = (led->led_flags & 0x04) != 0;
             bool invertLed4 = (led->led_flags & 0x08) != 0;
                 if (led->led_1_r != 0xFF) {
-                    od_hal_gpio_config_output(led->led_1_r, (invertRed ? HIGH : LOW));
+                    od_hal_gpio_config_output(led->led_1_r, invertRed);
                 }
                 if (led->led_2_g != 0xFF) {
-                    od_hal_gpio_config_output(led->led_2_g, (invertGreen ? HIGH : LOW));
+                    od_hal_gpio_config_output(led->led_2_g, invertGreen);
                 }
                 if (led->led_3_b != 0xFF) {
-                    od_hal_gpio_config_output(led->led_3_b, (invertBlue ? HIGH : LOW));
+                    od_hal_gpio_config_output(led->led_3_b, invertBlue);
                 }
                 if (led->led_4 != 0xFF) {
-                    od_hal_gpio_config_output(led->led_4, (invertLed4 ? HIGH : LOW));
+                    od_hal_gpio_config_output(led->led_4, invertLed4);
                 }
         }
         for (uint8_t i = 0; i < globalConfig.led_count; i++) {
@@ -1370,81 +864,6 @@ void powerDownAXP2101(){
     od_log_info("=== AXP2101 PMIC Rails Powered Down ===");
 }
 
-static void renderChar_4BPP(uint8_t* rowBuffer, const uint8_t* fontData, int fontRow, int charIdx, int startX, int charWidth, int pitch, int fontScale) {
-    for (int col = 0; col < charWidth; col += fontScale) {
-        uint8_t fontByte;
-        int fontCol = col / fontScale;
-        if (fontCol == 0 || fontCol > 7) {
-            fontByte = 0x00;
-        } else {
-            fontByte = fontData[fontCol - 1];
-        }
-        uint8_t pixelBit = (fontByte >> fontRow) & 0x01;
-        uint8_t pixelNibble = (pixelBit == 1) ? 0x0 : 0xF;
-        for (int s = 0; s < fontScale; s++) {
-            int pixelX = startX + charIdx * charWidth + col + s;
-            if (pixelX >= globalConfig.displays[0].pixel_width) break;
-            int bytePos = pixelX / 2;
-            if (bytePos >= pitch) break;
-            if ((pixelX % 2) == 0) {
-                rowBuffer[bytePos] = (rowBuffer[bytePos] & 0x0F) | (pixelNibble << 4);
-            } else {
-                rowBuffer[bytePos] = (rowBuffer[bytePos] & 0xF0) | pixelNibble;
-            }
-        }
-    }
-}
-
-static void renderChar_2BPP(uint8_t* rowBuffer, const uint8_t* fontData, int fontRow, int charIdx, int startX, int charWidth, int pitch, uint8_t colorScheme, int fontScale) {
-    uint8_t whiteCode = (colorScheme == OD_COLOR_SCHEME_GRAY4) ? 0x03 : 0x01;
-    int pixelsPerByte = 4;
-    for (int col = 0; col < charWidth; col += pixelsPerByte) {
-        uint8_t pixelByte = 0;
-        for (int p = 0; p < pixelsPerByte; p++) {
-            int pixelX = startX + charIdx * charWidth + col + p;
-            if (pixelX >= globalConfig.displays[0].pixel_width) break;
-            uint8_t fontByte;
-            int fontCol = (col + p) / fontScale;
-            if (fontCol == 0 || fontCol > 7) {
-                fontByte = 0x00;
-            } else {
-                fontByte = fontData[fontCol - 1];
-            }
-            uint8_t pixelBit = (fontByte >> fontRow) & 0x01;
-            uint8_t pixelValue = (pixelBit == 1) ? 0x00 : whiteCode;
-            pixelByte |= (pixelValue << (6 - p * 2));
-        }
-        int bytePos = (startX + charIdx * charWidth + col) / 4;
-        if (bytePos < pitch) {
-            rowBuffer[bytePos] = pixelByte;
-        }
-    }
-}
-
-static void renderChar_1BPP(uint8_t* rowBuffer, const uint8_t* fontData, int fontRow, int charIdx, int startX, int charWidth, int pitch, int fontScale) {
-    for (int col = 0; col < charWidth; col += fontScale) {
-        uint8_t fontByte;
-        int fontCol = col / fontScale;
-        if (fontCol == 0 || fontCol > 7) {
-            fontByte = 0x00;
-        } else {
-            fontByte = fontData[fontCol - 1];
-        }
-        uint8_t pixelBit = (fontByte >> fontRow) & 0x01;
-        for (int s = 0; s < fontScale; s++) {
-            int pixelX = startX + charIdx * charWidth + col + s;
-            if (pixelX >= globalConfig.displays[0].pixel_width) break;
-            int bytePos = pixelX / 8;
-            int bitPos = 7 - (pixelX % 8);
-            if (bytePos < pitch) {
-                if (pixelBit == 1) {
-                    rowBuffer[bytePos] &= ~(1 << bitPos);
-                }
-            }
-        }
-    }
-}
-
 void initDisplay(){
     /* Three consecutive watchdog resets say the panel path is what wedges, so a fourth attempt
      * is another reset. Returning before the rail is powered leaves the device up on BLE, which
@@ -1458,114 +877,59 @@ void initDisplay(){
      * place to wedge, so it is the one phase worth breadcrumbing even on its own: the boot after
      * a watchdog reset can then say whether the panel or something else stopped the last run. */
     od_watchdog_app_phase(OD_WDT_PHASE_BOOT_REFRESH);
-    if(globalConfig.display_count > 0){
-        // reTerminal Sticky: the MicroSD slot shares SPI2 with the panel (Seeed pin map: panel
-        // SCK 13 / MOSI 14 / CS 15). Park the card -- SD_CS GPIO8 high, SD_EN GPIO10 low -- before
-        // any panel SPI so an inserted card cannot drive the bus.
-        {
-            const DisplayConfig& d = globalConfig.displays[0];
-            if (d.clk_pin == 13 && d.data_pin == 14 && d.cs_pin == 15) {
-                od_hal_gpio_config_output(8, true);
-                od_hal_gpio_config_output(10, false);
-            }
-        }
+    if (globalConfig.display_count == 0) {
+        od_log_warn("No display found");
+        od_watchdog_app_phase(OD_WDT_PHASE_IDLE);
+        return;
+    }
+    const DisplayConfig& d = globalConfig.displays[0];
+    od_log_info("Display: panel_ic %u, %ux%u", (unsigned)d.panel_ic_type,
+                (unsigned)d.pixel_width, (unsigned)d.pixel_height);
 #if defined(OPENDISPLAY_FASTEPD)
-    if (fastepd_driver_used()) {
-        int bitsPerPixel = displayBootBitsPerPixel(globalConfig.displays[0].color_scheme);
+    if (displayUsesNativeDriver()) {
+        int bitsPerPixel = displayBootBitsPerPixel(d.color_scheme);
         if (bitsPerPixel == 0) {
-            od_log_warn("Display: unsupported boot color scheme %u",
-                        (unsigned)globalConfig.displays[0].color_scheme);
+            od_log_warn("Display: unsupported boot color scheme %u", (unsigned)d.color_scheme);
+            od_watchdog_app_phase(OD_WDT_PHASE_IDLE);
             return;
         }
-        pwrmgm(true);
-        od_log_info("Display: FastEPD (panel_ic %u, %ux%u, %d bpp)",
-                    globalConfig.displays[0].panel_ic_type,
-                    globalConfig.displays[0].pixel_width, globalConfig.displays[0].pixel_height,
-                    bitsPerPixel);
+        displayRailAcquire();
+        od_log_info("Display: built-in driver, %d bpp", bitsPerPixel);
         fastepd_epaper_begin();
         if (fastepd_init_failed()) {
             od_log_warn("FastEPD init failed — skipping boot refresh");
             fastepd_mark_hw_deinitialized();
             pwrmgm(false);
+            od_watchdog_app_phase(OD_WDT_PHASE_IDLE);
             return;
         }
-        od_log_info("Height: %u", globalConfig.displays[0].pixel_height);
-        od_log_info("Width: %u", globalConfig.displays[0].pixel_width);
-        if (! (globalConfig.displays[0].transmission_modes & OD_TRANSMISSION_MODE_CLEAR_ON_BOOT)){
+        if (!(d.transmission_modes & OD_TRANSMISSION_MODE_CLEAR_ON_BOOT)) {
             if (!writeBootScreenWithQr()) {
                 od_log_warn("FastEPD boot screen render failed");
                 epdSessionForceOff();
+                od_watchdog_app_phase(OD_WDT_PHASE_IDLE);
                 return;
             }
             od_log_info("EPD refresh: FULL (boot, FastEPD)");
             touchSuspendForEpdRefresh();
             fastepd_full_update();
-            waitforrefresh(60);
+            fastepd_wait_refresh(60);
             epdSessionForceOff();
             touchResumeAfterEpdRefresh();
         } else {
             epdSessionForceOff();
         }
-    } else
+        od_watchdog_app_phase(OD_WDT_PHASE_IDLE);
+        return;
+    }
 #endif
-    {
-        prepareEpdRailForBoot();
-        memset(&bbep, 0, sizeof(BBEPDISP));
-        int panelType = mapEpd(globalConfig.displays[0].panel_ic_type);
-        bbepSetPanelType(&bbep, panelType);
-        if ((bbep.iFlags & BBEP_SPLIT_BUFFER) != 0u) {
-            od_log_error("Split-panel transport is not hardware-qualified on this target");
-            pwrmgm(false);
-            return;
-        }
-        int rotation = globalConfig.displays[0].rotation * 90;
-        bbepSetRotation(&bbep, rotation);
-        od_log_info("Height: %u", globalConfig.displays[0].pixel_height);
-        od_log_info("Width: %u", globalConfig.displays[0].pixel_width);
-        if (!bootPanelResponds()) {
-            od_log_warn("Panel not responding (BUSY stays busy after reset) - skipping boot screen");
-            pwrmgm(false);   // raw rail cut: epdSessionForceOff() would send sleep and wait on BUSY
-            return;
-        }
-        initBbepPanelSession();
-        if (! (globalConfig.displays[0].transmission_modes & OD_TRANSMISSION_MODE_CLEAR_ON_BOOT)){
-            bool bootOk = refreshBootScreenFull();
-            if (!bootOk && !nrfVbusPresent()) {
-                od_log_warn("Boot refresh failed on battery — re-powering panel and retrying");
-                touchResumeAfterEpdRefresh();
-                pwrmgm(false);
-                od_hal_delay_ms(200);
-                prepareEpdRailForBoot();
-                initBbepPanelSession();
-                bootOk = refreshBootScreenFull();
-            }
-            if (!bootOk) {
-                od_log_warn("Boot screen refresh did not complete");
-            }
-            // Boot ends PWR_OFF (no keep-alive at boot). pwrmgm(true) in boot set
-            // PWR_ACTIVE, so ForceOff sleeps the controller + cuts the rail cleanly.
-            epdSessionForceOff();
-            touchResumeAfterEpdRefresh();
-        } else {
-            // CLEAR_ON_BOOT: initBbepPanelSession left the controller awake —
-            // ForceOff sleeps it before the rail cut (raw pwrmgm(false) skipped that).
-            epdSessionForceOff();
-        }
-    }
-    }
-    else{
-        od_log_warn("No display found");
+    if (!displayBootConfigDriven()) {
+        od_log_warn("Boot screen refresh did not complete");
     }
     od_watchdog_app_phase(OD_WDT_PHASE_IDLE);
 }
 
-
-int displayBootPlane(uint8_t colorScheme) {
-    if (colorScheme == OD_COLOR_SCHEME_MONO || colorScheme == OD_COLOR_SCHEME_GRAY16) return PLANE_0;
-    if (colorScheme == OD_COLOR_SCHEME_BWR || colorScheme == OD_COLOR_SCHEME_BWY) return PLANE_0;
-    return PLANE_1;
-}
-
+/* Bits per pixel the boot renderer draws for the built-in drivers' framebuffers. */
 int displayBootBitsPerPixel(uint8_t colorScheme) {
     if (colorScheme == OD_COLOR_SCHEME_GRAY8) return 0;
 #if defined(OPENDISPLAY_FASTEPD)
@@ -1582,6 +946,7 @@ int displayBootBitsPerPixel(uint8_t colorScheme) {
         colorScheme == OD_COLOR_SCHEME_BWY || colorScheme == OD_COLOR_SCHEME_SEVEN_COLOR) return 1;
     return 0;
 }
+
 
 static float readBatteryVoltageUncached() {
     if (od_sensor_bq27220_is_configured(&globalConfig)) {
@@ -1698,20 +1063,48 @@ void updatemsdata(){
     mloopcounter = od_advert_advance_counter(mloopcounter);
 }
 
+/* --- od_xfer_app ------------------------------------------------------------------------------
+ *
+ * SPI panels go through od_display, driven entirely by the config's drive packets. The panels on
+ * a built-in controller driver (IT8951, FastEPD parallel) keep their FastEPD paths below. */
+
 static bool directWriteTouchSuspended = false;
 
-/* Resolve the one target-owned direct format exception. ED103TC2 4-gray uses a FastEPD
- * 4-bpp framebuffer regardless of its legacy scheme metadata. Reserved Gray8 is explicitly
- * excluded: this adapter does not define an eight-gray wire format. */
-static od_color_status_t directWriteResolveGeometry(od_color_geometry_t* geometry) {
-    const struct DisplayConfig& d = globalConfig.displays[0];
-    if (d.color_scheme == OD_COLOR_SCHEME_GRAY8) {
-        memset(geometry, 0, sizeof(*geometry));
-        return OD_COLOR_UNSUPPORTED;
+static void touchSuspendForUpload(void) {
+    if (!directWriteTouchSuspended) {
+        touchSuspendForEpdRefresh();
+        directWriteTouchSuspended = true;
     }
+}
+
+static void touchResumeAfterUpload(void) {
+    if (directWriteTouchSuspended) {
+        touchResumeAfterEpdRefresh();
+        directWriteTouchSuspended = false;
+    }
+}
+
 #if defined(OPENDISPLAY_FASTEPD)
-    if (fastepd_driver_used() &&
-        d.panel_ic_type == OD_PANEL_IC_ED103TC2_1872X1404_4GRAY) {
+enum NativeXferMode : uint8_t {
+    NATIVE_XFER_IDLE = 0,
+    NATIVE_XFER_FULL,
+    NATIVE_XFER_PARTIAL,
+};
+
+struct NativeXferState {
+    NativeXferMode mode;
+    uint32_t total_bytes;
+    uint16_t x;
+    uint16_t y;
+    uint16_t width;
+    uint16_t height;
+};
+
+static NativeXferState nativeXfer = {};
+
+/* ED103TC2 4-gray takes a FastEPD 4-bpp framebuffer whatever its legacy scheme says. */
+static od_color_status_t nativeGeometry(const struct DisplayConfig& d, od_color_geometry_t* geometry) {
+    if (d.panel_ic_type == OD_PANEL_IC_ED103TC2_1872X1404_4GRAY) {
         memset(geometry, 0, sizeof(*geometry));
         if (d.pixel_width == 0u || d.pixel_height == 0u) return OD_COLOR_BAD_GEOMETRY;
         const uint64_t rowBytes = ((uint64_t)d.pixel_width + 1u) / 2u;
@@ -1727,161 +1120,124 @@ static od_color_status_t directWriteResolveGeometry(od_color_geometry_t* geometr
         geometry->total_bytes = (uint32_t)totalBytes;
         return OD_COLOR_OK;
     }
-#endif
     return od_color_direct_geometry(d.color_scheme, d.pixel_width, d.pixel_height, geometry);
 }
-
-static void xferAppClear(bool forceOff) {
-    if (od_drive_esp_active()) {
-        od_drive_esp_clear();
-    } else if (xferApp.mode != XFER_APP_IDLE && pwrmgmState == PWR_ACTIVE) {
-        if (forceOff) epdSessionForceOff();
-        else          epdSessionRelease(true);
-    }
-    if (directWriteTouchSuspended) {
-        touchResumeAfterEpdRefresh();
-        directWriteTouchSuspended = false;
-    }
-    memset(&xferApp, 0, sizeof(xferApp));
-}
-
-static bool xferAppWriteFull(uint32_t streamOffset, od_span_t data) {
-    if (streamOffset > xferApp.geometry.total_bytes ||
-        data.n > xferApp.geometry.total_bytes - streamOffset) {
-        return false;
-    }
-#if defined(OPENDISPLAY_FASTEPD)
-    if (fastepd_driver_used()) {
-        fastepd_direct_write_chunk((uint8_t *)(uintptr_t)data.p, (uint32_t)data.n);
-        return true;
-    }
-#endif
-    if (xferApp.geometry.layout != OD_COLOR_LAYOUT_CONTROLLER_PLANES) {
-        bbepWriteData(&bbep, (uint8_t *)(uintptr_t)data.p, (int)data.n);
-        return true;
-    }
-
-    uint32_t consumed = 0u;
-    while (consumed < data.n) {
-        const uint32_t logical = streamOffset + consumed;
-        const uint8_t plane = logical < xferApp.plane_bytes ? PLANE_0 : PLANE_1;
-        if (xferApp.current_plane != plane) {
-            if (logical != 0u && logical != xferApp.plane_bytes) return false;
-            bbepSetAddrWindow(&bbep, 0, 0, xferApp.width, xferApp.height);
-            bbepStartWrite(&bbep, plane);
-            xferApp.current_plane = plane;
-        }
-        const uint32_t planeEnd = plane == PLANE_0
-            ? xferApp.plane_bytes : xferApp.geometry.total_bytes;
-        uint32_t chunk = planeEnd - logical;
-        if (chunk > data.n - consumed) chunk = (uint32_t)data.n - consumed;
-        bbepWriteData(&bbep, (uint8_t *)(uintptr_t)(data.p + consumed), (int)chunk);
-        consumed += chunk;
-    }
-    return true;
-}
-
-static bool xferAppWritePartial(uint32_t streamOffset, od_span_t data) {
-    const uint32_t total = xferApp.plane_bytes * 2u;
-    if (streamOffset > total || data.n > total - streamOffset) return false;
-#if defined(OPENDISPLAY_FASTEPD)
-    if (fastepd_driver_used()) {
-        return fastepd_partial_write_chunk((uint8_t *)(uintptr_t)data.p, (uint32_t)data.n);
-    }
 #endif
 
-    uint32_t consumed = 0u;
-    while (consumed < data.n) {
-        const uint32_t logical = streamOffset + consumed;
-        const uint8_t plane = logical < xferApp.plane_bytes ? PLANE_1 : PLANE_0;
-        if (xferApp.current_plane != plane) {
-            if (logical != 0u && logical != xferApp.plane_bytes) return false;
-            partial_set_addr_window(&bbep, xferApp.x, xferApp.y,
-                                    xferApp.width, xferApp.height);
-            bbepStartWrite(&bbep, plane);
-            xferApp.current_plane = plane;
-        }
-        const uint32_t planeEnd = plane == PLANE_1 ? xferApp.plane_bytes : total;
-        uint32_t chunk = planeEnd - logical;
-        if (chunk > data.n - consumed) chunk = (uint32_t)data.n - consumed;
-        bbepWriteData(&bbep, (uint8_t *)(uintptr_t)(data.p + consumed), (int)chunk);
-        consumed += chunk;
+void displayXferClear(bool forceOff) {
+    bool nativeActive = false;
+#if defined(OPENDISPLAY_FASTEPD)
+    nativeActive = nativeXfer.mode != NATIVE_XFER_IDLE;
+    memset(&nativeXfer, 0, sizeof(nativeXfer));
+#endif
+    if (od_display_active()) {
+        od_display_abort();
     }
-    return true;
+    touchResumeAfterUpload();
+    if (forceOff) {
+        epdSessionForceOff();
+    } else if (nativeActive && pwrmgmState == PWR_ACTIVE) {
+        displayRailRelease(true);
+    }
 }
 
 extern "C" void od_xfer_app_prepare_start(void) {
-    if (xferApp.mode != XFER_APP_IDLE || od_drive_esp_active()) xferAppClear(false);
+    bool busy = od_display_active();
+#if defined(OPENDISPLAY_FASTEPD)
+    busy = busy || nativeXfer.mode != NATIVE_XFER_IDLE;
+#endif
+    if (busy) displayXferClear(false);
 }
 
 extern "C" bool od_xfer_app_panel_info(od_xfer_panel_info_t *out) {
-    if (out == nullptr) return false;
+    if (out == nullptr || globalConfig.display_count == 0) return false;
+    const struct DisplayConfig& d = globalConfig.displays[0];
     memset(out, 0, sizeof(*out));
-    if (directWriteResolveGeometry(&out->geometry) != OD_COLOR_OK) return false;
-    out->width = globalConfig.displays[0].pixel_width;
-    out->height = globalConfig.displays[0].pixel_height;
-    out->partial_enabled = true;
-    xferApp.width = out->width;
-    xferApp.height = out->height;
+    out->width = d.pixel_width;
+    out->height = d.pixel_height;
+#if defined(OPENDISPLAY_FASTEPD)
+    if (displayUsesNativeDriver()) {
+        if (d.color_scheme == OD_COLOR_SCHEME_GRAY8) return false;
+        if (nativeGeometry(d, &out->geometry) != OD_COLOR_OK) return false;
+        out->partial_enabled = true;
+        return true;
+    }
+#endif
+    out->needs_migration = od_display_needs_migration();
+    const bool geometryOk = od_color_direct_geometry(d.color_scheme, d.pixel_width,
+                                                     d.pixel_height, &out->geometry) == OD_COLOR_OK;
+    if (!geometryOk && !out->needs_migration) return false;
+    /* Partial needs a "partial" mode to drive it, whatever 0x20 claims. */
+    out->partial_enabled = !out->needs_migration && od_display_partial_available();
+    /* The drive stream walks a split frame by the sequence's IMAGE_SLICE markers, one CS each. */
+    out->split_halves_ok = true;
+    return true;
+}
+
+static bool displayStarted(od_display_rc_t rc, const char *what) {
+    if (rc != OD_DISPLAY_OK) {
+        od_log_error("display: %s refused rc=%d", what, (int)rc);
+        touchResumeAfterUpload();
+        return false;
+    }
     return true;
 }
 
 extern "C" bool od_xfer_app_begin_full(const od_color_geometry_t *geometry) {
     if (geometry == nullptr || geometry->total_bytes == 0u) return false;
-    xferApp.mode = XFER_APP_FULL;
-    xferApp.geometry = *geometry;
-    xferApp.plane_bytes = geometry->layout == OD_COLOR_LAYOUT_CONTROLLER_PLANES
-        ? geometry->part_bytes[0] : 0u;
-    xferApp.current_plane = 0xFFu;
-    touchSuspendForEpdRefresh();
-    directWriteTouchSuspended = true;
+    touchSuspendForUpload();
 #if defined(OPENDISPLAY_FASTEPD)
-    if (fastepd_driver_used()) {
+    if (displayUsesNativeDriver()) {
+        nativeXfer.mode = NATIVE_XFER_FULL;
+        nativeXfer.total_bytes = geometry->total_bytes;
         fastepd_prepare_hardware();
-    }
-#endif
-    epdSessionAcquire(false);
-    epdPlanesPrepared = false;
-#if defined(OPENDISPLAY_FASTEPD)
-    if (fastepd_driver_used()) {
+        displayRailAcquire();
         fastepd_direct_write_reset();
-    } else
-#endif
-    {
-        bbepSetAddrWindow(&bbep, 0, 0, xferApp.width, xferApp.height);
-        const uint8_t plane = geometry->initial_plane == OD_COLOR_PLANE_0 ? PLANE_0 : PLANE_1;
-        bbepStartWrite(&bbep, plane);
-        if (geometry->layout == OD_COLOR_LAYOUT_CONTROLLER_PLANES) {
-            xferApp.current_plane = plane;
-        }
+        return true;
     }
-    return true;
+#endif
+    return displayStarted(od_display_begin_full(geometry), "full upload");
 }
 
 extern "C" bool od_xfer_app_begin_partial(uint16_t x, uint16_t y, uint16_t width,
                                             uint16_t height, uint32_t planeBytes) {
     if (planeBytes == 0u) return false;
-    xferApp.mode = XFER_APP_PARTIAL;
-    xferApp.x = x;
-    xferApp.y = y;
-    xferApp.width = width;
-    xferApp.height = height;
-    xferApp.plane_bytes = planeBytes;
-    xferApp.current_plane = 0xFFu;
-    partial_prepare_panel_ram_for(x, y, width, height);
-    return true;
+    touchSuspendForUpload();
+#if defined(OPENDISPLAY_FASTEPD)
+    if (displayUsesNativeDriver()) {
+        nativeXfer.mode = NATIVE_XFER_PARTIAL;
+        nativeXfer.total_bytes = planeBytes * 2u;
+        nativeXfer.x = x;
+        nativeXfer.y = y;
+        nativeXfer.width = width;
+        nativeXfer.height = height;
+        displayRailAcquire();
+        fastepd_partial_prepare(x, y, width, height);
+        return true;
+    }
+#endif
+    return displayStarted(od_display_begin_partial(x, y, width, height, planeBytes),
+                          "partial upload");
 }
 
 extern "C" uint32_t od_xfer_app_write(uint32_t streamOffset, od_span_t data) {
     if (!od_span_valid(data) || data.n == 0u || data.n > UINT32_MAX) return 0u;
-    if (od_drive_esp_active()) {
-        return od_drive_esp_write(streamOffset, data.p, data.n) ? (uint32_t)data.n : 0u;
+#if defined(OPENDISPLAY_FASTEPD)
+    if (nativeXfer.mode != NATIVE_XFER_IDLE) {
+        if (streamOffset > nativeXfer.total_bytes ||
+            data.n > nativeXfer.total_bytes - streamOffset) {
+            return 0u;
+        }
+        if (nativeXfer.mode == NATIVE_XFER_FULL) {
+            fastepd_direct_write_chunk(data.p, (uint32_t)data.n);
+            return (uint32_t)data.n;
+        }
+        return fastepd_partial_write_chunk(data.p, (uint32_t)data.n) ? (uint32_t)data.n : 0u;
     }
-    const bool accepted = xferApp.mode == XFER_APP_FULL
-        ? xferAppWriteFull(streamOffset, data)
-        : xferApp.mode == XFER_APP_PARTIAL && xferAppWritePartial(streamOffset, data);
-    if (!accepted) return 0u;
-    return (uint32_t)data.n;
+#endif
+    od_watchdog_app_phase(OD_WDT_PHASE_STREAM);
+    const bool accepted = od_display_write(streamOffset, data.p, data.n);
+    return accepted && !od_epd_esp_faulted() ? (uint32_t)data.n : 0u;
 }
 
 extern "C" od_mut_span_t od_xfer_app_inflate_scratch(void) {
@@ -1894,54 +1250,63 @@ extern "C" void od_xfer_app_abort(od_xfer_abort_reason_t reason) {
                           reason == OD_XFER_ABORT_REPLY_FAILED ||
                           reason == OD_XFER_ABORT_REFRESH_FAILED ||
                           reason == OD_XFER_ABORT_RESET;
-    xferAppClear(forceOff);
+    displayXferClear(forceOff);
 }
 
 extern "C" od_xfer_barrier_t od_xfer_app_before_refresh(const od_reply_t *owner) {
     (void)owner;
     od_cmd_flush_before_refresh();
-    if (xferApp.mode == XFER_APP_FULL) od_hal_delay_ms(20);
+    od_hal_delay_ms(20);
     return OD_XFER_BARRIER_PROCEED;
 }
 
 extern "C" void od_xfer_app_barrier_abort(const od_reply_t *owner) {
     (void)owner;
-    xferAppClear(true);
+    displayXferClear(true);
 }
 
+#if defined(OPENDISPLAY_FASTEPD)
+static bool nativeRefresh(uint8_t mode) {
+    bool ok;
+    epdRefreshInProgress = true;
+    if (nativeXfer.mode == NATIVE_XFER_PARTIAL) {
+        od_log_info("EPD refresh: PARTIAL (rect %u,%u %ux%u)", nativeXfer.x, nativeXfer.y,
+                    nativeXfer.width, nativeXfer.height);
+        ok = fastepd_partial_refresh(mode);
+    } else {
+        od_log_info("EPD refresh: %s (mode=%u)", mode == 1u ? "FAST" : "FULL",
+                    (unsigned)mode);
+        fastepd_direct_refresh(mode);
+        ok = fastepd_wait_refresh(60);
+    }
+    endRefresh();
+    memset(&nativeXfer, 0, sizeof(nativeXfer));
+    touchResumeAfterUpload();
+    displayRailRelease(ok);
+    return ok;
+}
+#endif
+
 extern "C" bool od_xfer_app_refresh(uint8_t mode, bool *completed) {
-    if (completed != nullptr && od_drive_esp_active()) {
-        /* The mode already names the waveform, so the refresh byte selects nothing. */
-        od_cmd_flush_before_refresh();
-        *completed = od_drive_esp_refresh();
+    if (completed == nullptr) return false;
+#if defined(OPENDISPLAY_FASTEPD)
+    if (nativeXfer.mode != NATIVE_XFER_IDLE) {
+        *completed = nativeRefresh(mode);
         requestAdvertisingRestart();
         return true;
     }
-    if (completed == nullptr || xferApp.mode == XFER_APP_IDLE) return false;
-    bool refreshSuccess = false;
-    if (xferApp.mode == XFER_APP_PARTIAL) {
-        refreshSuccess = partial_refresh_for(xferApp.x, xferApp.y, xferApp.width,
-                                             xferApp.height, mode);
-        memset(&xferApp, 0, sizeof(xferApp));
-    } else {
-        const char *modeName = mode == REFRESH_FAST ? "FAST" : "FULL";
-        od_log_info("EPD refresh: %s (mode=%u)", modeName, (unsigned)mode);
-        epdRefreshInProgress = true;
-#if defined(OPENDISPLAY_FASTEPD)
-        if (fastepd_driver_used()) {
-            fastepd_direct_refresh(mode);
-            refreshSuccess = waitforrefresh(60);
-        } else
 #endif
-        {
-            bbepRefresh(&bbep, mode);
-            refreshSuccess = waitforrefresh(60);
-        }
-        endRefresh();
-        xferAppClear(false);
-        requestAdvertisingRestart();
+    if (!od_display_active() || od_epd_esp_faulted()) return false;
+    od_log_info("EPD refresh: mode=%u", (unsigned)mode);
+    epdRefreshInProgress = true;
+    const bool ok = od_display_refresh(mode);
+    endRefresh();
+    if (!ok) {
+        epdSessionForceOff();
     }
-    *completed = refreshSuccess;
+    touchResumeAfterUpload();
+    requestAdvertisingRestart();
+    *completed = ok;
     return true;
 }
 
@@ -1966,245 +1331,6 @@ bool transferActive(void) {
     return od_xfer_owns_hardware();
 }
 
-static bool panel_skips_bbep_set_addr_window(void) {
-    return bbep.type == EP397_800x480 || bbep.type == EP397_800x480_4GRAY ||
-           bbep.type == EP426_800x480 || bbep.type == EP426_800x480_4GRAY;
-}
-
-static bool panel_uses_pixel_ram_x(BBEPDISP *pBBEP) {
-    return pBBEP->type == EP397_800x480 || pBBEP->type == EP397_800x480_4GRAY ||
-           pBBEP->type == EP426_800x480 || pBBEP->type == EP426_800x480_4GRAY;
-}
-
-static bool panel_uses_ep397_y_decrement(BBEPDISP *pBBEP) {
-    return pBBEP->type == EP397_800x480 || pBBEP->type == EP397_800x480_4GRAY;
-}
-
-static bool panel_uses_ep426_x_decrement(BBEPDISP *pBBEP) {
-    return pBBEP->type == EP426_800x480 || pBBEP->type == EP426_800x480_4GRAY;
-}
-
-static bool panel_skips_reinit_on_partial_refresh(BBEPDISP *pBBEP) {
-    return panel_uses_ep397_y_decrement(pBBEP) || panel_uses_ep426_x_decrement(pBBEP);
-}
-
-static void partial_set_ep397_ram_y(BBEPDISP *pBBEP, int ty, int cy) {
-    uint8_t uc[4];
-    int yLast = ty + cy - 1;
-    int ramYStart = (pBBEP->native_height - 1) - ty;
-    int ramYEnd = (pBBEP->native_height - 1) - yLast;
-
-    bbepWriteCmd(pBBEP, SSD1608_SET_RAMYPOS);
-    uc[0] = (uint8_t)(ramYStart & 0xff);
-    uc[1] = (uint8_t)(ramYStart >> 8);
-    uc[2] = (uint8_t)(ramYEnd & 0xff);
-    uc[3] = (uint8_t)(ramYEnd >> 8);
-    bbepWriteData(pBBEP, uc, 4);
-
-    bbepWriteCmd(pBBEP, SSD1608_SET_RAMYCOUNT);
-    uc[0] = (uint8_t)(ramYStart & 0xff);
-    uc[1] = (uint8_t)(ramYStart >> 8);
-    bbepWriteData(pBBEP, uc, 2);
-}
-
-static void partial_set_ep426_ram_y(BBEPDISP *pBBEP, int ty, int cy) {
-    uint8_t uc[4];
-    int yLast = ty + cy - 1;
-
-    // Match epd426_init_* 0x45 wire order: Y start in bytes 0-1, Y end in bytes 2-3.
-    bbepWriteCmd(pBBEP, SSD1608_SET_RAMYPOS);
-    uc[0] = (uint8_t)ty;
-    uc[1] = (uint8_t)(ty >> 8);
-    uc[2] = (uint8_t)yLast;
-    uc[3] = (uint8_t)(yLast >> 8);
-    bbepWriteData(pBBEP, uc, 4);
-
-    bbepWriteCmd(pBBEP, SSD1608_SET_RAMYCOUNT);
-    uc[0] = (uint8_t)ty;
-    uc[1] = (uint8_t)(ty >> 8);
-    bbepWriteData(pBBEP, uc, 2);
-}
-
-static void partial_set_pixel_ram_x(BBEPDISP *pBBEP, int x, int cx) {
-    uint8_t uc[4];
-    int px0 = x;
-    int px1 = x + cx - 1;
-    if (panel_uses_ep426_x_decrement(pBBEP)) {
-        px0 = (pBBEP->native_width - 1) - x;
-        px1 = (pBBEP->native_width - 1) - (x + cx - 1);
-    }
-
-    bbepWriteCmd(pBBEP, SSD1608_SET_RAMXPOS);
-    uc[0] = (uint8_t)(px0 & 0xff);
-    uc[1] = (uint8_t)((px0 >> 8) & 0xff);
-    uc[2] = (uint8_t)(px1 & 0xff);
-    uc[3] = (uint8_t)(px1 >> 8);
-    bbepWriteData(pBBEP, uc, 4);
-
-    bbepWriteCmd(pBBEP, SSD1608_SET_RAMXCOUNT);
-    uc[0] = (uint8_t)(px0 & 0xff);
-    uc[1] = (uint8_t)(px0 >> 8);
-    bbepWriteData(pBBEP, uc, 2);
-}
-
-static void partial_set_addr_window(BBEPDISP *pBBEP, int x, int y, int cx, int cy) {
-    if (!panel_skips_bbep_set_addr_window()) {
-        bbepSetAddrWindow(pBBEP, x, y, cx, cy);
-        return;
-    }
-    if (!pBBEP) return;
-
-    uint8_t uc[4];
-    int ty = y;
-    cx = (cx + 7) & 0xfff8;
-
-    if (panel_uses_pixel_ram_x(pBBEP)) {
-        partial_set_pixel_ram_x(pBBEP, x, cx);
-    } else {
-        int tx = x / 8;
-        bbepWriteCmd(pBBEP, SSD1608_SET_RAMXPOS);
-        uc[0] = (uint8_t)tx;
-        uc[1] = (uint8_t)(tx + ((cx - 1) >> 3));
-        bbepWriteData(pBBEP, uc, 2);
-        bbepCMD2(pBBEP, SSD1608_SET_RAMXCOUNT, (uint8_t)tx);
-    }
-
-    if (panel_uses_ep426_x_decrement(pBBEP)) {
-        partial_set_ep426_ram_y(pBBEP, ty, cy);
-    } else if (panel_uses_ep397_y_decrement(pBBEP)) {
-        partial_set_ep397_ram_y(pBBEP, ty, cy);
-    } else {
-        bbepWriteCmd(pBBEP, SSD1608_SET_RAMYPOS);
-        uc[0] = (uint8_t)ty;
-        uc[1] = (uint8_t)(ty >> 8);
-        uc[2] = (uint8_t)(ty + cy - 1);
-        uc[3] = (uint8_t)((ty + cy - 1) >> 8);
-        bbepWriteData(pBBEP, uc, 4);
-        uc[0] = (uint8_t)ty;
-        uc[1] = (uint8_t)(ty >> 8);
-        bbepWriteCmd(pBBEP, SSD1608_SET_RAMYCOUNT);
-        bbepWriteData(pBBEP, uc, 2);
-    }
-    bbepWaitBusy(pBBEP);
-}
-
-// EP426 (SSD1677) OTP mode 2 under-drives white->black on a partial. Register LUT in EP426B's
-// VS row layout (white on row 1, black on row 2), one ~50-frame phase, activated with 0x22=0xDC
-// (display mode from the register LUT, no OTP load). Gate 0x17, source 0x41/0xA8/0x32,
-// VCOM 0x40 (0x30 drifts white to grey), 0x21 = 00 00.
-static const uint8_t epd426_partial_lut[105] = {
-    /* VS, channel order as bb_epaper's epd426b_init_part */
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    /* TP/RP groups 0..9: one ~50-frame pulse */
-    0x32, 0x00, 0x00, 0x00, 0x01,
-    0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00,
-    /* frame rate */
-    0x22, 0x22, 0x22, 0x22, 0x22,
-};
-
-static void epd426_load_custom_partial_lut(void) {
-    uint8_t ctrl1[2] = {0x00, 0x00};
-    uint8_t src[3] = {0x41, 0xa8, 0x32};
-    bbepWriteCmd(&bbep, SSD1608_WRITE_LUT);
-    bbepWriteData(&bbep, (uint8_t *)epd426_partial_lut, (int)sizeof(epd426_partial_lut));
-    bbepCMD2(&bbep, SSD1608_GATE_VOLTAGE, 0x17);
-    bbepWriteCmd(&bbep, SSD1608_SOURCE_VOLTAGE);
-    bbepWriteData(&bbep, src, 3);
-    bbepCMD2(&bbep, SSD1608_WRITE_VCOM, 0x40);
-    bbepWriteCmd(&bbep, SSD1608_DISP_CTRL1);
-    bbepWriteData(&bbep, ctrl1, 2);
-}
-
-static bool partial_trigger_refresh(int refreshMode) {
-    if (refreshMode < 0 || refreshMode > 3) refreshMode = REFRESH_PARTIAL;
-    if (panel_skips_reinit_on_partial_refresh(&bbep)) {
-        if (refreshMode == REFRESH_PARTIAL && bbep.type == EP426_800x480) {
-            epd426_load_custom_partial_lut();
-            bbepCMD2(&bbep, SSD1608_DISP_CTRL2, 0xdc);
-            bbepWriteCmd(&bbep, SSD1608_MASTER_ACTIVATE);
-            return waitforrefresh(60);
-        }
-        if (panel_uses_ep397_y_decrement(&bbep)) {
-            static const uint8_t u8CMDz3[4] = {0xf7, 0xd7, 0xff, 0};
-            bbepCMD2(&bbep, SSD1608_DISP_CTRL2, u8CMDz3[refreshMode]);
-        } else {
-            static const uint8_t u8CMD[4] = {0xf7, 0xc7, 0xff, 0xc0};
-            bbepCMD2(&bbep, SSD1608_DISP_CTRL2, u8CMD[refreshMode]);
-        }
-        bbepWriteCmd(&bbep, SSD1608_MASTER_ACTIVATE);
-        return waitforrefresh(60);
-    }
-    bbepRefresh(&bbep, refreshMode);
-    return waitforrefresh(60);
-}
-
-static void partial_prepare_panel_ram_for(uint16_t x, uint16_t y, uint16_t width,
-                                          uint16_t height) {
-    // Delta in ms since function entry, to profile where prep wall-clock goes.
-    uint32_t t0 = od_hal_uptime_ms();
-    od_log_debug("[+%ums] EPD partial start: acquire panel session", (unsigned)(od_hal_uptime_ms() - t0));
-    // Acquire subsumes pwrmgm(true) + bbepInitIO + bbepWakeUp + init-seq resend.
-    // Warm re-acquire skips the ~900 ms rail bring-up + bbepInitIO (Phase 1).
-    bool cold = epdSessionAcquire(true);
-    od_log_debug("[+%ums] after epdSessionAcquire (%s)", (unsigned)(od_hal_uptime_ms() - t0), cold ? "cold" : "warm");
-#if defined(OPENDISPLAY_FASTEPD)
-    if (fastepd_driver_used()) {
-        fastepd_partial_prepare(x, y, width, height);
-        od_log_debug("[+%ums] FastEPD partial prepare done", (unsigned)(od_hal_uptime_ms() - t0));
-        return;
-    }
-#endif
-    // The two white fills guarantee PLANE_0 == PLANE_1 OUTSIDE the rect so uninit
-    // controller RAM can't flash noise during MASTER_ACTIVATE. A full-frame rect's
-    // enforced plane_size*2 stream overwrites 100% of both planes, so there is no
-    // "outside the rect" to protect — provably safe to skip even on a cold panel
-    // (Phase 1 skip condition 1). Sub-rects still fill.
-    bool fullFrame = x == 0 && y == 0 &&
-                     width == globalConfig.displays[0].pixel_width &&
-                     height == globalConfig.displays[0].pixel_height;
-    if (!fullFrame) {
-        bbepFill(&bbep, BBEP_WHITE, PLANE_1);
-        bbepFill(&bbep, BBEP_WHITE, PLANE_0);
-        od_log_debug("[+%ums] after fills (ran: sub-rect)", (unsigned)(od_hal_uptime_ms() - t0));
-    } else {
-        od_log_debug("[+%ums] fills skipped (full-frame rect)", (unsigned)(od_hal_uptime_ms() - t0));
-    }
-}
-
-static bool partial_refresh_for(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
-                                int refreshMode) {
-    od_log_info("EPD refresh: PARTIAL (raw rect %u,%u %ux%u)",
-                x, y, width, height);
-    epdRefreshInProgress = true;
-    bool refreshSuccess = false;
-#if defined(OPENDISPLAY_FASTEPD)
-    if (fastepd_driver_used()) {
-        refreshSuccess = fastepd_partial_refresh(refreshMode);
-    } else
-#endif
-    {
-        refreshSuccess = partial_trigger_refresh(refreshMode);
-    }
-    endRefresh();
-    // A successful partial refresh leaves both controller planes consistent.
-    if (refreshSuccess) epdPlanesPrepared = true;
-    // Release keeps the panel warm (rail/SPI up, controller awake) on success;
-    // powers it fully down on failure or on AXP2101 (window 0) boards.
-    epdSessionRelease(refreshSuccess);
-    return refreshSuccess;
-}
 
 // See display_service.h for why this exists rather than main.cpp calling SPI.end() itself.
 //
@@ -2215,9 +1341,8 @@ static bool partial_refresh_for(uint16_t x, uint16_t y, uint16_t width, uint16_t
 // both compiled out here -- so compat SPI's _bus_ok is always false and the SPI.end() this
 // replaces could never have freed anything on such a board.
 //
-// display_service.cpp has no FastEPD/vendor adapter dependency at all, which is why <SPI.h> is
-// gone from it. The bb_epaper bus is released by bbepDeInitIO(), called from the panel
-// force-off path above.
+// display_service.cpp has no FastEPD/vendor adapter dependency at all. The SPI panel bus is
+// released by od_epd_esp_close() on every power-down path.
 #if !defined(OPENDISPLAY_FASTEPD)
 void displayReleaseSpiBus(void) { }
 #endif

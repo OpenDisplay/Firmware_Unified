@@ -1,5 +1,6 @@
 #include "od_smp.h"
 #include "main.h"
+#include "od_display_esp.h"
 #include "boot_screen.h"
 #include "buzzer_control.h"
 #include "communication.h"
@@ -398,7 +399,7 @@ static void pollActivity() {
 
 // Services the deferred BLE-disconnect session teardown flagged by
 // the BLE transport's disconnect event. Runs on the loop() task so the heavyweight
-// EPD force-off (bbepSleep/delay/SPI.end/rail cut) and partial/pipe cleanup never
+// EPD force-off (sleep sequence, bleed, bus release, rail cut) and partial/pipe cleanup never
 // race SPI streaming or pipe-frame processing on the stack callback task.
 // Deferred while a refresh is mid-flight; the flag stays set until a later pass
 // clears it. Also raised by the LAN transport, so it is not a BLE-only path.
@@ -887,6 +888,7 @@ void loop() {
     serviceBleEvents();
     processLedFlash();
     epdSessionTick();   // od_hal_uptime_ms()-poll: power the panel down screen_timeout_seconds after last release
+    displayServiceDeferredBoot();   // boot screen owed by a config write that brought drive packets
     buzzerService();
 
     // Reconcile advertising before any branch can claim the pass: this is the only path to
@@ -1088,25 +1090,6 @@ void fullSetupAfterConnection() {
 #ifdef OPENDISPLAY_HAS_WIFI
     initWiFi(false);
 #endif
-#if defined(OPENDISPLAY_FASTEPD)
-    if (globalConfig.display_count > 0 && fastepd_driver_used()) {
-        od_log_info("Panel: FastEPD (bb_epaper not used)");
-        od_log_info("=== Full setup completed ===");
-        return;
-    }
-#endif
-    if (globalConfig.display_count > 0) {
-        memset(&bbep, 0, sizeof(BBEPDISP));
-        int panelType = mapEpd(globalConfig.displays[0].panel_ic_type);
-        od_log_info("Panel type: %d", panelType);
-        bbepSetPanelType(&bbep, panelType);
-        if ((bbep.iFlags & BBEP_SPLIT_BUFFER) != 0u) {
-            od_log_error("Split-panel transport is not hardware-qualified on this target");
-            memset(&bbep, 0, sizeof(BBEPDISP));
-            return;
-        }
-        bbepSetRotation(&bbep, globalConfig.displays[0].rotation * 90);
-    }
     od_log_info("=== Full setup completed ===");
 }
 
@@ -1229,7 +1212,7 @@ void enterDeepSleep(bool force, uint16_t overrideSleepSeconds) {
 static void configureDisplayPinsLowPower() {
     const DisplayConfig& d = globalConfig.displays[0];
     const uint8_t pins[] = {
-        d.cs_pin, d.clk_pin, d.data_pin, d.dc_pin, d.reset_pin,
+        d.cs_pin, d.cs_pin_2, d.clk_pin, d.data_pin, d.dc_pin, d.reset_pin,
     };
     for (uint8_t pin : pins) {
         if (pin == 0xFF) continue;
@@ -1261,7 +1244,7 @@ void pwrmgm(bool onoff){
     // of truth). Makes every legacy caller safe: a same-state call becomes a no-op,
     // while a real transition (true-after-false, or the boot true/false/true rail
     // cycle) always proceeds because each call flips the state. pwrmgm owns the
-    // OFF<->(ACTIVE) transitions; epdSessionAcquire/Release own ACTIVE<->WARM.
+    // OFF<->(ACTIVE) transitions; od_display_esp.cpp owns ACTIVE<->WARM.
     if (onoff  && pwrmgmState != PWR_OFF) return;   // already powered (WARM or ACTIVE)
     if (!onoff && pwrmgmState == PWR_OFF) return;   // already off
     displayPowerState = onoff;
@@ -1309,6 +1292,9 @@ void pwrmgm(bool onoff){
             }
             if (disp.cs_pin != 0xFF) {
                 od_hal_gpio_config_output(disp.cs_pin, true);
+            }
+            if (disp.cs_pin_2 != 0xFF) {
+                od_hal_gpio_config_output(disp.cs_pin_2, true);
             }
             if (disp.dc_pin != 0xFF) {
                 od_hal_gpio_config_output(disp.dc_pin, false);

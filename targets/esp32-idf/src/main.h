@@ -2,15 +2,13 @@
  * firmware's globals; it uses no Arduino type or function of its own, and the three includes
  * were serving main.cpp -- its only consumer -- transitively. main.cpp now names its own
  * dependency explicitly, which is the point: a header that pulls in a surface it does not use
- * hides which file actually depends on it.
- *
- * <bb_epaper.h> below is NOT a back door. It includes <Arduino.h> only under #ifdef ARDUINO,
- * which this build does not define (it takes the __LINUX__ branch), so nothing is laundered
- * in through it. */
+ * hides which file actually depends on it. */
+#include <stdio.h>
+#include <string.h>
+
 #include "structs.h"
 #include "od_cmd.h"   /* od_cmd_result_t / od_cmd_ctx_t, for the handler declarations below */
 #include "od_zlib_inflate.h"
-#include <bb_epaper.h>
 #include "encryption_state.h"
 #include "config_parser.h"
 #include "ble_transport.h"
@@ -69,21 +67,6 @@
 // RTC memory variables for deep sleep state tracking (declared in main.cpp)
 extern bool advertising_timeout_active;
 extern uint32_t advertising_start_time;
-
-BBEPDISP bbep;
-
-// Forward declarations for bbep functions
-void bbepInitIO(BBEPDISP *pBBEP, uint8_t u8DC, uint8_t u8RST, uint8_t u8BUSY, uint8_t u8CS, uint8_t u8MOSI, uint8_t u8SCK, uint32_t u32Speed);
-int bbepSetPanelType(BBEPDISP *pBBEP, int iPanel);
-void bbepSetRotation(BBEPDISP *pBBEP, int iRotation);
-void bbepStartWrite(BBEPDISP *pBBEP, int iPlane);
-int bbepRefresh(BBEPDISP *pBBEP, int iMode);
-bool bbepIsBusy(BBEPDISP *pBBEP);
-void bbepWakeUp(BBEPDISP *pBBEP);
-void bbepSleep(BBEPDISP *pBBEP, int deepSleep);
-void bbepSendCMDSequence(BBEPDISP *pBBEP, const uint8_t *pSeq);
-void bbepSetAddrWindow(BBEPDISP *pBBEP, int x, int y, int cx, int cy);
-void bbepWriteData(BBEPDISP *pBBEP, uint8_t *pData, int iLen);
 
 uint8_t decompressionChunk[OPENDISPLAY_DECOMPRESSION_CHUNK_SIZE];
 uint8_t bleResponseBuffer[94];
@@ -144,12 +127,7 @@ bool displayPowerState = false;  // Track display power state (true = powered on
 // enum PwrMgmState + EPD_KEEPALIVE_MAX_S are defined in display_service.h (shared header).
 volatile uint8_t pwrmgmState = PWR_OFF;  // PWR_OFF / PWR_WARM / PWR_ACTIVE
 uint32_t pwrmgmOffDeadlineMs = 0;        // keep-alive deadline (millis); valid only in PWR_WARM
-// Session try-lock, uncontended since Phase 3 moved nRF dispatch onto loop().
-// Kept as defence in depth -- see the rationale at pwrmgmLockTake() in
-// display_service.cpp.
-volatile uint8_t pwrmgmLock = 0;
 
-bool waitforrefresh(int timeout);
 void pwrmgm(bool onoff);
 bool powerDownExternalFlash(uint8_t mosiPin, uint8_t misoPin, uint8_t sckPin, uint8_t csPin, uint8_t wpPin, uint8_t holdPin);
 void powerDownExternalFlashFromConfig(void);
@@ -193,13 +171,11 @@ od_cmd_result_t handleWriteConfigChunk(const od_cmd_ctx_t *ctx, uint8_t* data, u
 od_cmd_result_t handleFirmwareVersion(const od_cmd_ctx_t *ctx);
 od_cmd_result_t handleReadMSD(const od_cmd_ctx_t *ctx);  // Read Manufacturer Specific Data (MSD) payload
 const char* getFirmwareShaString();
-int mapEpd(int id);
 uint8_t getFirmwareMajor();
 uint8_t getFirmwareMinor();
 uint8_t getFirmwarePatch();
 float readBatteryVoltage();  // Returns battery voltage in volts, or -1.0 if not configured
 float readChipTemperature();  // Returns chip temperature in degrees Celsius
-int displayBootPlane(uint8_t colorScheme);
 int displayBootBitsPerPixel(uint8_t colorScheme);
 
 // chunked_write_state_t comes from config_parser.h so this file and
@@ -277,4 +253,3 @@ static constexpr uint32_t DEFAULT_IDLE_HOLD_MS = 10000;
 // requestAdvertisingRestart() (communication.h). Keeping them here would have
 // re-exported mutable state that only one file has any business touching.
 
-extern const uint8_t writelineFont[] PROGMEM;

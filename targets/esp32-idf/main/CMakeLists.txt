@@ -39,13 +39,10 @@ list(APPEND OD_APP_SOURCES ${CMAKE_CURRENT_LIST_DIR}/../hal/od_hal_nvs.c
                            ${CMAKE_CURRENT_LIST_DIR}/../hal/od_hal_time.c
                            ${CMAKE_CURRENT_LIST_DIR}/../hal/od_hal_i2c.c
                            ${CMAKE_CURRENT_LIST_DIR}/../hal/od_hal_adc.c
-                           ${CMAKE_CURRENT_LIST_DIR}/../hal/od_hal_panel.c
                            ${CMAKE_CURRENT_LIST_DIR}/../hal/od_hal_wdt.c
                            ${CMAKE_CURRENT_LIST_DIR}/../hal/od_hal_crypto.c
                            ${CMAKE_CURRENT_LIST_DIR}/../hal/od_hal_crypto_random.c
                            ${CMAKE_CURRENT_LIST_DIR}/../hal/od_hal_radio.cpp
-                           ${CMAKE_CURRENT_LIST_DIR}/../panel/od_panel_bbep.cpp
-                           ${CMAKE_CURRENT_LIST_DIR}/../panel/od_panel_fastepd.cpp
                            ${CMAKE_CURRENT_LIST_DIR}/../ble/od_ble_nimble.cpp)
 
 # Shared sources: the whole aggregate, because this target implements every HAL tier.
@@ -53,8 +50,10 @@ list(APPEND OD_APP_SOURCES ${CMAKE_CURRENT_LIST_DIR}/../hal/od_hal_nvs.c
 # hal/od_hal_wdt.c, listed above. Taking the aggregate rather than naming tiers is what makes a
 # new shared source reach this build without an edit here.
 list(APPEND OD_APP_SOURCES ${OD_SHARED_SOURCES})
-# Config-driven panel driver beside bb_epaper: CMD_DRIVE_WRITE_START and CMD_SPI_RAW.
+# Every SPI panel is driven from the config's drive packets (od_display, src/od_display_esp.cpp):
+# uploads, partials, the boot screen, CMD_DRIVE_WRITE_START and CMD_SPI_RAW. No panel library.
 list(APPEND OD_APP_SOURCES ${OD_SHARED_SOURCES_APP_EPD} ${OD_SHARED_SOURCES_APP_DRIVE}
+                           ${OD_SHARED_SOURCES_APP_DISPLAY} ${OD_SHARED_SOURCES_APP_IDENT}
                            ${OD_SHARED_SOURCES_APP_SPI_RAW})
 
 # ble/od_ble_rx.cpp is GONE, not forgotten. It held od_ble_on_write(): the bounds check,
@@ -66,41 +65,6 @@ list(APPEND OD_APP_SOURCES ${OD_SHARED_SOURCES_APP_EPD} ${OD_SHARED_SOURCES_APP_
 # Panel libraries, vendored -- see ../../../third_party/NOTICE.md for origin and licence.
 # ---------------------------------------------------------------------------------------
 set(OD_TP_DIR ${CMAKE_CURRENT_LIST_DIR}/../../../third_party)
-
-# The Group5 collision, resolved by source selection rather than by a linker flag.
-#
-# bb_epaper and FastEPD both ship Group5.cpp -- same author, diverged copies, and NOT the same
-# licence header (bb_epaper's carries SPDX GPL-3.0-or-later; FastEPD's does not). The source
-# repo linked both and passed -Wl,--allow-multiple-definition, which makes the effective G5
-# codec depend on link order and hides any divergence between the copies.
-#
-# MEMORY_CONSTRAINTS.md § "Open questions" recommends option 1 -- compile the duplicated file
-# from ONE library -- and DESIGN_REVIEW § "Likely pitfalls" #4 warns the flag must not ship
-# "temporarily", because temporary linker workarounds become permanent ones. So: on a FastEPD
-# board, Group5 comes from FastEPD and bb_epaper's copy is excluded; otherwise only bb_epaper
-# is compiled and the question does not arise. No --allow-multiple-definition anywhere.
-file(GLOB OD_BBEP_SOURCES ${OD_TP_DIR}/bb_epaper/src/*.cpp)
-# Kept unfiltered: every bb_epaper TU needs its own header directory on its include path, and
-# which ones are COMPILED depends on the board branch below. Grant on the superset.
-set(OD_BBEP_ALL_SOURCES ${OD_BBEP_SOURCES})
-
-# bb_epaper.cpp is EXCLUDED and replaced by ../panel/od_bbep.cpp.
-#
-# That file is 827 lines: 52 of glue (includes, the *_io.inl selection #ifdef chain, then
-# bb_ep.inl + bb_ep_gfx.inl) and 775 of the BBEPAPER C++ class, which this project never
-# references -- display_service.cpp drives a raw BBEPDISP through the bare C functions.
-#
-# Replacing the glue rather than patching its #ifdef chain (how Firmware_NRF54 selects its
-# backend) means ZERO edits to vendored files to use our own IO backend, so nothing new joins
-# third_party/NOTICE.md's re-verify-on-every-bump list. Dropping the class also removes the only
-# consumer of pinMode() and millis(), which is why panel/od_bbep_idf_io.inl defines neither.
-#
-# Group5.cpp stays: it is a separate TU providing the G5 codec, and the FastEPD collision
-# handling below still applies to it.
-#
-# See docs/BBEPAPER_IO_BACKENDS.md and panel/od_bbep.cpp.
-list(FILTER OD_BBEP_SOURCES EXCLUDE REGEX "/bb_epaper\\.cpp$")
-list(APPEND OD_APP_SOURCES ${CMAKE_CURRENT_LIST_DIR}/../panel/od_bbep.cpp)
 
 # Which boards use FastEPD, keyed on OD_BOARD alone.
 #
@@ -122,10 +86,8 @@ list(APPEND OD_APP_SOURCES ${CMAKE_CURRENT_LIST_DIR}/../panel/od_bbep.cpp)
 # Boards whose source env sets -DOPENDISPLAY_FASTEPD *and* lists the FastEPD lib_dep.
 # Read from platformio.ini, not guessed -- the two are not the same set:
 #
-#   s3-e1004 was WRONG in this list. env:esp32-s3-E1004 extends env:esp32-s3-N32R8-extuart,
-#   which sets neither the define nor the lib_dep; that board's panel goes through bb_epaper.
-#   Listing it here would have given it FastEPD's Group5 and excluded bb_epaper's, changing
-#   which copy wins the collision resolved below.
+#   s3-e1004 is not in this list: env:esp32-s3-E1004 extends env:esp32-s3-N32R8-extuart, which
+#   sets neither the define nor the lib_dep; its panel is an SPI panel driven from drive packets.
 #
 #   s3-n8r8 and the two s3-n16r8-extuart boards were MISSING. All three set the define.
 set(OD_FASTEPD_BOARDS
@@ -167,8 +129,7 @@ function(od_assert_fastepd_list board fragment)
     if(NOT fragment_wants STREQUAL list_wants)
         message(FATAL_ERROR
             "od: OD_FASTEPD_BOARDS says ${list_wants} for '${board}' but its fragment says "
-            "${fragment_wants}. These decide which library's Group5.cpp wins the link, so they "
-            "must agree.")
+            "${fragment_wants}. These decide whether FastEPD is compiled, so they must agree.")
     endif()
 endfunction()
 
@@ -177,12 +138,7 @@ od_assert_fastepd_list("${OD_BOARD}" "${CMAKE_CURRENT_LIST_DIR}/../boards/${OD_B
 if(OD_BOARD IN_LIST OD_FASTEPD_BOARDS)
     list(APPEND OD_APP_SOURCES ${OD_TP_DIR}/FastEPD/src/FastEPD.cpp
                                ${OD_TP_DIR}/FastEPD/src/Group5.cpp)
-    list(FILTER OD_BBEP_SOURCES EXCLUDE REGEX "/Group5\\.cpp$")
-    list(APPEND OD_APP_SOURCES ${OD_BBEP_SOURCES})
-    message(STATUS "od: FastEPD board -- Group5 from FastEPD, bb_epaper's copy excluded")
-else()
-    list(APPEND OD_APP_SOURCES ${OD_BBEP_SOURCES})
-    message(STATUS "od: non-FastEPD board -- Group5 from bb_epaper")
+    message(STATUS "od: FastEPD board -- IT8951 / parallel panels on FastEPD")
 endif()
 
 # Factory provisioning, the IDF form of the PlatformIO pre-script scripts/factory_config_gen.py:
@@ -232,10 +188,8 @@ idf_component_register(
         # NOTE: ../vendor/fastepd is deliberately ABSENT here -- see the scoping block below.
         ${CMAKE_CURRENT_LIST_DIR}/../hal
         ${CMAKE_CURRENT_LIST_DIR}/../ble
-        # NOTE: neither third_party/bb_epaper/src nor third_party/FastEPD/src is here, and
-        # nor is ../vendor/fastepd. All three are granted per-source below. ../panel stays --
-        # it is OUR code (the IDF backend), not a vendored tree.
-        ${CMAKE_CURRENT_LIST_DIR}/../panel
+        # NOTE: neither third_party/FastEPD/src nor ../vendor/fastepd is here. Both are granted
+        # per-source below.
         # shared/ -- the wire contract AND, since 2026-08-05, shared sources and their headers.
         # Consumed directly, NOT copied into this target: that is the whole reason phase A left
         # include/opendisplay_protocol.h behind. The list comes from shared/sources.cmake so
@@ -257,9 +211,8 @@ idf_component_register(
 # ---------------------------------------------------------------------------------------
 # PANEL LIBRARIES AND THE FASTEPD ADAPTER ARE OUT OF GLOBAL SCOPE
 # ---------------------------------------------------------------------------------------
-# Three directories that used to sit on the component's include path and no longer do:
+# Two directories kept off the component's include path:
 #
-#   third_party/bb_epaper/src   the bb_epaper panel library
 #   third_party/FastEPD/src     the FastEPD panel library
 #   vendor/fastepd              THE FASTEPD VENDOR ADAPTER -- an Arduino SPI object over IDF's
 #                               spi_master. Permanent, not a shim: FastEPD's IT8951 transport
@@ -272,19 +225,9 @@ idf_component_register(
 # effect of an include line. Verified by adding <SPI.h> to an unlisted file: it fails to
 # compile, which is the property this block exists to create.
 #
-# THIS IS CONTAINMENT, NOT ABSTRACTION, and the difference matters. The vendor types still
-# appear in the listed files -- display_service.cpp drives a raw BBEPDISP, display_fastepd.cpp
-# drives a FASTEPD. The destination is od_hal_panel with the od_panel_ops vtable that
-# docs/SHARED_API_DESIGN.md specifies and CLAUDE.md names as the ONE deliberate function-pointer
-# exception, precisely because this target legitimately has two panel backends. Then the lists
-# below collapse to the two backend files and nothing else sees a vendor header at all.
-#
-# bb_epaper needs NOTHING from vendor/fastepd: panel/od_bbep.cpp replaces the vendored
-# bb_epaper.cpp with our own IDF backend (panel/od_bbep_idf_io.inl), so arduino_io.inl and
-# esphome_io.inl are never compiled and bb_epaper.h's <Arduino.h> sits behind an #ifdef ARDUINO
-# this build does not define.
+# SPI panels need no vendor header at all: od_display drives them from the config's drive
+# packets through src/od_epd_esp.cpp. tools/check.sh ("esp32: no panel library") keeps it so.
 set(OD_FASTEPD_ADAPTER_DIR ${CMAKE_CURRENT_LIST_DIR}/../vendor/fastepd)
-set(OD_BBEP_INC_DIR        ${OD_TP_DIR}/bb_epaper/src)
 set(OD_QRCODE_INC_DIR      ${OD_TP_DIR})
 set(OD_FASTEPD_INC_DIR     ${OD_TP_DIR}/FastEPD/src)
 
@@ -292,39 +235,14 @@ set(OD_FASTEPD_INC_DIR     ${OD_TP_DIR}/FastEPD/src)
 # source property REPLACES rather than appends, so a second set_source_files_properties() call
 # on the same file would silently drop the first grant.
 #
-#   display_service.cpp   bb_epaper ONLY. It held an adapter grant until 2026-08-04, for the
-#                         E1004 dual-CS pixel stream, which opened a SECOND device on
-#                         SPI2_HOST -- the host panel/od_bbep_idf_io.inl already owns. That
-#                         payload now goes through od_bbep_stream_write(), so there is ONE
-#                         owner of the host and this file has no adapter dependency at all.
-#                         Do not re-add it: <SPI.h> here means a second bus owner is back.
-#   od_drive_esp.cpp      bb_epaper only -- its IDF byte path, for CMD_DRIVE/SPI_RAW.
 #   display_fastepd.cpp   FastEPD + adapter. FastEPD glue by definition.
-#   boot_screen.cpp,      bb_epaper only -- both draw through BBEPDISP.
-#   main.cpp              (main.h defines the `BBEPDISP bbep` global.)
-set_source_files_properties(${OD_SRC_DIR}/display_service.cpp
-    TARGET_DIRECTORY ${COMPONENT_LIB}
-    PROPERTIES INCLUDE_DIRECTORIES "${OD_BBEP_INC_DIR}")
-set_source_files_properties(${OD_SRC_DIR}/od_drive_esp.cpp
-    TARGET_DIRECTORY ${COMPONENT_LIB}
-    PROPERTIES INCLUDE_DIRECTORIES "${OD_BBEP_INC_DIR}")
+#   boot_screen.cpp       the QR encoder.
 set_source_files_properties(${OD_SRC_DIR}/display_fastepd.cpp
     TARGET_DIRECTORY ${COMPONENT_LIB}
     PROPERTIES INCLUDE_DIRECTORIES "${OD_FASTEPD_INC_DIR};${OD_FASTEPD_ADAPTER_DIR}")
-set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/../panel/od_panel_fastepd.cpp
-    TARGET_DIRECTORY ${COMPONENT_LIB}
-    PROPERTIES INCLUDE_DIRECTORIES "${OD_FASTEPD_INC_DIR};${OD_FASTEPD_ADAPTER_DIR}")
-set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/../panel/od_panel_bbep.cpp
-    TARGET_DIRECTORY ${COMPONENT_LIB}
-    PROPERTIES INCLUDE_DIRECTORIES "${OD_BBEP_INC_DIR}")
 set_source_files_properties(${OD_SRC_DIR}/boot_screen.cpp
     TARGET_DIRECTORY ${COMPONENT_LIB}
-    PROPERTIES INCLUDE_DIRECTORIES "${OD_BBEP_INC_DIR};${OD_QRCODE_INC_DIR}")
-set_source_files_properties(${OD_SRC_DIR}/main.cpp
-                            ${CMAKE_CURRENT_LIST_DIR}/../panel/od_bbep.cpp
-                            ${OD_BBEP_ALL_SOURCES}
-    TARGET_DIRECTORY ${COMPONENT_LIB}
-    PROPERTIES INCLUDE_DIRECTORIES "${OD_BBEP_INC_DIR}")
+    PROPERTIES INCLUDE_DIRECTORIES "${OD_QRCODE_INC_DIR}")
 set_source_files_properties(${CMAKE_CURRENT_LIST_DIR}/../vendor/fastepd/fastepd_adapter.cpp
     TARGET_DIRECTORY ${COMPONENT_LIB}
     PROPERTIES INCLUDE_DIRECTORIES "${OD_FASTEPD_ADAPTER_DIR}")
@@ -348,9 +266,17 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     # aggregate: od_core_reset() names od_nfc_reset(), so the machine is linked from that moment
     # and a capability-on build would demand an od_nfc_app implementation ESP32 has never had.
     OD_CAP_NFC=0
-    # 0x0085 and 0x0084 run on od_epd (src/od_drive_esp.cpp); SPI panels only.
+    # 0x0085 and 0x0084 run on od_epd (src/od_display_esp.cpp); SPI panels only.
     OD_CAP_DRIVE_WRITE=1
-    OD_CAP_SPI_RAW=1)
+    OD_CAP_SPI_RAW=1
+    OD_CAP_READ_IDENT=1
+    OD_IDENT_TARGET=OD_IDENT_TARGET_FIRMWARE
+    # IT8951 / FastEPD-parallel panels are driven by a built-in driver: no NEEDS_MIGRATION.
+    OD_IDENT_NATIVE_PANELS=1
+    # boot_screen.cpp picks the od_display sink or the FastEPD framebuffer per frame.
+    OD_DISPLAY_SHARED_BOOT_SINK=0
+    # Dual-controller panels: the drive stream walks a split frame by IMAGE_SLICE, one CS each.
+    OD_XFER_SPLIT_HALVES=1)
 
 # FastEPD selects its IO backend with `#ifdef ARDUINO / #elif defined(__LINUX__)`. Under IDF
 # NEITHER was defined, so every it8951 transport function in FastEPD.inl compiled to an EMPTY
@@ -361,8 +287,7 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
 # OD_FASTEPD_IDF_SPI selects a THIRD branch, added as an OD-PATCH in FastEPD.inl, that drives
 # the transport through vendor/fastepd/SPI.h. Defining ARDUINO instead was tried and rejected: it also
 # selects FastEPD's Arduino font/Print/PROGMEM surface (pgm_read_*, memcpy_P, ledcAttach,
-# TwoWire::setTimeout), which is a whole Arduino core rather than an IO backend, and bb_epaper
-# reads the same macro and must keep its esp_idf backend.
+# TwoWire::setTimeout), which is a whole Arduino core rather than an IO backend.
 #
 # Both this define and the patch disappear when FastEPD gains a real esp_idf IO backend
 # upstream. See third_party/NOTICE.md § "FastEPD has no ESP-IDF IO backend".
