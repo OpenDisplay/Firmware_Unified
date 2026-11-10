@@ -67,4 +67,9 @@ void requestTransferSessionCleanup(void);
 /// callers need no target guard.
 void requestAdvertisingRestart(void);
 
+/// Raise rebootFlag and refresh the advertised MSD after a config write, so a scanning hub
+/// that did not do the write sees the flag and re-reads config instead of trusting a cached
+/// copy (stale colour scheme, for one). Runs after the writer's ACK is queued.
+void notifyConfigChangedOverBle(void);
+
 #endif

@@ -464,6 +464,7 @@ od_cmd_result_t handleWriteConfig(const od_cmd_ctx_t *ctx, uint8_t* data, uint16
          * final while the session that sent the write is still the one answering it. */
             const od_txq_status_t rc = od_cmd_reply(ctx, responseOk, sizeof(responseOk));
             reloadConfigAfterSave();
+            notifyConfigChangedOverBle();
             return (rc == OD_TXQ_OK) ? OD_CMD_OK : OD_CMD_NACK;
         }
         (void)od_cmd_reply_plain(ctx, responseErr, sizeof(responseErr));
@@ -487,6 +488,7 @@ od_cmd_result_t handleWriteConfig(const od_cmd_ctx_t *ctx, uint8_t* data, uint16
          * final while the session that sent the write is still the one answering it. */
             const od_txq_status_t rc = od_cmd_reply(ctx, responseOk, sizeof(responseOk));
             reloadConfigAfterSave();
+            notifyConfigChangedOverBle();
             return (rc == OD_TXQ_OK) ? OD_CMD_OK : OD_CMD_NACK;
         }
         (void)od_cmd_reply_plain(ctx, responseErr, sizeof(responseErr));
@@ -554,6 +556,7 @@ od_cmd_result_t handleWriteConfigChunk(const od_cmd_ctx_t *ctx, uint8_t* data, u
          * final while the session that sent the write is still the one answering it. */
             const od_txq_status_t rc = od_cmd_reply(ctx, ok_resp, sizeof(ok_resp));
             reloadConfigAfterSave();
+            notifyConfigChangedOverBle();
             return (rc == OD_TXQ_OK) ? OD_CMD_OK : OD_CMD_NACK;
         }
         (void)od_cmd_reply_plain(ctx, err_resp, sizeof(err_resp));

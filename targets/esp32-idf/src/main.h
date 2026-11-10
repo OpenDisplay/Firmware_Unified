@@ -91,7 +91,7 @@ uint8_t bleResponseBuffer[94];
 RTC_DATA_ATTR uint8_t mloopcounter = 0;
 // Persists across deep sleep so a wake is not mistaken for a reboot. Re-armed
 // on the boot-screen path in setup(), which is the only path a real reset takes.
-RTC_DATA_ATTR uint8_t rebootFlag = 1;  // Set to 1 after reboot, cleared to 0 after BLE connection
+RTC_DATA_ATTR uint8_t rebootFlag = 1;  // Set to 1 on reboot or config write, cleared to 0 on BLE connection
 uint8_t connectionRequested = 0;  // Reserved for future features (connection requested flag)
 uint8_t dynamicreturndata[11] = {0};  // Dynamic return data blocks (bytes 2-12 in advertising payload)
 uint8_t msd_payload[16] = {0};  // Manufacturer Specific Data payload (public, updated by updatemsdata())

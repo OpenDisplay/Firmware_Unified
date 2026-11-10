@@ -296,6 +296,12 @@ void requestAdvertisingRestart(void) {
     s_advertisingRestartPending = true;
 }
 
+void notifyConfigChangedOverBle(void) {
+    // A config write changes the same on-device state a reboot does, so it raises the same flag.
+    rebootFlag = 1;
+    updatemsdata();
+}
+
 // Minimum awake window (first boot / button wake). A floor layered UNDER the
 // quiet-window logic, not a replacement: sleep requires both the existing
 // idle/advertising quiet condition AND this hold expired, so interaction keeps
