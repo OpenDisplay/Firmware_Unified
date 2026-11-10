@@ -8,7 +8,7 @@
 #                                                           which the bootloader then writes at 0x1000
 #
 # Run after targets/nordic-zephyr/build.sh has put opendisplay-xiao_nrf52840-merged.hex in
-# release/. Needs west (sourced from targets/nordic-zephyr/ncs-env.sh unless already on PATH)
+# release/. Needs west and ZEPHYR_BASE (always sourced from targets/nordic-zephyr/ncs-env.sh)
 # and adafruit-nrfutil (ADAFRUIT_NRFUTIL, else PATH).
 #
 # adafruit-nrfutil genpkg turns the hex into a flat binary starting at its lowest address, and
@@ -56,10 +56,10 @@ expect_low() {
   fi
 }
 
-if ! command -v west >/dev/null 2>&1; then
-  # shellcheck source=/dev/null
-  source "${NORDIC_DIR}/ncs-env.sh"
-fi
+# Always, as build.sh does: a container that already has west on PATH (CI) still needs
+# ZEPHYR_BASE and the SDK checkout that ncs-env.sh resolves from NCS_ROOT.
+# shellcheck source=/dev/null
+source "${NORDIC_DIR}/ncs-env.sh"
 
 rm -rf "${BUILD_DIR}"
 west build -p always -b xiao_ble/nrf52840 -d "${BUILD_DIR}" "${APP_DIR}" -- \
