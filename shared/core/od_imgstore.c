@@ -20,6 +20,10 @@
 #endif
 #if OD_IMGSTORE_WRITE_ONCE_HEADER
 #define HDR_SIZE   256u
+/* CRC-32 of header bytes [0, 20), written in the same single program as everything else. The
+ * header lands all at once or not at all only if the part says so; this is how a torn program
+ * that left magic and VALID down but not the length or digest reads as BAD instead. */
+#define HDR_CHECK_OFF 20u
 #else
 #define HDR_SIZE   32u              /* fits one page, so VALID is a single-page rewrite */
 #endif
@@ -185,6 +189,16 @@ bool od_imgstore_slot(uint8_t index, od_imgstore_slot_t *out)
     out->height        = (uint16_t)(h[10] | (h[11] << 8));
     out->payload_len   = get32(&h[12]);
     out->digest        = get32(&h[16]);
+    /* VALID vouches for the fields beside it only if they all landed. A length that does not
+     * fit the slot would make od_imgstore_read() read into the neighbour. */
+    if (out->state == OD_SLOT_VALID &&
+        (out->payload_len == 0u || out->payload_len > s_info.slot_stride - HDR_SIZE
+#if OD_IMGSTORE_WRITE_ONCE_HEADER
+         || get32(&h[HDR_CHECK_OFF]) != od_imgstore_crc32(0u, h, HDR_CHECK_OFF)
+#endif
+         )) {
+        out->state = OD_SLOT_BAD;
+    }
     return true;
 }
 
@@ -297,7 +311,7 @@ bool od_imgstore_finish(uint32_t *digest_out)
         od_imgstore_abort();
         return false;
     }
-    /* 0xFF EVERYWHERE EXCEPT THE TWO FIELDS THAT CHANGE. A page program ANDs with what is
+    /* 0xFF EVERYWHERE EXCEPT THE FIELDS BEING PROGRAMMED. A page program ANDs with what is
      * already there, so 0xFF leaves a byte untouched -- that is what makes this a partial
      * update of a page that already holds the geometry, without an erase. Reading the header
      * back and rewriting it whole would work too, but only by accident: it would re-AND every
@@ -311,11 +325,22 @@ bool od_imgstore_finish(uint32_t *digest_out)
     hdr[8] = (uint8_t)s_w.w; hdr[9] = (uint8_t)(s_w.w >> 8);
     hdr[10] = (uint8_t)s_w.h; hdr[11] = (uint8_t)(s_w.h >> 8);
     put32(&hdr[12], s_w.payload_len);
-#endif
-    hdr[4] = OD_SLOT_VALID;        /* 0xFE -> 0xFC, bits cleared only */
-    put32(&hdr[16], s_w.crc);      /* 0xFFFFFFFF -> crc, bits cleared only */
+    hdr[4] = OD_SLOT_VALID;
+    put32(&hdr[16], s_w.crc);
+    put32(&hdr[HDR_CHECK_OFF], od_imgstore_crc32(0u, hdr, HDR_CHECK_OFF));
     const bool ok = od_flash_nor_program_page_sync(slot_addr(s_w.index), hdr, sizeof hdr,
                                                    PROGRAM_TIMEOUT_MS);
+#else
+    /* Digest first, then the state byte in a program of its own: VALID must not land before
+     * the digest it vouches for, and a page program's bytes are not ordered. */
+    put32(&hdr[16], s_w.crc);      /* 0xFFFFFFFF -> crc, bits cleared only */
+    bool ok = od_flash_nor_program_page_sync(slot_addr(s_w.index), hdr, sizeof hdr,
+                                             PROGRAM_TIMEOUT_MS);
+    memset(&hdr[16], 0xFF, 4u);
+    hdr[4] = OD_SLOT_VALID;        /* 0xFE -> 0xFC, bits cleared only */
+    ok = ok && od_flash_nor_program_page_sync(slot_addr(s_w.index), hdr, sizeof hdr,
+                                              PROGRAM_TIMEOUT_MS);
+#endif
     if (ok && digest_out != NULL) {
         *digest_out = s_w.crc;
     }

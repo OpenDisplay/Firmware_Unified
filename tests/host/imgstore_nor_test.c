@@ -366,6 +366,24 @@ static void test_store_basics(void)
         CHECK(!od_imgstore_read(0u, 97u, x, 4u));
         CHECK(!od_imgstore_read(1u, 0u, x, 1u));
     }
+
+    CASE("IMG-TORN-VALID: a VALID header whose payload_len overruns the slot reads BAD");
+    {
+        uint8_t x[8];
+        const uint32_t at = 4096u + 12u;    /* slot 0 header, payload_len */
+        s_mem[at + 3u] = 0x7Fu;             /* far past slot_stride */
+        CHECK(od_imgstore_slot(0u, &s) && s.state == OD_SLOT_BAD);
+        CHECK(!od_imgstore_read(0u, 0u, x, sizeof x));
+        CHECK(put_image(0u, 5u, 100u, 100u, NULL));
+        s_mem[at] = 0u; s_mem[at + 1u] = 0u; s_mem[at + 2u] = 0u; s_mem[at + 3u] = 0u;
+        CHECK(od_imgstore_slot(0u, &s) && s.state == OD_SLOT_BAD);   /* zero length */
+#if OD_IMGSTORE_WRITE_ONCE_HEADER
+        CASE("write-once: a header whose check word disagrees reads BAD");
+        CHECK(put_image(0u, 5u, 100u, 100u, NULL));
+        s_mem[4096u + 8u] &= 0xEFu;         /* width 400 -> 384 under the check word */
+        CHECK(od_imgstore_slot(0u, &s) && s.state == OD_SLOT_BAD);
+#endif
+    }
     od_imgstore_unmount();
 
     CASE("unmounted: everything refuses");
@@ -451,15 +469,14 @@ static void test_power_cut(void)
     CHECK(runs > 1000u);
     CHECK(bad_neigh == 0u);
     CHECK(ended_c > 0u && ended_free > 0u);
-    /* The VALID transition and the fields it vouches for share one page program. A cut
-     * part-way through it -- state byte down, digest (and in write-once mode payload_len,
-     * width, height) not yet -- leaves a slot that reads VALID with an erased digest or
-     * length. Default mode: payload intact, digest 0xFFFFFFFF/partial (the LIST answer is
-     * wrong). Write-once mode: payload_len reads up to 0xFFFFFFFF, so od_imgstore_read()
-     * bounds-checks against it and reads past the slot into the neighbour. */
-    KNOWN_BUG("IMG-TORN-VALID", valid_wrong == 0u);
+    /* IMG-TORN-VALID: a cut part-way through the VALID transition never leaves a slot that
+     * reads VALID with fields that did not land. Default layout: the digest is programmed
+     * before the state byte, in its own program. Write-once layout (one program): a CRC-32
+     * of the header's first 20 bytes is checked on read, and a payload_len that does not fit
+     * the slot reads BAD in both, so od_imgstore_read() cannot reach the neighbour. */
+    CHECK(valid_wrong == 0u);
 #if OD_IMGSTORE_WRITE_ONCE_HEADER
-    KNOWN_BUG("IMG-TORN-VALID-OVERREAD", overread == 0u);
+    CHECK(overread == 0u);
 #else
     CHECK(overread == 0u);
 #endif
