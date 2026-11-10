@@ -31,7 +31,7 @@ static bool indexed_type(uint8_t id)
                id == OD_PKT_DISPLAY_CAL || id == OD_PKT_DISPLAY_PANEL ||
                id == OD_PKT_ACTION_TABLE;
     }
-    return true;
+    return false;          /* legacy packets are stepped over, not indexed (INDEX-FULL) */
 }
 
 static bool walk_cb(void *ctx, uint8_t id, od_span_t body)
@@ -111,15 +111,15 @@ static void test_record_framing(void)
     CASE("record CRC-32 is NOT checked by the index (od_config_store_load would refuse it)");
     fx_cfg_store(&c);
     fx_nvs[8] ^= 0x01u;
-    CHECK(od_cfg_index_build() == 4);
-    /* The boot path refuses this record as CORRUPT and boots on defaults, but every index
-     * consumer -- the drive path, the action runner and od_config_store_save_carry -- still
-     * reads it. See bug CARRY-CORRUPT in config_carry_adversarial_test.c. */
+    CHECK(od_cfg_index_build() == 0);
+    /* The boot path refuses this record as CORRUPT and boots on defaults, but the index
+     * consumers -- the drive path and the action runner -- still read it.
+     * od_config_store_save_carry verifies the record itself (CARRY-CORRUPT). */
 
     CASE("a data_len that agrees with the record is used, not the record size");
     fx_cfg_store(&c);
     fx_nvs_len += 7u;          /* trailing slack in the medium */
-    CHECK(od_cfg_index_build() == 4);
+    CHECK(od_cfg_index_build() == 0);
     CHECK(od_cfg_blob_len() == c.n);
 
     CASE("a medium read failure part-way returns what was indexed so far");
@@ -136,23 +136,30 @@ static void test_legacy_only_2x(void)
     fx_cfg_t c;
     struct DisplayConfig d = fx_display(0u, 296u, 128u, 1u);
 
-    CASE("a 2.x config: legacy packets indexed, no drive data");
+    CASE("a 2.x config: legacy packets are stepped over, not indexed; no drive data");
     fx_cfg_begin(&c, 1u);
     fx_cfg_legacy_head(&c, &d);
     fx_cfg_finish(&c);
     fx_cfg_store(&c);
-    CHECK(od_cfg_index_build() == 4);
-    CHECK(od_cfg_find(0x20u, 0u) != NULL);
+    CHECK(od_cfg_index_build() == 0);
+    CHECK(od_cfg_find(0x20u, 0u) == NULL);
     CHECK(od_cfg_find(OD_PKT_DISPLAY_MODE, 0u) == NULL);
     CHECK(!od_cfg_has_drive_data(0u));
     CHECK(index_matches_walk(c.b, c.n));
 
     CASE("the walk starts after [reserved:2][version], whatever those bytes hold");
+    {
+        static const uint8_t t[10] = { 10u, 5u, 0, 0, 1u, 1u, 1u, 1u, 16u, 0u };
+        fx_cfg_begin(&c, 1u);
+        fx_cfg_legacy_head(&c, &d);
+        fx_cfg_ext(&c, OD_PKT_ACTION_TABLE, t, sizeof t);
+        fx_cfg_finish(&c);
+    }
     c.b[0] = 0x12u;            /* the toolbox's length field */
     c.b[1] = 0x34u;
     c.b[2] = 0x07u;
     fx_cfg_store(&c);
-    CHECK(od_cfg_index_build() == 4);
+    CHECK(od_cfg_index_build() == 1);
 }
 
 static void test_real_panel(void)
@@ -171,14 +178,14 @@ static void test_real_panel(void)
             continue;          /* does not fit this cap; the cap test covers refusal */
         }
         fx_cfg_store(&c);
-        CHECK(od_cfg_index_build() == (int)(4u + pan->count));
+        CHECK(od_cfg_index_build() == (int)pan->count);
         CHECK(index_matches_walk(c.b, c.n));
         CHECK(od_cfg_has_drive_data(0u) ==
               (od_cfg_find(OD_PKT_DISPLAY_PANEL, 0u) != NULL &&
                od_cfg_find(OD_PKT_DISPLAY_MODE, 0u) != NULL));
         /* Every indexed body reads back byte-identical to what was written. */
         for (unsigned i = 0; i < pan->count; i++) {
-            const od_cfg_entry_t *e = od_cfg_index_entry((int)(4u + i));
+            const od_cfg_entry_t *e = od_cfg_index_entry((int)i);
             uint8_t back[1024];
             CHECK(e != NULL && e->type == pan->pkts[i].id && e->len == pan->pkts[i].n);
             if (e != NULL && e->len <= sizeof back) {
@@ -208,7 +215,7 @@ static void test_burned_and_unknown(void)
     fx_cfg_panel(&c, pan, 0u);
     fx_cfg_finish(&c);
     fx_cfg_store(&c);
-    CHECK(od_cfg_index_build() == (int)(4u + pan->count));
+    CHECK(od_cfg_index_build() == (int)pan->count);
     for (int i = 0; i < od_cfg_index_count(); i++) {
         const uint8_t t = od_cfg_index_entry(i)->type;
         CHECK(!(t >= 0x2Eu && t <= 0x31u));
@@ -223,7 +230,7 @@ static void test_burned_and_unknown(void)
     fx_cfg_panel(&c, pan, 0u);
     fx_cfg_finish(&c);
     fx_cfg_store(&c);
-    CHECK(od_cfg_index_build() == 4);
+    CHECK(od_cfg_index_build() == 0);
     CHECK(od_cfg_find(OD_PKT_DISPLAY_PANEL, 0u) == NULL);
     CHECK(index_matches_walk(c.b, c.n));
 
@@ -235,7 +242,7 @@ static void test_burned_and_unknown(void)
     fx_cfg_panel(&c, pan, 0u);
     fx_cfg_finish(&c);
     fx_cfg_store(&c);
-    CHECK(od_cfg_index_build() == (int)(4u + pan->count));
+    CHECK(od_cfg_index_build() == (int)pan->count);
     CHECK(index_matches_walk(c.b, c.n));
 
     CASE("zero-length drive packets are skipped, not indexed with a zero length");
@@ -246,7 +253,7 @@ static void test_burned_and_unknown(void)
     fx_cfg_ext(&c, OD_PKT_ACTION_TABLE, NULL, 0u);
     fx_cfg_finish(&c);
     fx_cfg_store(&c);
-    CHECK(od_cfg_index_build() == 4);
+    CHECK(od_cfg_index_build() == 0);
     CHECK(od_cfg_find(OD_PKT_DISPLAY_PANEL, 0u) == NULL);
     CHECK(index_matches_walk(c.b, c.n));
 
@@ -276,7 +283,7 @@ static void test_truncation_and_overrun(void)
     fx_cfg_ext_len(&c, OD_PKT_DISPLAY_MODE, body, sizeof body, (uint16_t)(sizeof body + 1u));
     fx_cfg_finish(&c);
     fx_cfg_store(&c);
-    CHECK(od_cfg_index_build() == 4);
+    CHECK(od_cfg_index_build() == 0);
     CHECK(od_cfg_find(OD_PKT_DISPLAY_MODE, 0u) == NULL);
     CHECK(index_matches_walk(c.b, c.n));
     /* od_config_parse() reports the same blob TRUNCATED and leaves cfg->loaded false, so the
@@ -324,7 +331,7 @@ static void test_truncation_and_overrun(void)
     fx_cfg_u8(&c, 0x5Au);
     fx_cfg_finish(&c);
     fx_cfg_store(&c);
-    CHECK(od_cfg_index_build() == 4);
+    CHECK(od_cfg_index_build() == 0);
     CHECK(index_matches_walk(c.b, c.n));
 
     CASE("blobs of 0..6 bytes");
@@ -350,7 +357,7 @@ static void test_duplicates(void)
     fx_cfg_ext(&c, OD_PKT_ACTION_TABLE, t2, sizeof t2);
     fx_cfg_finish(&c);
     fx_cfg_store(&c);
-    CHECK(od_cfg_index_build() == 6);
+    CHECK(od_cfg_index_build() == 2);
     {
         const od_cfg_entry_t *a = od_cfg_find(OD_PKT_ACTION_TABLE, 0u);
         const od_cfg_entry_t *b = od_cfg_find(OD_PKT_ACTION_TABLE, 1u);
@@ -367,7 +374,7 @@ static void test_duplicates(void)
     fx_cfg_panel(&c, &FX_PANELS[0], 1u);   /* only display 1 has drive data */
     fx_cfg_finish(&c);
     fx_cfg_store(&c);
-    CHECK(od_cfg_index_build() > 4);
+    CHECK(od_cfg_index_build() > 0);
     CHECK(od_cfg_find(OD_PKT_DISPLAY_PANEL, 0u) != NULL);     /* instance 1's panel */
     CHECK(od_cfg_find(OD_PKT_DISPLAY_PANEL, 1u) == NULL);     /* asking for "instance 1" */
     CHECK(od_cfg_has_drive_data(1u));
@@ -388,7 +395,7 @@ static void test_two_displays(void)
     fx_cfg_panel(&c, &FX_PANELS[1], 1u);
     fx_cfg_finish(&c);
     fx_cfg_store(&c);
-    CHECK(od_cfg_index_build() == (int)(5u + FX_PANELS[0].count + FX_PANELS[1].count));
+    CHECK(od_cfg_index_build() == (int)(FX_PANELS[0].count + FX_PANELS[1].count));
     CHECK(od_cfg_has_drive_data(0u) && od_cfg_has_drive_data(1u));
     CHECK(index_matches_walk(c.b, c.n));
 }
@@ -414,7 +421,7 @@ static void test_caps(void)
     fx_cfg_finish(&c);
     CHECK(c.n == cap);
     fx_cfg_store(&c);
-    CHECK(od_cfg_index_build() == 6);
+    CHECK(od_cfg_index_build() == 2);
     CHECK(od_cfg_has_drive_data(0u));
     CHECK(index_matches_walk(c.b, c.n));
 
@@ -437,7 +444,7 @@ static void test_index_full(void)
     unsigned legacy = 0u;
 
     memset(&led, 0, sizeof led);
-    CASE("INDEX-FULL: 28 legacy packets push a panel's drive packets past the 32-entry index");
+    CASE("INDEX-FULL: 28 legacy packets cost no index slot; the panel's drive packets all index");
     fx_cfg_begin(&c, 1u);
     fx_cfg_legacy_head(&c, &d);
     legacy = 4u;
@@ -450,17 +457,17 @@ static void test_index_full(void)
     CHECK(c.n <= 4096u);
     if (c.n <= OD_CONFIG_MAX_SIZE) {
         fx_cfg_store(&c);
-        CHECK(od_cfg_index_build() == (int)OD_CFG_INDEX_MAX);
+        CHECK(od_cfg_index_build() == (int)FX_PANELS[3].count);
         CHECK(index_matches_walk(c.b, c.n));
-        /* A legal config (each legacy type is capped at 4 instances by od_config, but there are
-         * ten repeatable types) whose panel then has no LUT slot 1 and no colour16 mode. The
-         * walk stops at a fixed slot count that legacy packets -- which nothing reads through
-         * the index -- spend first. */
+        /* A legal config (each legacy type is capped at 4 instances by od_config, but there
+         * are ten repeatable types). Legacy packets, which nothing reads through the index,
+         * used to spend the 32 slots first and leave the panel without LUT slot 1 and its
+         * colour16 mode. */
         unsigned drive = 0u;
         for (int i = 0; i < od_cfg_index_count(); i++) {
             drive += od_cfg_index_entry(i)->type >= 0x80u ? 1u : 0u;
         }
-        KNOWN_BUG("INDEX-FULL", drive == FX_PANELS[3].count);
+        CHECK(drive == FX_PANELS[3].count);
     }
 }
 

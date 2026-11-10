@@ -95,9 +95,12 @@ int od_cfg_index_build(void)
                 break;
             }
         } else {
+            /* Sized and stepped over, never recorded: nothing reads a legacy packet through
+             * the index (od_config parses those at boot), and the drive packets sort after
+             * them, so a slot spent here is one a long legacy config takes from the panel. */
             hdr_sz = 2u;
             bsz = od_config_tlv_body_size(ph[1]);
-            record = !od_config_tlv_is_burned(ph[1]);
+            record = false;
             if (bsz == 0u) {
                 /* The legacy range has no length on the wire, so an id missing from the size
                  * table abandons the tail -- and the drive packets sort AFTER everything

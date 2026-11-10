@@ -47,7 +47,7 @@ typedef struct {
 static bool walk_cb(void *ctx, uint8_t id, od_span_t body)
 {
     walk_t *w = ctx;
-    const bool indexed = id < 0x80u || (id >= OD_PKT_DISPLAY_MODE && id <= OD_PKT_ACTION_TABLE);
+    const bool indexed = id >= OD_PKT_DISPLAY_MODE && id <= OD_PKT_ACTION_TABLE;
 
     if (indexed && body.n > 0u && w->n < OD_CFG_INDEX_MAX) {
         w->p[w->n].type = id;

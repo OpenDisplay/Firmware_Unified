@@ -69,6 +69,16 @@ static bool stored_record_sound(void)
     return od_config_tlv_crc16(od_span_make(out, n - 2u)) == want;
 }
 
+/* Copies the first 0x20 DisplayConfig body out of a walk (legacy packets are not indexed). */
+static bool first_display(void *ctx, uint8_t id, od_span_t body)
+{
+    struct DisplayConfig *d = ctx;
+    if (id == 0x20u && body.n == sizeof *d && d->pixel_width == 0u) {
+        memcpy(d, body.p, sizeof *d);
+    }
+    return true;
+}
+
 static void store_panel_config(const fx_panel_t *p)
 {
     fx_cfg_t c;
@@ -114,10 +124,13 @@ static void test_round_trip_and_idempotence(void)
     CHECK(stored_record_sound());
     /* and the new legacy packet won */
     {
-        const od_cfg_entry_t *e = od_cfg_find(0x20u, 0u);
+        static uint8_t out[OD_CONFIG_MAX_SIZE];
+        uint32_t n = sizeof out;
         struct DisplayConfig got;
-        CHECK(e != NULL && od_cfg_read(e, 0u, (uint8_t *)&got, sizeof got) == sizeof got &&
-              got.pixel_width == 400u);
+        memset(&got, 0, sizeof got);
+        CHECK(od_config_store_load(out, &n) == OD_CONFIG_STORE_OK);
+        (void)od_config_tlv_walk(od_span_make(out, n), first_display, &got, NULL, NULL);
+        CHECK(got.pixel_width == 400u);
     }
 
     CASE("the same legacy write again does not duplicate the drive packets");
