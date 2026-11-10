@@ -1,4 +1,5 @@
 #include "config_parser.h"
+#include "od_config_carry.h"
 #include "factory_config.h"
 #include "structs.h"
 #include "od_log.h"
@@ -85,9 +86,16 @@ bool saveConfig(uint8_t* configData, uint32_t len){
      * loop task. The factory-provisioning caller passes a flash pointer, which the core copies
      * in here -- there is nowhere else it could be assembled contiguously. */
     static uint8_t workspace[OD_CONFIG_STORE_MAX_RECORD];
+    uint8_t carried = 0;
 
-    return od_config_store_save(workspace, sizeof(workspace), configData, len)
-           == OD_CONFIG_STORE_OK;
+    /* A config without 0x80+ packets keeps the stored drive packets (od_config_carry.h). */
+    const bool ok = od_config_store_save_carry(workspace, sizeof(workspace), configData, len,
+                                               &carried) == OD_CONFIG_STORE_OK;
+    if (ok && carried != 0u) {
+        od_log_info("config: kept %u stored drive packet(s) the write did not carry",
+                    (unsigned)carried);
+    }
+    return ok;
 }
 
 bool clearStoredConfig(void) {
