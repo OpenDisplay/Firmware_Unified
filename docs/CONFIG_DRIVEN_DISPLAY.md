@@ -109,6 +109,26 @@ A 2.x config after an OTA has a display (0x20) but no 0xAE/0xB1. Firmware then d
 - Hosts learn the state from READ_IDENT's NEEDS_MIGRATION flag (below). The MSD has no free status bit (bit 3 is
   ENCRYPTION_ENABLED, bits 4-7 the loop counter), so it does not carry this.
 
+### Config-write guard (proposal, awaiting maintainer decision: merge vs refuse)
+
+A 2.x client rewriting the config would otherwise erase the drive packets it does not know
+about. `od_config_store_save_carry()` (`shared/core/od_config_carry.c`, used by Nordic and BG22
+`saveConfig`) applies this rule:
+
+- The incoming config has **no packet id >= 0x80** (and walks to its end) and the stored config
+  has 0xAE-0xB1 packets: those packets are appended unchanged, in stored order, before the CRC
+  tail. The CRC-16 is recomputed only if the incoming one matched.
+- The incoming config carries **any** 0x80+ packet: it is stored exactly as sent. A 3.x client
+  owns the drive data.
+- **Explicit wipe**: a zero-length 0xB1 (`[n][0xB1][00 00]`). The index ignores empty bodies, so
+  the device then has no drive data (and reports NEEDS_MIGRATION).
+- A merge that would exceed `OD_CONFIG_MAX_SIZE` (or the workspace) is **refused**
+  (OD_CONFIG_STORE_TOO_BIG, the write NACKs) with nothing written, rather than stored without
+  the drive packets.
+
+The alternative is to refuse every such write outright; that is one branch in the function.
+ESP32 still calls `od_config_store_save()` directly. Cost on BG22: +448 B flash, no RAM.
+
 ## READ_IDENT (0x0046)
 
 Shared handler `shared/core/od_cmd_ident.c` on every target that sets `OD_CAP_READ_IDENT`

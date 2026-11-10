@@ -263,9 +263,12 @@ set(OD_SHARED_SOURCES_HAL_WDT
 # HAL_NVS for the medium.
 #
 # A config without drive packets drives nothing: there is no fallback panel table, and such a
-# device reports "needs migration" (docs/CONFIG_DRIVEN_DISPLAY.md).
+# device reports "needs migration" (docs/CONFIG_DRIVEN_DISPLAY.md). od_config_carry keeps the
+# stored drive packets across a config write that has none (a 2.x client); it reads them
+# through od_cfg_index, which is why it lives here and not beside od_config_store.
 set(OD_SHARED_SOURCES_APP_EPD
     "${CMAKE_CURRENT_LIST_DIR}/core/od_cfg_index.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_config_carry.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_epd.c"
 )
 
