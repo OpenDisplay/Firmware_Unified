@@ -45,6 +45,7 @@ static int fastepd_parallel_panel(uint16_t panel_ic_type) {
     switch (panel_ic_type) {
         case OD_PANEL_IC_INKPLATE5V2_1280X720:   return BB_PANEL_INKPLATE5V2;
         case OD_PANEL_IC_INKPLATE10_1200X825:    return BB_PANEL_INKPLATE10;
+        case OD_PANEL_IC_M5PAPERS3_960X540:      return BB_PANEL_M5PAPERS3;
         default:                                 return -1;
     }
 }
@@ -134,6 +135,18 @@ static bool fastepd_panel_is_4gray(void) {
     const struct DisplayConfig& d = globalConfig.displays[0];
     if (d.panel_ic_type == OD_PANEL_IC_ED103TC2_1872X1404_4GRAY) return true;
     return d.color_scheme == OD_COLOR_SCHEME_GRAY16;
+}
+
+// The pixel mode follows color_scheme, which a CONFIG_WRITE can change between transfers.
+// FastEPD's mode is sticky per hardware init, so the warm paths re-assert it or incoming data
+// is read at the previous config's depth.
+static void fastepd_apply_mode(void) {
+    if (!s_hw_initialized || !g_epd.currentBuffer()) return;
+    const int want = fastepd_panel_is_4gray() ? BB_MODE_4BPP : BB_MODE_1BPP;
+    if (g_epd.getMode() != want) {
+        g_epd.setMode(want);
+        g_epd.setPreviousMode((uint8_t)g_epd.getMode());
+    }
 }
 
 static size_t fb_byte_size(void) {
@@ -274,6 +287,8 @@ void fastepd_epaper_begin(void) {
             g_epd.setPreviousMode((uint8_t)g_epd.getMode());
         } else {
             g_epd.einkPower(1);
+            s_hw_initialized = true;   // fastepd_apply_mode() requires it
+            fastepd_apply_mode();
         }
         s_hw_initialized = true;
         return;
@@ -309,7 +324,14 @@ void fastepd_epaper_begin(void) {
 // REFRESH_FULL: parallel panels flash-clear to flush ghosting; IT8951 clears
 // internally (ignores the mode) so it stays CLEAR_NONE.
 static void fastepd_full_refresh_impl(void) {
-    int clear = fastepd_is_parallel() ? CLEAR_FAST : CLEAR_NONE;
+    int clear = CLEAR_NONE;
+    if (fastepd_is_parallel()) {
+        // PaperS3 needs the library-default 10-pass clear: CLEAR_FAST's 8 passes leave residual
+        // banding there. Inkplates keep the faster clear they were tuned with.
+        clear = (globalConfig.displays[0].panel_ic_type == OD_PANEL_IC_M5PAPERS3_960X540)
+                    ? CLEAR_SLOW
+                    : CLEAR_FAST;
+    }
     g_epd.fullUpdate(clear, true, NULL);
 }
 
@@ -353,6 +375,7 @@ void fastepd_direct_write_reset(void) {
         fastepd_epaper_begin();
     } else {
         g_epd.einkPower(1);
+        fastepd_apply_mode();
     }
     s_direct_offset = 0;
     uint8_t* p = g_epd.currentBuffer();
@@ -422,6 +445,7 @@ void fastepd_partial_prepare(uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
         fastepd_epaper_begin();
     } else {
         g_epd.einkPower(1);
+        fastepd_apply_mode();
     }
     s_partial_x = x;
     s_partial_y = y;

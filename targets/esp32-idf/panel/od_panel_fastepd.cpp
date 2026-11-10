@@ -26,7 +26,7 @@ static bool s_refreshing   = false;
 static bool s_init_ok      = false;
 
 /* The panel families FastEPD drives: the IT8951 SPI path (Seeed reTerminal ED103TC2) and the
- * native parallel path (Soldered Inkplate). display_technology 0 or 1 is also required -- a
+ * native parallel path (Soldered Inkplate, M5Stack PaperS3). display_technology 0 or 1 is also required -- a
  * matching IC on another technology is a panel FastEPD cannot drive. Kept identical to
  * fastepd_driver_used() in display_service.cpp, which is still the live predicate until the
  * repoint; if one changes, both must. */
@@ -34,9 +34,10 @@ static bool fastepd_ops_claims(uint16_t panel_ic_type, uint8_t display_technolog
 {
     const bool it8951 = (panel_ic_type == OD_PANEL_IC_ED103TC2_1872X1404 ||
                          panel_ic_type == OD_PANEL_IC_ED103TC2_1872X1404_4GRAY);
-    const bool inkplate = (panel_ic_type == OD_PANEL_IC_INKPLATE5V2_1280X720 ||
-                           panel_ic_type == OD_PANEL_IC_INKPLATE10_1200X825);
-    if (!it8951 && !inkplate) return false;
+    const bool parallel = (panel_ic_type == OD_PANEL_IC_INKPLATE5V2_1280X720 ||
+                           panel_ic_type == OD_PANEL_IC_INKPLATE10_1200X825 ||
+                           panel_ic_type == OD_PANEL_IC_M5PAPERS3_960X540);
+    if (!it8951 && !parallel) return false;
     return (display_technology == 0 || display_technology == 1);
 }
 
