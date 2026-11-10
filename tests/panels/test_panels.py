@@ -37,10 +37,12 @@ DRIVE_KEYS = {"width", "height", "color_scheme", "controller", "bbep_flags", "mo
               "requires_escapes", "framed_hex", "drive_bytes", "fits", "equivalence", "blocked_detail"}
 STATUS = {"equivalent", "differs", "blocked", "glass", "not_attempted"}
 VERIFIED = {"glass", "equivalent", "untested"}
-KNOWN_BLOCKERS = {"SEQ_MAX", "LUT_MAX", "LUT_AFTER_IMAGE", "LUT_SLOTS", "CS_BOTH", "CS_EVERY_BYTE",
-                  "DATA_WITHOUT_CMD", "IT8951", "NO_FULL_FLOW", "NO_BBEP_ENUM"}
+KNOWN_BLOCKERS = {"SEQ_MAX", "MAX_STEPS", "LUT_MAX", "LUT_AFTER_IMAGE", "LUT_SLOTS", "CS_BOTH",
+                  "CS_EVERY_BYTE", "DATA_WITHOUT_CMD", "IT8951", "NO_FULL_FLOW", "NO_BBEP_ENUM",
+                  "REPLAY_REFUSED"}
+CLASSES = PRESETS["target_classes"]
 KNOWN_ESCAPES = {"SET_PIN", "CS_SELECT"}
-DIFFS = {"D1", "D2", "D3", "D4", "D5", "D6", "D7"}
+DIFFS = {"D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8"}
 
 
 def tok(t: list) -> tuple:
@@ -52,6 +54,14 @@ def tok(t: list) -> tuple:
     return tuple(t)
 
 
+def views(e: dict):
+    """(class, view) for every target class of an entry, plus its alternatives."""
+    for cls, v in (e.get("targets") or {}).items():
+        yield cls, v
+    for a in e.get("alternatives") or []:
+        yield a["target_class"], a
+
+
 def packets(e: dict) -> list[tuple[int, int, bytes]]:
     return [(p["number"], p["id"], bytes.fromhex(p["body_hex"])) for p in e["packets"]]
 
@@ -60,7 +70,12 @@ class Schema(unittest.TestCase):
     def test_top_level(self):
         self.assertEqual(PRESETS["schema"], "opendisplay.drive_presets")
         self.assertEqual(PRESETS["schema_version"], 1)
-        self.assertIsInstance(PRESETS["schema_minor"], int)
+        self.assertGreaterEqual(PRESETS["schema_minor"], 1)
+        self.assertEqual(CLASSES["bg22"]["seq_max"], 128)
+        self.assertEqual(CLASSES["bg22"]["max_steps"], 64)
+        self.assertFalse(CLASSES["bg22"]["window"])
+        self.assertEqual(CLASSES["default"]["seq_max"], 512)
+        self.assertEqual(CLASSES["default"]["max_steps"], 96)
         for k in ("bg22", "esp32", "nordic", "typical_base_config_bytes", "seq_max", "sleep_max", "lut_max"):
             self.assertIsInstance(PRESETS["caps"][k], int, k)
         self.assertEqual(PRESETS["caps"]["bg22"], 3120)
@@ -106,6 +121,33 @@ class Schema(unittest.TestCase):
                 if web is not None:
                     self.assertEqual(leg["color_scheme"], web)
 
+    def test_target_views(self):
+        for key, e in PRESETS["panels"].items():
+            if e["status"] == "not_attempted":
+                continue
+            with self.subTest(key=key):
+                self.assertEqual(set(e["targets"]), set(CLASSES))
+                d = e["targets"]["default"]
+                for k in ("status", "verified", "packets", "framed_hex", "drive_bytes", "modes"):
+                    self.assertEqual(e[k], d[k], k)          # top level = the default class
+                for cls, v in e["targets"].items():
+                    self.assertIn(v["status"], STATUS)
+                    self.assertEqual(v["status"] == "blocked", bool(v["blocked_on"]))
+                    if v["status"] == "blocked":
+                        self.assertEqual(v["packets"], [])
+                    for m in v["modes"]:
+                        self.assertTrue(m["fits"][cls], (cls, m["name"]))
+                self.assertEqual(e["fits_target"]["bg22"],
+                                 e["targets"]["bg22"]["packets"] == e["packets"] and e["status"] != "blocked")
+                bg = e["targets"]["bg22"]["status"] == "blocked"
+                self.assertEqual(key in PRESETS["bg22_unavailable"], bg)
+                for a in e.get("alternatives") or []:
+                    self.assertTrue(bg)
+                    self.assertEqual(a["status"], "alternative")
+                    self.assertEqual(a["verified"], "untested")
+                    self.assertFalse(a["equivalent"])
+                    self.assertEqual(a["target_class"], "bg22")
+
     def test_glass_set(self):
         self.assertEqual({k for k, e in PRESETS["panels"].items()
                           if e["status"] == "glass" and not e.get("alias_of")}, GLASS)
@@ -129,9 +171,14 @@ class Layout(unittest.TestCase):
 
     def test_framing_and_bodies(self):
         for key, e in PRESETS["panels"].items():
-            if not e["packets"]:
-                continue
-            with self.subTest(key=key):
+            for cls, v in views(e):
+                if v["packets"]:
+                    with self.subTest(key=key, cls=cls, variant=v.get("variant")):
+                        self.check_view(v, CLASSES[cls])
+
+    def check_view(self, e: dict, caps: dict):
+        if True:
+            if True:
                 pk = packets(e)
                 blob = bytes.fromhex(e["framed_hex"])
                 self.assertEqual(blob, b"".join(P.frame(n, i, b) for n, i, b in pk))
@@ -156,11 +203,17 @@ class Layout(unittest.TestCase):
                     self.assertEqual(m[1], idx)
                     seq_len = struct.unpack_from("<H", m, 35)[0]
                     self.assertEqual(len(m), 37 + seq_len)
-                    self.assertLessEqual(seq_len, P.SEQ_MAX)
+                    self.assertLessEqual(seq_len, caps["seq_max"])
                     self.assertTrue(1 <= m[15] <= 8)
                     self.assertIn(0, m[2:14])                     # NUL-terminated name
                     steps = P.walk_seq(m[37:])
-                    self.assertLessEqual(P.count_steps(steps), P.MAX_STEPS)
+                    self.assertLessEqual(P.count_steps(steps), caps["max_steps"])
+                    if not caps["window"]:
+                        self.assertFalse(any(s[0] in ("window", "fill") for s in steps))
+                    for s in steps:
+                        if s[0] == "window":
+                            self.assertTrue(2 <= len(s[1]) <= 32)
+                            self.assertEqual(s[1][0][0], P.WIN_LIT)
                     self.assertTrue(any(s[0] in ("image", "slice") for s in steps))
                     for p in range(m[15]):
                         s = m[19 + p]
@@ -193,8 +246,9 @@ class Size(unittest.TestCase):
                 self.assertEqual(e["drive_bytes"], len(blob))
                 for tgt in ("bg22", "esp32", "nordic"):
                     self.assertEqual(e["fits"][tgt], base + len(blob) <= PRESETS["caps"][tgt])
-                if e["packets"]:
-                    self.assertTrue(e["fits"]["bg22"], "every shipped preset must fit the BG22 config")
+                for cls, v in views(e):
+                    if v["packets"]:
+                        self.assertTrue(base + v["drive_bytes"] <= CLASSES[cls]["config"], cls)
 
 
 @unittest.skipUnless(HAVE_CC, "no C compiler")
@@ -203,48 +257,75 @@ class Equivalence(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        P.build_replay()
+        for c in CLASSES:
+            P.build_replay(c)
 
     def test_derived_entries(self):
         n = 0
         for key, e in PRESETS["panels"].items():
-            if e["status"] not in ("equivalent", "differs") or e.get("alias_of"):
+            if e["status"] in ("glass", "not_attempted") or e.get("alias_of"):
                 continue
-            flows = STREAMS["panels"][e["name"]]["flows"]
-            blob = bytes.fromhex(e["framed_hex"])
-            for m in e["modes"]:
-                with self.subTest(key=key, mode=m["name"]):
-                    ref = G.strip_wake([tok(t) for t in flows[m["name"]]])
-                    rc, got = G.run_replay(blob, str(m["index"]))
+            st = STREAMS["panels"][e["name"]]
+            W, H = e["width"], e["height"]
+            for cls, v in e["targets"].items():
+                if v["status"] not in ("equivalent", "differs"):
+                    continue
+                blob = bytes.fromhex(v["framed_hex"])
+                for m in v["modes"]:
+                    refs = [(r["rect"], r["tokens"]) for r in st["rects"].values()] if m["window"] \
+                        else [(None, st["flows"][m["name"]])]
+                    for rect, ref in refs:
+                        with self.subTest(key=key, cls=cls, mode=m["name"], rect=rect):
+                            rc, got = G.run_replay(blob, str(m["index"]), cls, [W, H] + (rect or []))
+                            self.assertEqual(rc, 0)
+                            res = G.compare(G.strip_wake([tok(t) for t in ref]), G.strip_wake(got))
+                            self.assertEqual(res["equal"], v["status"] == "equivalent", res)
+                            n += 1
+                with self.subTest(key=key, cls=cls, mode="sleep"):
+                    rc, got = G.run_replay(blob, "sleep", cls, [W, H])
                     self.assertEqual(rc, 0)
-                    res = G.compare(ref, G.strip_wake(got))
-                    self.assertEqual(res["equal"], e["status"] == "equivalent", res)
-                    n += 1
-            with self.subTest(key=key, mode="sleep"):
-                rc, got = G.run_replay(blob, "sleep")
-                self.assertEqual(rc, 0)
-                self.assertEqual(G.compare([tok(t) for t in flows["sleep"]], got)["equal"],
-                                 e["status"] == "equivalent")
-        self.assertGreaterEqual(n, 40)
+                    self.assertEqual(G.compare([tok(t) for t in st["flows"]["sleep"]], got)["equal"],
+                                     v["status"] == "equivalent")
+        self.assertGreaterEqual(n, 200)
+
+    def test_default_blob_refused_by_bg22_when_too_big(self):
+        """The BG22-built interpreter really refuses what the bg22 view leaves out."""
+        e = PRESETS["panels"]["0x000C"]
+        self.assertEqual(e["targets"]["bg22"]["status"], "blocked")
+        rc, _ = P.replay(bytes.fromhex(e["framed_hex"]), "0", "bg22", [e["width"], e["height"]])
+        self.assertNotEqual(rc, 0)
+
+    def test_alternatives_walk_on_bg22(self):
+        for key, e in PRESETS["panels"].items():
+            for a in e.get("alternatives") or []:
+                blob = bytes.fromhex(a["framed_hex"])
+                for m in a["modes"]:
+                    with self.subTest(key=key, mode=m["name"]):
+                        rc, _ = P.replay(blob, str(m["index"]), "bg22", [e["width"], e["height"]])
+                        self.assertEqual(rc, 0)
 
     def test_glass_entries_run(self):
         """The hand-written sequences must walk cleanly in od_epd, every pass."""
         for key in GLASS:
             e = PRESETS["panels"][key]
             blob = bytes.fromhex(e["framed_hex"])
-            for m in e["modes"]:
-                with self.subTest(key=key, mode=m["name"]):
-                    rc, lines = P.replay(blob, str(m["index"]))
-                    self.assertEqual(rc, 0)
-                    self.assertEqual(sum(1 for x in lines if x.startswith("M pass")), m["passes"])
-            rc, _ = P.replay(blob, "sleep")
-            self.assertEqual(rc, 0)
+            for cls in CLASSES:
+                geom = [e["width"], e["height"]]
+                for m in e["modes"]:
+                    with self.subTest(key=key, cls=cls, mode=m["name"]):
+                        rc, lines = P.replay(blob, str(m["index"]), cls, geom)
+                        self.assertEqual(rc, 0)
+                        self.assertEqual(sum(1 for x in lines if x.startswith("M pass")), m["passes"])
+                rc, _ = P.replay(blob, "sleep", cls, geom)
+                self.assertEqual(rc, 0)
 
     def test_recorded_verdicts_match(self):
         """The equivalence block in the JSON is what a fresh replay gives."""
         for key, e in PRESETS["panels"].items():
-            if e["status"] in ("equivalent", "differs"):
-                self.assertEqual(e["equivalence"]["all_equal"], e["status"] == "equivalent", key)
+            for cls, v in (e.get("targets") or {}).items():
+                eq = v.get("equivalence") or (e["equivalence"] if cls == "default" else None)
+                if v["status"] in ("equivalent", "differs"):
+                    self.assertEqual(eq["all_equal"], v["status"] == "equivalent", (key, cls))
 
 
 class Glass(unittest.TestCase):

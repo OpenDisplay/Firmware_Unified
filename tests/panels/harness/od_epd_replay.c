@@ -1,6 +1,11 @@
 /* Replay drive packets through the REAL shared/core/od_epd.c against a recording io.
  *
- *   od_epd_replay <packets.bin> <mode_index|sleep>
+ *   od_epd_replay <packets.bin> <mode_index|sleep> [<W> <H> [<x> <y> <w> <h>]]
+ *
+ * W/H is the panel size WINDOW/FILL resolve against; x y w h narrows the window to a partial
+ * rectangle (od_epd_set_window), as od_display does for a partial update. Built once per
+ * target class: the default limits, and BG22's (-DOD_EPD_SEQ_MAX=128u -DOD_EPD_MAX_SEQ_STEPS=64u
+ * -DOD_EPD_WITH_WINDOW=0, shared/profiles.cmake).
  *
  * packets.bin holds framed length-prefixed packets ([number][id][len:2 LE][body]) as a
  * host would append them to a config. The 0xB1/0xAE/0xAF bodies are decoded with the
@@ -157,7 +162,8 @@ static int count_images(const uint8_t *s, uint16_t n)
             case 0x08: i += 3; break;
             case 0x0A: i += 5; break;
             case 0x0B: i += 6; break;
-            case 0x02: i = (uint16_t)(i + 3u + 2u * s[i + 2]); break;
+            case 0x0D: i += 5; break;
+            case 0x02: case 0x0C: i = (uint16_t)(i + 3u + 2u * s[i + 2]); break;
             default: return -1;
         }
     }
@@ -167,8 +173,8 @@ static int count_images(const uint8_t *s, uint16_t n)
 int main(int argc, char **argv)
 {
     static uint8_t blob[16384];
-    if (argc != 3) {
-        fprintf(stderr, "usage: %s packets.bin mode|sleep\n", argv[0]);
+    if (argc != 3 && argc != 5 && argc != 9) {
+        fprintf(stderr, "usage: %s packets.bin mode|sleep [W H [x y w h]]\n", argv[0]);
         return 2;
     }
     FILE *f = fopen(argv[1], "rb");
@@ -201,6 +207,10 @@ int main(int argc, char **argv)
         }
     }
     if (d.mode_count == 0) return 4;
+    if (argc >= 5) {
+        d.width = (uint16_t)atoi(argv[3]);
+        d.height = (uint16_t)atoi(argv[4]);
+    }
     g_idle = d.busy_idle_level;
 
     od_epd_io_t io = {
@@ -218,6 +228,10 @@ int main(int argc, char **argv)
     }
     rc = od_epd_select_mode(&e, (uint8_t)atoi(argv[2]));
     if (rc) return 10 - rc;
+    if (argc == 9) {
+        od_epd_set_window(&e, (uint16_t)atoi(argv[5]), (uint16_t)atoi(argv[6]),
+                          (uint16_t)atoi(argv[7]), (uint16_t)atoi(argv[8]));
+    }
     for (uint8_t p = 0; p < e.active.passes; p++) {
         printf("M pass %u\n", p);
         rc = od_epd_begin_pass(&e, p);

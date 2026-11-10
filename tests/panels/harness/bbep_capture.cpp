@@ -17,6 +17,11 @@
  *
  * Output: one block per panel, "P <enum> <w> <h> <chip> <flags> <xoff> <fast> <part>",
  * then "L <16 colour-lookup bytes>", then "F <flow>" ... events ... "E" per flow (event grammar: bbep_rec_io.inl).
+ *
+ * `bbep_capture rects` instead emits, for every panel with a partial flow, the partial flow for
+ * three sub-rectangles ("F partial_r<k> <x> <y> <w> <h>"), as partial_prepare_panel_ram +
+ * partial_set_addr_window do it: white fill of both planes, then the rect window per plane.
+ * The generator diffs them to find which window bytes are geometry.
  */
 #include <stdint.h>
 #include <stdlib.h>
@@ -28,6 +33,8 @@
 #include "bb_ep_gfx.inl"
 
 static BBEPDISP bbep;
+/* Partial rectangle; the whole panel unless main() selects a sub-rect. */
+static int g_rx, g_ry, g_rw = -1, g_rh = -1;
 
 static int is_type(int t) { return bbep.type == t; }
 static bool is397(void) { return is_type(EP397_800x480) || is_type(EP397_800x480_4GRAY); }
@@ -122,14 +129,14 @@ static void write_frame(void)
     }
 }
 
-/* Firmware partial_set_addr_window() for the full-frame rect. */
+/* Firmware partial_set_addr_window() for the g_r* rect. */
 static void fw_partial_window(void)
 {
-    const int x = 0, y = 0, cy = bbep.native_height;
-    int cx = (bbep.native_width + 7) & 0xfff8;
+    const int x = g_rx, y = g_ry, cy = g_rh;
+    int cx = (g_rw + 7) & 0xfff8;
     uint8_t uc[4];
     if (!(is397() || is426())) {
-        bbepSetAddrWindow(&bbep, x, y, bbep.native_width, cy);
+        bbepSetAddrWindow(&bbep, x, y, g_rw, cy);
         return;
     }
     int px0 = x, px1 = x + cx - 1;
@@ -219,15 +226,21 @@ static void flow_refresh(int mode)
 
 static void flow_partial(void)
 {
+    const bool full = g_rx == 0 && g_ry == 0 && g_rw == bbep.native_width && g_rh == bbep.native_height;
+    const int rect_bytes = ((g_rw + 7) / 8) * g_rh;
     bbepWakeUp(&bbep);
     bbepSendCMDSequence(&bbep, bbep.pInitPart ? bbep.pInitPart : bbep.pInitFull);
     fw_align();
+    if (!full) {   /* partial_prepare_panel_ram: planes equal outside the rect */
+        bbepFill(&bbep, BBEP_WHITE, PLANE_1);
+        bbepFill(&bbep, BBEP_WHITE, PLANE_0);
+    }
     fw_partial_window();
     bbepStartWrite(&bbep, PLANE_1);
-    image(plane_bytes());
+    image(rect_bytes);
     fw_partial_window();
     bbepStartWrite(&bbep, PLANE_0);
-    image(plane_bytes());
+    image(rect_bytes);
     fw_partial_refresh();
     bbepWaitBusy(&bbep);
 }
@@ -243,11 +256,46 @@ static void flow_sleep(void)
     bbepSleep(&bbep, 1);
 }
 
-int main(void)
+static bool has_partial(void)
 {
-    g_rec = stdout;
+    return bbep.pInitPart && !(bbep.iFlags & (BBEP_3COLOR | BBEP_4COLOR | BBEP_7COLOR | BBEP_4GRAY));
+}
+
+static void emit_rects(void)
+{
     for (int idx = 1; idx < EP_PANEL_COUNT; idx++) {
         setup_panel(idx);
+        if (!has_partial()) continue;
+        const int w = bbep.native_width, h = bbep.native_height;
+        /* x and width multiples of 8 (byte-addressed RAM X); the last rect touches the far
+         * corner so coordinate high bytes are exercised on panels wider/taller than 256. */
+        const int r[3][4] = {
+            {8, 16, 32, 24},
+            {((w / 2) & ~7), h / 2, 16, h / 4},
+            {(((w - 16) / 8) * 8) - 8, h - 13, 16, 12},
+        };
+        printf("P %d %d %d %d %u %d %d %d\n", idx, w, h, bbep.chip_type, (unsigned)bbep.iFlags,
+               bbep.x_offset, bbep.pInitFast != NULL, 1);
+        for (int k = 0; k < 3; k++) {
+            setup_panel(idx);
+            g_rx = r[k][0]; g_ry = r[k][1]; g_rw = r[k][2]; g_rh = r[k][3];
+            printf("F partial_r%d %d %d %d %d\n", k, g_rx, g_ry, g_rw, g_rh);
+            flow_partial();
+            printf("E\n");
+        }
+    }
+}
+
+int main(int argc, char **argv)
+{
+    g_rec = stdout;
+    if (argc > 1 && strcmp(argv[1], "rects") == 0) {
+        emit_rects();
+        return 0;
+    }
+    for (int idx = 1; idx < EP_PANEL_COUNT; idx++) {
+        setup_panel(idx);
+        g_rx = 0; g_ry = 0; g_rw = bbep.native_width; g_rh = bbep.native_height;
         printf("P %d %d %d %d %u %d %d %d\n", idx, bbep.native_width, bbep.native_height,
                bbep.chip_type, (unsigned)bbep.iFlags, bbep.x_offset,
                bbep.pInitFast != NULL, bbep.pInitPart != NULL);
@@ -256,7 +304,7 @@ int main(void)
         printf("\n");
         printf("F full\n");  setup_panel(idx); flow_refresh(REFRESH_FULL); printf("E\n");
         if (bbep.pInitFast) { printf("F fast\n"); setup_panel(idx); flow_refresh(REFRESH_FAST); printf("E\n"); }
-        if (bbep.pInitPart && !(bbep.iFlags & (BBEP_3COLOR | BBEP_4COLOR | BBEP_7COLOR | BBEP_4GRAY))) {
+        if (has_partial()) {
             printf("F partial\n"); setup_panel(idx); flow_partial(); printf("E\n");
         }
         printf("F sleep\n"); setup_panel(idx); flow_sleep(); printf("E\n");

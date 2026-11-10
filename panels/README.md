@@ -55,12 +55,15 @@ presets; `legacy/migrate_drive_config.py` is superseded by the host migrate func
    overlays (EP397/EP426 RAM alignment, the EP426 partial LUT, split-panel CS handling): full
    refresh, fast refresh (if bb_epaper has a fast init), full-frame partial refresh (if it has a
    partial init and the panel is mono), sleep.
-2. **derive** -- each flow is normalised (below) and turned mechanically into od_epd steps.
-   Register payloads move into a 0xAF slot streamed with `LUT_SLICE` until the sequence fits
-   `OD_EPD_SEQ_MAX`; only payloads AHEAD of the first image marker can move, because od_epd
-   resumes after a marker without the pass's slot. Anything the sequence language cannot
-   express blocks the mode with the missing primitive named -- nothing is approximated.
-3. **replay** -- `tests/panels/harness/od_epd_replay.c` links the REAL `shared/core/od_epd.c`,
+2. **derive** -- once per target class (below). Each flow is normalised and turned
+   mechanically into od_epd steps. Register payloads move into a 0xAF slot streamed with
+   `LUT_SLICE` until the sequence fits the class's `OD_EPD_SEQ_MAX` / step cap. Partial modes:
+   `bbep_capture rects` records the 2.x partial flow for three sub-rectangles; the bytes that
+   follow the rectangle are inferred as WINDOW geometry and the whole-plane white writes
+   (`bbepFill`) become FILL, on classes that have WINDOW/FILL. Anything the sequence language
+   cannot express blocks the mode with the missing primitive named -- nothing is approximated.
+3. **replay** -- `tests/panels/harness/od_epd_replay.c` links the REAL `shared/core/od_epd.c`
+   (built once with the default limits and once with BG22's),
    parses the framed packets with the `opendisplay_structs.h` offsets (static-asserted), drives
    `od_epd_select_mode`/`begin_pass`/`next_plane`/`finish_pass` and `od_epd_sleep`, and prints
    the bus stream, which is normalised and compared with step 1.
@@ -102,11 +105,28 @@ Accepted, documented differences (a stream that differs only by these is `equiva
 - **D6 both-CS transfers.** On the dual-controller Spectra panels bb_epaper sends some commands
   to both controllers at once; od_epd has no both-CS select, so the same transfer goes to cs0
   then cs1. The reference stream is expanded the same way before comparing.
+- **D8 partial window on a whole-panel update.** A WINDOW/FILL partial mode always sends the
+  window commands and the two white fills; 2.x skips both when the rectangle is the whole panel.
+  Equivalence for these modes is checked on the three captured sub-rectangles.
 - **D7 Spectra nibbles.** 2.x `split_panel.cpp` clamps pixel nibbles 4 and 7-15 to 0 before
   writing; od_epd streams host bytes untouched, so the host must send only valid Spectra codes.
 
 The leading `RESET BUSY` of every mode flow is dropped on both sides: `od_epd_begin_pass`
 supplies it and bb_epaper's `bbepWakeUp` does the same thing.
+
+## Target classes
+
+| class | targets | OD_EPD_SEQ_MAX | steps | WINDOW/FILL | config cap |
+|---|---|---|---|---|---|
+| `default` | ESP32, Nordic (od_epd.h defaults) | 512 B | 96 | yes | 4096 B |
+| `bg22` | EFR32BG22 (`shared/profiles.cmake`) | 128 B | 64 | no | 3120 B |
+
+Every panel is derived for each class separately (`targets.<class>`). On BG22 a mode that does
+not fit is dropped, and partial modes are whole-panel only (no WINDOW). When even the full mode
+does not fit, the panel is unavailable on BG22 (`bg22_unavailable`). For such panels a
+**single-init alternative** may be offered under `alternatives[]`: the init block bb_epaper
+re-sends after the frame is removed. It is NOT equivalent to 2.x and has never been seen on
+glass. It is never the default; a host offers it only as an explicit opt-in.
 
 ## `generated/drive_presets.json` -- schema v1 (STABLE CONTRACT)
 
@@ -118,7 +138,7 @@ removes or changes the meaning of a field bumps `schema_version`.
 {
   "schema": "opendisplay.drive_presets",
   "schema_version": 1,
-  "schema_minor": 0,
+  "schema_minor": 1,                  // 1: target classes (additive; see "Changes in minor 1")
   "sources": {
     "bb_epaper": "4edfa7f",            // revision the streams were captured from
     "bb_epaper_vendored": "5dccfbb",   // third_party/ copy (drift listed in coverage.md)
@@ -172,7 +192,18 @@ removes or changes the meaning of a field bumps `schema_version`.
         "all_equal": true               // on mismatch an entry adds first_diff/ref/got tokens
       },
       "differences": ["D1", "D2", "D3", "D4", "D5"],  // accepted differences that apply
-      "notes": []                       // doubts and caveats, plain text
+      "notes": [],                      // doubts and caveats, plain text
+      // ---- schema_minor 1 (additive) ----
+      "fits_target": {"default": true, "bg22": true},  // top-level packets run unchanged on that class
+      "targets": {                      // per class: same fields as the top level, plus
+        "default": {"limits": {"seq_max": 512, "max_steps": 96, "window": true},
+                    "status": "equivalent", "modes": [], "packets": [], "fits_config": true, "…": "…"},
+        "bg22":    {"limits": {"seq_max": 128, "max_steps": 64, "window": false}, "…": "…"}
+      },
+      "alternatives": [                 // only where targets.bg22 is blocked and a variant fits
+        {"variant": "single_init", "target_class": "bg22", "status": "alternative",
+         "verified": "untested", "equivalent": false, "modes": [], "packets": [], "…": "…"}
+      ]
     }
   }
 }
@@ -203,17 +234,33 @@ Field rules a consumer may rely on:
   refuses them with `RC_UNSUP` at mode select). They are not blockers: the data is complete.
 - Mode names are at most 11 ASCII characters. `refresh` is `full`, `fast` or `partial` (glass
   multi-pass modes report `full` with `passes` > 1). For a CMD_DRIVE_WRITE_START (0x0085) a host
-  picks `mode` = `index`. A partial mode here is FULL-FRAME: the frame is old plane + new plane
-  (`planes: 2`, IMAGE_SLICE 0/2 and 1/2); windowed partial needs `WINDOW`.
+  picks `mode` = `index`. A partial mode's frame is the rectangle's old plane + new plane
+  (`planes: 2`, IMAGE_SLICE 0/2 and 1/2). With `window: true` it takes any rectangle (WINDOW +
+  FILL); with `window: false` (BG22, or a panel whose window could not be derived) od_display
+  accepts only the whole panel.
+- The top-level drive fields (`status`, `verified`, `modes`, `packets`, `framed_hex`, …) are the
+  `default` class, identical to `targets.default`. A host writing to a BG22 must use
+  `targets.bg22` (or check `fits_target.bg22`): the default packets may carry sequences BG22
+  refuses. Each shipped mode reports `seq_bytes`, `steps`, `window` and `fits` per class.
 - `fits` assumes `caps.typical_base_config_bytes`; a consumer with the real config should check
   `len(config) + drive_bytes <= cap` itself.
+
+### Changes in minor 1
+
+Added `target_classes`, `bg22_unavailable` (id -> blocked_on, the caps the full mode needs,
+whether an alternative exists), per-entry `targets`, `fits_target`, `alternatives`, per-mode
+`seq_bytes` / `steps` / `window` / `fits`, the difference id `D8`, and the blocker ids
+`MAX_STEPS` / `REPLAY_REFUSED`. `caps.seq_max` / `caps.max_steps` now give the `default` class
+(512 / 96). Nothing was removed or renamed.
 
 ## Primitives (`blocked_on` / "Needed from others" ids)
 
 | id | missing in od_epd / od_epd_cfg |
 |---|---|
-| `SEQ_MAX` | a mode sequence longer than `OD_EPD_SEQ_MAX` (128 B) or 64 steps even after moving payloads into a slot; `modes_blocked[].fits_with` gives the cap that would fit |
-| `LUT_AFTER_IMAGE` | the sequence only fits if a payload AFTER an image marker is streamed from the slot; od_epd's `next_plane`/`finish_pass` resume without the pass's slot (`RC_LUT`) |
+| `SEQ_MAX` | a mode sequence longer than the class's `OD_EPD_SEQ_MAX` even after moving payloads into a slot; `modes_blocked[].fits_with` gives the cap that would fit |
+| `MAX_STEPS` | more steps than the class's `OD_EPD_MAX_SEQ_STEPS` |
+| `LUT_AFTER_IMAGE` | (no longer emitted: od_epd keeps the slot across the image pause) |
+| `REPLAY_REFUSED` | a glass entry the class's interpreter refuses |
 | `LUT_MAX` | the moved payloads exceed one 535-byte slot |
 | `LUT_SLOTS` | more than 8 distinct slots for one panel |
 | `SLEEP_MAX` | sleep sequence longer than `OD_EPD_SLEEP_SEQ_MAX` (16 B); no current panel hits it |
@@ -229,4 +276,5 @@ and `CS_SELECT` (dual-controller panels).
 
 Not expressible and therefore only noted, never silently approximated: `PIXEL_XFORM`
 (firmware-side repacking, e.g. the SSD2677 2bpp repack), `READBACK` (runtime controller detection
-by register read, 2.x EP397 SSD1677/SSD2677), `WINDOW` (per-update RAM window coordinates).
+by register read, 2.x EP397 SSD1677/SSD2677), a WINDOW geometry byte with a fixed offset
+(EP213ZZ addresses RAM X as x/8 + 1, so its partial mode stays whole-panel).

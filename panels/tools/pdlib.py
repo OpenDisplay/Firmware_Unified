@@ -35,6 +35,13 @@ MAX_LUT_SLOTS = 8
 # + 0x20 display 48 + 0x21 led 24 + 0x23 sensor 32 + 0x25 binary_inputs 32
 # + 0x27 security 66 + 0x2D findmy 130 (each body + 2-byte packet header)
 CAPS = {"bg22": 3120, "esp32": 4096, "nordic": 4096}
+# Interpreter limits per target class (shared/core/od_epd.h defaults; BG22 overrides them in
+# shared/profiles.cmake and builds without WINDOW/FILL). "config" is the config-size cap.
+CLASSES = {
+    "default": {"seq_max": 512, "max_steps": 96, "window": True, "config": 4096,
+                "targets": ["esp32", "nordic"]},
+    "bg22": {"seq_max": 128, "max_steps": 64, "window": False, "config": 3120, "targets": ["bg22"]},
+}
 TYPICAL_BASE = 3 + 2 + 24 + 24 + 32 + 48 + 24 + 32 + 32 + 66 + 130
 
 BBEP_REF_REV = "4edfa7f"   # what Firmware origin/main pins (platformio.ini)
@@ -98,7 +105,7 @@ def cal_body(mode_index: int, entries: list[tuple[tuple[int, ...], tuple[float, 
 
 
 ESC = {"end": 0x00, "busy": 0x01, "subst": 0x02, "image": 0x03, "lut": 0x04, "delay": 0x05,
-       "pin": 0x06, "slice": 0x07, "cs": 0x08, "lutslice": 0x0B}
+       "pin": 0x06, "slice": 0x07, "cs": 0x08, "lutslice": 0x0B, "window": 0x0C, "fill": 0x0D}
 PINREF_RESET = 0x10
 
 
@@ -124,6 +131,10 @@ def encode_steps(steps: list[tuple]) -> bytes:
             out += bytes([0, ESC["cs"], st[1]])
         elif k == "lutslice":
             out += bytes([0, ESC["lutslice"]]) + struct.pack("<HH", st[1], st[2])
+        elif k == "window":            # ("window", ((kind, val), ...)), cmd literal first
+            out += bytes([0, ESC["window"], len(st[1])]) + bytes(b for kv in st[1] for b in kv)
+        elif k == "fill":              # ("fill", cmd, value, flags)
+            out += bytes([0, ESC["fill"], st[1], st[2], st[3]])
         else:
             raise ValueError(st)
     out += bytes([0, 0])
@@ -163,6 +174,12 @@ def walk_seq(seq: bytes) -> list[tuple]:
         elif e == 2:
             c = seq[i + 2]
             out.append(("subst", bytes(seq[i + 3:i + 3 + 2 * c]))); i += 3 + 2 * c
+        elif e == 0x0C:
+            c = seq[i + 2]
+            out.append(("window", tuple((seq[i + 3 + 2 * k], seq[i + 4 + 2 * k]) for k in range(c))))
+            i += 3 + 2 * c
+        elif e == 0x0D:
+            out.append(("fill", seq[i + 2], seq[i + 3], seq[i + 4])); i += 5
         else:
             raise ValueError(f"unknown escape {e:#x}")
     raise ValueError("sequence has no END")
@@ -223,10 +240,14 @@ def build_capture(src: Path, rev: str) -> Path:
     return out
 
 
-def build_replay() -> Path:
-    out = BUILD / "od_epd_replay"
+def build_replay(cls: str = "default") -> Path:
+    out = BUILD / f"od_epd_replay-{cls}"
     BUILD.mkdir(parents=True, exist_ok=True)
-    subprocess.run([_cc("c"), "-std=c11", "-Wall", "-Wextra", "-Werror",
+    c = CLASSES[cls]
+    defs = [] if cls == "default" else [f"-DOD_EPD_SEQ_MAX={c['seq_max']}u",
+                                        f"-DOD_EPD_MAX_SEQ_STEPS={c['max_steps']}u",
+                                        f"-DOD_EPD_WITH_WINDOW={1 if c['window'] else 0}"]
+    subprocess.run([_cc("c"), "-std=c11", "-Wall", "-Wextra", "-Werror", *defs,
                     f"-I{REPO / 'shared' / 'core'}", f"-I{REPO / 'shared' / 'protocol'}",
                     str(HARNESS / "od_epd_replay.c"), str(REPO / "shared" / "core" / "od_epd.c"),
                     "-o", str(out)], check=True)
@@ -254,11 +275,17 @@ def capture(rev: str | None = None) -> dict:
     exe = build_capture(src, rev)
     names = enum_names(src)
     text = subprocess.run([str(exe)], check=True, capture_output=True, text=True).stdout
+    text += subprocess.run([str(exe), "rects"], check=True, capture_output=True, text=True).stdout
     panels: dict[str, dict] = {}
     cur = flow = None
     for line in text.splitlines():
         t = line.split()
-        if t[0] == "P":
+        if t[0] == "P" and names[int(t[1])] in panels:
+            cur = panels[names[int(t[1])]]
+        elif t[0] == "F" and len(t) == 6:
+            r = cur.setdefault("rects", {}).setdefault(t[1], {"rect": [int(x) for x in t[2:6]], "events": []})
+            flow = r["events"]
+        elif t[0] == "P":
             idx = int(t[1])
             cur = {"enum": idx, "name": names[idx], "width": int(t[2]), "height": int(t[3]),
                    "chip": CHIP.get(int(t[4]), str(t[4])), "flags": int(t[5]),
@@ -430,6 +457,14 @@ def tokens_to_steps(toks: list[tuple], layout: str, flow: str) -> tuple[list[tup
             else:
                 steps.append(("slice", k_img, nimg))
             k_img += 1
+        elif k == "WINDOW":            # ("WINDOW", cmd, ((kind, val), ...), cs)
+            if t[3] != cs:
+                steps.append(("cs", int(t[3]))); cs = t[3]; req.add("CS_SELECT")
+            steps.append(("window", ((WIN_LIT, t[1]),) + t[2]))
+        elif k == "FILL":              # ("FILL", cmd, value, flags, cs)
+            if t[4] != cs:
+                steps.append(("cs", int(t[4]))); cs = t[4]; req.add("CS_SELECT")
+            steps.append(("fill", t[1], t[2], t[3]))
         elif k == "UNSUPPORTED":
             blocked.add("IT8951")
         else:
@@ -438,7 +473,8 @@ def tokens_to_steps(toks: list[tuple], layout: str, flow: str) -> tuple[list[tup
 
 
 def fit_steps(steps: list[tuple], limit: int, allow_lut: bool = True,
-              before_image_only: bool = False) -> tuple[list[tuple], bytes, list[str]]:
+              before_image_only: bool = False, max_steps: int | None = None
+              ) -> tuple[list[tuple], bytes, list[str]]:
     """Move the largest register payloads into a LUT slot (streamed with LUT_SLICE) until the
     sequence fits. -> (steps, slot_bytes, blocked).
 
@@ -446,7 +482,8 @@ def fit_steps(steps: list[tuple], limit: int, allow_lut: bool = True,
     resumes after a marker without the pass's slot, so a LUT_SLICE there fails with RC_LUT."""
     steps = list(steps)
     slot = bytearray()
-    while len(encode_steps(steps)) > limit or count_steps(steps) > MAX_STEPS or \
+    cap_steps = MAX_STEPS if max_steps is None else max_steps
+    while len(encode_steps(steps)) > limit or count_steps(steps) > cap_steps or \
             any(s[0] == "cmd" and len(s[2]) > 254 for s in steps):
         if not allow_lut:
             return steps, bytes(slot), ["SEQ_MAX"]
@@ -454,7 +491,7 @@ def fit_steps(steps: list[tuple], limit: int, allow_lut: bool = True,
         cand = [(len(s[2]), i) for i, s in enumerate(steps) if s[0] == "cmd" and len(s[2]) > 6
                 and (not before_image_only or i < first_img)]
         if not cand:
-            return steps, bytes(slot), ["SEQ_MAX"]
+            return steps, bytes(slot), ["SEQ_MAX" if len(encode_steps(steps)) > limit else "MAX_STEPS"]
         _, i = max(cand)
         s = steps[i]
         off = slot.find(s[2]) if s[2] in slot else -1
@@ -500,15 +537,18 @@ def pixel_blockers(p: dict) -> list[str]:
 
 # ----------------------------------------------------------------------------- replay
 
-def replay(packets: bytes, mode: str) -> tuple[int, list[str]]:
-    exe = BUILD / "od_epd_replay"
+def replay(packets: bytes, mode: str, cls: str = "default",
+           geom: list[int] | None = None) -> tuple[int, list[str]]:
+    """geom: [W, H] or [W, H, x, y, w, h] (panel size, optional partial rectangle)."""
+    exe = BUILD / f"od_epd_replay-{cls}"
     if not exe.exists():
-        build_replay()
+        build_replay(cls)
     with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as f:
         f.write(packets)
         path = f.name
     try:
-        r = subprocess.run([str(exe), path, mode], capture_output=True, text=True)
+        r = subprocess.run([str(exe), path, mode, *[str(g) for g in (geom or [])]],
+                           capture_output=True, text=True)
     finally:
         os.unlink(path)
     return r.returncode, r.stdout.splitlines()
@@ -596,3 +636,69 @@ def yaml_panel_packets(entry: dict, waves: dict[str, bytes], palette: dict) -> l
             ents.append((codes, tuple(e["lab"])))
         out.append((PKT_CAL, PKT_CAL, cal_body(mi, ents, measured=False)))
     return out
+
+
+# ----------------------------------------------------------------------------- partial window
+
+WIN_LIT, WIN_GEOM = 0x00, 0x01
+WIN_DIV8, WIN_MIRROR, WIN_HIGH = 0x08, 0x10, 0x20
+
+
+def win_value(desc: int, rect: list[int], W: int, H: int) -> int:
+    """What od_epd's WINDOW geometry byte `desc` evaluates to (od_epd.c win_value)."""
+    x, y, w, h = rect
+    sel = desc & 7
+    v = [x, x + w - 1, y, y + h - 1, W - 1, H - 1, w, h][sel]
+    if desc & WIN_MIRROR:
+        dim = H if sel in (2, 3, 5) else W
+        v = dim - 1 - v if v < dim else 0
+    if desc & WIN_DIV8:
+        v >>= 3
+    return (v >> 8) & 0xFF if desc & WIN_HIGH else v & 0xFF
+
+
+_WIN_CANDIDATES = [sel | f | hi for f in (0, WIN_DIV8, WIN_MIRROR, WIN_MIRROR | WIN_DIV8)
+                   for sel in range(8) for hi in (0, WIN_HIGH)
+                   if not (f & WIN_MIRROR and sel >= 6)]
+
+
+def infer_window(runs: list[tuple[list[int], list[tuple]]], W: int, H: int) -> tuple[list[tuple], str | None]:
+    """Partial-flow token lists captured for several rectangles -> one token list where every
+    command byte that follows the rectangle is a WINDOW geometry byte and every whole-plane
+    constant write is a FILL. -> (tokens, None) or (first run's tokens, reason it failed)."""
+    base = runs[0][1]
+    if any(len(t) != len(base) for _, t in runs):
+        return base, "token count differs between rectangles"
+    plane = ((W + 7) // 8) * H
+    out = []
+    for i, t in enumerate(base):
+        col = [r[1][i] for r in runs]
+        if t[0] == "IMAGE":
+            if any(c[0] != "IMAGE" or c[2] != t[2] for c in col):
+                return base, f"token {i} differs"
+            out.append(t); continue
+        if t[0] != "CMD":
+            if any(c != t for c in col):
+                return base, f"token {i} differs"
+            out.append(t); continue
+        if any(c[0] != "CMD" or c[1] != t[1] or c[3] != t[3] or len(c[2]) != len(t[2]) for c in col):
+            return base, f"command {i} differs in shape"
+        data = t[2]
+        if len(data) == plane and len(set(data)) == 1 and all(c[2] == data for c in col):
+            out.append(("FILL", t[1], data[0], 0, t[3])); continue
+        if all(c[2] == data for c in col):
+            out.append(t); continue
+        kv = []
+        for j, b in enumerate(data):
+            vals = [c[2][j] for c in col]
+            if len(set(vals)) == 1:
+                kv.append((WIN_LIT, b)); continue
+            d = next((d for d in _WIN_CANDIDATES
+                      if all(win_value(d, r, W, H) == c[2][j] for r, c in zip([x[0] for x in runs], col))), None)
+            if d is None:
+                return base, f"command {t[1]:#04x} byte {j} matches no WINDOW geometry"
+            kv.append((WIN_GEOM, d))
+        if len(kv) + 1 > 32:
+            return base, f"command {t[1]:#04x} longer than a WINDOW step"
+        out.append(("WINDOW", t[1], tuple(kv), t[3]))
+    return out, None
