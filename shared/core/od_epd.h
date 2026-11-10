@@ -107,10 +107,53 @@ extern "C" {
 #define OD_EPD_ESC_READ_SCRATCH    0x09u   /* [pin_ref][len<=16] clock bytes into scratch */
 #define OD_EPD_ESC_WRITE_SCRATCH   0x0Au   /* [cmd][off][len] cmd + scratch[off..off+len) */
 #define OD_EPD_ESC_LUT_SLICE       0x0Bu   /* [off:2 LE][len:2 LE] of the slot */
+/* PROVISIONAL -- not yet in opendisplay_structs.h's DriveSeqEscape enum. Values are reserved
+ * here first because the canonical header is a byte-for-byte copy this repo must not edit;
+ * docs/CONFIG_DRIVEN_DISPLAY.md specifies both, and the protocol repo has to adopt them before
+ * any host relies on the numbers.
+ *
+ * WINDOW: [n][(kind,val) * n] -- one step whose n bytes (cmd first, n = 1..32) are each a
+ *   literal (kind 0x00, val = the byte) or a GEOMETRY byte (kind 0x01, val = descriptor):
+ *     bits 2..0  value: 0 x0, 1 x1, 2 y0, 3 y1 (window, inclusive), 4 W-1, 5 H-1 (panel),
+ *                6 window width, 7 window height
+ *     bit 3      divide by 8 (byte-addressed RAM X)
+ *     bit 4      mirror: dim-1-v, applied BEFORE the divide (x values against W, y against H;
+ *                refused on 6/7)
+ *     bit 5      take the high byte (else the low byte)
+ *   The window is the partial rectangle on a partial update and the whole panel otherwise, so
+ *   one sequence serves both. SSD16xx 0x44/0x45/0x4E/0x4F, mirrored-RAM variants and UC81xx
+ *   0x90 are all expressible.
+ * FILL: [cmd][value][flags] -- cmd, then a whole plane of `value`: ceil(w*bpp/8)*h bytes, with
+ *   bpp from flags bits 1..0 (0=1, 1=2, 2=4) and w,h the PANEL, or the window when flags bit 7
+ *   is set. What bb_epaper's bbepFill() did before a partial update (old == new outside the
+ *   window, so a differential waveform leaves it alone). */
+#define OD_EPD_ESC_WINDOW          0x0Cu
+#define OD_EPD_ESC_FILL            0x0Du
 #define OD_EPD_SEQ_END             0x00u
 #define OD_EPD_WAVE_VCOM           0xFFu
 
 #define OD_EPD_MAX_PASSES          8u
+
+/* WINDOW/FILL cost code a target may not have room for (BG22). 0 makes the validator refuse
+ * them as OD_EPD_RC_UNSUP, which is the honest wire answer for a target without them. */
+#ifndef OD_EPD_WITH_WINDOW
+#define OD_EPD_WITH_WINDOW 1
+#endif
+
+#define OD_EPD_WIN_KIND_LITERAL    0x00u
+#define OD_EPD_WIN_KIND_GEOM       0x01u
+#define OD_EPD_WIN_X0              0u
+#define OD_EPD_WIN_X1              1u
+#define OD_EPD_WIN_Y0              2u
+#define OD_EPD_WIN_Y1              3u
+#define OD_EPD_WIN_W_LAST          4u
+#define OD_EPD_WIN_H_LAST          5u
+#define OD_EPD_WIN_WIDTH           6u
+#define OD_EPD_WIN_HEIGHT          7u
+#define OD_EPD_WIN_DIV8            0x08u
+#define OD_EPD_WIN_MIRROR          0x10u
+#define OD_EPD_WIN_HIGH            0x20u
+#define OD_EPD_FILL_RECT           0x80u
 
 /* Public return codes (negative), so callers can tell "this target does not
  * implement an escape the sequence uses" (NACK SEQ_UNSUPPORTED on the wire)
@@ -219,6 +262,17 @@ typedef struct {
      * sequence starts (each pass, and the sleep sequence), kept across the
      * image pause within one pass. */
     uint8_t                scratch[OD_EPD_SCRATCH_LEN];
+    /* The active pass's waveform, resolved at begin and KEPT across the image pause, so a
+     * LUT/LUT_SLICE/SUBST step after the image marker (bb_epaper sends several panels' fast
+     * waveform as part of the refresh) has the same slot as one before it. */
+    uint8_t                lut_hdr[7];
+    bool                   lut_have;
+    uint8_t                lut_slot;
+    uint8_t                lut_vsn1;
+    uint16_t               lut_len;
+    /* WINDOW/FILL geometry: the whole panel unless od_epd_set_window() narrowed it. Reset by
+     * od_epd_select_mode(). */
+    uint16_t               win_x, win_y, win_w, win_h;
 } od_epd_t;
 
 int  od_epd_init(od_epd_t *e, const od_panel_desc_t *d, const od_epd_io_t *io);
@@ -240,6 +294,14 @@ int  od_epd_write_image_chunk(od_epd_t *e, const uint8_t *buf, size_t n);
 /* Advance to the next image marker, for panels that take two 1bpp planes. */
 int  od_epd_next_plane(od_epd_t *e);
 int  od_epd_finish_pass(od_epd_t *e);
+/* Like od_epd_finish_pass, but runs ANOTHER mode's tail: the steps after the last image marker
+ * of `mode`'s sequence, with that mode's pass-0 waveform. The frame already in controller RAM is
+ * refreshed the way `mode` refreshes. This is how a 0x0072 refresh byte asking for FAST selects a
+ * config-declared fast mode after the frame went in under mode 0 -- the same split bb_epaper had
+ * (init at START, refresh-mode-specific init at END). */
+int  od_epd_finish_with_tail(od_epd_t *e, uint8_t mode);
+/* Narrow WINDOW/FILL to a rectangle for the next pass (partial update). */
+void od_epd_set_window(od_epd_t *e, uint16_t x, uint16_t y, uint16_t w, uint16_t h);
 int  od_epd_sleep(od_epd_t *e);
 bool od_epd_wait_idle(od_epd_t *e, uint32_t timeout_ms);
 bool od_epd_is_busy(od_epd_t *e);

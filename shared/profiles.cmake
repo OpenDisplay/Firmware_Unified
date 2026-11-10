@@ -40,7 +40,10 @@ set(OD_PROFILE_SILABS
     # brought up through. ESP32 and Nordic set it in their own build files too.
     OD_CAP_SPI_RAW=1
     # CMD_READ_IDENT: plaintext identity from DisplayConfig 0x20, pre-gate. Silabs-first.
-    OD_CAP_READ_IDENT=1)
+    OD_CAP_READ_IDENT=1
+    # od_epd's WINDOW/FILL escapes (partial update) cost flash this part does not have, and it
+    # has no partial transfer to use them; a sequence carrying them is refused SEQ_UNSUPPORTED.
+    OD_EPD_WITH_WINDOW=0)
 
 # Compile-time log level, one selector for every target.
 #
