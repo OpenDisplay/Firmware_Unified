@@ -17,12 +17,21 @@ locally — CI runs both, and gcc alone is enough to work here.
 ## Layout
 
 ```
-vectors/     the wire-vector corpus — JSON, one file per subsystem
-host/
-  CMakeLists.txt     host build of shared/ + CTest wiring
-  canary.c           compiles the protocol headers under the strict flags (scaffold)
-  replay_vectors.py  replays the corpus through py-opendisplay's public API
+vectors/     the wire-vector corpus (JSON, one file per subsystem), drive_panels.inc and the
+             od_epd_cfg golden bus traces (vectors/epd_golden/)
+host/        host build of shared/ + CTest wiring (tests/host/CMakeLists.txt, drive_coverage.cmake):
+             one *_test.c per subsystem, fakes per target under fake_*/, the C corpus runner
+             (dispatch_corpus) and replay_vectors.py (the py-opendisplay side)
+fuzz/        libFuzzer harnesses over the pre-auth surface (session open/auth, PIPE, config_drive)
+             with their committed seed corpora under fuzz/corpus/<target>/
+panels/      test_panels.py: drive presets (panels/generated/) replayed through od_epd vs bb_epaper
+cmake/       shared CMake helpers
 ```
+
+The full gate is `tools/check.sh` (`--list` names every step). Two host tests,
+`bench_dispatch_gate` and `nfc_read_tool`, need PyYAML + cryptography in the Python CMake picks
+(tools/requirements-host.txt); check.sh reports them as one SKIP when those are missing, while a
+bare `ctest` reports them as failures.
 
 ## Why this exists before any target code
 
@@ -41,9 +50,9 @@ core (once `shared/` has one) and `py-opendisplay`. A vector both sides agree on
 contract test; a vector they disagree on is exactly the host/firmware divergence this repo
 exists to eliminate, caught in CI instead of on a bench.
 
-Today only the Python side exists, so this is a one-sided test. It still earns its place:
-it forces the vector schema to be expressible against a real implementation before there is
-a second one to argue with, and it makes every vector added later half-verified on arrival.
+Both sides exist: `dispatch_corpus` replays `vectors/dispatch.json` through the production
+`od_dispatch_frame()`, and `replay_vectors` drives the same corpus through py-opendisplay
+(registered only when py-opendisplay is importable; tools/check.sh runs it via uv).
 
 `replay_vectors.py` calls py-opendisplay's **public API only** and must never reimplement
 encode logic — a vector both runners derive from the same local helper proves nothing.
@@ -51,7 +60,8 @@ Vectors it cannot express are reported as `SKIP` with a reason, never quietly pa
 
 ## The compiler is the boundary check
 
-[.github/workflows/shared-boundary.yml](../.github/workflows/shared-boundary.yml) greps for
+The `shared boundary:` steps of [tools/check.sh](../tools/check.sh) (run by
+[.github/workflows/ci.yml](../.github/workflows/ci.yml)) grep for
 vendor includes. A grep sees `#include` lines and literal tokens; it cannot see an
 `extern`-declared vendor symbol, a macro leaked through a target config header, or a libc
 call that does not exist on a freestanding target. `-std=c99 -Wall -Wextra -Werror` with
@@ -60,13 +70,10 @@ gate.
 
 ## Not here yet
 
-- **The C vector runner** (`test_vectors.c`) — arrives with the first `shared/core` source.
-  There is nothing for it to run against yet.
-- **Fuzz harnesses** (`tests/fuzz/`) — libFuzzer over the config TLV parser and frame
-  dispatch, both reachable pre-authentication. Mandatory before those subsystems are
-  promoted, not after.
-- **HAL test doubles** (`host/doubles/`) — one per interface, arriving with the interfaces.
-- **Captured wire vectors.** The corpus is authored today. Captures from real sessions
-  have their own deadline: once `shared/core` starts replacing a target's logic, there is
-  no longer an untouched reference to capture from. See TEST_OWNERSHIP § "Capture is
-  time-sensitive".
+- **HAL test doubles as one set** -- the fakes exist per target (`host/fake_*`), not one per
+  shared interface.
+- **ESP32 SMP/OTA fuzzing** -- `od_smp.cpp` needs ESP-IDF OTA/partition/timer/FreeRTOS fakes, or
+  its frame parser split into a vendor-free `.c` that a fuzzer can link.
+- **Captured wire vectors.** The corpus is authored. Captures from real sessions have their own
+  deadline: once `shared/core` replaces a target's logic, there is no longer an untouched
+  reference to capture from. See TEST_OWNERSHIP § "Capture is time-sensitive".
