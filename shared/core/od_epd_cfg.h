@@ -72,6 +72,10 @@ uint8_t od_epd_cfg_busy_idle_level(void);
 
 bool    od_epd_cfg_select(uint8_t mode, od_epd_cfg_mode_t *out);
 uint8_t od_epd_cfg_mode_count(void);
+/* The 0xB1 code_map (logical colour -> panel 2-bit code) of the loaded panel. Exposed, never
+ * applied: frame bytes reach the panel as the host sent them. Whether firmware should remap is
+ * an open protocol decision (docs/CONFIG_DRIVEN_DISPLAY.md). */
+bool    od_epd_cfg_code_map(uint8_t out[4]);
 
 /* Whether the stored config carries drive data (a 0xB1 and at least one 0xAE) for display `d`.
  * Cheap enough for a START path: one index build, no descriptor load. False is the "needs

@@ -392,6 +392,15 @@ bool od_epd_cfg_select(uint8_t mode, od_epd_cfg_mode_t *out)
     return true;
 }
 
+bool od_epd_cfg_code_map(uint8_t out[4])
+{
+    if (!s_loaded || out == NULL) {
+        return false;
+    }
+    memcpy(out, s_desc.code_map, sizeof(s_desc.code_map));
+    return true;
+}
+
 uint8_t od_epd_cfg_mode_count(void)
 {
     return s_loaded ? s_desc.mode_count : 0u;
