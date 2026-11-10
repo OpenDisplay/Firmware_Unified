@@ -264,9 +264,7 @@ static void test_burned_and_unknown(void)
     fx_cfg_store(&c);
     CHECK(od_cfg_index_build() == 1);
     CHECK(od_cfg_index_entry(0)->sub == 0u);
-    /* od_cfg_index.c reads body[0..1] only when bsz >= 2, so instance reads 0 here. Harmless
-     * for every consumer today (each needs a longer body), but the field lies. */
-    KNOWN_BUG("IDX-1BYTE", od_cfg_index_entry(0)->instance == 5u);
+    CHECK(od_cfg_index_entry(0)->instance == 5u);
 }
 
 static void test_truncation_and_overrun(void)

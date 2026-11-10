@@ -117,9 +117,7 @@ int od_cfg_index_build(void)
         }
         if (record && bsz > 0u) {
             /* Identity comes from the body -- see the note in the header. */
-            if (bsz >= 2u) {
-                (void)read_payload(off + hdr_sz, b2, 2u);
-            }
+            (void)read_payload(off + hdr_sz, b2, bsz >= 2u ? 2u : 1u);
             s_index[s_count].type     = ph[1];
             s_index[s_count].instance = b2[0];
             s_index[s_count].sub      = b2[1];
