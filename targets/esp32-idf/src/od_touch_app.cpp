@@ -17,8 +17,7 @@
 #include "esp_attr.h"      // IRAM_ATTR
 #include "driver/gpio.h"    // gpio_hold_*
 
-/* Declared here rather than via main.h: that header pulls bb_epaper.h, which is deliberately off
- * the include path and granted per-source in main/CMakeLists.txt. */
+/* Declared here rather than via main.h, which defines the firmware's globals. */
 extern struct od_config globalConfig;
 extern uint8_t dynamicreturndata[11];
 

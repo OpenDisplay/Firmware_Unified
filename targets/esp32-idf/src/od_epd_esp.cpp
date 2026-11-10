@@ -13,7 +13,7 @@
 #include "opendisplay_structs.h"
 
 #define PIN_UNUSED 0xFFu
-/* Every SPI panel this target has driven ran at bb_epaper's ESP32 rate. */
+/* The rate every SPI panel on this target has been driven at. */
 #define PANEL_SPI_HZ 8000000
 /* One constant for the bus's max_transfer_sz and the chunk size below. */
 #define PANEL_MAX_XFER 4096
