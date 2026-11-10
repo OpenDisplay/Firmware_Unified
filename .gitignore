@@ -36,11 +36,13 @@ artifact/
 # This is a stopgap that keeps the facts in git. The real fix is to move both edits
 # somewhere they are not shadowed by a generator; until then, do not "clean up" these
 # negations.
+#
+# The rest of autogen/ is committed too, so a checkout builds without slc or Java (CI does
+# exactly that). Regenerate only with tools/slc_regenerate.sh and review the diff. The slc
+# bookkeeping and its agent notes stay out.
 !targets/efr32bg22-slc/autogen/
-targets/efr32bg22-slc/autogen/*
-!targets/efr32bg22-slc/autogen/linkerfile.ld
-!targets/efr32bg22-slc/autogen/gatt_db.c
-!targets/efr32bg22-slc/autogen/gatt_db.h
+targets/efr32bg22-slc/autogen/.slc_state/
+targets/efr32bg22-slc/autogen/AGENTS-SLAB.md
 
 # Nordic SDK (targets/nrf52-sdk)
 _build/
