@@ -923,12 +923,14 @@ if(Python3_FOUND)
         ../../targets/efr32bg22-slc/od_cmd_drive.c
         ../../shared/core/od_cmd_spi_raw.c
         ../../targets/efr32bg22-slc/od_cmd_silabs.c
+        ../../shared/core/od_cmd_ident.c
         ../../targets/efr32bg22-slc/od_inflate_app.c
         ${OD_VEC_INC})
     target_include_directories(od_dispatch_corpus_silabs_test PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/fake_silabs
         ../../targets/efr32bg22-slc)
     target_compile_definitions(od_dispatch_corpus_silabs_test PRIVATE
+        OD_IDENT_TARGET=OD_IDENT_TARGET_SILABS
         OPENDISPLAY_BUILD_ID="1a2b3c4d")
     target_link_libraries(od_dispatch_corpus_silabs_test od_session_fake_silabs)
     add_dependencies(od_dispatch_corpus_silabs_test od_vectors_generated)
@@ -947,6 +949,7 @@ if(Python3_FOUND)
         ../../targets/efr32bg22-slc/od_cmd_drive.c
         ../../shared/core/od_cmd_spi_raw.c
         ../../targets/efr32bg22-slc/od_cmd_silabs.c
+        ../../shared/core/od_cmd_ident.c
         ../../targets/efr32bg22-slc/od_inflate_app.c
         ../../targets/efr32bg22-slc/opendisplay_pipe.c
         ../../targets/efr32bg22-slc/od_hal_radio.c)
@@ -955,6 +958,7 @@ if(Python3_FOUND)
         ../../targets/efr32bg22-slc)
     target_compile_definitions(od_silabs_fault_test PRIVATE
         OD_TEST_REAL_SILABS_PIPE=1
+        OD_IDENT_TARGET=OD_IDENT_TARGET_SILABS
         OPENDISPLAY_BUILD_ID="1a2b3c4d")
     target_link_libraries(od_silabs_fault_test od_session_fake_silabs)
     add_test(NAME silabs_fault COMMAND od_silabs_fault_test)

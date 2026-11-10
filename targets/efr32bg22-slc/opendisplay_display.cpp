@@ -944,8 +944,10 @@ extern "C" bool od_xfer_app_panel_info(od_xfer_panel_info_t *out)
     return false;
   }
   memset(out, 0, sizeof(*out));
+  /* No drive packets: every upload start NACKs needs-migration before the panel is touched. */
+  out->needs_migration = !od_epd_shim_available(d->instance_number);
   if (od_color_direct_geometry(d->color_scheme, d->pixel_width, d->pixel_height,
-                               &out->geometry) != OD_COLOR_OK) {
+                               &out->geometry) != OD_COLOR_OK && !out->needs_migration) {
     return false;
   }
   out->width = d->pixel_width;
