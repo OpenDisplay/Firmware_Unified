@@ -72,7 +72,7 @@ def frame_all(pk: list[tuple[int, int, bytes]]) -> bytes:
 
 
 def packets_json(pk: list[tuple[int, int, bytes]]) -> list[dict]:
-    return [{"id": f"0x{pid:02X}", "number": n, "body_hex": body.hex()} for n, pid, body in pk]
+    return [{"id": pid, "number": n, "body_hex": body.hex()} for n, pid, body in pk]
 
 
 def sizes(blob: bytes) -> tuple[int, dict]:
@@ -176,7 +176,7 @@ def glass_packets(entry: dict, website: dict | None) -> list[tuple[int, int, byt
     except Exception:
         if website is None:
             raise
-        return [(0, int(x["id"], 16), bytes.fromhex(x["body_hex"])) for x in website]
+        return [(x["number"], x["id"], bytes.fromhex(x["body_hex"])) for x in website]
 
 
 def load_yaml() -> dict[int, dict]:

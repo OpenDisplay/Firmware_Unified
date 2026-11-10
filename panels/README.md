@@ -14,9 +14,11 @@ panels/
   palettes/                 measured BWRY 16-colour palettes (0xB0 source)
   waves/                    the two 535-byte BWRY16 waveforms (0xAF source)
   tools/                    generators (stdlib Python + a host C compiler)
+    pdlib.py                encoders, capture/replay drivers, normaliser, deriver
+    gen_all.py              capture -> derive -> replay -> generated/*  (--check: staleness)
+    build_panel_ids.py      rebuilds panel_ids.json from the sibling repos (git show only)
   generated/
-    bbep_streams.json       command streams captured from bb_epaper on the host
-    drive_db.json           per-panel derived drive data (modes as step lists)
+    bbep_streams.json       normalised bb_epaper streams per enum, + drift vs the vendored copy
     drive_presets.json      THE HOST ARTEFACT (schema below)
     coverage.md             per-id status table
   legacy/                   lab scripts imported verbatim (see Provenance)
@@ -42,19 +44,31 @@ presets; `legacy/migrate_drive_config.py` is superseded by the host migrate func
 
 ## How the data is made
 
-1. `tools/capture_bbep.py` compiles bb_epaper for the host against a recording
-   SPI/GPIO/delay backend (`tests/panels/harness/bbep_rec_io.inl`) and runs, for every panel
-   enum, the call sequence the 2.x firmware (`Firmware` `src/display_service.cpp`) performs:
-   full refresh, fast refresh (if bb_epaper has a fast init), full-frame partial refresh (if it
-   has a partial init), sleep. Output: `generated/bbep_streams.json`.
-2. `tools/derive.py` turns each captured stream mechanically into od_epd sequences (one per
-   mode), moving large register payloads (LUTs) into a 0xAF slot streamed with `LUT_SLICE`.
-   Where the stream needs something the sequence language cannot express, the panel is marked
-   `blocked` with the missing primitive named -- nothing is approximated.
-3. `tools/equivalence.py` runs the REAL `shared/core/od_epd.c`, host-compiled, over the encoded
-   packets against the same recording mock, and diffs the two normalised streams.
-4. `tools/gen_presets.py` writes `generated/drive_presets.json` and `generated/coverage.md`.
-   `tools/gen_all.py` runs 1-4; `tools/gen_all.py --check` fails if anything committed is stale.
+`python3 panels/tools/gen_all.py` (needs a C/C++ compiler and the bb_epaper clone, default
+`../bb_epaper` next to this repo or `OD_BBEP_UPSTREAM`; read with `git archive`, never checked out):
+
+1. **capture** -- bb_epaper at `4edfa7f` (the revision `Firmware` origin/main pins; the vendored
+   `third_party/` copy `5dccfbb` is captured too and per-panel drift is listed in
+   `generated/coverage.md`) is compiled for the host against a recording SPI/GPIO/delay backend
+   (`tests/panels/harness/bbep_rec_io.inl`). `tests/panels/harness/bbep_capture.cpp` runs, per
+   panel enum, the call sequence `Firmware` `src/display_service.cpp` performs, including its
+   overlays (EP397/EP426 RAM alignment, the EP426 partial LUT, split-panel CS handling): full
+   refresh, fast refresh (if bb_epaper has a fast init), full-frame partial refresh (if it has a
+   partial init and the panel is mono), sleep.
+2. **derive** -- each flow is normalised (below) and turned mechanically into od_epd steps.
+   Register payloads move into a 0xAF slot streamed with `LUT_SLICE` until the sequence fits
+   `OD_EPD_SEQ_MAX`; only payloads AHEAD of the first image marker can move, because od_epd
+   resumes after a marker without the pass's slot. Anything the sequence language cannot
+   express blocks the mode with the missing primitive named -- nothing is approximated.
+3. **replay** -- `tests/panels/harness/od_epd_replay.c` links the REAL `shared/core/od_epd.c`,
+   parses the framed packets with the `opendisplay_structs.h` offsets (static-asserted), drives
+   `od_epd_select_mode`/`begin_pass`/`next_plane`/`finish_pass` and `od_epd_sleep`, and prints
+   the bus stream, which is normalised and compared with step 1.
+4. **emit** -- `generated/drive_presets.json`, `generated/bbep_streams.json`,
+   `generated/coverage.md`. `gen_all.py --check` exits 1 if any committed output is stale.
+
+`tests/panels/test_panels.py` (host gate step "panel data") re-runs step 3 against the committed
+streams, so it needs no bb_epaper checkout; `OD_PANELS_STALE=1` adds the `--check` run.
 
 The six `panels.yaml` entries are NOT re-derived: their packets are encoded from `panels.yaml`
 exactly as the website ships them today (asserted byte-for-byte by the tests).
@@ -85,6 +99,14 @@ Accepted, documented differences (a stream that differs only by these is `equiva
   not reproduced. The reference flow therefore starts at `bbepWakeUp`.
 - **D5 BUSY poll cadence.** bb_epaper waits 10+1 ms then polls every 20 ms with a 5/35 s cap;
   od_epd polls every 5 ms up to `busy_timeout_ms`. Only the BUSY position is compared.
+- **D6 both-CS transfers.** On the dual-controller Spectra panels bb_epaper sends some commands
+  to both controllers at once; od_epd has no both-CS select, so the same transfer goes to cs0
+  then cs1. The reference stream is expanded the same way before comparing.
+- **D7 Spectra nibbles.** 2.x `split_panel.cpp` clamps pixel nibbles 4 and 7-15 to 0 before
+  writing; od_epd streams host bytes untouched, so the host must send only valid Spectra codes.
+
+The leading `RESET BUSY` of every mode flow is dropped on both sides: `od_epd_begin_pass`
+supplies it and bb_epaper's `bbepWakeUp` does the same thing.
 
 ## `generated/drive_presets.json` -- schema v1 (STABLE CONTRACT)
 
@@ -97,74 +119,92 @@ removes or changes the meaning of a field bumps `schema_version`.
   "schema": "opendisplay.drive_presets",
   "schema_version": 1,
   "schema_minor": 0,
-  "generator": "panels/tools/gen_presets.py",
   "sources": {
     "bb_epaper": "4edfa7f",            // revision the streams were captured from
-    "panels_yaml_sha256": "…",
-    "structs": "opendisplay_structs.h 2.x"
+    "bb_epaper_vendored": "5dccfbb",   // third_party/ copy (drift listed in coverage.md)
+    "panel_ids": {"Firmware": "…", "opendisplay.org_2": "…", "Firmware_Silabs": "…"},
+    "panels_yaml_sha256": "…"
   },
-  "caps": {                             // config byte ceilings (whole config blob)
+  "caps": {                             // config byte ceilings (whole config blob) + od_epd limits
     "bg22": 3120, "esp32": 4096, "nordic": 4096,
-    "typical_base_config_bytes": 0      // legacy-only config used for the fits check
+    "typical_base_config_bytes": 417,   // legacy-only config used for the fits check
+    "seq_max": 128, "max_steps": 64, "sleep_max": 16, "lut_max": 535
   },
+  "names": {"EP29YR_168x384": "0x001E"},// name -> key (aliases excluded)
   "panels": {
-    "0x001E": {                         // key: legacy panel_ic_type, "0x%04X"
+    "0x001E": {                         // key: legacy panel_ic_type, "0x%04X"; all 77 ids present
       "panel_ic_type": 30,              // the SAME number, as an int. Keep writing it into 0x20.
-      "name": "EP29YR_168x384",         // stable panel name (= bb_epaper enum name)
-      "aliases": [],                    // other panel_ic_type values that mean this panel (e.g. 1004 -> 0x003A)
+      "name": "EP29YR_168x384",         // stable panel name (bb_epaper enum, or the panels.yaml name)
+      "aliases": [],                    // other keys that mean this panel (0x003A <- 0x03EC)
+      "alias_of": "0x003A",             // only on an alias; its drive data is the target's copy
       "legacy": {                       // what a 2.x / old client must see in 0x20
         "panel_ic_type": 30,
-        "color_scheme": 3               // ColorScheme for 0x20; old clients pick colour codes by panel_ic_type+scheme
+        "color_scheme": 3,              // old clients pick colour codes by panel_ic_type+scheme
+        "pixel_width": 168, "pixel_height": 384,   // website preset geometry (null if no preset)
+        "presets": ["…"]                // website preset ids using this panel_ic_type
       },
-      "width": 168, "height": 384,      // native controller orientation, pixels
-      "color_scheme": 3,                // ColorScheme the panel renders natively (0x20 value)
-      "controller": "UC81xx",           // "UC81xx" | "SSD16xx" (bb_epaper chip_type family)
+      "width": 168, "height": 384,      // bb_epaper native size
+      "color_scheme": 3,                // native ColorScheme of mode 0
+      "controller": "UC81xx",           // "UC81xx" | "SSD16xx"
       "bbep_flags": ["4COLOR"],         // bb_epaper flag names, informational
+      "status": "glass",                // "glass" | "equivalent" | "differs" | "blocked" | "not_attempted"
       "verified": "glass",              // "glass" | "equivalent" | "untested"
-      "status": "ok",                   // "ok" | "blocked"
-      "blocked_on": [],                 // primitive ids (see "Primitives") when status=blocked
-      "requires_escapes": [],           // escapes a target must implement, e.g. ["SET_PIN"]
-      "modes": [                        // in mode_index order; mode 0 is the default
-        {"index": 0, "name": "full",  "refresh": "full",    "passes": 1, "color_scheme": 255},
-        {"index": 1, "name": "fast",  "refresh": "fast",    "passes": 1, "color_scheme": 255},
-        {"index": 2, "name": "partial","refresh": "partial","passes": 1, "color_scheme": 255,
-         "planes": 2}                   // partial: frame = old plane + new plane (IMAGE_SLICE 0/2, 1/2)
+      "blocked_on": [],                 // primitive ids (see "Primitives"); non-empty iff status=blocked
+      "blocked_detail": {"fast": ["SEQ_MAX"]},     // per flow (full/fast/partial/sleep), why it was dropped
+      "requires_escapes": [],           // "SET_PIN", "CS_SELECT": the target io must implement them
+      "modes": [                        // shipped modes, in mode_index order; mode 0 is the default
+        {"index": 0, "name": "full", "refresh": "full", "passes": 1, "color_scheme": 3, "planes": 2}
+      ],                                // planes = image markers per pass (partial: old + new)
+      "modes_blocked": [                // 2.x flows NOT shipped, with why and what would make them fit
+        {"name": "fast", "blocked_on": ["SEQ_MAX"], "seq_bytes": 140, "steps": 39,
+         "fits_with": {"seq_max": 144, "steps": 39}}
       ],
       "packets": [                      // ready to append AFTER every legacy packet, in this order
-        {"id": 177, "number": 0, "body_hex": "…"},   // 0xB1 first, then 0xAE…, 0xAF…, 0xB0…
+        {"id": 177, "number": 0, "body_hex": "…"},   // 0xB1, then 0xAE…, 0xAF…, 0xB0…
         {"id": 174, "number": 0, "body_hex": "…"}
       ],
       "framed_hex": "…",                // concatenation of [number][id][len:2 LE][body] for all packets
       "drive_bytes": 0,                 // len(framed_hex)/2
       "fits": {"bg22": true, "esp32": true, "nordic": true},  // typical_base + drive_bytes <= cap
-      "equivalence": {"full": "match", "fast": "match", "sleep": "match"},
-      "differences": ["D1", "D2"],      // accepted differences that apply (README § Normalised stream)
-      "notes": []
+      "equivalence": {                  // replay verdicts; per mode index and for sleep
+        "modes": {"0": {"rc": 0, "equal": true}},
+        "sleep": {"rc": 0, "equal": true},             // null when sleep is blocked
+        "all_equal": true               // on mismatch an entry adds first_diff/ref/got tokens
+      },
+      "differences": ["D1", "D2", "D3", "D4", "D5"],  // accepted differences that apply
+      "notes": []                       // doubts and caveats, plain text
     }
-  },
-  "names": {"EP29YR_168x384": "0x001E"} // name -> key
+  }
 }
 ```
 
 Field rules a consumer may rely on:
 
-- `packets[].id` is the packet-type id (174 0xAE, 175 0xAF, 176 0xB0, 177 0xB1). `body_hex` is
-  the BODY only (no 4-byte `SinglePacketHeaderEx`). `number` is the value this generator puts in
-  the header's first byte (instance for 0xB1, mode_index for 0xAE, lut_slot for 0xAF, mode_index
-  for 0xB0); readers ignore it, so a consumer may renumber.
+- `packets[].id` is the packet-type id as an int (174 0xAE, 175 0xAF, 176 0xB0, 177 0xB1). `body_hex` is the BODY only (no
+  4-byte `SinglePacketHeaderEx`). `number` is what this generator puts in the header's first
+  byte (instance for 0xB1, mode_index for 0xAE, lut_slot for 0xAF, 0xB0 for 0xB0 -- the website
+  bytes for the glass entries); readers ignore it, so a consumer may renumber.
 - All packets are for display instance 0. For instance N, rewrite `body[0]` of every 0xB1, 0xAE,
   0xAF and 0xB0 body to N. 0xAF slot ids are global on the device (looked up by slot alone), so a
   second display must also renumber its slots (0xAF `body[1]` and the 0xAE `lut_slot[]` bytes at
   body offsets 19..26) to avoid colliding with the first display's.
 - A migrating client removes any existing 0xAE/0xAF/0xB0/0xB1 packets for that instance (and the
   burned ids 0x2E-0x31) before appending these.
-- `status: "blocked"` entries carry `packets: []` -- writing nothing is the honest outcome; the
-  device will report the panel undrivable rather than drive it wrongly.
-- `verified`: `glass` = this exact data was seen working on a real panel; `equivalent` = the od_epd
-  interpreter emits the same normalised stream bb_epaper emits for the 2.x flow (host-proven, not
-  seen on glass); `untested` = generated but not proven equivalent (see `equivalence`/`notes`).
-- Mode names are at most 11 ASCII characters. `refresh` is one of `full`, `fast`, `partial`,
-  `multipass`. For a CMD_DRIVE_WRITE_START (0x0085) a host picks `mode` = `index`.
+- `status`: `glass` = the panels.yaml data seen working on a real panel (hand-written, NOT the
+  bb_epaper stream; `equivalence` is recorded for information and differs); `equivalent` = every
+  shipped mode and the sleep sequence replay through od_epd to the same normalised stream as the
+  2.x flow (host-proven, never seen on glass); `differs` = shipped but a replay mismatches;
+  `blocked` = the full flow or sleep cannot be expressed -- `packets: []`, write nothing, the
+  device then reports the panel undrivable rather than driving it wrongly; `not_attempted` = no
+  bb_epaper enum to capture.
+- `verified` is `glass`, `equivalent` (same meaning as the status) or `untested`.
+- A panel with `requires_escapes` is equivalent on the host but only drives on a target whose io
+  implements those escapes (`od_epd_cfg` currently leaves `set_pin`/`cs_select` NULL, so od_epd
+  refuses them with `RC_UNSUP` at mode select). They are not blockers: the data is complete.
+- Mode names are at most 11 ASCII characters. `refresh` is `full`, `fast` or `partial` (glass
+  multi-pass modes report `full` with `passes` > 1). For a CMD_DRIVE_WRITE_START (0x0085) a host
+  picks `mode` = `index`. A partial mode here is FULL-FRAME: the frame is old plane + new plane
+  (`planes: 2`, IMAGE_SLICE 0/2 and 1/2); windowed partial needs `WINDOW`.
 - `fits` assumes `caps.typical_base_config_bytes`; a consumer with the real config should check
   `len(config) + drive_bytes <= cap` itself.
 
@@ -172,12 +212,21 @@ Field rules a consumer may rely on:
 
 | id | missing in od_epd / od_epd_cfg |
 |---|---|
-| `SEQ_MAX` | a mode sequence longer than `OD_EPD_SEQ_MAX` (128 B) or 64 steps |
-| `SLEEP_MAX` | sleep sequence longer than `OD_EPD_SLEEP_SEQ_MAX` (16 B) |
-| `SET_PIN_RESET` | a mid-sequence hardware reset: needs `SET_PIN` with `OD_SEQ_PINREF_RESET` implemented by the target io (`od_epd_cfg` leaves `set_pin` NULL) |
-| `CS_BOTH` | one transfer to both controllers at once (`CS_SELECT` accepts only 0/1) |
-| `PIXEL_XFORM` | firmware-side per-pixel repacking/clamping of host bytes (SSD2683 1->2 bpp, 4BPP_DATA, Spectra nibble clamp) |
-| `READBACK` | runtime controller detection by register read-back (SSD2677 sticky variant) |
-| `WINDOW` | windowed partial refresh: RAM window coordinates substituted per update |
-| `IT8951` | command protocol with HRDY handshake (see NOTES_special.md) |
-| `PARALLEL` | parallel-bus panel driven by FastEPD (see NOTES_special.md) |
+| `SEQ_MAX` | a mode sequence longer than `OD_EPD_SEQ_MAX` (128 B) or 64 steps even after moving payloads into a slot; `modes_blocked[].fits_with` gives the cap that would fit |
+| `LUT_AFTER_IMAGE` | the sequence only fits if a payload AFTER an image marker is streamed from the slot; od_epd's `next_plane`/`finish_pass` resume without the pass's slot (`RC_LUT`) |
+| `LUT_MAX` | the moved payloads exceed one 535-byte slot |
+| `LUT_SLOTS` | more than 8 distinct slots for one panel |
+| `SLEEP_MAX` | sleep sequence longer than `OD_EPD_SLEEP_SEQ_MAX` (16 B); no current panel hits it |
+| `CS_BOTH` | a transfer that must reach both controllers simultaneously (none in the 2.x flows: D6 covers them) |
+| `CS_EVERY_BYTE` | CS toggled around every byte (bb_epaper flag); no legacy id uses it |
+| `DATA_WITHOUT_CMD` | a data burst not preceded by a command on the same CS |
+| `IT8951` / `PARALLEL` | not SPI command-stream panels (see NOTES_special.md); none has a legacy id |
+| `NO_FULL_FLOW` / `NO_BBEP_ENUM` | nothing to derive from |
+
+Escapes a target must implement (`requires_escapes`, not blockers): `SET_PIN` with
+`OD_SEQ_PINREF_RESET` (a mid-sequence hardware reset, emitted as pin 0 / 20 ms / pin 1 / 20 ms)
+and `CS_SELECT` (dual-controller panels).
+
+Not expressible and therefore only noted, never silently approximated: `PIXEL_XFORM`
+(firmware-side repacking, e.g. the SSD2677 2bpp repack), `READBACK` (runtime controller detection
+by register read, 2.x EP397 SSD1677/SSD2677), `WINDOW` (per-update RAM window coordinates).

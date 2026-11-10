@@ -53,7 +53,7 @@ def tok(t: list) -> tuple:
 
 
 def packets(e: dict) -> list[tuple[int, int, bytes]]:
-    return [(p["number"], int(p["id"], 16), bytes.fromhex(p["body_hex"])) for p in e["packets"]]
+    return [(p["number"], p["id"], bytes.fromhex(p["body_hex"])) for p in e["packets"]]
 
 
 class Schema(unittest.TestCase):
@@ -251,7 +251,7 @@ class Glass(unittest.TestCase):
     def test_byte_identical_with_website(self):
         for key in GLASS:
             with self.subTest(key=key):
-                mine = [{"pid": str(int(p["id"], 16)), "raw": p["body_hex"]} for p in PRESETS["panels"][key]["packets"]]
+                mine = [{"pid": str(p["id"]), "raw": p["body_hex"]} for p in PRESETS["panels"][key]["packets"]]
                 self.assertEqual(mine, WEB[key]["drivePackets"])
 
     def test_yaml_encoder_reproduces_website(self):
