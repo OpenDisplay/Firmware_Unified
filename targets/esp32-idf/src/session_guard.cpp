@@ -6,6 +6,7 @@
 // (the shim was a demolition schedule, not a portability layer), and it
 // names no vendor header at all. That matters beyond the ratchet: this file is a shared/core
 // candidate, and shared/ may call od_hal_* but not esp_* or freertos/*.
+#include "od_spi_raw_app.h"
 #include "od_hal_time.h"
 #include "od_hal_sleep.h"
 
@@ -139,6 +140,9 @@ void abortToKnownState(const char* reason, bool dropLink, LinkId ownerId) {
     //    per target, and this target's connection policy has stricter ordering around its own --
     //    hence step 6 above, where the drop count is also worth reporting.
     od_core_reset();
+    // A raw SPI session is not a transfer, so od_core_reset() does not end it. The protocol
+    // says a disconnect force-closes it.
+    opendisplay_display_spi_raw_close();
 
     // 8. The drop, dispatched on the OWNER'S TRANSPORT. This routine is not
     //     BLE-only: the transfer watchdog that calls it is origin-agnostic, so

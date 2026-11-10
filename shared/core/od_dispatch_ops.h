@@ -40,7 +40,7 @@
 #define OD_DISPATCH_DRIVE_ROWS(X)
 #endif
 
-/* CMD_SPI_RAW is canonical at 2.3 and Silabs-only by specification. Its DATA_NOACK sub-opcode
+/* CMD_SPI_RAW is canonical at 2.3 and Silabs-only by specification; routed here on every target. Its DATA_NOACK sub-opcode
  * answers nothing at all, so the row's budget covers the replying sub-opcodes; a handler that
  * sends no response simply does not spend its unit. */
 #if OD_CAP_SPI_RAW

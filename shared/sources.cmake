@@ -276,6 +276,21 @@ set(OD_SHARED_SOURCES_APP_EPD
 # is 31 network-defined bytes on a key-derived address and od_hal_adv installs 16 bytes of MSD
 # on the device identity. Only BG22 takes this tier today; the others answer false from
 # od_hal_adv2_supported() and link none of it.
+# APP_DRIVE binds od_epd to the stored config (od_epd_cfg) and carries the CMD_DRIVE_WRITE_START
+# handler over it. Needs APP_EPD and the od_drive_app.h seam. BG22 has its own adapter and
+# handler and does not take this tier.
+set(OD_SHARED_SOURCES_APP_DRIVE
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_cmd_drive.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_epd_cfg.c"
+)
+
+# APP_SPI_RAW is the CMD_SPI_RAW wire handler. Needs the od_spi_raw_app.h seam and
+# od_epd_desc_diag() (BG22's panel adapter, or od_epd_cfg.c from APP_DRIVE). Compiles to nothing
+# unless OD_CAP_SPI_RAW.
+set(OD_SHARED_SOURCES_APP_SPI_RAW
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_cmd_spi_raw.c"
+)
+
 # APP_IMGSTORE is the external SPI NOR image store: a real NOR driver and fixed-slot storage
 # over shared/hal/od_hal_spi.h. Needs a flash chip on config-named pins and a target
 # implementation of the SPI seam, so it is gated by OD_CAP_IMGSTORE and only BG22 takes it.

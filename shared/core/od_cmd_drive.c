@@ -1,20 +1,18 @@
-/* CMD_DRIVE_WRITE_START (0x0085) on Nordic.
+/* CMD_DRIVE_WRITE_START (0x0085) for targets that run od_epd through od_epd_cfg.
  *
  * A full-frame write naming a config-declared drive mode, so a multi-pass mode is one transfer.
  * This selects the mode, applies its temp_policy and brings the panel up for pass 0; the shared
  * transfer layer then carries DATA (0x0071) and END (0x0072). Wire behaviour matches
- * targets/efr32bg22-slc/od_cmd_drive.c and od_display_drive.cpp.
+ * targets/efr32bg22-slc/od_cmd_drive.c, which keeps its own copy over its own panel adapter.
  */
 #include "od_cmd_app.h"
 
 #include "od_color.h"
+#include "od_drive_app.h"
 #include "od_epd.h"
-#include "od_epd_nordic.h"
-#include "od_log.h"
+#include "od_epd_cfg.h"
 #include "od_reply.h"
 #include "od_xfer.h"
-#include "opendisplay_ble.h"
-#include "opendisplay_display.h"
 #include "opendisplay_protocol.h"
 #include "opendisplay_structs.h"
 
@@ -24,7 +22,6 @@
 
 /* [mode][refresh][flags][rsv:2] before any payload tail. */
 #define DRIVE_START_HDR 5u
-#define TEMP_UNKNOWN    ((int8_t)0x7F)
 
 static od_cmd_result_t nack(const od_cmd_ctx_t *ctx, uint8_t err, uint8_t mode)
 {
@@ -34,19 +31,8 @@ static od_cmd_result_t nack(const od_cmd_ctx_t *ctx, uint8_t err, uint8_t mode)
     return OD_CMD_NACK;
 }
 
-/* The die sensor, an estimate of the glass for policy purposes. -999 means never read. */
-static int8_t drive_temp_c(void)
-{
-    const float t = opendisplay_ble_get_chip_temperature();
-
-    if (t < -128.0f || t > 126.0f) {
-        return TEMP_UNKNOWN;
-    }
-    return (int8_t)(t + (t >= 0.0f ? 0.5f : -0.5f));
-}
-
 /* min == max == 0 is the zero-filled "no window declared". */
-static bool mode_temp_ok(const od_epd_nordic_mode_t *m, int8_t t)
+static bool mode_temp_ok(const od_epd_cfg_mode_t *m, int8_t t)
 {
     return (m->temp_min_c == 0 && m->temp_max_c == 0) ||
            (t >= m->temp_min_c && t <= m->temp_max_c);
@@ -56,32 +42,34 @@ static bool mode_temp_ok(const od_epd_nordic_mode_t *m, int8_t t)
 static uint8_t drive_begin(uint8_t *mode, uint8_t flags, od_span_t tail, uint8_t *passes,
                            int8_t *temp_c, od_color_geometry_t *geom)
 {
-    const struct DisplayConfig *d = opendisplay_display_config();
-    od_epd_nordic_mode_t hdr;
+    const struct DisplayConfig *d = od_drive_app_display();
+    od_epd_cfg_mode_t hdr;
 
     /* The windowed path is not implemented for a config-declared mode. */
     if ((flags & DRIVE_WRITE_FLAG_PIPELINED) != 0u) {
         return OD_ERR_DRIVE_UNSUPPORTED;
     }
-    if (d == NULL || !od_epd_nordic_load(d)) {
+    /* Abort first: it may sleep a previous od_epd_cfg session, which must not run against the
+     * descriptor this load is about to replace. */
+    od_drive_app_abort();
+    if (d == NULL || !od_epd_cfg_load(d, od_drive_app_bus())) {
         return OD_ERR_DRIVE_NO_CONFIG;
     }
-    opendisplay_display_abort();
 
-    if (!od_epd_nordic_select(*mode, &hdr)) {
+    if (!od_epd_cfg_select(*mode, &hdr)) {
         return OD_ERR_DRIVE_BAD_MODE;
     }
-    *temp_c = drive_temp_c();
-    if (*temp_c != TEMP_UNKNOWN && !mode_temp_ok(&hdr, *temp_c)) {
+    *temp_c = od_drive_app_temp_c();
+    if (*temp_c != OD_DRIVE_TEMP_UNKNOWN && !mode_temp_ok(&hdr, *temp_c)) {
         if (hdr.temp_policy == OD_DRIVE_TEMP_REJECT) {
             return OD_ERR_DRIVE_TEMP_RANGE;
         }
         if (hdr.temp_policy == OD_DRIVE_TEMP_SUBSTITUTE) {
-            const uint8_t count = od_epd_nordic_mode_count();
+            const uint8_t count = od_epd_cfg_mode_count();
             uint8_t i;
 
             for (i = 0u; i < count; i++) {
-                if (od_epd_nordic_select(i, &hdr) && mode_temp_ok(&hdr, *temp_c)) {
+                if (od_epd_cfg_select(i, &hdr) && mode_temp_ok(&hdr, *temp_c)) {
                     break;
                 }
             }
@@ -95,19 +83,18 @@ static uint8_t drive_begin(uint8_t *mode, uint8_t flags, od_span_t tail, uint8_t
                                  d->pixel_width, d->pixel_height, geom) != OD_COLOR_OK) {
         return OD_ERR_DRIVE_NO_CONFIG;
     }
-    if (!opendisplay_display_drive_panel_up(d)) {
+    if (!od_drive_app_panel_up(d)) {
         return OD_ERR_DRIVE_NO_CONFIG;
     }
-    if (!od_epd_nordic_begin_pass(0u)) {
-        const bool unsupported = od_epd_nordic_last_rc() == OD_EPD_RC_UNSUP;
+    if (!od_epd_cfg_begin_pass(0u)) {
+        const bool unsupported = od_epd_cfg_last_rc() == OD_EPD_RC_UNSUP;
 
-        opendisplay_display_drive_panel_down();
+        od_drive_app_panel_down();
         return unsupported ? OD_ERR_DRIVE_SEQ_UNSUPPORTED : OD_ERR_DRIVE_NO_CONFIG;
     }
-    if (!opendisplay_display_drive_adopt(geom, hdr.passes,
-                                         (flags & DRIVE_WRITE_FLAG_COMPRESSED) != 0u,
-                                         tail.p, (uint16_t)tail.n)) {
-        opendisplay_display_abort();
+    if (!od_drive_app_adopt(geom, hdr.passes, (flags & DRIVE_WRITE_FLAG_COMPRESSED) != 0u,
+                            tail)) {
+        od_drive_app_abort();
         return OD_ERR_DRIVE_BAD_SIZE;
     }
     *passes = hdr.passes;
@@ -119,9 +106,11 @@ od_cmd_result_t od_cmd_app_drive_write_start(const od_cmd_ctx_t *ctx, od_span_t 
     uint8_t passes = 0u;
     uint8_t mode;
     uint8_t err;
-    int8_t temp_c = TEMP_UNKNOWN;
+    int8_t temp_c = OD_DRIVE_TEMP_UNKNOWN;
     od_color_geometry_t geom;
     uint32_t expected;
+    bool compressed;
+    od_span_t tail;
     uint8_t r[5];
 
     if (body.p == NULL || body.n < DRIVE_START_HDR) {
@@ -131,8 +120,8 @@ od_cmd_result_t od_cmd_app_drive_write_start(const od_cmd_ctx_t *ctx, od_span_t 
         return nack(ctx, OD_ERR_DRIVE_BAD_ARGS, body.p[0]);
     }
     mode = body.p[0];
-    const bool compressed = (body.p[2] & DRIVE_WRITE_FLAG_COMPRESSED) != 0u;
-    od_span_t tail = od_span_drop(body, DRIVE_START_HDR);
+    compressed = (body.p[2] & DRIVE_WRITE_FLAG_COMPRESSED) != 0u;
+    tail = od_span_drop(body, DRIVE_START_HDR);
 
     err = drive_begin(&mode, body.p[2], tail, &passes, &temp_c, &geom);
     if (err != 0u) {
@@ -145,6 +134,7 @@ od_cmd_result_t od_cmd_app_drive_write_start(const od_cmd_ctx_t *ctx, od_span_t 
         tail = od_span_drop(tail, 4u);
     }
     if (!od_xfer_adopt_full(&ctx->rp, &geom, expected, compressed, tail)) {
+        od_drive_app_abort();
         return nack(ctx, OD_ERR_DRIVE_BAD_SIZE, body.p[0]);
     }
 

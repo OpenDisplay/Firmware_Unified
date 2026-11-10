@@ -53,6 +53,9 @@ list(APPEND OD_APP_SOURCES ${CMAKE_CURRENT_LIST_DIR}/../hal/od_hal_nvs.c
 # hal/od_hal_wdt.c, listed above. Taking the aggregate rather than naming tiers is what makes a
 # new shared source reach this build without an edit here.
 list(APPEND OD_APP_SOURCES ${OD_SHARED_SOURCES})
+# Config-driven panel driver beside bb_epaper: CMD_DRIVE_WRITE_START and CMD_SPI_RAW.
+list(APPEND OD_APP_SOURCES ${OD_SHARED_SOURCES_APP_EPD} ${OD_SHARED_SOURCES_APP_DRIVE}
+                           ${OD_SHARED_SOURCES_APP_SPI_RAW})
 
 # ble/od_ble_rx.cpp is GONE, not forgotten. It held od_ble_on_write(): the bounds check,
 # the RX hex log and the enqueue. All three now live in src/command_queue.cpp's
@@ -252,10 +255,14 @@ set(OD_FASTEPD_INC_DIR     ${OD_TP_DIR}/FastEPD/src)
 #                         payload now goes through od_bbep_stream_write(), so there is ONE
 #                         owner of the host and this file has no adapter dependency at all.
 #                         Do not re-add it: <SPI.h> here means a second bus owner is back.
+#   od_drive_esp.cpp      bb_epaper only -- its IDF byte path, for CMD_DRIVE/SPI_RAW.
 #   display_fastepd.cpp   FastEPD + adapter. FastEPD glue by definition.
 #   boot_screen.cpp,      bb_epaper only -- both draw through BBEPDISP.
 #   main.cpp              (main.h defines the `BBEPDISP bbep` global.)
 set_source_files_properties(${OD_SRC_DIR}/display_service.cpp
+    TARGET_DIRECTORY ${COMPONENT_LIB}
+    PROPERTIES INCLUDE_DIRECTORIES "${OD_BBEP_INC_DIR}")
+set_source_files_properties(${OD_SRC_DIR}/od_drive_esp.cpp
     TARGET_DIRECTORY ${COMPONENT_LIB}
     PROPERTIES INCLUDE_DIRECTORIES "${OD_BBEP_INC_DIR}")
 set_source_files_properties(${OD_SRC_DIR}/display_fastepd.cpp
@@ -296,7 +303,10 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     # This target has no tag. It must be set HERE, with the commit that adds od_nfc.c to the
     # aggregate: od_core_reset() names od_nfc_reset(), so the machine is linked from that moment
     # and a capability-on build would demand an od_nfc_app implementation ESP32 has never had.
-    OD_CAP_NFC=0)
+    OD_CAP_NFC=0
+    # 0x0085 and 0x0084 run on od_epd (src/od_drive_esp.cpp); SPI panels only.
+    OD_CAP_DRIVE_WRITE=1
+    OD_CAP_SPI_RAW=1)
 
 # FastEPD selects its IO backend with `#ifdef ARDUINO / #elif defined(__LINUX__)`. Under IDF
 # NEITHER was defined, so every it8951 transport function in FastEPD.inl compiled to an EMPTY

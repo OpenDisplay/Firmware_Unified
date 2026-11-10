@@ -29,6 +29,14 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
 add_compile_options(-Wall -Wextra -Werror)
+# clang 21+ flags a test fake's counter that is written but never asserted. Recording a call
+# nothing checks is harmless in a fake, and the warning would otherwise need one exemption per
+# fixture.
+include(CheckCCompilerFlag)
+check_c_compiler_flag(-Wunused-but-set-global OD_HAS_WUNUSED_BUT_SET_GLOBAL)
+if(OD_HAS_WUNUSED_BUT_SET_GLOBAL)
+    add_compile_options(-Wno-unused-but-set-global)
+endif()
 
 # Both gcc and clang are supported and CI runs both; neither is required locally. Select
 # with -DCMAKE_C_COMPILER=clang. Anything else builds too, it is just not what CI gates on.
@@ -913,7 +921,7 @@ if(Python3_FOUND)
         spi_raw_display_test_stub.c
         fake_silabs/fake_silabs.c
         ../../targets/efr32bg22-slc/od_cmd_drive.c
-        ../../targets/efr32bg22-slc/od_cmd_spi_raw.c
+        ../../shared/core/od_cmd_spi_raw.c
         ../../targets/efr32bg22-slc/od_cmd_silabs.c
         ../../targets/efr32bg22-slc/od_inflate_app.c
         ${OD_VEC_INC})
@@ -937,7 +945,7 @@ if(Python3_FOUND)
         fake_silabs/fake_silabs.c
         fake_silabs/fake_silabs_bgapi.c
         ../../targets/efr32bg22-slc/od_cmd_drive.c
-        ../../targets/efr32bg22-slc/od_cmd_spi_raw.c
+        ../../shared/core/od_cmd_spi_raw.c
         ../../targets/efr32bg22-slc/od_cmd_silabs.c
         ../../targets/efr32bg22-slc/od_inflate_app.c
         ../../targets/efr32bg22-slc/opendisplay_pipe.c

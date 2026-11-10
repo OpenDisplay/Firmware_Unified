@@ -31,6 +31,7 @@
 #include "od_zlib_pump.h"
 #include "od_xfer.h"
 #include "od_xfer_app.h"
+#include "od_drive_esp.h"
 #if defined(OPENDISPLAY_FASTEPD)
 #include "display_fastepd.h"
 #endif
@@ -1658,7 +1659,9 @@ static od_color_status_t directWriteResolveGeometry(od_color_geometry_t* geometr
 }
 
 static void xferAppClear(bool forceOff) {
-    if (xferApp.mode != XFER_APP_IDLE && pwrmgmState == PWR_ACTIVE) {
+    if (od_drive_esp_active()) {
+        od_drive_esp_clear();
+    } else if (xferApp.mode != XFER_APP_IDLE && pwrmgmState == PWR_ACTIVE) {
         if (forceOff) epdSessionForceOff();
         else          epdSessionRelease(true);
     }
@@ -1735,7 +1738,7 @@ static bool xferAppWritePartial(uint32_t streamOffset, od_span_t data) {
 }
 
 extern "C" void od_xfer_app_prepare_start(void) {
-    if (xferApp.mode != XFER_APP_IDLE) xferAppClear(false);
+    if (xferApp.mode != XFER_APP_IDLE || od_drive_esp_active()) xferAppClear(false);
 }
 
 extern "C" bool od_xfer_app_panel_info(od_xfer_panel_info_t *out) {
@@ -1798,6 +1801,9 @@ extern "C" bool od_xfer_app_begin_partial(uint16_t x, uint16_t y, uint16_t width
 
 extern "C" uint32_t od_xfer_app_write(uint32_t streamOffset, od_span_t data) {
     if (!od_span_valid(data) || data.n == 0u || data.n > UINT32_MAX) return 0u;
+    if (od_drive_esp_active()) {
+        return od_drive_esp_write(streamOffset, data.p, data.n) ? (uint32_t)data.n : 0u;
+    }
     const bool accepted = xferApp.mode == XFER_APP_FULL
         ? xferAppWriteFull(streamOffset, data)
         : xferApp.mode == XFER_APP_PARTIAL && xferAppWritePartial(streamOffset, data);
@@ -1831,6 +1837,13 @@ extern "C" void od_xfer_app_barrier_abort(const od_reply_t *owner) {
 }
 
 extern "C" bool od_xfer_app_refresh(uint8_t mode, bool *completed) {
+    if (completed != nullptr && od_drive_esp_active()) {
+        /* The mode already names the waveform, so the refresh byte selects nothing. */
+        od_cmd_flush_before_refresh();
+        *completed = od_drive_esp_refresh();
+        requestAdvertisingRestart();
+        return true;
+    }
     if (completed == nullptr || xferApp.mode == XFER_APP_IDLE) return false;
     bool refreshSuccess = false;
     if (xferApp.mode == XFER_APP_PARTIAL) {

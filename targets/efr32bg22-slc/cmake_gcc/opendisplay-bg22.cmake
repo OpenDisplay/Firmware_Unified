@@ -312,6 +312,7 @@ add_library(slc OBJECT
     ${OD_SHARED_SOURCES_APP_NET_A}
     ${OD_SHARED_SOURCES_APP_IMGSTORE}
     ${OD_SHARED_SOURCES_APP_ACTION}
+    ${OD_SHARED_SOURCES_APP_SPI_RAW}
     ${OD_SHARED_SOURCES_HAL_LOG}
     "../od_hal_adv2.c"
 
@@ -324,7 +325,6 @@ add_library(slc OBJECT
     "../od_hal_spi.c"
     "../od_cmd_flash.c"
     "../od_cmd_drive.c"
-    "../od_cmd_spi_raw.c"
     "../od_display_drive.cpp"
     "../od_action_app_silabs.c"
 )

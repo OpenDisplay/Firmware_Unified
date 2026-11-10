@@ -16,7 +16,10 @@
 #include "boot_screen.h"
 #include "od_gpio.h"
 #include "od_epd_sizes.h"
+#include "od_drive_app.h"
+#include "od_epd_cfg.h"
 #include "od_epd_nordic.h"
+#include "od_spi_raw_app.h"
 #include "od_epd_spi.h"
 #include "od_hal_time.h"
 #include "od_imgstore.h"
@@ -61,14 +64,13 @@ struct XferAppHardwareState {
   uint32_t plane_size;
   uint8_t current_plane;
   bool panel_up;
-  uint32_t frame_bytes;
-  uint8_t drive_passes;
-  uint8_t drive_pass;
+  od_epd_cfg_stream_t drive;
   /* Bytes go to a flash slot; the panel is never touched. */
   bool to_flash;
 };
 
 static XferAppHardwareState s_xfer_app;
+static bool s_spi_raw_open;
 
 static const struct DisplayConfig *display_cfg(void)
 {
@@ -577,7 +579,7 @@ static void xfer_app_clear(void)
 #endif
   if (s_xfer_app.panel_up) {
     if (s_xfer_app.mode == XFER_APP_DRIVE) {
-      od_epd_nordic_sleep();
+      od_epd_cfg_sleep();
     } else {
       bbepSleep(&s_epd, DEEP_SLEEP);
     }
@@ -669,68 +671,35 @@ static bool xfer_app_write_partial(uint32_t stream_offset, od_span_t data)
   return true;
 }
 
-/* A frame boundary is a pass boundary. finish runs the panel's refresh and blocks for it, which is
- * also the flow control: the ACK of the chunk landing on the boundary arrives when the pass is off
- * the glass. The rail stays up across passes, as the 16-colour behaviour was characterised. */
-static bool xfer_app_write_drive(uint32_t stream_offset, od_span_t data)
+static void drive_phase(bool refreshing)
 {
-  size_t off = 0u;
-
-  while (off < data.n) {
-    const uint32_t logical = stream_offset + (uint32_t)off;
-    const uint32_t frame_end = (uint32_t)(s_xfer_app.drive_pass + 1u) * s_xfer_app.frame_bytes;
-    const uint32_t frame_start = frame_end - s_xfer_app.frame_bytes;
-    uint32_t chunk = (uint32_t)(data.n - off);
-
-    if (logical >= frame_end || logical < frame_start) {
-      return false;
-    }
-    if (chunk > frame_end - logical) {
-      chunk = frame_end - logical;
-    }
-    if (s_xfer_app.plane_size > 0u) {
-      const uint32_t plane_end = frame_start + s_xfer_app.plane_size;
-
-      if (logical == plane_end && !od_epd_nordic_next_plane()) {
-        return false;
-      }
-      if (logical < plane_end && chunk > plane_end - logical) {
-        chunk = plane_end - logical;
-      }
-    }
-    if (!od_epd_nordic_write(data.p + off, chunk)) {
-      return false;
-    }
-    off += chunk;
-
-    if (logical + chunk == frame_end && s_xfer_app.drive_pass + 1u < s_xfer_app.drive_passes) {
-      od_watchdog_app_phase(OD_WDT_PHASE_REFRESH_WAIT);
-      if (!od_epd_nordic_finish()) {
-        od_log_error("drive: pass %u refresh failed", (unsigned)s_xfer_app.drive_pass);
-        return false;
-      }
-      s_xfer_app.drive_pass++;
-      if (!od_epd_nordic_begin_pass(s_xfer_app.drive_pass)) {
-        od_log_error("drive: pass %u begin failed", (unsigned)s_xfer_app.drive_pass);
-        return false;
-      }
-      od_watchdog_app_phase(OD_WDT_PHASE_STREAM);
-    }
-  }
-  return true;
+  od_watchdog_app_phase(refreshing ? OD_WDT_PHASE_REFRESH_WAIT : OD_WDT_PHASE_STREAM);
 }
 
-extern "C" const struct DisplayConfig *opendisplay_display_config(void)
+static bool xfer_app_write_drive(uint32_t stream_offset, od_span_t data)
+{
+  return od_epd_cfg_stream_write(&s_xfer_app.drive, stream_offset, data.p, data.n, drive_phase);
+}
+
+extern "C" const struct DisplayConfig *od_drive_app_display(void)
 {
   return display_cfg();
 }
 
-extern "C" void opendisplay_display_abort(void)
+extern "C" const od_epd_cfg_bus_t *od_drive_app_bus(void)
 {
+  return od_epd_nordic_bus();
+}
+
+extern "C" void od_drive_app_abort(void)
+{
+  if (s_spi_raw_open) {
+    opendisplay_display_spi_raw_close();
+  }
   xfer_app_clear();
 }
 
-extern "C" bool opendisplay_display_drive_panel_up(const struct DisplayConfig *d)
+extern "C" bool od_drive_app_panel_up(const struct DisplayConfig *d)
 {
   if (!display_power_set(true)) {
     return false;
@@ -744,48 +713,131 @@ extern "C" bool opendisplay_display_drive_panel_up(const struct DisplayConfig *d
   return true;
 }
 
-extern "C" void opendisplay_display_drive_panel_down(void)
+extern "C" void od_drive_app_panel_down(void)
 {
   display_power_set(false);
   od_epd_spi_deinit();
   (void)od_epd_spi_fault_reset();
 }
 
-extern "C" bool opendisplay_display_drive_adopt(const od_color_geometry_t *geometry, uint8_t passes,
-                                                bool compressed, const uint8_t *payload,
-                                                uint16_t payload_len)
+extern "C" bool od_drive_app_adopt(const od_color_geometry_t *frame, uint8_t passes,
+                                   bool compressed, od_span_t tail)
 {
-  const uint64_t total = geometry != nullptr
-      ? (uint64_t)geometry->total_bytes * passes : 0u;
+  od_epd_cfg_stream_t stream;
 
-  if (total == 0u || total > UINT32_MAX) {
+  if (!od_epd_cfg_stream_init(&stream, frame, passes, compressed, tail.p, (uint16_t)tail.n)) {
     return false;
-  }
-  /* A compressed stream declares its uncompressed length, and passes*frame is the only value
-   * accepted, so a host with the wrong pass count is told at START. */
-  if (compressed) {
-    uint32_t declared;
-
-    if (payload == nullptr || payload_len < 4u) {
-      return false;
-    }
-    declared = (uint32_t)payload[0] | ((uint32_t)payload[1] << 8)
-             | ((uint32_t)payload[2] << 16) | ((uint32_t)payload[3] << 24);
-    if (declared != (uint32_t)total) {
-      od_log_error("drive: declared %u != passes*frame %u", (unsigned)declared, (unsigned)total);
-      return false;
-    }
   }
   memset(&s_xfer_app, 0, sizeof(s_xfer_app));
   s_xfer_app.mode = XFER_APP_DRIVE;
-  s_xfer_app.geometry = *geometry;
-  s_xfer_app.geometry.total_bytes = (uint32_t)total;
-  s_xfer_app.frame_bytes = geometry->total_bytes;
-  s_xfer_app.drive_passes = passes;
-  s_xfer_app.plane_size = geometry->layout == OD_COLOR_LAYOUT_CONTROLLER_PLANES
-      ? geometry->part_bytes[0] : 0u;
+  s_xfer_app.geometry = *frame;
+  s_xfer_app.geometry.total_bytes = stream.total_bytes;
+  s_xfer_app.drive = stream;
   s_xfer_app.panel_up = true;
   return true;
+}
+
+/* The die sensor, an estimate of the glass for policy purposes. -999 means never read. */
+extern "C" int8_t od_drive_app_temp_c(void)
+{
+  const float t = opendisplay_ble_get_chip_temperature();
+
+  if (t < -128.0f || t > 126.0f) {
+    return OD_DRIVE_TEMP_UNKNOWN;
+  }
+  return (int8_t)(t + (t >= 0.0f ? 0.5f : -0.5f));
+}
+
+/* --- CMD_SPI_RAW ------------------------------------------------------------------------------
+ *
+ * The session owns the panel: OPEN aborts any transfer, and the transfer abort path (which a BLE
+ * disconnect reaches) closes the session, so bytes never go to an unpowered panel. Needs drive
+ * packets in the config, as on BG22: without them there is no BUSY sense and no init sequence. */
+
+extern "C" bool opendisplay_display_spi_raw_is_open(void)
+{
+  return s_spi_raw_open;
+}
+
+extern "C" int opendisplay_display_spi_raw_open(bool run_panel_init)
+{
+  const struct DisplayConfig *d = display_cfg();
+
+  od_drive_app_abort();
+  if (d == nullptr || !od_epd_cfg_load(d, od_epd_nordic_bus())) {
+    return -OD_ERR_SPI_RAW_NO_CONFIG;
+  }
+  if (!od_drive_app_panel_up(d)) {
+    return -OD_ERR_SPI_RAW_PANEL;
+  }
+  /* run_panel_init stops at the image marker, so the caller still owns everything after the
+   * registers. Without it nothing is clocked out and virgin register state is observable. */
+  if (run_panel_init && (!od_epd_cfg_select(0u, nullptr) || !od_epd_cfg_begin_pass(0u))) {
+    od_log_warn("spi_raw: panel init failed rc=%d", od_epd_cfg_last_rc());
+    od_drive_app_panel_down();
+    return -OD_ERR_SPI_RAW_PANEL;
+  }
+  s_spi_raw_open = true;
+  return 0;
+}
+
+extern "C" int opendisplay_display_spi_raw_cmd(const uint8_t *data, uint16_t len)
+{
+  if (!s_spi_raw_open) {
+    return -OD_ERR_SPI_RAW_NOT_OPEN;
+  }
+  if (data == nullptr || len == 0u) {
+    return -OD_ERR_SPI_RAW_BAD_ARGS;
+  }
+  od_epd_cfg_raw_cmd(data, len);
+  return 0;
+}
+
+extern "C" int opendisplay_display_spi_raw_data(const uint8_t *data, uint16_t len)
+{
+  if (!s_spi_raw_open) {
+    return -OD_ERR_SPI_RAW_NOT_OPEN;
+  }
+  if (data == nullptr || len == 0u) {
+    return -OD_ERR_SPI_RAW_BAD_ARGS;
+  }
+  od_epd_cfg_raw_data(data, len);
+  return 0;
+}
+
+extern "C" int opendisplay_display_spi_raw_busy(uint32_t timeout_ms, uint16_t *elapsed_ms_out,
+                                                bool *still_busy_out)
+{
+  if (!s_spi_raw_open) {
+    return -OD_ERR_SPI_RAW_NOT_OPEN;
+  }
+  if (timeout_ms > 90000u) {
+    timeout_ms = 90000u;
+  }
+  od_watchdog_app_phase(OD_WDT_PHASE_REFRESH_WAIT);
+  od_epd_cfg_raw_busy(timeout_ms, elapsed_ms_out, still_busy_out);
+  return 0;
+}
+
+extern "C" int opendisplay_display_spi_raw_reset(uint8_t hold_ms)
+{
+  if (!s_spi_raw_open) {
+    return -OD_ERR_SPI_RAW_NOT_OPEN;
+  }
+  /* Clamped per the protocol: 0 is not a pulse, and a long hold from one byte is a mistake. */
+  od_epd_cfg_raw_reset(hold_ms < 1u ? 1u : (hold_ms > 50u ? 50u : hold_ms));
+  return 0;
+}
+
+/* Idempotent, so a host recovering from a dropped link can always get to a known state. */
+extern "C" void opendisplay_display_spi_raw_close(void)
+{
+  if (!s_spi_raw_open) {
+    return;
+  }
+  s_spi_raw_open = false;
+  od_epd_cfg_sleep();
+  od_drive_app_panel_down();
 }
 
 extern "C" void od_xfer_app_prepare_start(void)
@@ -975,8 +1027,8 @@ extern "C" bool od_xfer_app_refresh(uint8_t mode, bool *completed)
     /* The mode already names the waveform, so the refresh byte selects nothing. */
     (void)mode;
     od_watchdog_app_phase(OD_WDT_PHASE_REFRESH_WAIT);
-    ok = od_epd_nordic_finish();
-    od_epd_nordic_sleep();
+    ok = od_epd_cfg_finish();
+    od_epd_cfg_sleep();
     display_power_set(false);
     memset(&s_xfer_app, 0, sizeof(s_xfer_app));
     opendisplay_touch_resume_after_refresh();

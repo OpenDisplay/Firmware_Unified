@@ -9,6 +9,8 @@
  * register debugging impossible -- the state you are trying to observe is exactly what the
  * re-init destroys.
  *
+ * Shared by every target; the panel half is the target's, behind od_spi_raw_app.h.
+ *
  * No authentication check here on purpose: this sits in the ordinary dispatch table, so the
  * session gate has already rejected an unauthenticated caller with RESP_AUTH_REQUIRED when
  * encryption is enabled. A second, bespoke check would be one more thing to drift.
@@ -17,7 +19,7 @@
 
 #include "od_epd.h"
 #include "od_reply.h"
-#include "opendisplay_display.h"
+#include "od_spi_raw_app.h"
 #include "opendisplay_protocol.h"
 
 #include <stddef.h>

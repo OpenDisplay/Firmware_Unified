@@ -6,6 +6,7 @@
  * the shared transfer machine; the session logging seam is od_session_app.c.
  */
 
+#include "od_spi_raw_app.h"
 #include "opendisplay_pipe.h"
 
 #include "od_cmd_config.h"
@@ -113,6 +114,11 @@ void opendisplay_pipe_process(void)
   if (atomic_cas(&s_close_pending, 1, 0)) {
     od_core_reset();
     od_cmd_config_reset();
+#if OD_CAP_SPI_RAW
+    /* A raw session is not a transfer, so od_core_reset() does not end it. The protocol says a
+     * disconnect force-closes it. */
+    opendisplay_display_spi_raw_close();
+#endif
   }
 
   /* BOUNDED, and the bound is not defensive tidiness. A central issuing write-without-response can

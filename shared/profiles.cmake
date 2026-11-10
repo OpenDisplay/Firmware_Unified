@@ -37,7 +37,7 @@ set(OD_PROFILE_SILABS
     # a display path driven from config drive packets; Nordic sets it in its own CMakeLists.
     OD_CAP_DRIVE_WRITE=1
     # CMD_SPI_RAW: Silabs-only by specification, and the opcode every panel in this fleet was
-    # brought up through. Bypasses driver safety checks, so no other target enables it.
+    # brought up through. ESP32 and Nordic set it in their own build files too.
     OD_CAP_SPI_RAW=1
     # CMD_READ_IDENT: plaintext identity from DisplayConfig 0x20, pre-gate. Silabs-first.
     OD_CAP_READ_IDENT=1)

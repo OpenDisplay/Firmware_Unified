@@ -32,6 +32,20 @@ floor and D8 are BG22-only and are the rows
 Wire encoding for these rows: `group_repeats` is sent **minus one**, so "raw `0x02`" is a request
 for three groups. `py-opendisplay` sends raw `0xFE` for indefinite and never sends a finite `0xFF`.
 
+### ESP32 + Nordic — shared `od_epd_cfg`: CMD_DRIVE_WRITE_START + CMD_SPI_RAW, 2026-11-10
+
+Both opcodes now route on ESP32 (SPI panels only; FastEPD/IT8951 boards refuse) and Nordic
+through `shared/core/od_epd_cfg.c` + `od_cmd_drive.c` + `od_cmd_spi_raw.c`. Builds pass
+(ESP32 `s3-n16r8-extuart`, `c3-n4`; Nordic `xiao_nrf52840` single- and dual-slot); host gate green.
+Nordic's 0x0085 was on glass before the move to shared code; nothing below has run since.
+
+- [ ] Nordic `xiao_nrf52840` (EN04, 2.9" BWRY): 16-colour 0x0085 through the shared path, on glass
+- [ ] Nordic: CMD_SPI_RAW OPEN (plain and PANEL_INIT), CMD, DATA, DATA_NOACK, BUSY, RESET, CLOSE
+- [ ] Nordic: BLE disconnect mid raw session closes it (rail down)
+- [ ] ESP32 SPI-panel board with drive packets: 0x0085 on glass
+- [ ] ESP32: CMD_SPI_RAW sub-opcodes, and refusal on a FastEPD/IT8951 board
+- [ ] ESP32: ordinary bb_epaper upload still works after a drive or raw session
+
 ### EFR32BG22 (`efr32bg22-slc`) — CMD_SPI_RAW + config ceiling, 2026-11-06
 
 Unit **ODBEEBA6** (2.9in BWRY GDEY029F51H, 168x384), 3.0 V from a PPK2, encrypted link,

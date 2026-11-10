@@ -49,7 +49,8 @@
  * an exclusive link open. Confirmed on hardware 2026-11-06 -- every sub-opcode of an unrouted
  * 0x0084 timed out rather than answering.
  *
- * The protocol header calls this Silabs-first; efr32bg22-slc and nordic-zephyr set it. The spec and the error namespace are already in shared/protocol; this gates the routing. */
+ * The protocol header calls this Silabs-first; every target sets it (ESP32 and Nordic through
+ * od_epd_cfg, BG22 through its own adapter). The spec and the error namespace are already in shared/protocol; this gates the routing. */
 #ifndef OD_CAP_DRIVE_WRITE
 #define OD_CAP_DRIVE_WRITE 0
 #endif
@@ -63,7 +64,8 @@
  *
  * It is not a security hole on its own -- the handler sits in the ordinary dispatch table and so
  * inherits the session gate, meaning an unauthenticated caller gets RESP_AUTH_REQUIRED and never
- * reaches it. The protocol marks it Silabs-only. */
+ * reaches it. The protocol marks it Silabs-only; this firmware routes it on every target, and
+ * each needs the display's drive packets in config before OPEN succeeds. */
 #ifndef OD_CAP_SPI_RAW
 #define OD_CAP_SPI_RAW 0
 #endif
