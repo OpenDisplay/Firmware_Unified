@@ -17,8 +17,9 @@
 #ifndef NVM3_DEFAULT_MAX_OBJECT_SIZE
 // <o NVM3_DEFAULT_MAX_OBJECT_SIZE> NVM3 Default Instance Max Object Size
 // <i> Max NVM3 object size that can be stored.
-// <i> Must cover opendisplay config record: 16-byte header + OD_CONFIG_MAX_SIZE (2048).
-// <i> Keep in sync with NVM3_MAX_OBJECT_SIZE in cmake_gcc/opendisplay-bg22.cmake.
+// <i> Must cover opendisplay config record: 16-byte header + OD_CONFIG_MAX_SIZE (3120).
+// <i> The default instance reads only this macro; NVM3_MAX_OBJECT_SIZE=2112 in
+// <i> cmake_gcc/opendisplay-bg22.cmake feeds NVM3_DEFINE_SECTION_INIT_DATA, unused here.
 /* 3136 = OD_CONFIG_MAX_SIZE 3120 + the 16-byte storage record header.
  *
  * SIZED AGAINST PAGE CAPACITY, NOT REGION SIZE. nvm3_open has two gates and the binding one
@@ -46,8 +47,9 @@
 // <o NVM3_DEFAULT_NVM_SIZE> NVM3 Default Instance Size
 // <i> Size of the NVM3 storage region in flash. This size should be aligned with
 // <i> the flash page size of the device.
-// <i> EFR32BG22: FLASH_PAGE_SIZE 8192; 3 pages (24576) is enough for max-object 2112.
-// <i> Keep size/base unchanged across upgrades — growing it invalidates NVM3 (needs chip erase).
+// <i> EFR32BG22: FLASH_PAGE_SIZE 8192; 3 pages (24576), base 0x50000, same as 2.3.0.
+// <i> The region ends at the flash end, so a page count change moves its base: growing keeps
+// <i> existing pages; shrinking loses the lowest one (docs/BG22_NVM3_OTA_LAYOUT.md).
 #define NVM3_DEFAULT_NVM_SIZE  24576
 #endif
 

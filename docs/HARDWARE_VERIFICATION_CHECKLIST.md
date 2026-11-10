@@ -1332,7 +1332,11 @@ is open follow-up.
 - [x] Host test `tests/host/net_a_test.c` sweeps all 256 values of `key[0]` to prove both
       halves of the address are recoverable (the top two bits are forced for a static random
       address, so a naive derivation loses them).
-- [ ] FMDN / network G — still `Firmware_Silabs`-only, not ported.
+- [ ] FMDN / network G (`shared/core/od_net_g.c`, set `OD_HAL_ADV2_SET_NET_G`) — ported,
+  host-tested only (`net_a_test.c` pins the 29-byte SECP160 frame against 2.3.0). Open: a 2.3.0
+  unit provisioned for network G, OTA'd to 3.0, still advertises the same frame on the same
+  address (scanner), and network A + G + OpenDisplay advertise concurrently (3 sets).
+  SECP256R1 is not advertised (2.3.0 could not either: no SHA-256 in its PSA build).
 
 ### SPI NOR image store (`od_flash_nor` + `od_imgstore`)
 

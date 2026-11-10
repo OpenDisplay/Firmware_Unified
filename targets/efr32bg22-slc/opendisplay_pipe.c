@@ -14,7 +14,7 @@
 #include "opendisplay_display.h"
 
 #include "sl_component_catalog.h"
-#include "sl_sleeptimer.h"
+#include "od_hal_time.h"
 
 #include <stdio.h>
 
@@ -46,7 +46,7 @@ void od_cmd_silabs_reset(void);
 
 static uint32_t now_ms(void)
 {
-  return sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count());
+  return od_hal_uptime_ms();
 }
 
 uint8_t opendisplay_pipe_connection(void) { return s_connection; }

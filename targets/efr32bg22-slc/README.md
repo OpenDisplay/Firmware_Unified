@@ -49,7 +49,7 @@ targets — a target-owned `panel/` backend, not an edit to `third_party/`.
 | Not imported: the SDK | `simplicity_sdk_2025.12.2/`, 57 MB / 658 files — the documented deviation. Replaced by the pinned install |
 | Not imported: `third_party/` | all four trees. `bb_epaper` and `uzlib` are vendored once at repo level; `segger_rtt` and `silabs_app_properties` **have no home yet** |
 | Not imported: `include/` | the local protocol-header copies; `shared/protocol/` is the single reference |
-| Not imported: the bootloader blob | 753 KB `.s37`; its README is imported so the provenance survives |
+| Imported later: the bootloader blob | `bootloader-artifact/opendisplay-bootloader.s37`, 747 KB, byte-identical to Firmware_Silabs (provenance in its README); needed for virgin-board release images |
 
 ### The two homeless vendored trees
 
@@ -191,6 +191,14 @@ SLC-managed project (`opendisplay-bg22.slcp`) with a **generated** CMake file
 Project options exposed by the wrapper: `OD_ENABLE_RTT`, `OD_GENERATE_GBL_OTA`,
 `OD_APP_VERSION`, `OD_SL_APPLICATION_VERSION`, `OD_TNB132M_BOOT_PROBE`,
 `OD_TNB132M_WRITE_NDEF`, `OD_TNB132M_NDEF_TEXT`.
+
+**Application version (app properties).** `SL_APPLICATION_VERSION` is derived from
+`OD_FW_VERSION` (else `OD_APP_VERSION`) as `(major << 16) | (minor << 8) | patch` — 3.0.0 is
+196608. Firmware_Silabs 2.x used `(major << 8) | minor` (2.3.0 = 515, max 65535), so 3.x is
+always above the 2.x fleet. The shipped bootloader (`bootloader-artifact/`) is built with
+`BOOTLOADER_ROLLBACK_PROTECTION 0`, so no version is refused on OTA today; the encoding only
+keeps that safe if rollback protection is ever enabled. `OD_SL_APPLICATION_VERSION` still
+overrides. A release build must pass `OD_FW_VERSION=<tag>` so the number tracks the tag.
 
 **`slc generate` needs to be pointed at a real SDK.** It requires component metadata
 (`.slcc`/`.slce`); the source-only `-cp` copy in the source repo at `simplicity_sdk_2025.12.2`

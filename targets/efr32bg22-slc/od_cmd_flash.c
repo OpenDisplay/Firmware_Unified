@@ -61,16 +61,21 @@ od_cmd_result_t od_cmd_app_flash_info(const od_cmd_ctx_t *ctx, od_span_t body)
     memset(r, 0, sizeof r);
     r[0] = RESP_ACK;
     r[1] = (uint8_t)CMD_FLASH_INFO;
-    r[2] = st->mounted ? 1u : 0u;
-    r[3] = st->slot_count;
-    r[4] = (uint8_t)st->slot_stride;
-    r[5] = (uint8_t)(st->slot_stride >> 8);
-    r[6] = (uint8_t)(st->slot_stride >> 16);
-    r[7] = (uint8_t)(st->slot_stride >> 24);
-    r[8] = (uint8_t)st->capacity;
-    r[9] = (uint8_t)(st->capacity >> 8);
-    r[10] = (uint8_t)(st->capacity >> 16);
-    r[11] = (uint8_t)(st->capacity >> 24);
+    /* Geometry only while mounted: after an unmount, or a mount that failed part-way, the
+     * status block still carries stride/capacity, and a host would size uploads against a
+     * store that is not there. */
+    if (st->mounted) {
+        r[2] = 1u;
+        r[3] = st->slot_count;
+        r[4] = (uint8_t)st->slot_stride;
+        r[5] = (uint8_t)(st->slot_stride >> 8);
+        r[6] = (uint8_t)(st->slot_stride >> 16);
+        r[7] = (uint8_t)(st->slot_stride >> 24);
+        r[8] = (uint8_t)st->capacity;
+        r[9] = (uint8_t)(st->capacity >> 8);
+        r[10] = (uint8_t)(st->capacity >> 16);
+        r[11] = (uint8_t)(st->capacity >> 24);
+    }
     return reply(ctx, r, sizeof r) == OD_TXQ_OK ? OD_CMD_OK : OD_CMD_NACK;
 }
 
@@ -172,7 +177,10 @@ od_cmd_result_t od_cmd_app_flash_display(const od_cmd_ctx_t *ctx, od_span_t body
 od_cmd_result_t od_cmd_app_action_info(const od_cmd_ctx_t *ctx, od_span_t body)
 {
     const od_action_stats_t *st = od_action_stats();
-    uint8_t r[9];
+    /* r[9] `tables` extends the 9-byte frame of protocol 2.4: the number of 0xB2 packets in
+     * the config, of which only the first runs. Appended so a reader of the 9-byte form is
+     * unaffected; the canonical ActionInfoResponse does not carry it yet. */
+    uint8_t r[10];
 
     (void)body;
     r[0] = RESP_ACK;
@@ -184,6 +192,7 @@ od_cmd_result_t od_cmd_app_action_info(const od_cmd_ctx_t *ctx, od_span_t body)
     r[6] = st->last_trigger;
     r[7] = st->fire_count;
     r[8] = (uint8_t)st->last_temp_c;
+    r[9] = st->tables;
     return reply(ctx, r, sizeof r) == OD_TXQ_OK ? OD_CMD_OK : OD_CMD_NACK;
 }
 

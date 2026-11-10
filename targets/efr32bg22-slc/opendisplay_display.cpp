@@ -18,6 +18,7 @@
 #include "em_gpio.h"
 #include "em_system.h"
 #include "qrcode/qrcode.h"
+#include "od_hal_time.h"
 #include "sl_sleeptimer.h"
 #include <stdio.h>
 #include <string.h>
@@ -1080,7 +1081,7 @@ extern "C" bool od_xfer_app_refresh(uint8_t mode, bool *completed)
 
 extern "C" uint32_t od_xfer_app_now_ms(void)
 {
-  return sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count());
+  return od_hal_uptime_ms();
 }
 
 /* ------------------------------------------------------------- display from a stored slot --- */

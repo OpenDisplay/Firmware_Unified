@@ -132,9 +132,9 @@ static void test_each_trigger(void)
     ent(&t, OD_TRIG_BUTTON_LONG, 200u, true, 1u, st_long);
     store(&t);
 
-    CASE("reload counts five active entries");
-    CHECK(od_action_stats()->entries == 5u && od_action_stats()->active == 5u);
-    CHECK(od_action_stats()->rejected == 0u && od_action_stats()->inactive == 0u);
+    CASE("reload counts five entries; BUTTON_LONG is inactive (no target emits it)");
+    CHECK(od_action_stats()->entries == 5u && od_action_stats()->active == 4u);
+    CHECK(od_action_stats()->rejected == 0u && od_action_stats()->inactive == 1u);
 
     CASE("BOOT: both steps, the delay honoured between them");
     od_action_trigger(OD_TRIG_BOOT, 0u);
@@ -196,18 +196,23 @@ static void test_button_mask(void)
 {
     tbl_t t = { .n = 0u };
 
-    CASE("BUTTON-MASK: entry arg is a BinaryInputs pin bitmask; a press on pin 1 vs mask 0x03");
+    CASE("BUTTON-MASK: entry arg is a BinaryInputs pin bitmask; a press on pin 1 matches mask 0x03");
     ent(&t, OD_TRIG_BUTTON_PRESS, 0x0003u, true, 1u, ST_LED);
     store(&t);
-    /* opendisplay_ble.c fires (1u << button_id); find_entry() compares targ == arg. */
+    /* opendisplay_ble.c fires (1u << button_id); the entry arg is a mask. */
     od_action_trigger(OD_TRIG_BUTTON_PRESS, 1u << 1);
     (void)run(1000u, 10u);
-    KNOWN_BUG("BUTTON-MASK", g_led == 1u);
+    CHECK(g_led == 1u);
 
     CASE("the exact mask value still matches");
     od_action_trigger(OD_TRIG_BUTTON_PRESS, 0x0003u);
     (void)run(2000u, 10u);
-    CHECK(g_led == 1u);
+    CHECK(g_led == 2u);
+
+    CASE("a pin outside the mask does not match");
+    od_action_trigger(OD_TRIG_BUTTON_PRESS, 1u << 2);
+    (void)run(3000u, 10u);
+    CHECK(g_led == 2u);
 }
 
 static void test_enable_live(void)
@@ -337,13 +342,15 @@ static void test_temperature(void)
     CHECK(od_action_stats()->active == 1u);
     CHECK(poll_at(now, 22) == 0u);
     now += 2000u;
-    CHECK(poll_at(now, 26) == 0u);       /* out */
+    CHECK(poll_at(now, 26) == 0u);       /* inside the 3 C exit band: still in */
+    now += 2000u;
+    CHECK(poll_at(now, 29) == 0u);       /* out: past hi + 3 */
     now += 2000u;
     CHECK(poll_at(now, 25) == 1u);       /* in: the edge, inclusive at hi */
     now += 2000u;
     CHECK(poll_at(now, 24) == 0u);       /* still in */
 
-    CASE("no hysteresis: +-1 C of sensor noise at the edge fires on every re-entry");
+    CASE("hysteresis: +-1 C of sensor noise at the edge does not re-fire");
     {
         static const int8_t noise[] = { 26, 25, 26, 25, 26, 25, 26, 25 };
         for (unsigned i = 0; i < sizeof noise; i++) {
@@ -351,13 +358,12 @@ static void test_temperature(void)
             fires += poll_at(now, noise[i]);
         }
     }
-    /* Four refreshes from one slow crossing. Inherent to an edge without a deadband; the
-     * contract offers no hysteresis field. Pinned as behaviour, raised as a question. */
-    CHECK(fires == 4u);
+    /* Exit needs t > hi + OD_ACTION_TEMP_HYST_C (3 C), so the dither at 25/26 never leaves. */
+    CHECK(fires == 0u);
 
     CASE("polls closer than 2 s apart do not sample");
     now += 2000u;
-    (void)poll_at(now, 26);
+    (void)poll_at(now, 29);
     CHECK(poll_at(now + 500u, 25) == 0u);
     CHECK(poll_at(now + 2000u, 25) == 1u);
     now += 2000u;
@@ -372,7 +378,7 @@ static void test_temperature(void)
     CHECK(poll_at(now, -5) == 1u);
     now += 2000u;
 
-    CASE("TEMP-SHARED-EDGE: a second window tracks the first one's inside bit");
+    CASE("TEMP-SHARED-EDGE: two windows, one ENTER when moving into the second");
     t.n = 0u;
     ent(&t, OD_TRIG_TEMP_ENTER, (uint16_t)(0u | (10u << 8)), true, 1u, ST_LED);
     ent(&t, OD_TRIG_TEMP_ENTER, (uint16_t)(20u | (30u << 8)), true, 1u, ST_SLOT);
@@ -383,13 +389,10 @@ static void test_temperature(void)
         now += 2000u;
         fires += poll_at(now, 25);
     }
-    /* The inside bit is computed from the FIRST temperature entry's window only, so for the
-     * second entry `now_in != was_in` holds on every poll: ENTER fires as a level, every
-     * 2 s -- the refresh loop od_action.h says edges exist to prevent. The comment above
-     * the shared-bit code records the limitation; the consequence is a battery drain any
-     * table with two windows triggers. */
-    KNOWN_BUG("TEMP-SHARED-EDGE", fires == 1u);
-    CHECK(g_slot >= 1u);
+    /* TEMP-SHARED-EDGE: each temperature entry keeps its own edge state, so a second window
+     * fires once on entry, not on every 2 s poll as a level. */
+    CHECK(fires == 1u);
+    CHECK(g_slot == 1u);
 
     CASE("no sensor: temperature entries report inactive");
     g_temp = INT8_MIN;
