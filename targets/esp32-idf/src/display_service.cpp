@@ -24,6 +24,7 @@
 #include "od_sensor_sht40.h"
 #include "od_sensor_bq27220.h"
 #include "sensor_axp2101.h"
+#include "sensor_aht20.h"
 #include "communication.h"
 #include "boot_screen.h"
 #include "link_owner.h"
@@ -645,6 +646,9 @@ int mapEpd(int id){
         case 0x004A: return EP40_SPECTRA_400x600;
         case 0x004B: return EP27_176x264;
         case 0x004C: return EP27_176x264_4GRAY;
+        // 1004 (JD79668 4.2in BWRY) is the controller-side name of the EP42YR class: same
+        // UC81xx-family command set, same init sequence.
+        case OD_PANEL_IC_JD79668_420_BWRY: return EP42YR_400x300;
         default: return EP_PANEL_UNDEFINED;
     }
 }
@@ -1628,6 +1632,7 @@ float readChipTemperature() {
 
 void updatemsdata(){
     // od_log_debug("updatemsdata() called (mloopcounter: %u)", mloopcounter);
+    pollAht20SensorsForMsd();
     od_sensor_sht40_poll(&globalConfig, od_hal_uptime_ms());
     od_sensor_bq27220_poll(&globalConfig, od_hal_uptime_ms());
     float batteryVoltage = readBatteryVoltage();

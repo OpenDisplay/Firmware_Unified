@@ -74,4 +74,17 @@ static_assert((int)OD_PANEL_IC_ED103TC2_1872X1404_4GRAY == 3001,
               "the FastEPD panel-IC range moved; protocol_pending.h's 3002/3003 are no longer "
               "safe to assume -- re-derive them from opendisplay-protocol before building");
 
+/* Same debt, second batch: values Firmware's vendored header carries since #166 (0009dab),
+ * #175 (cc2c7ae) and #176 (d80e28b), which the canonical header has not caught up with. */
+#define OD_DEVICE_FLAG_NM420_INIT   (1u << 5)  /* RockBase NM-EPD-420 low-power init */
+#define OD_SENSOR_TYPE_AHT20        7          /* AHT20 temp/humidity (I2C 0x38) */
+#define OD_SENSOR_TYPE_PCF8563      8          /* PCF8563/BM8563 RTC as power-off wake source */
+#define OD_PANEL_IC_M5PAPER_960X540 3005       /* original M5Paper (IT8951 over SPI, FastEPD) */
+
+static_assert((int)OD_SENSOR_TYPE_BQ27220 == 5,
+              "the sensor-type range moved; protocol_pending.h's AHT20=7/PCF8563=8 are no "
+              "longer safe to assume");
+static_assert((int)OD_PANEL_IC_M5PAPERS3_960X540 == 3004,
+              "the FastEPD panel-IC range moved; protocol_pending.h's 3005 is no longer safe");
+
 #endif /* PROTOCOL_PENDING_H */

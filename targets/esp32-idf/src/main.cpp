@@ -28,6 +28,7 @@
 #include "od_hal_i2c.h"
 #include "od_hal_i2c_esp.h"
 #include "od_hal_gpio.h"
+#include "driver/gpio.h"
 #include "od_hal_time.h"
 #include "od_hal_sleep.h"
 
@@ -1197,6 +1198,7 @@ void enterDeepSleep(bool force, uint16_t overrideSleepSeconds) {
     od_hal_delay_ms(100); // Brief delay to ensure serial output is sent
     powerLatchHoldForSleep();
     touchPrepareForDeepSleep();
+    nm420HoldForSleep();
     esp_deep_sleep_start();
 }
 
@@ -1325,6 +1327,39 @@ void xiaoinit(){
     //od_hal_gpio_config_input(14, false, false);
     od_hal_gpio_config_output(13, false); //that actually does something
     //od_hal_gpio_config_input(17, false, false);
+}
+
+// RockBase IoT NM-EPD-420 (ESP32-S3 + 4.2in panel), DEVICE_FLAG_NM420_INIT.
+//
+// The board carries a LoRa module, an ES8311 codec, an audio PA and an AHT20 power gate whose
+// enable lines no config packet can describe. Left at the reset default (input, no pull) each
+// rail floats to whatever the board's resistor decides, so drive them OFF. All active HIGH:
+//   GPIO47 MODULE_EN (LoRa)   GPIO44 CODEC_EN   GPIO41 PA_CTRL   GPIO40 TEMP_CTL (AHT20 gate)
+//   GPIO43 ADC_EN (battery divider; pulsed HIGH only while measuring)
+// Panel 1/2/4/5/6/46, I2C 38/39 and the USER key 45 belong to their own init blocks.
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+static constexpr uint8_t kNm420OffPins[] = {47, 44, 41, 40, 43};
+#endif
+
+void nm420_init(){
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+    for (uint8_t pin : kNm420OffPins) {
+        gpio_hold_dis((gpio_num_t)pin);
+        od_hal_gpio_config_output(pin, false);
+    }
+    od_log_info("NM-EPD-420 init: peripheral enables and battery ADC gate LOW");
+#endif
+}
+
+void nm420HoldForSleep() {
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+    if (!globalConfig.loaded || !(globalConfig.system_config.device_flags & DEVICE_FLAG_NM420_INIT)) return;
+    for (uint8_t pin : kNm420OffPins) {
+        od_hal_gpio_write(pin, false);
+        gpio_hold_en((gpio_num_t)pin);
+    }
+    gpio_deep_sleep_hold_en();
+#endif
 }
 
 void ws_pp_init(){

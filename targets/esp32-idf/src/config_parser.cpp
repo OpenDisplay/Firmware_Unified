@@ -24,7 +24,9 @@
 #define DEVICE_FLAG_WS_PP_INIT (1 << 2)
 #define DEVICE_FLAG_BATTERY_LATCH (1 << 3)
 #define DEVICE_FLAG_PWR_LATCH_DFF (1 << 4)
+#define DEVICE_FLAG_NM420_INIT (1 << 5)
 #endif
+void nm420_init();
 
 extern struct od_config globalConfig;
 extern uint8_t activeLedInstance;
@@ -305,6 +307,9 @@ void full_config_init() {
             od_log_info("Device flag DEVICE_FLAG_WS_PP_INIT is set, calling ws_pp_init()...");
             ws_pp_init();
             od_log_info("ws_pp_init() completed");
+        }
+        if (globalConfig.loaded && (globalConfig.system_config.device_flags & DEVICE_FLAG_NM420_INIT)) {
+            nm420_init();
         }
         // Must run after config load: latch pins/flag come from globalConfig.
         powerLatchBegin();
