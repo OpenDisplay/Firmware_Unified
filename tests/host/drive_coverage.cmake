@@ -70,3 +70,12 @@ foreach(wo IN ITEMS 0 1)
         OD_IMGSTORE_WRITE_ONCE_HEADER=${wo})
     add_test(NAME imgstore_nor${sfx} COMMAND od_imgstore_nor${sfx}_test)
 endforeach()
+
+# The shared CMD_DRIVE_WRITE_START (0x0085) and CMD_SPI_RAW (0x0084) handlers over real
+# od_epd_cfg / od_epd / od_xfer. od_shared_silabs is the host archive built with
+# OD_CAP_DRIVE_WRITE and OD_CAP_SPI_RAW; neither handler has BG22-specific code.
+add_executable(od_drive_cmd_test drive_cmd_test.c od_log_test_stub.c
+    ${OD_SHARED_CORE}/od_cmd_drive.c ${OD_SHARED_CORE}/od_cmd_spi_raw.c
+    ${OD_SHARED_CORE}/od_epd_cfg.c ${OD_SHARED_CORE}/od_epd.c ${OD_SHARED_CORE}/od_cfg_index.c)
+target_link_libraries(od_drive_cmd_test od_shared_silabs)
+add_test(NAME drive_cmd COMMAND od_drive_cmd_test)
