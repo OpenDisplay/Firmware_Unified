@@ -336,17 +336,24 @@ static void test_start_panel_failures(void)
     store_cfg(true);
     g_temp = OD_DRIVE_TEMP_UNKNOWN;
 
-    CASE("DRIVE-NACK-ZOMBIE: a refused START tears down the panel of the active transfer but "
-         "leaves od_xfer holding it");
+    CASE("DRIVE-NACK-ZOMBIE: a refused START ends the active transfer with its panel");
     CHECK(start(ok, 5u) == OD_CMD_OK && od_xfer_active() && g_streaming);
     CHECK(start(bad, 5u) == OD_CMD_NACK);
     CHECK(!g_up && !g_streaming);         /* drive_begin()'s od_drive_app_abort() ran */
-    /* Neither target's od_drive_app_abort() touches od_xfer (Nordic xfer_app_clear(), ESP32
-     * od_drive_esp_clear()), and the 0x0085 handler never calls od_xfer_replace_active() /
-     * od_xfer_reset() on its refusal paths. The old transfer stays "active" with no panel
-     * behind it: its next DATA chunk fails at od_xfer_app_write, and until then (or the
-     * transfer timeout) od_xfer_active() defers every display_service job. */
-    KNOWN_BUG("DRIVE-NACK-ZOMBIE", !od_xfer_active());
+    /* The app abort does not touch od_xfer, so drive_begin() resets it alongside; otherwise
+     * the old transfer stays active with no panel and defers the display service. */
+    CHECK(!od_xfer_active());
+
+    CASE("a START refused before the panel is touched (reserved bytes) leaves the transfer");
+    CHECK(start(ok, 5u) == OD_CMD_OK && od_xfer_active() && g_streaming);
+    {
+        const uint8_t rsv[5] = { 0, 0, 0, 1, 0 };
+        CHECK(start(rsv, 5u) == OD_CMD_NACK && reply_is(NACK(OD_ERR_DRIVE_BAD_ARGS, 0u)));
+    }
+    CHECK(od_xfer_active() && g_streaming);
+
+    CASE("an accepted START replaces the active transfer");
+    CHECK(start(ok, 5u) == OD_CMD_OK && od_xfer_active() && g_streaming);
     od_xfer_reset();
 
     CASE("an escape this bus cannot run: SEQ_UNSUPPORTED, refused before any I/O, panel down");
