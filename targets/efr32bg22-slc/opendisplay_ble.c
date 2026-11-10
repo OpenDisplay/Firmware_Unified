@@ -5,6 +5,7 @@
 #include "opendisplay_display.h"
 #include "od_cfg_index.h"
 #include "od_net_a.h"
+#include "od_net_g.h"
 #include "od_imgstore.h"
 #include "od_action.h"
 #include "od_color.h"
@@ -1511,11 +1512,13 @@ void opendisplay_ble_reload_config_from_nvm(void)
    * error -- the failure that does not announce itself. */
   (void)od_cfg_index_build();
 
-  /* Network A's address and payload are both derived from the key, which a config write can
+  /* Each network's address and payload are derived from its key, which a config write can
    * change. Invalidate first or the sync sees "already started" and keeps advertising the
    * old key. */
   od_net_a_invalidate();
   od_net_a_sync(od_config_findmy(&s_od_global_config));
+  od_net_g_invalidate();
+  od_net_g_sync(od_config_findmy(&s_od_global_config));
   /* After od_cfg_index_build: the table is read through that index, so reloading
    * in the other order would validate against the previous config's offsets. */
   od_action_reload();
@@ -1844,6 +1847,8 @@ void opendisplay_ble_on_boot(uint8_t advertising_set_handle)
   (void)od_cfg_index_build();
   od_net_a_invalidate();
   od_net_a_sync(od_config_findmy(&s_od_global_config));
+  od_net_g_invalidate();
+  od_net_g_sync(od_config_findmy(&s_od_global_config));
 
   /* Mount the image store. Geometry-hashed so a board re-provisioned onto a different panel
    * reformats rather than serving plane sets that would render as noise. */

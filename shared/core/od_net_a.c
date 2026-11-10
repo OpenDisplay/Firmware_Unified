@@ -90,7 +90,7 @@ void od_net_a_sync(const struct FindMyConfig *cfg)
 
     if (!od_net_a_config_active(cfg)) {
         if (s_started) {
-            (void)od_hal_adv2_stop();
+            (void)od_hal_adv2_stop(OD_HAL_ADV2_SET_NET_A);
             s_started = false;
             od_log_info("net_a: stopped (config inactive)");
         }
@@ -103,7 +103,7 @@ void od_net_a_sync(const struct FindMyConfig *cfg)
     /* Stop before reprogramming. The address belongs to the set, and a stack may refuse to
      * change it underneath a running advertiser -- which would leave the OLD key advertising
      * while config says otherwise. NOT_ACTIVE here is the expected answer, not a fault. */
-    (void)od_hal_adv2_stop();
+    (void)od_hal_adv2_stop(OD_HAL_ADV2_SET_NET_A);
 
     adv_len = od_net_a_build_adv(cfg->net_a_adv_key, adv, (uint8_t)sizeof adv);
     if (adv_len == 0u) {
@@ -112,14 +112,14 @@ void od_net_a_sync(const struct FindMyConfig *cfg)
     }
     od_net_a_derive_address(cfg->net_a_adv_key, addr);
 
-    if (od_hal_adv2_program(adv, adv_len, addr, OD_NET_A_ADV_INTERVAL_SLOTS)
-        != OD_HAL_ADV_OK) {
+    if (od_hal_adv2_program(OD_HAL_ADV2_SET_NET_A, adv, adv_len, addr,
+                            OD_NET_A_ADV_INTERVAL_SLOTS) != OD_HAL_ADV_OK) {
         /* Left unstarted deliberately: the next sync pass retries. Nothing latches, because a
          * finding network that stays dark after one transient stack error is worse than a
          * retry that occasionally logs. */
         return;
     }
-    if (od_hal_adv2_start() != OD_HAL_ADV_OK) {
+    if (od_hal_adv2_start(OD_HAL_ADV2_SET_NET_A) != OD_HAL_ADV_OK) {
         return;
     }
 

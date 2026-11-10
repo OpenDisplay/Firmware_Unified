@@ -270,7 +270,8 @@ set(OD_SHARED_SOURCES_APP_EPD
     "${CMAKE_CURRENT_LIST_DIR}/core/od_epd.c"
 )
 
-# APP_NET_A is network A (legacy offline-finding) advertising policy: what makes the network
+# APP_NET_A is the finding-network advertising policy, network A (od_net_a) and network G /
+# FMDN (od_net_g): what makes each network
 # active, how the advertised address derives from the key, and the 31-byte record. It needs
 # shared/hal/od_hal_adv2.h -- a SECOND advertising set, declinable, because the finding record
 # is 31 network-defined bytes on a key-derived address and od_hal_adv installs 16 bytes of MSD
@@ -309,6 +310,7 @@ set(OD_SHARED_SOURCES_APP_ACTION
 
 set(OD_SHARED_SOURCES_APP_NET_A
     "${CMAKE_CURRENT_LIST_DIR}/core/od_net_a.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_net_g.c"
 )
 
 # The aggregate: every tier, for consumers that have every HAL (today: the host tests, which fake

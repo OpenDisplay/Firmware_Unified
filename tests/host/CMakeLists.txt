@@ -161,7 +161,8 @@ add_test(NAME color COMMAND od_color_test)
 # functions under test need no HAL at all. Keeping the policy half linkable without a fake
 # stack is the point -- the record layout is a network specification, checkable on its own.
 add_executable(od_net_a_test net_a_test.c
-    ${CMAKE_CURRENT_LIST_DIR}/../../shared/core/od_net_a.c)
+    ${CMAKE_CURRENT_LIST_DIR}/../../shared/core/od_net_a.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../shared/core/od_net_g.c)
 target_link_libraries(od_net_a_test od_shared)
 add_test(NAME net_a COMMAND od_net_a_test)
 
