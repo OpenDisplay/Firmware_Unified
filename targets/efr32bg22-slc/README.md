@@ -49,7 +49,7 @@ targets — a target-owned `panel/` backend, not an edit to `third_party/`.
 | Not imported: the SDK | `simplicity_sdk_2025.12.2/`, 57 MB / 658 files — the documented deviation. Replaced by the pinned install |
 | Not imported: `third_party/` | all four trees. `bb_epaper` and `uzlib` are vendored once at repo level; `segger_rtt` and `silabs_app_properties` **have no home yet** |
 | Not imported: `include/` | the local protocol-header copies; `shared/protocol/` is the single reference |
-| Not imported: the bootloader blob | 753 KB `.s37`; its README is imported so the provenance survives |
+| Imported later: the bootloader blob | `bootloader-artifact/opendisplay-bootloader.s37`, 747 KB, byte-identical to Firmware_Silabs (provenance in its README); needed for virgin-board release images |
 
 ### The two homeless vendored trees
 
