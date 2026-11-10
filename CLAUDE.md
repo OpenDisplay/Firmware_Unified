@@ -136,8 +136,11 @@ before proposing anything under `shared/`; extend the pattern as targets are imp
    Revisit only at `od_session.c` / `od_xfer_partial.c`: nested resource
    lifetimes with several failure exits per function are the one shape where manual cleanup
    reliably loses. That is also the last point where switching is cheap.
-2. **One vtable, deliberately** — `od_panel_ops` (`targets/esp32-idf/hal/od_hal_panel.h`), for the
-   one target with 2-3 panel backends. Keep it the only one.
+2. **One function-pointer seam, deliberately: the panel bus.** A target hands
+   `od_epd_cfg_bus_t` (`shared/core/od_epd_cfg.h`) to the config binding, which adapts it onto
+   the executor's `od_epd_io_t` (`shared/core/od_epd.h`); the optional hooks (pin_write /
+   set_pin, cs_select, read_bytes) declare a target's escapes by being non-NULL. Keep it the only
+   one. (It replaced `od_panel_ops` / `hal/od_hal_panel.h`, deleted with bb_epaper in 3.0.)
 3. **Three toolchains stay three** (ESP-IDF, west/Zephyr, SLC), all CMake. Unification is about
    shared *source*.
 4. **Grouped by silicon vendor, not repo of origin.** nRF52840 is a *board* on `nordic-zephyr`,

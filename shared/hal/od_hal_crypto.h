@@ -1,8 +1,9 @@
 /* od_hal_crypto.h -- the cryptography HAL every session-capable target implements.
  *
  * Link-time C functions, not a vtable: shared/ is plain C and binds to the target
- * implementation at link time (CLAUDE.md section "The one rule"). od_panel_ops is the single
- * deliberate function-pointer exception in this tree, and this is not it.
+ * implementation at link time (CLAUDE.md section "The one rule"). The panel bus
+ * (od_epd_cfg_bus_t / od_epd_io_t) is the single deliberate function-pointer exception in this
+ * tree, and this is not it.
  *
  * THE DIVISION OF LABOUR. The target owns its cryptographic engine, vendor key handles,
  * prepared-key storage and error logging. Shared session code owns the handshake, KDF inputs,

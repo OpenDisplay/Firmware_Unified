@@ -16,6 +16,14 @@ a per-target fork. Do not "fix" this by moving it into `shared/`.
 
 ## bb_epaper
 
+> **3.0 (2026-11): no firmware target compiles bb_epaper.** Every target drives its panel from
+> the config's drive packets (`shared/core/od_epd.c` via `od_display.c`); tools/check.sh ratchets
+> "nordic: no panel library" / "esp32: no panel library" enforce it. The tree stays vendored for
+> the host-only panel-data harness (`tests/panels/harness/`, `panels/tools/gen_all.py`), which
+> records bb_epaper's streams as the reference the drive presets are proven against. The notes
+> below describe the 2.x-era ESP32 integration and are kept for the record; the
+> `od_hal_panel` / `od_panel_ops` destination they name was deleted.
+
 > **RESOLVED 2026-08-04 -- bb_epaper needs NO Arduino surface on this target.** The open
 > decision below ("replacing `esp_generic.inl` with an in-project backend as the other two
 > targets already did") was taken: `targets/esp32-idf/panel/od_bbep.cpp` replaces the vendored

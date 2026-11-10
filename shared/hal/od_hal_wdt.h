@@ -1,8 +1,9 @@
 /* od_hal_wdt.h -- the watchdog HAL every target implements.
  *
  * Link-time C functions, not a vtable: shared/ is plain C and binds to the target
- * implementation at link time (CLAUDE.md § "The one rule"). od_panel_ops is the single
- * deliberate function-pointer exception in this tree, and this is not it.
+ * implementation at link time (CLAUDE.md § "The one rule"). The panel bus
+ * (od_epd_cfg_bus_t / od_epd_io_t) is the single deliberate function-pointer exception in this
+ * tree, and this is not it.
  *
  * THE DIVISION OF LABOUR. The target owns the peripheral, the retained-memory backing store,
  * and the chip's reset-cause register. The shared controller (od_watchdog.h) owns the POLICY
