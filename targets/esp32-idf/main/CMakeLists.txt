@@ -115,8 +115,10 @@ list(APPEND OD_APP_SOURCES ${CMAKE_CURRENT_LIST_DIR}/../panel/od_bbep.cpp)
 # consistent there. It is NOT visible everywhere: component_get_requirements.cmake is a separate
 # script include with its own scope, and OD_BOARD is empty inside it -- which is why the assertion
 # below returns early rather than resolving a path from it.
-# FastEPD is ESP32-S3-only and PSRAM-mandatory (MEMORY_CONSTRAINTS.md
-# § "FastEPD is ESP32-only and PSRAM-mandatory"), so this list can only ever hold S3 boards.
+# FastEPD is PSRAM-mandatory (MEMORY_CONSTRAINTS.md § "FastEPD is ESP32-only and
+# PSRAM-mandatory"). Its parallel bus is esp_lcd i80, which the S3 drives with its LCD
+# peripheral and the classic ESP32 with I2S in LCD mode -- so classic-ESP32 PSRAM boards
+# (Inkplate, M5Paper) belong here too.
 # Boards whose source env sets -DOPENDISPLAY_FASTEPD *and* lists the FastEPD lib_dep.
 # Read from platformio.ini, not guessed -- the two are not the same set:
 #
@@ -131,7 +133,8 @@ set(OD_FASTEPD_BOARDS
     s3-n8r8
     s3-n32r8
     s3-n16r8-extuart
-    s3-n16r8-extuart-debug)
+    s3-n16r8-extuart-debug
+    esp32-wrover-e-n4r8)
 
 # Cross-check the hand-maintained list against the fragment it mirrors. The list exists because
 # the fragment's VARIABLES are invisible in this pass (see above) -- its TEXT is not, and reading
