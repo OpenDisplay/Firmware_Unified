@@ -56,8 +56,11 @@ that completes it, then the next pass's head.
 rectangle). The "partial" mode's two markers take them in that order. A rectangle smaller than
 the panel needs a sequence carrying `WINDOW` (it is refused UNSUP otherwise, before any I/O,
 because the controller would be written from the origin). Sequences should `FILL` both RAM
-planes first, as bb_epaper did. The panel database's partial modes are full-frame (no WINDOW),
-so today they accept only a whole-panel rectangle.
+planes first, as bb_epaper did. In the panel database (schema minor 1, `panels/generated/`) the
+default class (ESP32, Nordic) gives 28 panels' partial modes WINDOW (+ FILL), so they accept any
+byte-aligned rectangle; BG22's class has no WINDOW/FILL, so there partial modes accept only a
+whole-panel rectangle. EP213ZZ (0x0049) keeps a whole-panel partial on every target (its RAM X
+offset is not expressible as WINDOW geometry).
 
 ## Provisional escapes (need opendisplay-protocol adoption)
 
