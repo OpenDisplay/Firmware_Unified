@@ -1,25 +1,35 @@
 name: Build targets
 
-# Reusable: builds all three firmware targets in their release configuration and uploads each
-# target's release/ directory as an artifact. ci.yml calls it for every push and pull request;
+# Reusable: builds all three firmware targets and uploads each target's release/ directory as
+# an artifact, already normalised by tools/release/collect.py into the asset set that
+# docs/RELEASE_ARTEFACTS.md defines. ci.yml calls it for every push and pull request;
 # release.yml calls it for a tag and publishes the artifacts.
 #
 # Three jobs rather than one because the toolchains (ESP-IDF, nRF Connect SDK, Simplicity SDK)
 # share nothing, and an image carrying all three would be enormous and slow to pull.
+#
+# VERSION: every job resolves its version through tools/release/version.sh: the caller's
+# version (a tag) when given, else the in-source default. It exports the result as
+# OD_FW_VERSION, so every image is stamped explicitly. The targets derive the rest from that one
+# string: ESP32 PROJECT_VER, the 0x0043 reply, and BG22's SL_APPLICATION_VERSION.
 
 on:
   workflow_call:
     inputs:
       version:
-        description: Firmware version stamped into every image; empty keeps the 3.0.0 default.
+        description: Firmware version stamped into every image (X.Y.Z or vX.Y.Z); empty uses the in-source default.
         type: string
         default: ''
+    secrets:
+      OD_MCUBOOT_KEY_P256:
+        description: PEM of the nRF52840 MCUboot signing key (ECDSA-P256). Unset uses MCUboot's debug key.
+        required: false
+      OD_MCUBOOT_KEY_ED25519:
+        description: PEM of the nRF54 MCUboot signing key (Ed25519). Unset uses MCUboot's debug key.
+        required: false
 
 permissions:
   contents: read
-
-env:
-  OD_FW_VERSION: ${{ inputs.version }}
 
 jobs:
   esp32:
@@ -31,6 +41,14 @@ jobs:
       - uses: actions/checkout@v4
         with: { submodules: recursive }
 
+      - name: Resolve version
+        shell: bash
+        env:
+          IN_VERSION: ${{ inputs.version }}
+        run: echo "OD_FW_VERSION=$(tools/release/version.sh "$IN_VERSION")" >> "$GITHUB_ENV"
+
+      # Every board, -debug ones included, so CI covers them. collect.py drops the -debug images
+      # from the artifact: they are bench builds, not release assets.
       - name: Build every board fragment + sdkconfig baseline
         shell: bash
         run: |
@@ -38,6 +56,10 @@ jobs:
           . "$IDF_PATH/export.sh"
           ( cd targets/esp32-idf && ./build.sh )
           targets/esp32-idf/tools/sdkconfig_baseline.sh
+
+      - name: Collect release assets
+        shell: bash
+        run: python3 tools/release/collect.py fragment --target esp32-idf release
 
       - uses: actions/upload-artifact@v4
         with:
@@ -60,6 +82,11 @@ jobs:
       - uses: actions/checkout@v4
         with: { submodules: recursive }
 
+      - name: Resolve version
+        env:
+          IN_VERSION: ${{ inputs.version }}
+        run: echo "OD_FW_VERSION=$(tools/release/version.sh "$IN_VERSION")" >> "$GITHUB_ENV"
+
       - name: Restore nRF Connect SDK v3.3.1
         id: ncs-cache
         uses: actions/cache@v4
@@ -74,10 +101,40 @@ jobs:
           cd "$NCS_ROOT"
           west update --narrow -o=--depth=1
 
+      # The version the OpenDisplay/Firmware release uses for its NRF52840.zip, in its own venv
+      # so it shares nothing with the NCS toolchain's Python.
+      - name: Install adafruit-nrfutil
+        run: |
+          python3 -m venv "$RUNNER_TEMP/nrfutil"
+          "$RUNNER_TEMP/nrfutil/bin/pip" install --quiet adafruit-nrfutil==0.5.3.post16
+          echo "ADAFRUIT_NRFUTIL=$RUNNER_TEMP/nrfutil/bin/adafruit-nrfutil" >> "$GITHUB_ENV"
+
+      # Both keys or neither: build.sh refuses a key directory that lacks the file a board
+      # needs, so a half-configured secret fails the build instead of signing with the debug key.
+      - name: MCUboot signing keys (optional)
+        env:
+          KEY_P256: ${{ secrets.OD_MCUBOOT_KEY_P256 }}
+          KEY_ED25519: ${{ secrets.OD_MCUBOOT_KEY_ED25519 }}
+        run: |
+          if [ -z "$KEY_P256" ] && [ -z "$KEY_ED25519" ]; then
+            echo "::warning::No MCUboot signing key configured: Nordic images are signed with MCUboot's published DEBUG key."
+            exit 0
+          fi
+          d="$RUNNER_TEMP/mcuboot-keys"; mkdir -p "$d"; chmod 700 "$d"
+          [ -n "$KEY_P256" ] && printf '%s\n' "$KEY_P256" > "$d/ecdsa-p256.pem"
+          [ -n "$KEY_ED25519" ] && printf '%s\n' "$KEY_ED25519" > "$d/ed25519.pem"
+          echo "OD_MCUBOOT_KEY_DIR=$d" >> "$GITHUB_ENV"
+
       - name: Build all boards
         run: |
           git config --global --add safe.directory '*'
           ( cd targets/nordic-zephyr && ./build.sh --all )
+
+      - name: nRF52840 USB install packages
+        run: tools/release/nrf52840_usb_packages.sh release
+
+      - name: Collect release assets
+        run: python3 tools/release/collect.py fragment --target nordic-zephyr release
 
       - uses: actions/upload-artifact@v4
         with:
@@ -96,6 +153,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { submodules: recursive }
+
+      - name: Resolve version
+        env:
+          IN_VERSION: ${{ inputs.version }}
+        run: echo "OD_FW_VERSION=$(tools/release/version.sh "$IN_VERSION")" >> "$GITHUB_ENV"
 
       # The pinned Simplicity SDK 2025.12.2 is not on the public GitHub mirror (that stops at
       # v2025.6.3), so it comes from Silicon Labs' own installer, which is a public download.
@@ -127,6 +189,9 @@ jobs:
           export PATH="$HOME/slt/bin:$PATH"
           slt where simplicity-sdk
           targets/efr32bg22-slc/build-and-flash.sh --clean --no-flash
+
+      - name: Collect release assets
+        run: python3 tools/release/collect.py fragment --target efr32bg22-slc release
 
       - uses: actions/upload-artifact@v4
         with:

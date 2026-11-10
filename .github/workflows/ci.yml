@@ -29,13 +29,14 @@ jobs:
       # clang is what the sanitizer and fuzz checks need; without it they SKIP, and
       # tools/ci_check.sh treats an unexpected skip as a failure.
       #
-      # python3-yaml is not optional either: bench_dispatch_gate and nfc_read_tool import the
-      # esp32 CLI tooling, which imports yaml. Without it those two FAIL rather than skip.
+      # python3-yaml and python3-cryptography are not optional either: bench_dispatch_gate and
+      # nfc_read_tool import the esp32 CLI tooling, which imports both (tools/requirements-host.txt).
+      # Without them check.sh reports a SKIP, and tools/ci_check.sh refuses an unexpected skip.
       - name: Install host toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential clang cmake ninja-build python3 python3-pip python3-venv python3-yaml
+            build-essential clang cmake ninja-build python3 python3-pip python3-venv python3-yaml python3-cryptography
 
       # uv runs the wire corpus against the pinned py-opendisplay (and fetches the Python 3.13
       # it needs). Without it that check SKIPs, which ci_check.sh rightly refuses.

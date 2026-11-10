@@ -1,7 +1,7 @@
 /*
  * nRF52840 flash map for DUAL-SLOT MCUboot chained behind the Adafruit bootloader, with the
- * SoftDevice erased. Applied to the application and the mcuboot image, only when
- * OD_NRF52840_MCUBOOT=1.
+ * SoftDevice erased. Applied to the application and the mcuboot image, for the default
+ * nRF52840 build (OD_NRF52840_MCUBOOT unset or 1).
  *
  * Needed alongside pm_static_nrf52840_mcuboot.yml because MCUboot's own CMakeLists requires
  * the slot0_partition NODELABEL during its configure -- it fails with "required nodelabel not

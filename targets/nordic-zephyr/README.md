@@ -9,7 +9,7 @@ pin encoding, bootloader policy, flashing, or EPD rail preparation. See
 |---|---|---|---|
 | `xiao_nrf54l15/nrf54l15/cpuapp` | nRF54L15 | `Firmware_NRF54` | supported; MCUboot |
 | `xiao_nrf54lm20a/nrf54lm20a/cpuapp` | nRF54LM20A | `Firmware_NRF54` | supported; MCUboot |
-| `xiao_ble/nrf52840` | nRF52840 | `Firmware` | ported; Adafruit bootloader/UF2 |
+| `xiao_ble/nrf52840` | nRF52840 | `Firmware` | ported; MCUboot chained behind the Adafruit bootloader |
 
 **`lm20` IS A DIFFERENT PART, not a variant of the L15.** This table used to say "nRF54L15 —
 variant of the above", which understated it: `xiao_nrf54lm20a` is an **nRF54LM20A** with its own
@@ -22,10 +22,10 @@ Use the platform-specific front doors:
 
 ```bash
 ./build-nrf52840.sh
-./flash-nrf52840.sh /path/to/ADAFRUIT_UF2_VOLUME
+./flash-nrf52840.sh        # prints the USB serial-DFU install steps
 
 ./build-nrf52840-debug.sh
-./flash-nrf52840-debug.sh /path/to/ADAFRUIT_UF2_VOLUME
+./flash-nrf52840-debug.sh
 
 ./build-nrf54.sh l15
 ./flash-nrf54.sh l15
@@ -39,9 +39,8 @@ advanced Zephyr use, but release and bench instructions use the explicit front d
 
 The normal binary compiles OpenDisplay through INFO and Zephyr subsystems through WARN. The
 separate debug target enables OpenDisplay DEBUG plus Zephyr subsystem INFO, uses
-`build-nrf52840-debug/`, and emits `release/opendisplay-xiao_nrf52840-debug.uf2` plus
-`release/opendisplay-xiao_nrf52840-debug-merged.hex`, so it cannot overwrite the production
-artifacts. Both variants use the application-owned
+`build-nrf52840-debug/`, and emits `release/opendisplay-xiao_nrf52840-debug-*` files, so it
+cannot overwrite the production artifacts. Both variants use the application-owned
 `[SSSS.mmm|Cn] L: message` format; debug changes verbosity, not the application log protocol.
 
 ## nRF52840 is a port, not an import
@@ -58,12 +57,20 @@ migrated to this repo at all, which is why there is no `targets/nrf52-sdk/` (MIG
 
 ## Bootloader policy
 
-**nRF52840 keeps the Adafruit bootloader. nRF54L15 and nRF54LM20A use MCUboot.** The build and
-flash entry points enforce this split; the generic nRF54 flasher rejects `xiao_ble/nrf52840`.
+**Every board uses MCUboot.** nRF54L15 and nRF54LM20A have it at 0x0. nRF52840 (3.0 default)
+chains dual-slot MCUboot behind the Adafruit bootloader with the s140 SoftDevice erased:
+Adafruit (0xF4000) -> MCUboot (0x1000) -> application (0xD200), static map in
+`zephyr/pm_static_nrf52840_mcuboot.yml`. Its first install is a one-time USB serial-DFU visit
+(EN04/EN05 have no UF2 drive): `tools/release/nrf52840_usb_packages.sh` builds the two
+packages, and `docs/UPGRADING.md` has the procedure and what of it was run on hardware.
 
-The nRF54 sysbuild configuration provides MCUboot, signed application images, and BLE SMP DFU.
-The nRF52840 sysbuild configuration instead preserves the Adafruit partition layout and emits a
-UF2. It is deliberately not compiled with `CONFIG_BOOTLOADER_MCUBOOT`.
+`OD_NRF52840_MCUBOOT=0` builds the old Adafruit-only layout instead (application at 0x27000,
+SoftDevice kept, UF2, no BLE OTA). Its artefacts are named `opendisplay-xiao_nrf52840-adafruit-*`
+and are not release assets.
+
+Images are signed with MCUboot's published debug keys unless `OD_MCUBOOT_KEY_DIR` names a
+directory holding `ecdsa-p256.pem` (nRF52840) and `ed25519.pem` (nRF54). That is an accepted
+3.0 limitation; see CHANGELOG.md.
 
 The host currently has no SMP/mcumgr client, so nRF54 BLE OTA still needs corresponding host-side
 support. Factory and primary-slot probe flashing are available through `flash-nrf54.sh`.

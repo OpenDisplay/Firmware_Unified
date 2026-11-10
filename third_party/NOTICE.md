@@ -149,7 +149,7 @@ absent is not.
 | Revision | `770e168d695e693688053560d9a8d296a0dbc967` ("changed to taskYIELD") |
 | Licence | **Apache-2.0** |
 | Vendored | 2026-07-25, at the ESP32 phase-B import |
-| Scope | **ESP32-S3 only, and PSRAM-mandatory** — parallel e-paper via the S3 LCD peripheral |
+| Scope | **PSRAM-mandatory** parallel e-paper: the ESP32-S3 LCD peripheral on the S3 boards, and the classic-ESP32 path on `esp32-wrover-e-n4r8` (esp32-resync branch) |
 
 **Pruned on the way in — 13 MB → 380 KB.** Kept `src/`, `LICENSE`, `README.md`,
 `library.properties`. Dropped `examples/` (8.2 MB), `Fonts/` (1.6 MB), `Linux/`, `fontconvert/`,
@@ -323,3 +323,57 @@ that way: configuration belongs in `sdkconfig.defaults`, not in edits here.
 **This device ADVERTISES ONLY — it never resolves.** There is no upstream build flag for that
 (the querier and browser compile in regardless), so it is expressed in configuration: see
 `sdkconfig.defaults` for the responder-only settings and what each one is worth.
+
+---
+
+## qrcode
+
+| | |
+|---|---|
+| Upstream | https://github.com/ricmoo/QRCode (Richard Moore) |
+| Licence | **MIT** (stated in `qrcode.h`: "Minimal QR header (MIT) derived from ricmoo/QRCode") |
+| Form | A trimmed encoder: byte mode, ECC level M, versions 1-10 only (`qrcode.c` lookup tables) |
+| Arrived | `1f30d36` ("feat: unify boot screen rendering", 2026-08-18) |
+| Used by | the shared boot screen's QR code (`shared/core/od_boot_screen.c`), on every target |
+
+**Open item: the MIT licence text and copyright line are not in the tree.** MIT requires both
+to accompany copies. Neither `qrcode.c` nor `qrcode.h` carries them, and no upstream revision
+is recorded. Before a release: add upstream's `LICENSE.txt` (Copyright (c) 2017 Richard Moore)
+as `third_party/qrcode/LICENSE` and record the revision here. Not done here because the
+revision this was derived from is not known; see docs/RELEASE_CHECKLIST_3.0.md.
+
+## boot_logo
+
+| | |
+|---|---|
+| Content | `od_logo.svg` (the OpenDisplay logo), `convert_logo.py` (SVG to packed 1-bit C header), `logo_bitmap.h` (its generated output) |
+| Origin | OpenDisplay project artwork and tooling, not third-party code |
+| Licence | **Not stated in the tree.** The code is presumably GPL-3.0 with the rest of the repo. The logo is a project mark, and its terms of use are the maintainer's to state (maintainer question) |
+| Arrived | `1f30d36`, 2026-08-18 |
+
+`logo_bitmap.h` is generated and must not be hand-edited. Regenerate it with
+`convert_logo.py` (needs Pillow plus cairosvg or ImageMagick).
+
+## uzlib / tinf (inflate)
+
+`shared/core/od_zlib_inflate.c` is "based on uzlib/tinf" (its header). uzlib (Paul Sokolovsky)
+and tinf (Joergen Ibsen) are under the **zlib licence**. That licence asks that altered source
+be plainly marked as altered and that the notice not be removed. The file says it is based on
+uzlib/tinf but carries **no copyright notice or licence text** (open item, listed in the
+release checklist). No other uzlib copy is in the tree.
+
+## Linked from toolchains, not vendored here
+
+Release images contain code that is not in this repository but is linked from the pinned
+SDKs. It keeps its own licence:
+
+| Component | In which images | Licence |
+|---|---|---|
+| MCUboot (via nRF Connect SDK v3.3.1) | every Nordic `-merged.hex` and the nRF52840 `usb-2-install.zip` | Apache-2.0 |
+| Zephyr RTOS, nRF Connect SDK (SoftDevice Controller, nrfx, Oberon PSA crypto) | every Nordic image | Apache-2.0 and the LicenseRef-Nordic-5-Clause terms of their sources |
+| ESP-IDF (bootloader, NimBLE, mbedTLS, FreeRTOS) | every ESP32 image | Apache-2.0 (FreeRTOS: MIT) |
+| Simplicity SDK (Bluetooth stack, Gecko bootloader, emlib, SEGGER RTT when enabled) | every BG22 image and `opendisplay-bg22-bootloader.s37` | Silicon Labs MSLA / Zlib / SEGGER RTT BSD-style, per file |
+| Adafruit nRF52 Bootloader | not shipped. It is the bootloader already on the device; the nRF52840 USB packages are written through it | MIT |
+
+A release ships `LICENSE` and this file. Notices for the SDK components are in the SDK sources
+at the pinned versions (docs/TOOLCHAINS.md).

@@ -1,12 +1,22 @@
 name: Release
 
-# A tag `vX.Y.Z` builds every target with that version stamped in and publishes the images as a
-# GitHub release. Run by hand with a version to get the same build as workflow artifacts only,
-# without a release.
+# A version tag builds every target with that version stamped in and creates a DRAFT GitHub
+# release carrying the asset set, manifest.json and SHA256SUMS defined in
+# docs/RELEASE_ARTEFACTS.md. A maintainer reviews it and publishes it by hand
+# (docs/RELEASE_CHECKLIST_3.0.md). Consumers (the website sync, py-opendisplay) see only
+# published releases, so they can never pick up a half-built one.
+#
+# Tags: `3.0.0` (the form every other OpenDisplay repo uses, and the recommended one) and
+# `v3.0.0` are both accepted. manifest.json always carries the bare version.
+#
+# workflow_dispatch with a version is a dry run: the same build and collection, uploaded as a
+# workflow artifact, and no release.
 
 on:
   push:
-    tags: ['v*.*.*']
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
     inputs:
       version:
@@ -17,6 +27,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.ref_name }}-${{ inputs.version }}
+  cancel-in-progress: false
+
 jobs:
   version:
     name: resolve version
@@ -24,15 +38,26 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
     steps:
+      - uses: actions/checkout@v4
+
       - id: v
         env:
           TAG: ${{ github.ref_name }}
           INPUT: ${{ inputs.version }}
         run: |
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then v="${TAG#v}"; else v="${INPUT#v}"; fi
-          echo "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
-            || { echo "::error::version '$v' is not X.Y.Z"; exit 1; }
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then raw="$TAG"; else raw="$INPUT"; fi
+          v="$(tools/release/version.sh "$raw")" || { echo "::error::version '$raw' rejected"; exit 1; }
           echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "resolved $raw -> $v"
+
+      # A release without its CHANGELOG section is not reviewable; fail before twenty minutes
+      # of builds rather than after.
+      - name: CHANGELOG has a section for this version
+        env:
+          V: ${{ steps.v.outputs.version }}
+        run: |
+          grep -Eq "^## \[${V//./\\.}\]" CHANGELOG.md \
+            || { echo "::error::CHANGELOG.md has no '## [$V]' section"; exit 1; }
 
   build:
     name: build
@@ -40,33 +65,83 @@ jobs:
     uses: ./.github/workflows/build.yml
     with:
       version: ${{ needs.version.outputs.version }}
+    secrets: inherit
 
   publish:
-    name: publish
+    name: collect and draft
     needs: [version, build]
-    if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+    env:
+      V: ${{ needs.version.outputs.version }}
+      TAG: ${{ github.ref_type == 'tag' && github.ref_name || needs.version.outputs.version }}
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           pattern: firmware-*
           path: dist
 
-      # Each target writes its own MANIFEST into release/, so the three artifacts do not
-      # collide; the logs/ directories are left out of the release.
-      - name: Collect images
+      # Each build job normalised its own files and left a fragment-<target>.json; names are
+      # disjoint by construction (opendisplay-<board>-*), so a collision is an error, not
+      # something cp -n should paper over.
+      - name: Collect assets and write manifest.json
         run: |
           mkdir -p out
-          find dist -type f ! -path '*/logs/*' -exec cp -n {} out/ \;
-          ( cd out && sha256sum * > SHA256SUMS )
+          while IFS= read -r -d '' f; do
+            b="$(basename "$f")"
+            [ -e "out/$b" ] && { echo "::error::two artifacts both carry $b"; exit 1; }
+            cp "$f" "out/$b"
+          done < <(find dist -type f ! -path '*/logs/*' -print0)
+          cp LICENSE out/LICENSE
+          cp third_party/NOTICE.md out/NOTICE.md
+          python3 tools/release/collect.py merge --version "$V" --tag "$TAG" \
+            --commit "$GITHUB_SHA" out
+          python3 tools/release/collect.py check out
           ls -la out
 
-      - name: Create release
+      - name: Release notes from CHANGELOG.md
+        run: |
+          awk -v v="$V" '
+            $0 ~ "^## \\[" v "\\]" { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          {
+            echo
+            echo "---"
+            echo "Assets, flows and checksums: \`manifest.json\` (schema opendisplay-release/1),"
+            echo "described in docs/RELEASE_ARTEFACTS.md. Upgrade steps: docs/UPGRADING.md."
+          } >> notes.md
+          test -s notes.md
+
+      - name: Upload dry-run result
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ needs.version.outputs.version }}-dry-run
+          path: |
+            out/
+            notes.md
+          if-no-files-found: error
+
+      # Draft only. Re-running against an existing draft replaces its assets; a release that
+      # is already published is never touched from here.
+      - name: Create or update the draft release
+        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG" out/* --repo "$GITHUB_REPOSITORY" \
-            --title "OpenDisplay firmware $TAG" --generate-notes --draft
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft -q .isDraft > draft.txt 2>/dev/null; then
+            if [ "$(cat draft.txt)" != "true" ]; then
+              echo "::error::release $TAG is already published; refusing to change its assets"
+              exit 1
+            fi
+            gh release upload "$TAG" out/* --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
+          else
+            gh release create "$TAG" out/* --repo "$GITHUB_REPOSITORY" --draft \
+              --title "OpenDisplay firmware $V" --notes-file notes.md
+          fi

@@ -26,12 +26,19 @@ od_write_manifest_header() {
   echo "commit   ${commit}${dirty}"
   echo "ncs      ${OD_NCS_VERSION:-v3.3.1}"
   echo
-  echo "BOOTLOADER: nRF54 boards use MCUboot; xiao_nrf52840 keeps the Adafruit"
-  echo "bootloader, so its image is flashed/DFU'd through that path, NOT via MCUboot."
+  echo "BOOTLOADER: every board uses MCUboot and emits -ota.bin / -dfu.zip (SMP)."
+  echo "xiao_nrf52840 (Zephyr board xiao_ble) is dual-slot MCUboot chained behind the"
+  echo "Adafruit bootloader with the SoftDevice ERASED. Its first install is a one-time USB"
+  echo "serial-DFU visit (tools/release/nrf52840_usb_packages.sh builds the two packages;"
+  echo "docs/UPGRADING.md has the procedure). EN04/EN05 have NO UF2 drive."
+  echo "OD_NRF52840_MCUBOOT=0 builds the old Adafruit-only layout instead; its artefacts carry"
+  echo "an -adafruit suffix so the two can never be confused."
   echo
-  echo "nRF54 boards additionally emit -ota.bin / -dfu.zip (MCUboot SMP)."
-  echo "xiao_nrf52840 (Zephyr board xiao_ble) emits .uf2 -- drag onto the Adafruit bootloader"
-  echo "volume; that is its field path. It has no MCUboot, so no -ota.bin / -dfu.zip."
+  if [[ -n "${OD_MCUBOOT_KEY_DIR:-}" ]]; then
+    echo "SIGNING: project key from OD_MCUBOOT_KEY_DIR (ecdsa-p256.pem / ed25519.pem)"
+  else
+    echo "SIGNING: MCUboot DEBUG key (published; anyone can sign images)"
+  fi
   echo
   printf '%-22s %10s  %s\n' BOARD BYTES MERGED-IMAGE
 }
@@ -81,18 +88,46 @@ source "${SCRIPT_DIR}/ncs-env.sh"
 
 CMAKE_ARGS=(-DBOARD_ROOT="${SCRIPT_DIR}")
 
-# Which bootloader composition this board builds. nRF52840 keeps the Adafruit bootloader; every
+# Which bootloader composition this board builds. Every board uses MCUboot unless nRF52840 is
+# built with OD_NRF52840_MCUBOOT=0 (Adafruit-only); every
 # other board here uses MCUboot + Partition Manager. Pristine handling and sysbuild Kconfig
 # selection derive from the same predicate so their board scopes cannot diverge.
 OD_BOARD_TAG="${BOARD%%/*}"
 OD_USES_MCUBOOT=1
-# OD_NRF52840_MCUBOOT=1 chains MCUboot BEHIND the Adafruit bootloader instead of replacing it:
-# Adafruit (0xF4000) -> MCUboot (0x27000) -> app slot. Opt-in, because it buys BLE OTA at the
-# cost of halving the application region, and on this part that leaves only about 5% spare.
-# Default stays the Adafruit-only composition (Milestone 7).
-OD_NRF52840_MCUBOOT="${OD_NRF52840_MCUBOOT:-0}"
+# nRF52840 DEFAULT (3.0): dual-slot MCUboot chained BEHIND the Adafruit bootloader with the
+# SoftDevice erased: Adafruit (0xF4000) -> MCUboot (0x1000) -> application (0xD200). This is
+# the composition every 2026-11 EN04 hardware row ran on (BLE OTA, rollback, image store,
+# 16-colour). It needs a one-time USB serial-DFU install that erases the SoftDevice; see
+# pm_static_nrf52840_mcuboot.yml and docs/UPGRADING.md.
+#
+# OD_NRF52840_MCUBOOT=0 opts back into the Adafruit-only layout (application at 0x27000, no
+# BLE OTA). Its artefacts are suffixed -adafruit so a release directory cannot hold two
+# different files under one name.
+OD_NRF52840_MCUBOOT="${OD_NRF52840_MCUBOOT:-1}"
 if [[ "${OD_BOARD_TAG}" == xiao_ble* && "${OD_NRF52840_MCUBOOT}" != 1 ]]; then
   OD_USES_MCUBOOT=0
+fi
+
+# MCUboot SIGNING KEY: one input, OD_MCUBOOT_KEY_DIR, a directory holding one PEM per
+# signature type. NCS picks the type per SoC (ECDSA-P256 on nRF52840, Ed25519 on nRF54L), so a
+# single file cannot serve every board; the directory can:
+#   ${OD_MCUBOOT_KEY_DIR}/ecdsa-p256.pem   nRF52840
+#   ${OD_MCUBOOT_KEY_DIR}/ed25519.pem      nRF54L15 / nRF54LM20A
+# Unset, the build uses MCUboot's PUBLISHED DEBUG KEYS (the NCS default), which is the
+# accepted 3.0 limitation: anyone can sign an image these bootloaders will accept. Changing
+# the key later strands every unit already in the field on the old key until a USB reflash,
+# and for nRF54 it also breaks SMP from Firmware_NRF54 1.1.x (same default key today).
+if [[ -n "${OD_MCUBOOT_KEY_DIR:-}" ]]; then
+  case "${OD_BOARD_TAG}" in
+    xiao_ble*) od_key="${OD_MCUBOOT_KEY_DIR}/ecdsa-p256.pem" ;;
+    *)         od_key="${OD_MCUBOOT_KEY_DIR}/ed25519.pem" ;;
+  esac
+  if [[ ! -f "${od_key}" ]]; then
+    echo "OD_MCUBOOT_KEY_DIR is set but ${od_key} does not exist." >&2
+    echo "Refusing to fall back to the debug key silently." >&2
+    exit 2
+  fi
+  od_key="$(cd "$(dirname "${od_key}")" && pwd)/$(basename "${od_key}")"
 fi
 
 # `west build -p always` does not fully discard the outer sysbuild state for an MCUboot /
@@ -112,7 +147,8 @@ if [[ "${PURGE}" == "always" && "${OD_USES_MCUBOOT}" == 1 && -d "${BUILD_DIR}" ]
   esac
 fi
 
-# nRF52840 keeps the Adafruit bootloader; the nRF54 boards use MCUboot (Milestone 7). The
+# Adafruit-only nRF52840 (opt-in) and chained-MCUboot nRF52840 (default) each take their own
+# sysbuild file; the nRF54 boards use sysbuild.conf. The
 # choice lives in a sysbuild Kconfig file, which cannot be overridden from CMake or -D, so the
 # right file is selected here. Without this an xiao_ble build fails at configure with
 # "required nodelabel not found: slot0_partition" -- upstream xiao_ble ships pm_static.yml for
@@ -135,6 +171,10 @@ elif [[ "${OD_BOARD_TAG}" == xiao_ble* ]]; then
   # layout with no slots. Both images take the same overlay so the two maps cannot disagree.
   CMAKE_ARGS+=(-DEXTRA_DTC_OVERLAY_FILE="${APP_DIR}/nrf52840_mcuboot_partitions.overlay")
   CMAKE_ARGS+=(-Dmcuboot_EXTRA_DTC_OVERLAY_FILE="${APP_DIR}/nrf52840_mcuboot_partitions.overlay")
+fi
+if [[ "${OD_USES_MCUBOOT}" == 1 && -n "${od_key:-}" ]]; then
+  # A sysbuild Kconfig string, so the value carries its own quotes.
+  CMAKE_ARGS+=("-DSB_CONFIG_BOOT_SIGNATURE_KEY_FILE=\"${od_key}\"")
 fi
 if [[ "${PROFILE}" == "uart" ]]; then
   OD_EXTRA_CONFS+=("${APP_DIR}/prj_uart.conf")
@@ -221,6 +261,11 @@ BOARD_TAG="${BOARD%%/*}"
 case "${BOARD_TAG}" in
   xiao_ble) BOARD_TAG="xiao_nrf52840" ;;
 esac
+# The opt-in Adafruit-only nRF52840 layout gets its own name: its merged.hex starts at 0x27000
+# and needs the SoftDevice, the default one starts at 0x1000 and needs it erased.
+if [[ "${OD_USES_MCUBOOT}" == 0 ]]; then
+  BOARD_TAG="${BOARD_TAG}-adafruit"
+fi
 mkdir -p "${RELEASE_DIR}"
 REL_LINE=""
 if [[ -f "${HEX}" ]]; then
@@ -234,16 +279,18 @@ fi
 if [[ -n "${DFU_ZIP}" ]]; then
   cp "${DFU_ZIP}" "${RELEASE_DIR}/opendisplay-${BOARD_TAG}${PROFILE_SUFFIX}-dfu.zip"
 fi
-# UF2 is the ADAFRUIT BOOTLOADER's flashing format and is the artefact that actually matters on
-# nRF52840: that board has no MCUboot, so there is no signed OTA image or dfu_application.zip
-# for it, and merged.hex needs a debug probe. Drag-and-drop of this file onto the bootloader's
-# mass-storage volume is the whole field path. The nRF54 boards produce no UF2.
+# UF2 only for the Adafruit-only layout, where the application sits at 0x27000 exactly where
+# the bootloader's UF2 volume writes it. That volume exists on the stock Seeed XIAO bootloader
+# and NOT on EN04/EN05 (serial DFU only). In the MCUboot layout Zephyr's zephyr.uf2 is the
+# unsigned application at its slot address, which nothing should flash, so it is not shipped.
 UF2=""
-for candidate in \
-  "${BUILD_DIR}/zephyr/zephyr/zephyr.uf2" \
-  "${BUILD_DIR}/zephyr/zephyr.uf2"; do
-  if [[ -f "${candidate}" ]]; then UF2="${candidate}"; break; fi
-done
+if [[ "${OD_USES_MCUBOOT}" == 0 ]]; then
+  for candidate in \
+    "${BUILD_DIR}/zephyr/zephyr/zephyr.uf2" \
+    "${BUILD_DIR}/zephyr/zephyr.uf2"; do
+    if [[ -f "${candidate}" ]]; then UF2="${candidate}"; break; fi
+  done
+fi
 if [[ -n "${UF2}" ]]; then
   cp "${UF2}" "${RELEASE_DIR}/opendisplay-${BOARD_TAG}${PROFILE_SUFFIX}.uf2"
 fi

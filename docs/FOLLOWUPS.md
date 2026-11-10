@@ -1667,7 +1667,13 @@ future edge test should assert on per-trigger counts, not on `last`.
 
 ## MCUboot on nRF52840: dual-slot is cramped, firmware-updater mode is blocked upstream
 
-**Status: BLOCKED on an NCS v3.3.1 inconsistency, not on our configuration.** Measured
+> **SUPERSEDED by `ee1e783` (2026-11-06).** Erasing the s140 SoftDevice moves the application
+> start to 0x1000 and gives dual-slot 440 kB slots (app 85% full at the 3.0 build). BLE OTA and
+> rollback are verified on an EN04 (checklist § "`xiao_ble` / EN04 — BLE OTA via dual-slot
+> MCUboot"), and dual-slot is the nRF52840 default from 3.0. The firmware-updater analysis
+> below is kept as a record of the dead end; nothing in it is open.
+
+**Status (as written before `ee1e783`): BLOCKED on an NCS v3.3.1 inconsistency, not on our configuration.** Measured
 2026-11-06 against an EN04. Everything below is opt-in behind `OD_NRF52840_MCUBOOT=1`; the
 default build is unchanged and verified at 356,956 B.
 

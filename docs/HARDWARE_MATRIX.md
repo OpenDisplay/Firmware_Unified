@@ -42,8 +42,9 @@ no build file states them, so treat that pair as the one unverified column.
 | `esp32-n4` | ESP32 (classic) | 2 × Xtensa LX6 | 160 MHz | 520 KB | none | 4 MB | yes | **no WiFi/LAN transport**; smallest image in the fleet |
 
 PSRAM is `CONFIG_SPIRAM_TYPE_AUTO` — detected at boot — so 8 MB is the R8 module designation
-rather than a compiled-in size. Only the S3 boards have a PSRAM controller at all; FastEPD needs
-both it and the S3's parallel LCD peripheral, which is why no C3/C6/classic board sets it.
+rather than a compiled-in size. FastEPD needs PSRAM, so no C3/C6 board sets it. It is not
+S3-only: the classic-ESP32 `esp32-wrover-e-n4r8` board (Inkplate 5 V2 / 10, M5Paper; on the
+`v3/esp32-resync` branch until it merges) builds FastEPD's classic-ESP32 parallel path.
 
 ## `targets/nordic-zephyr/` — Zephyr
 
@@ -51,7 +52,7 @@ both it and the S3's parallel LCD peripheral, which is why no C3/C6/classic boar
 |---|---|---|---|---|---|---|
 | `xiao_nrf54l15/nrf54l15/cpuapp` | nRF54L15 | 1 × Cortex-M33 (+ RISC-V VPR) | 128 MHz | 256 KB | 1428 KB RRAM | MCUboot |
 | `xiao_nrf54lm20a/nrf54lm20a/cpuapp` | nRF54LM20A | 1 × Cortex-M33 (+ `cpuflpr`) | 128 MHz | 511 KB | 1940 KB RRAM | MCUboot; **a different part, not an L15 variant** |
-| `xiao_ble/nrf52840` | nRF52840 | 1 × Cortex-M4F | 64 MHz | 256 KB | 1024 KB | Adafruit bootloader/UF2; QSPI NOR enabled |
+| `xiao_ble/nrf52840` | nRF52840 | 1 × Cortex-M4F | 64 MHz | 256 KB | 1024 KB | Dual-slot MCUboot chained behind the Adafruit bootloader, SoftDevice erased (default); `OD_NRF52840_MCUBOOT=0` for the Adafruit-only/UF2 layout. EN04/EN05: serial DFU only, no UF2 drive. QSPI NOR enabled |
 
 SRAM and flash here are Zephyr's `CONFIG_SRAM_SIZE`/`CONFIG_FLASH_SIZE` — the app-visible sizes
 after partitioning, not the raw part capacity. The 128 MHz figure for the LM20A is in-tree
@@ -147,14 +148,18 @@ with no kernel at all, not just for two RTOSes (CLAUDE.md § "Architectural deci
 All three targets deliver to one `release/` directory at the repo root, each with its own
 `MANIFEST*.txt` because a single manifest would be whichever target ran last.
 
-| Target | Artefact |
-|---|---|
-| `esp32-idf` | `opendisplay-<board>-merged.bin`, flashed at offset 0 |
-| `nordic-zephyr` | `opendisplay-<board-tag>[-debug].uf2` and `-merged.hex` |
-| `efr32bg22-slc` | `opendisplay-bg22.{out,hex,gbl}` |
+The released file set, its names, offsets and install flows are defined in
+[RELEASE_ARTEFACTS.md](RELEASE_ARTEFACTS.md), and every release carries them as `manifest.json`.
+In short:
 
-The ESP32 chip is not guessable from the filename, so `release/MANIFEST.txt` records it per image
-along with the flash command.
+| Target | Artefacts |
+|---|---|
+| `esp32-idf` | `opendisplay-<board>-merged.bin` (offset 0, erases config), plus `-{bootloader,partition-table,ota-data,app}.bin` and esp-web-tools manifests for updates that keep NVS; `-app.bin` is the SMP OTA image |
+| `nordic-zephyr` | `-merged.hex`, `-ota.bin` (signed), `-dfu.zip` (SMP); nRF52840 adds `-usb-1-sd-erase.zip` and `-usb-2-install.zip` (Adafruit serial DFU) |
+| `efr32bg22-slc` | `opendisplay-bg22-ota.gbl`, `-app.s37`, `-app.hex`, `-bootloader.s37` |
+
+The ESP32 chip is not guessable from the filename, so `release/MANIFEST-esp32-idf.txt` and
+`manifest.json` record it per image.
 
 ## Retired
 
