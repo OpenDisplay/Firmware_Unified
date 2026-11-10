@@ -297,7 +297,7 @@ static inline struct DisplayConfig fx_store_panel(const fx_panel_t *p)
  *   D xx xx ..   data bytes (<= 64 B), or "D[n] crc32=XXXXXXXX" for an image-sized block
  *   W <ms>       delay
  */
-#define FX_TRACE_CAP (256u * 1024u)
+#define FX_TRACE_CAP (1024u * 1024u)
 
 static char     fx_trace[FX_TRACE_CAP];
 static size_t   fx_trace_n;

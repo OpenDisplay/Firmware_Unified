@@ -1,4 +1,4 @@
-# EP426_800x480_4GRAY_0x0028: 1 modes, code_map 00 01 02 03, idle 0
+# EP426_800x480_4GRAY_0x0028: 2 modes, code_map 00 01 02 03, idle 0
 # mode 0 passes 1 scheme 5 frame 96000
 R 10
 C 12
@@ -21,8 +21,7 @@ D 1f 03
 C 4f
 D 00 00
 C 32
-D 55 55 aa aa aa aa aa aa 00 00 55 55 aa aa aa aa aa 50 00 00 55 55 aa aa 55 55 55 a0 00 00 55 55 aa aa 55 55 55 50 00 00 00 00 00 00 00 00 00 00 00 00 01 01 01 01 00 01 01 01 01 00 01 01 01 01
-D 00 01 01 01 01 00 01 01 01 01 00 01 01 01 01 00 01 01 01 01 00 01 01 01 01 00 00 00 00 00 00 00 00 00 00 00 22 22 22 22 22
+D[105] crc32=661e7272
 C 03
 D 17
 C 04
@@ -45,6 +44,81 @@ D[32000] crc32=e3fadf3a
 D[16000] crc32=cf97c052
 C 26
 D[48000] crc32=df629fb6
+C 22
+D c7
+C 20
+# mode 1 passes 1 scheme 5 frame 96000
+R 10
+C 12
+C 18
+D 80
+C 0c
+D ae c7 c3 c0 80
+C 01
+D df 01 02
+C 3c
+D 00
+C 11
+D 02
+C 44
+D 1f 03 00 00
+C 45
+D 00 00 df 01
+C 4e
+D 1f 03
+C 4f
+D 00 00
+C 32
+D[105] crc32=661e7272
+C 03
+D 17
+C 04
+D 41 a8 32
+C 2c
+D 30
+C 11
+D 02
+C 44
+D 1f 03 00 00
+C 45
+D 00 00 df 01
+C 4e
+D 1f 03
+C 4f
+D 00 00
+C 26
+C 24
+D[32000] crc32=4f525733
+D[16000] crc32=c002a3f4
+C 26
+D[48000] crc32=5e46b48a
+C 12
+C 18
+D 80
+C 0c
+D ae c7 c3 c0 80
+C 01
+D df 01 02
+C 3c
+D 00
+C 11
+D 02
+C 44
+D 1f 03 00 00
+C 45
+D 00 00 df 01
+C 4e
+D 1f 03
+C 4f
+D 00 00
+C 32
+D[105] crc32=c1be7ecd
+C 03
+D 17
+C 04
+D 41 a8 32
+C 2c
+D 30
 C 22
 D c7
 C 20
