@@ -515,6 +515,19 @@ add_executable(od_epd_seq_test epd_seq_test.c ../../shared/core/od_epd.c)
 target_link_libraries(od_epd_seq_test od_shared)
 add_test(NAME epd_seq COMMAND od_epd_seq_test)
 
+# display: the shared config-driven display path (od_display -> od_epd_cfg -> od_epd) from a
+# stored config record to the bytes on a recorded panel bus, for every colour class, the real
+# panel data in display_presets.inc, the boot screen and a config without drive packets.
+add_executable(od_display_test display_test.c
+    ../../shared/core/od_display.c
+    ../../shared/core/od_epd_cfg.c
+    ../../shared/core/od_epd.c
+    ../../shared/core/od_cfg_index.c
+    od_log_test_stub.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../third_party/qrcode/qrcode.c)
+target_link_libraries(od_display_test od_shared)
+add_test(NAME display COMMAND od_display_test)
+
 # config: the parsed aggregate -- instance caps, the Firmware zero-key rule, string termination,
 # and what a truncated blob leaves behind. Downstream of the pre-auth surface od_config_tlv
 # guards, so the cases are the ones where a hostile blob still reaches storage.

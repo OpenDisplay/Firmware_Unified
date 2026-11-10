@@ -215,7 +215,7 @@ static void test_layout(void)
     CHECK((wire.status & OD_MSD_STATUS_CONNECTION_REQUESTED) == 0u);
     CHECK((wire.status & OD_MSD_STATUS_MAIN_LOOP_COUNTER_MASK) == 0x50u);
 
-    CASE("the reserved status bit is never set");
+    CASE("bit 3 follows encryption_enabled and nothing else");
     {
         unsigned k;
 
@@ -224,8 +224,12 @@ static void test_layout(void)
             in.reboot_flag = ((k & 1u) != 0u);
             in.connection_requested = ((k & 2u) != 0u);
             od_advert_build(&in, out);
-            CHECK((out[15] & OD_MSD_STATUS_RESERVED_3) == 0u);
+            CHECK((out[15] & OD_MSD_STATUS_ENCRYPTION_ENABLED) == 0u);
         }
+        in.encryption_enabled = true;
+        od_advert_build(&in, out);
+        CHECK((out[15] & OD_MSD_STATUS_ENCRYPTION_ENABLED) != 0u);
+        in.encryption_enabled = false;
     }
 
     CASE("writes exactly 16 bytes");

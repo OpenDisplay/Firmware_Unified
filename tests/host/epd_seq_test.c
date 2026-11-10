@@ -99,6 +99,26 @@ static bool io_read_bytes(uint8_t pin_ref, uint8_t *dst, uint8_t n)
     return true;
 }
 
+static uint8_t g_lut[16];
+
+static bool io_lut_info(uint8_t slot, uint16_t *len_out)
+{
+    if (slot != 0u) {
+        return false;
+    }
+    *len_out = sizeof g_lut;
+    return true;
+}
+
+static uint16_t io_lut_read(uint8_t slot, uint16_t off, uint8_t *dst, uint16_t len)
+{
+    if (slot != 0u || (uint32_t)off + len > sizeof g_lut) {
+        return 0u;
+    }
+    memcpy(dst, &g_lut[off], len);
+    return len;
+}
+
 static od_epd_io_t g_io;
 static od_panel_desc_t g_desc;
 static od_epd_t g_epd;
@@ -277,6 +297,38 @@ static void test_cs_select_is_sticky_and_resets_per_pass(void)
     CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_UNSUP);
 }
 
+static void test_lut_slice_after_image(void)
+{
+    /* Head: 0x10 + IMAGE. Tail: waveform bytes 8..12 into 0x32, then refresh 0x12. The LUT
+     * context must survive the pause at the image marker. */
+    static const uint8_t seq[] = {
+        0x01, 0x10, 0x00, 0x03,
+        0x01, 0x32, 0x00, 0x0B, 0x08, 0x00, 0x04, 0x00,
+        0x01, 0x12,
+        0x00, 0x00,
+    };
+    static const uint8_t img[4] = { 1, 2, 3, 4 };
+    unsigned k;
+
+    CASE("LUT_SLICE after the image marker streams the pass's slot");
+    for (k = 0u; k < sizeof g_lut; ++k) {
+        g_lut[k] = (uint8_t)(0x40u + k);
+    }
+    setup(seq, sizeof seq, 1u, false, false);
+    g_io.lut_info = io_lut_info;
+    g_io.lut_read = io_lut_read;
+    g_mode.lut_slot[0] = 0u;
+    CHECK(od_epd_select_mode(&g_epd, 0u) == OD_EPD_RC_OK);
+    CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_OK);
+    CHECK(od_epd_write_image_chunk(&g_epd, img, sizeof img) == OD_EPD_RC_OK);
+    g_nops = 0u;
+    CHECK(od_epd_finish_pass(&g_epd) == OD_EPD_RC_OK);
+    for (k = 0u; k < g_nops && !(g_ops[k].kind == OP_CMD && g_ops[k].a == 0x32u); ++k) { }
+    CHECK(k + 1u < g_nops && g_ops[k + 1u].kind == OP_DATA && g_ops[k + 1u].n == 4u);
+    CHECK(k + 1u < g_nops && g_ops[k + 1u].d[0] == 0x48u && g_ops[k + 1u].d[3] == 0x4Bu);
+    CHECK(count_kind(OP_CMD) == 2u);
+}
+
 int main(void)
 {
     test_refused_escapes_execute_nothing();
@@ -284,6 +336,7 @@ int main(void)
     test_read_then_write_scratch();
     test_scratch_is_zeroed_per_pass();
     test_cs_select_is_sticky_and_resets_per_pass();
+    test_lut_slice_after_image();
     printf("epd_seq: %u checks, %u failures\n", g_checks, g_failures);
     return g_failures == 0u ? 0 : 1;
 }
