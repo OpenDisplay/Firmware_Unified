@@ -1756,7 +1756,7 @@ none is fixed here.
 - **BUTTON_PRESS matches by equality on `1 << button_id`** (FIXED, host-tested: now a mask
   match), so a multi-button mask (as the trigger's documented `arg`) never fired, and `button_id` is masked to 3 bits, so buttons on
   different BinaryInputs instances alias.
-- **BUTTON_LONG is never emitted**, yet entries using it count as active in `ACTION_INFO`.
+- **BUTTON_LONG is never emitted** (now reported INACTIVE at load, host-tested; emitting it is still open).
 - **Comments disagree with the walk:** they say a bad slot / LED argument is rejected and one bad
   entry is dropped "never the table"; the code validates neither and stops the whole walk at the
   first malformed entry. `temp_poll` claims per-entry edge state; one shared bit is used.

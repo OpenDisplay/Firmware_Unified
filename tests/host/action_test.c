@@ -260,6 +260,18 @@ static void test_button_mask(void)
     CHECK(g_led_calls == 1u);
 }
 
+static void test_button_long_inactive(void)
+{
+    CASE("BUTTON_LONG is never emitted, so it loads as inactive");
+    table_reset();
+    add_entry(0, OD_TRIG_BUTTON_LONG, 100u, 0x01u);
+    add_entry(0, OD_TRIG_BUTTON_PRESS, 0u, 0x02u);
+    od_action_reload();
+    CHECK(od_action_stats()->entries == 2u);
+    CHECK(od_action_stats()->active == 1u);
+    CHECK(od_action_stats()->inactive == 1u);
+}
+
 static void test_duplicate_tables(void)
 {
     CASE("no table: zero tables");
@@ -292,6 +304,7 @@ int main(void)
     test_temp_hysteresis();
     test_temp_per_entry();
     test_button_mask();
+    test_button_long_inactive();
     test_duplicate_tables();
     printf("action: %u checks, %u failures\n", g_checks, g_failures);
     return g_failures == 0u ? 0 : 1;

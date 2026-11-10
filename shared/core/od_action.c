@@ -55,7 +55,8 @@ static bool trigger_known(uint8_t t)
     if (t == OD_TRIG_TEMP_ENTER || t == OD_TRIG_TEMP_EXIT) {
         return od_action_app_temperature_c() != INT8_MIN;
     }
-    return t >= OD_TRIG_BOOT && t <= OD_TRIG_HOST;
+    /* BUTTON_LONG is defined but no target emits it yet: report it inactive, not active. */
+    return t >= OD_TRIG_BOOT && t <= OD_TRIG_HOST && t != OD_TRIG_BUTTON_LONG;
 }
 
 /* Temperature edge state, ONE PAIR OF BITS PER TEMPERATURE ENTRY (by its ordinal among the
