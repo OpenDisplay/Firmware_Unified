@@ -1762,7 +1762,7 @@ none is fixed here.
   first malformed entry. `temp_poll` claims per-entry edge state; one shared bit is used.
 - **`ACTION_INFO.rejected` is 0 or 1**, and nothing reports how many `0xB2` copies a config holds
   (see "Duplicate `0xB2` action tables" above).
-- **Silent failures:** `FLASH_INFO` returns stale stride/capacity when the store is unmounted;
+- **Silent failures:** `FLASH_INFO` returned stale stride/capacity when the store is unmounted (FIXED: zeros unless mounted);
   `FLASH_DISPLAY` and the DISPLAY_SLOT effect fail without a report.
 - **Wire ambiguity, now in the canonical spec:** a `FLASH_ERASE` of all slots ACKs `[00][49][FF]`,
   and an `ACTION_FIRE` `host_id` of `0xFE`/`0xFF` echoes as `[00][4D][FE|FF]` -- both the same
