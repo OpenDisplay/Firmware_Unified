@@ -17,6 +17,14 @@
 #
 #   python -m esptool --chip <chip> write_flash 0x0 release/opendisplay-<board>-merged.bin
 #
+# Alongside it, for updates rather than first flashes (built by CMakeLists.txt, see
+# tools/web_flash_parts.py):
+#   release/opendisplay-<board>-{bootloader,partition-table,ota-data,app}.bin
+#   release/opendisplay-<board>-manifest.json   esp-web-tools manifest over those parts. They
+#       skip NVS (0x9000-0xDFFF), so a browser update keeps the device config; the merged
+#       image does not.
+#   release/opendisplay-<board>-app.bin is also the BLE (SMP) OTA image.
+#
 # The chip is not guessable from the filename, so release/MANIFEST.txt records it per image
 # along with the size and the source commit. Do not infer it -- flashing an esp32c3 image to
 # an esp32c6 is a soft brick that reads as a bad cable.
@@ -232,6 +240,12 @@ for b in "${BUILT[@]}"; do
         continue
     fi
     cp "$src" "$RELEASE_DIR/"
+    if ! ls "build/$b/web/opendisplay-$b-"*.bin "build/$b/web/opendisplay-$b-manifest.json" >/dev/null 2>&1; then
+        echo "!! $b built but produced no web-flasher parts (build/$b/web/)" >&2
+        FAILED+=("$b (no web parts)")
+        continue
+    fi
+    cp "build/$b/web/opendisplay-$b-"* "$RELEASE_DIR/"
     # The chip comes from the build's own sdkconfig, not from a table here: a second mapping
     # of board -> chip is a thing that can disagree with the board fragment.
     chip="$(sed -n 's/^CONFIG_IDF_TARGET="\(.*\)"$/\1/p' "build/$b/sdkconfig" | head -1)"

@@ -2,6 +2,7 @@
 
 #include "display_fastepd.h"
 #include "display_it8951.h"
+#include "od_controller_esp.h"
 #include "od_sensor_sht40.h"
 #include "display_service.h"
 #include "structs.h"
@@ -39,26 +40,22 @@ public:
     FASTEPDSTATE* state() { return &_state; }
 };
 
-// OpenDisplay panel_ic_type -> FastEPD native parallel panel id (-1 if not a
-// parallel panel). FastEPD owns the Inkplate bus/PMIC/IO-expanders internally.
-static int fastepd_parallel_panel(uint16_t panel_ic_type) {
-    switch (panel_ic_type) {
-        case OD_PANEL_IC_INKPLATE5V2_1280X720:   return BB_PANEL_INKPLATE5V2;
-        case OD_PANEL_IC_INKPLATE10_1200X825:    return BB_PANEL_INKPLATE10;
-        default:                                 return -1;
+// The controller description (0xB3 display_controller, or the legacy panel_ic_type table in
+// od_controller_esp.cpp) -> FastEPD native parallel panel id, -1 if not a parallel panel.
+// FastEPD owns the Inkplate bus/PMIC/IO-expanders internally.
+static int fastepd_parallel_panel(void) {
+    const struct od_controller_desc* c = od_controller_esp();
+    if (c->cls != OD_CTRL_CLASS_PARALLEL) return -1;
+    switch (c->parallel_panel) {
+        case OD_CTRL_PARALLEL_INKPLATE5V2:   return BB_PANEL_INKPLATE5V2;
+        case OD_CTRL_PARALLEL_INKPLATE10:    return BB_PANEL_INKPLATE10;
+        case OD_CTRL_PARALLEL_M5PAPERS3:     return BB_PANEL_M5PAPERS3;
+        default:                             return -1;
     }
 }
 
 static bool fastepd_is_parallel(void) {
-    if (globalConfig.display_count < 1) return false;
-    return fastepd_parallel_panel(globalConfig.displays[0].panel_ic_type) >= 0;
-}
-
-static int8_t fastepd_aux_pin(uint8_t p, int8_t default_gpio) {
-    if (p == 0 || p == 0xFF) {
-        return default_gpio;
-    }
-    return (int8_t)p;
+    return fastepd_parallel_panel() >= 0;
 }
 
 static int8_t s_mosi = 9;
@@ -74,27 +71,26 @@ static bool s_init_failed = false;
 
 extern "C" {
 
+/* SCLK/MOSI/CS/BUSY/RST from the DisplayConfig; MISO, EN and ITE_EN from the controller
+ * description. A pin left unset keeps the E1003 default above, except on the M5Paper, whose
+ * legacy description supplies its own (sys and panel_ic_type are read there, not here). */
 void opendisplay_fastepd_load_pins_from_display(const struct DisplayConfig* d, const struct SystemConfig* sys, uint16_t panel_ic_type) {
+    (void)sys;
     if (!d) return;
-
-    switch (panel_ic_type) {
-        case OD_PANEL_IC_ED103TC2_1872X1404:
-        case OD_PANEL_IC_ED103TC2_1872X1404_4GRAY:
-            if (d->clk_pin != 0xFF) s_sclk = (int8_t)d->clk_pin;
-            if (d->data_pin != 0xFF) s_mosi = (int8_t)d->data_pin;
-            if (d->dc_pin != 0xFF) s_miso = (int8_t)d->dc_pin;
-            else s_miso = 8;
-            if (d->cs_pin != 0xFF) s_cs = (int8_t)d->cs_pin;
-            if (d->reset_pin != 0xFF) s_rst = (int8_t)d->reset_pin;
-            if (d->busy_pin != 0xFF) s_busy = (int8_t)d->busy_pin;
-            if (sys) {
-                s_en = fastepd_aux_pin(sys->pwr_pin_2, 11);
-                s_ite_en = fastepd_aux_pin(sys->pwr_pin_3, 21);
-            }
-            break;
-        default:
-            break;
+    const struct od_controller_desc* c = od_controller_esp();
+    if (c->cls != OD_CTRL_CLASS_IT8951) return;
+    const bool m5paper = !c->from_packet && panel_ic_type == OD_PANEL_IC_M5PAPER_960X540;
+    if (m5paper) {
+        s_sclk = 14; s_mosi = 12; s_cs = 15; s_busy = 27; s_rst = 23;
     }
+    if (d->clk_pin != 0xFF) s_sclk = (int8_t)d->clk_pin;
+    if (d->data_pin != 0xFF) s_mosi = (int8_t)d->data_pin;
+    if (d->cs_pin != 0xFF) s_cs = (int8_t)d->cs_pin;
+    if (d->reset_pin != 0xFF) s_rst = (int8_t)d->reset_pin;
+    if (d->busy_pin != 0xFF) s_busy = (int8_t)d->busy_pin;
+    if (c->miso_pin != OD_CTRL_PIN_NONE) s_miso = (int8_t)c->miso_pin;
+    s_en = c->en_pin != OD_CTRL_PIN_NONE ? (int8_t)c->en_pin : -1;
+    s_ite_en = c->ite_en_pin != OD_CTRL_PIN_NONE ? (int8_t)c->ite_en_pin : -1;
 }
 
 bool fastepd_init_failed(void) {
@@ -104,15 +100,31 @@ bool fastepd_init_failed(void) {
 } // extern "C"
 
 static bool panel_is_it8951(void) {
-    if (globalConfig.display_count < 1) return false;
-    const uint16_t ic = globalConfig.displays[0].panel_ic_type;
-    return ic == OD_PANEL_IC_ED103TC2_1872X1404 || ic == OD_PANEL_IC_ED103TC2_1872X1404_4GRAY;
+    return globalConfig.display_count > 0 && od_controller_esp()->cls == OD_CTRL_CLASS_IT8951;
+}
+
+static bool fastepd_panel_is_4gray(void);
+
+// Mounting and VCOM from the controller description (ED103TC2: mirrored, 1500 mV; M5Paper
+// ED047TC1: unmirrored, stored VCOM).
+static void it8951_load_panel(void) {
+    const struct od_controller_desc* c = od_controller_esp();
+    od_it8951_set_layout((c->flags & OD_CTRL_FLAG_MIRRORED) != 0u, c->vcom_mv);
+    od_it8951_set_panel(s_mosi, s_miso, s_sclk, s_cs, s_busy, s_rst, s_en, s_ite_en,
+                        globalConfig.displays[0].pixel_width,
+                        globalConfig.displays[0].pixel_height, fastepd_panel_is_4gray());
 }
 
 static void update_it8951_temperature(void) {
+    const struct od_controller_desc* c = od_controller_esp();
     int temp_c = 0;
-    const bool valid = od_sensor_sht40_read_temp_c(&globalConfig, &temp_c);
+    bool valid = (c->flags & OD_CTRL_FLAG_TEMP_SENSOR) != 0u &&
+                 od_sensor_sht40_read_temp_c(&globalConfig, &temp_c);
 
+    if (!valid && c->default_temp_c != OD_CTRL_TEMP_DEFAULT) {
+        temp_c = c->default_temp_c;
+        valid = true;
+    }
     od_it8951_set_temperature(valid, temp_c);
 }
 
@@ -132,8 +144,20 @@ static uint32_t s_partial_expected;
 static bool fastepd_panel_is_4gray(void) {
     if (globalConfig.display_count < 1) return false;
     const struct DisplayConfig& d = globalConfig.displays[0];
-    if (d.panel_ic_type == OD_PANEL_IC_ED103TC2_1872X1404_4GRAY) return true;
+    if ((od_controller_esp()->flags & OD_CTRL_FLAG_GRAY16) != 0u) return true;
     return d.color_scheme == OD_COLOR_SCHEME_GRAY16;
+}
+
+// The pixel mode follows color_scheme, which a CONFIG_WRITE can change between transfers.
+// FastEPD's mode is sticky per hardware init, so the warm paths re-assert it or incoming data
+// is read at the previous config's depth.
+static void fastepd_apply_mode(void) {
+    if (!s_hw_initialized || !g_epd.currentBuffer()) return;
+    const int want = fastepd_panel_is_4gray() ? BB_MODE_4BPP : BB_MODE_1BPP;
+    if (g_epd.getMode() != want) {
+        g_epd.setMode(want);
+        g_epd.setPreviousMode((uint8_t)g_epd.getMode());
+    }
 }
 
 static size_t fb_byte_size(void) {
@@ -231,9 +255,7 @@ void fastepd_prepare_hardware(void) {
     if (panel_is_it8951()) {
         opendisplay_fastepd_load_pins_from_display(&globalConfig.displays[0], &globalConfig.system_config,
                                                    globalConfig.displays[0].panel_ic_type);
-        od_it8951_set_panel(s_mosi, s_miso, s_sclk, s_cs, s_busy, s_rst, s_en, s_ite_en,
-                            globalConfig.displays[0].pixel_width,
-                            globalConfig.displays[0].pixel_height, fastepd_panel_is_4gray());
+        it8951_load_panel();
         od_it8951_prepare_hardware();
         return;
     }
@@ -248,9 +270,7 @@ void fastepd_epaper_begin(void) {
     if (panel_is_it8951()) {
         opendisplay_fastepd_load_pins_from_display(&globalConfig.displays[0], &globalConfig.system_config,
                                                    globalConfig.displays[0].panel_ic_type);
-        od_it8951_set_panel(s_mosi, s_miso, s_sclk, s_cs, s_busy, s_rst, s_en, s_ite_en,
-                            globalConfig.displays[0].pixel_width,
-                            globalConfig.displays[0].pixel_height, fastepd_panel_is_4gray());
+        it8951_load_panel();
         od_it8951_epaper_begin();
         return;
     }
@@ -261,7 +281,7 @@ void fastepd_epaper_begin(void) {
     // Native parallel panels (Inkplate): initPanel() sets up the bus/PMIC and
     // allocates the buffers. Guard on currentBuffer() — initPanel() re-allocs
     // without freeing, so a warm re-init would leak; deInit() keeps the bus up.
-    int parallel = fastepd_parallel_panel(globalConfig.displays[0].panel_ic_type);
+    int parallel = fastepd_parallel_panel();
     if (parallel >= 0) {
         if (!g_epd.currentBuffer()) {
             int prc = g_epd.initPanel(parallel);
@@ -274,6 +294,8 @@ void fastepd_epaper_begin(void) {
             g_epd.setPreviousMode((uint8_t)g_epd.getMode());
         } else {
             g_epd.einkPower(1);
+            s_hw_initialized = true;   // fastepd_apply_mode() requires it
+            fastepd_apply_mode();
         }
         s_hw_initialized = true;
         return;
@@ -309,7 +331,14 @@ void fastepd_epaper_begin(void) {
 // REFRESH_FULL: parallel panels flash-clear to flush ghosting; IT8951 clears
 // internally (ignores the mode) so it stays CLEAR_NONE.
 static void fastepd_full_refresh_impl(void) {
-    int clear = fastepd_is_parallel() ? CLEAR_FAST : CLEAR_NONE;
+    int clear = CLEAR_NONE;
+    if (fastepd_is_parallel()) {
+        // PaperS3 needs the library-default 10-pass clear: CLEAR_FAST's 8 passes leave residual
+        // banding there. Inkplates keep the faster clear they were tuned with.
+        clear = (od_controller_esp()->parallel_panel == OD_CTRL_PARALLEL_M5PAPERS3)
+                    ? CLEAR_SLOW
+                    : CLEAR_FAST;
+    }
     g_epd.fullUpdate(clear, true, NULL);
 }
 
@@ -353,6 +382,7 @@ void fastepd_direct_write_reset(void) {
         fastepd_epaper_begin();
     } else {
         g_epd.einkPower(1);
+        fastepd_apply_mode();
     }
     s_direct_offset = 0;
     uint8_t* p = g_epd.currentBuffer();
@@ -396,9 +426,9 @@ void fastepd_direct_refresh(int refresh_mode) {
 // FastEPD's Inkplate einkPower(0) drops the rails but leaves the TPS65186 WAKEUP
 // asserted, so the PMIC stays awake and the board idles high.
 static void fastepd_inkplate_wakeup_off(void) {
-    if (globalConfig.display_count < 1) return;
-    const uint16_t ic = globalConfig.displays[0].panel_ic_type;
-    if (ic != OD_PANEL_IC_INKPLATE5V2_1280X720 && ic != OD_PANEL_IC_INKPLATE10_1200X825) return;
+    const uint8_t p = od_controller_esp()->parallel_panel;
+    if (od_controller_esp()->cls != OD_CTRL_CLASS_PARALLEL ||
+        (p != OD_CTRL_PARALLEL_INKPLATE5V2 && p != OD_CTRL_PARALLEL_INKPLATE10)) return;
     FASTEPDSTATE* st = g_epd.state();
     if (st) bbepPCALDigitalWrite(st->panelDef.ioShiftSTR, 0); // WAKEUP low -> PMIC shutdown
 }
@@ -422,6 +452,7 @@ void fastepd_partial_prepare(uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
         fastepd_epaper_begin();
     } else {
         g_epd.einkPower(1);
+        fastepd_apply_mode();
     }
     s_partial_x = x;
     s_partial_y = y;

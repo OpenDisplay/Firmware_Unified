@@ -260,27 +260,21 @@ tells the linker to silently keep whichever definition it saw first — which me
 G5 codec depends on link order, and a divergence between the two copies becomes a bug nobody can
 see in the source.
 
-**This repo does not carry that flag.** MEMORY_CONSTRAINTS.md § "Open questions" recommends
-option 1 — *compile the duplicated files from one library only* — and DESIGN_REVIEW § "Likely
-pitfalls" #4 warns specifically that the flag must not ship "temporarily", because temporary
-linker workarounds are exactly the class of thing that becomes permanent. It says to adopt
-option 1 **before** phase B, not during. That is what `targets/esp32-idf/main/CMakeLists.txt`
-does: on a FastEPD board it compiles `Group5.cpp` from FastEPD and excludes bb_epaper's; on a
-non-FastEPD board only bb_epaper's exists and the question does not arise.
+**This repo does not carry that flag, and the collision no longer arises.** The ESP32 firmware
+does not link bb_epaper: SPI panels are driven from the config's drive packets
+(`shared/core/od_display.c`), and FastEPD is compiled only on FastEPD boards. So exactly one copy
+of `Group5.cpp` and `bb_ep_gfx.inl` is ever built, FastEPD's, and `FastEPD.cpp` includes its
+`bb_ep_gfx.inl` exactly as upstream does.
 
-**Resolved 2026-07-26, and the collision was wider than Group5.cpp.** FastEPD and bb_epaper
-also both carry `bb_ep_gfx.inl`, defining `bbepUnicodeTo1252`, `bbepUnicodeString`,
-`RotateCharBox`, `bbepStretchAndSmooth` and `millis`. Excluding one copy does not work:
-each library's own wrappers call into its copy, even though the application calls none of
-them. **FastEPD's copy is therefore given internal linkage** (an anonymous namespace,
-`OD-PATCH` in `FastEPD.cpp`) so both libraries keep a private copy and there is no
-arbitrary linker winner. The duplicated text is mostly discarded as unreferenced.
+That matters beyond tidiness: `FastEPD.inl` declares `bbepSetPixel2Clr` and
+`bbepSetPixelFast2Clr` extern and installs them as its 1-bpp pixel setters. While FastEPD's
+drawing layer had internal linkage beside a linked bb_epaper, those references resolved to
+bb_epaper's copies, which read the pointer as a `BBEPDISP`. They now resolve to FastEPD's own.
+FastEPD's 1-bpp mode is not exercised by this firmware's upload paths and has not been run on
+hardware either way.
 
-The premise this rests on, from MEMORY_CONSTRAINTS: *"confirm both drawing APIs are not
-simultaneously required on any single board first."* The `platformio.ini` comment asserts they
-are not — only FastEPD's buffer/update APIs are used on those boards. **That assertion has not
-been verified against the code**, and it is the thing to check before trusting this arrangement
-on hardware.
+bb_epaper stays vendored under `third_party/bb_epaper/`; whether any other target still needs it
+is that target's question, not this one's.
 
 ---
 

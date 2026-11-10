@@ -63,6 +63,17 @@ typedef enum {
     OD_XFER_START_NEEDS_MIGRATION,
 } od_xfer_start_cause_t;
 
+/* Whether a SPLIT_HALVES geometry may start: only where the target said it streams one. */
+static inline bool split_halves_ok(const od_xfer_panel_info_t *panel)
+{
+#if OD_XFER_SPLIT_HALVES
+    return panel->split_halves_ok;
+#else
+    (void)panel;
+    return false;
+#endif
+}
+
 typedef enum {
     OD_XFER_STREAM_OK = 0,
     OD_XFER_STREAM_INVALID,

@@ -1,0 +1,15 @@
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions/min_spiffs_4MB.csv"
+
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+# WROVER-E modules strap the flash for DIO (board_build.flash_mode = dio upstream).
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+
+# 8 MB quad PSRAM (4 MB addressable on the classic ESP32 without himem). The cache workaround
+# is the -mfix-esp32-psram-cache-issue / -mfix-esp32-psram-cache-strategy=memw pair the
+# Arduino env passed by hand: rev1 silicon corrupts PSRAM accesses without it.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_CACHE_WORKAROUND=y
+CONFIG_SPIRAM_CACHE_WORKAROUND_STRATEGY_MEMW=y

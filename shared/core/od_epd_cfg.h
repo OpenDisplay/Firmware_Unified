@@ -69,6 +69,8 @@ bool    od_epd_cfg_load(const struct DisplayConfig *d, const od_epd_cfg_bus_t *b
 bool    od_epd_cfg_loaded(void);
 /* The panel's BUSY idle level, for configuring the pin's pull. Valid after a load. */
 uint8_t od_epd_cfg_busy_idle_level(void);
+/* Whether the loaded panel's BUSY line can be believed (OD_PANEL_FLAG_BUSY_USABLE). */
+bool    od_epd_cfg_busy_usable(void);
 
 bool    od_epd_cfg_select(uint8_t mode, od_epd_cfg_mode_t *out);
 uint8_t od_epd_cfg_mode_count(void);

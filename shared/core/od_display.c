@@ -317,9 +317,19 @@ od_display_rc_t od_display_boot(const struct od_config *cfg, const struct Securi
 
 /* The renderer's panel half of od_boot_app.h. The target still supplies the identity half
  * (device id, version, battery, temperature). Planes and halves need no addressing here: the
- * stream advances to the sequence's next image marker when a plane's budget is spent. */
+ * stream advances to the sequence's next image marker when a plane's budget is spent.
+ *
+ * A target that also renders the boot screen into a panel this module does not drive (ESP32's
+ * IT8951 and parallel panels) builds with OD_DISPLAY_SHARED_BOOT_SINK=0: these functions then
+ * carry the od_display_boot_sink_ prefix (od_display.h) and the target's od_boot_app_* picks
+ * one sink per frame. */
+#if OD_DISPLAY_SHARED_BOOT_SINK
+#define BOOT_SINK(name) od_boot_app_##name
+#else
+#define BOOT_SINK(name) od_display_boot_sink_##name
+#endif
 
-int od_boot_app_begin_frame(uint16_t width, uint16_t height, uint8_t segments)
+int BOOT_SINK(begin_frame)(uint16_t width, uint16_t height, uint8_t segments)
 {
     (void)width;
     (void)height;
@@ -327,13 +337,13 @@ int od_boot_app_begin_frame(uint16_t width, uint16_t height, uint8_t segments)
     return s_session == SESSION_BOOT ? 0 : -1;
 }
 
-int od_boot_app_begin_plane(int plane)
+int BOOT_SINK(begin_plane)(int plane)
 {
     (void)plane;
     return s_session == SESSION_BOOT ? 0 : -1;
 }
 
-int od_boot_app_write_row(uint16_t y, uint8_t segment, const uint8_t *row, uint16_t len)
+int BOOT_SINK(write_row)(uint16_t y, uint8_t segment, const uint8_t *row, uint16_t len)
 {
     (void)y;
     (void)segment;
@@ -345,20 +355,20 @@ int od_boot_app_write_row(uint16_t y, uint8_t segment, const uint8_t *row, uint1
     return 0;
 }
 
-int od_boot_app_end_plane(int plane)
+int BOOT_SINK(end_plane)(int plane)
 {
     (void)plane;
     return 0;
 }
 
-int od_boot_app_end_frame(void)
+int BOOT_SINK(end_frame)(void)
 {
     return 0;
 }
 
 /* Must match the wire packing (od_color_direct_geometry), because the boot frame streams
  * through the same markers an upload does. */
-int od_boot_app_bits_per_pixel(uint8_t color_scheme)
+int BOOT_SINK(bits_per_pixel)(uint8_t color_scheme)
 {
     switch (color_scheme) {
         case OD_COLOR_SCHEME_BWGBRY:
@@ -378,19 +388,19 @@ int od_boot_app_bits_per_pixel(uint8_t color_scheme)
     }
 }
 
-int od_boot_app_default_plane(uint8_t color_scheme)
+int BOOT_SINK(default_plane)(uint8_t color_scheme)
 {
     (void)color_scheme;
     return 0;
 }
 
 /* GRAY4 goes out as two 1bpp planes, the wire's CONTROLLER_PLANES layout. */
-bool od_boot_app_direct_2bpp(void)
+bool BOOT_SINK(direct_2bpp)(void)
 {
     return false;
 }
 
-uint8_t od_boot_app_segments(void)
+uint8_t BOOT_SINK(segments)(void)
 {
     const struct DisplayConfig *d = od_drive_app_display();
 

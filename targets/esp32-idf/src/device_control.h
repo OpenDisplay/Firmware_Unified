@@ -7,6 +7,12 @@
 
 void reboot();
 void processButtonEvents();
+/** LED flash / buzzer chirp for a physical press, per OD_LED_FLAG_BUTTON_PRESS and
+ *  OD_BUZZER_FLAG_BUTTON_PRESS. Blocking (~60 ms each); call after publishing the press. */
+void buttonPressFeedback(void);
+/** Publish the press that woke the device from deep sleep (press, then release if the button
+ *  is already up), with feedback. Call once after initButtons() on a button wake. */
+void buttonWakeDeliverSyntheticClick(void);
 void flashLed(uint8_t color, uint8_t brightness);
 void processLedFlash();
 void initButtons();

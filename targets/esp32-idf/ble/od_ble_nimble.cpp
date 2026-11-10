@@ -222,6 +222,31 @@ static volatile uint8_t s_adv_ended_pending = 0;
 
 bool od_ble_service_advertising(bool start_allowed);
 
+/* Advertising interval policy, as the Firmware 2.x fleet runs it: idle at 160-1000 ms, and for
+ * 3 s after a button event at 20-30 ms so a ~230 ms press reaches a passive scanner. The boost
+ * ends early on connect and on an advertising restart, so a later restart never inherits it.
+ * Units are 0.625 ms. Loop-task only, like s_adv. */
+#define OD_ADV_IDLE_ITVL_MIN  0x0100u   /* 160 ms */
+#define OD_ADV_IDLE_ITVL_MAX  0x0640u   /* 1000 ms */
+#define OD_ADV_BOOST_ITVL_MIN 0x0020u   /* 20 ms */
+#define OD_ADV_BOOST_ITVL_MAX 0x0030u   /* 30 ms */
+#define OD_ADV_BOOST_MS       3000u
+static uint32_t s_adv_boost_until_ms = 0;   /* 0 = no boost */
+static bool     s_adv_started_fast = false; /* interval of the advertising set now on air */
+
+static bool od_adv_boost_active(uint32_t now)
+{
+    return s_adv_boost_until_ms != 0u && (int32_t)(s_adv_boost_until_ms - now) > 0;
+}
+
+/* Re-run stop/program/start with the current payload so a new interval takes effect. */
+static void od_adv_reapply_interval(void)
+{
+    if (s_adv.active && s_adv.payload_valid) {
+        s_adv.payload_dirty = true;
+    }
+}
+
 /* HOST TASK. The only advertising-related thing a callback may now do. */
 static void od_ble_note_adv_ended(void)
 {
@@ -699,6 +724,9 @@ static int od_ble_start_now(void)
     memset(&adv, 0, sizeof adv);
     adv.conn_mode = BLE_GAP_CONN_MODE_UND;
     adv.disc_mode = BLE_GAP_DISC_MODE_GEN;
+    const bool fast = od_adv_boost_active(od_hal_uptime_ms());
+    adv.itvl_min = fast ? OD_ADV_BOOST_ITVL_MIN : OD_ADV_IDLE_ITVL_MIN;
+    adv.itvl_max = fast ? OD_ADV_BOOST_ITVL_MAX : OD_ADV_IDLE_ITVL_MAX;
 
     struct od_ble_identity id;
     if (!od_ble_read_identity(&id)) {
@@ -708,6 +736,9 @@ static int od_ble_start_now(void)
         return BLE_HS_EAGAIN;
     }
     int rc = ble_gap_adv_start(id.addr_type, NULL, BLE_HS_FOREVER, &adv, od_gap_event, NULL);
+    if (rc == 0) {
+        s_adv_started_fast = fast;
+    }
     /* OD-INSTRUMENTATION: stamp EVERY start, with a sequence number, so the log shows whether
      * od_gap_event was the live callback before the connection in question formed -- the
      * "event arrived before we were listening" hypothesis. rc=6 is BLE_HS_ENOMEM and is
@@ -727,23 +758,15 @@ static int od_ble_start_now(void)
 }
 
 
-/* The shared boost seam (shared/core/od_adv_app.h).
- *
- * A NO-OP, AND THAT IS THE CORRECT ANSWER HERE, not an unimplemented one. od_ble_start_now()
- * leaves ble_gap_adv_params::itvl_min/itvl_max at zero, so NimBLE substitutes its own defaults
- * for connectable undirected advertising -- BLE_GAP_ADV_FAST_INTERVAL1_MIN/MAX, which are 30 ms
- * and 60 ms because CONFIG_BT_NIMBLE_HIGH_DUTY_ADV_ITVL is unset in every board baseline. This
- * THE COMPARISON THAT MATTERS IS AGAINST THE OTHER TARGETS' *IDLE* RATE, not their boosted one.
- * nordic-zephyr idles at 1000 ms and drops to 20-30 ms for three seconds after an event; the
- * Bluefruit nRF build in ../Firmware idles at 160-1000 ms. This target's permanent 30-60 ms is
- * within a factor of two of their BOOSTED rate and 17-33x their idle rate, so a ~230 ms button
- * press or touch contact already yields several advertisements here.
- *
- * The boost exists to rescue a target that idles slow. There is no slow state here to rescue. If
- * this target ever grows an advertising-interval policy, this is where the boost attaches.
- */
+/* The shared boost seam (shared/core/od_adv_app.h). Call BEFORE publishing the event's MSD:
+ * the publish restarts advertising, and that restart picks the interval. */
 extern "C" void od_adv_app_boost(void)
 {
+    uint32_t until = od_hal_uptime_ms() + OD_ADV_BOOST_MS;
+    s_adv_boost_until_ms = (until != 0u) ? until : 1u;
+    if (!s_adv_started_fast) {
+        od_adv_reapply_interval();
+    }
 }
 
 /* ------------------------------------------------------------------ host lifecycle */
@@ -1047,6 +1070,7 @@ void od_ble_restart_advertising(void)
      * does the work on the loop task. That is what makes a request landing before host sync
      * simply wait rather than fail, and it is why this no longer needs to be told whether the
      * stack is up. */
+    s_adv_boost_until_ms = 0;
     od_adv_request_start(&s_adv);
 }
 
@@ -1088,6 +1112,17 @@ bool od_ble_service_advertising(bool start_allowed)
     od_adv_set_connection_count(&s_adv, od_ble_connected_count());
     if (__atomic_exchange_n(&s_adv_ended_pending, (uint8_t)0, __ATOMIC_ACQUIRE)) {
         od_adv_observe_ended(&s_adv);
+    }
+
+    /* Interval policy: a connection ends the boost; an expired boost drops back to idle. */
+    if (s_adv.connection_count > 0u) {
+        s_adv_boost_until_ms = 0;
+    } else if (s_adv_boost_until_ms != 0u && !od_adv_boost_active(od_hal_uptime_ms())) {
+        s_adv_boost_until_ms = 0;
+    }
+    if (s_adv_started_fast && s_adv_boost_until_ms == 0u) {
+        od_adv_reapply_interval();
+        if (!s_adv.active) s_adv_started_fast = false;
     }
 
     const enum od_adv_process_result r = od_adv_process(&s_adv, start_allowed);

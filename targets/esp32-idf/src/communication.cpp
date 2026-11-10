@@ -1,5 +1,6 @@
 #include "od_smp.h"
 #include "communication.h"
+#include "od_display_esp.h"
 #include "structs.h"
 #include "config_parser.h"
 #include "encryption.h"
@@ -183,11 +184,13 @@ static void reloadConfigAfterSave(void) {
         return;
     }
     od_log_info("Config reloaded from storage after save");
-    // Live-disable takes effect now: with keep-alive off, drop a still-warm panel
-    // here instead of waiting out the stale (<=30 s) deadline armed by the last push.
-    if (globalConfig.power_option.screen_timeout_seconds == 0 && epdSessionIsWarm()) {
+    // A warm panel was brought up under the old config, whose pins and drive packets may no
+    // longer describe it: power it down now rather than at the stale deadline.
+    if (epdSessionIsWarm()) {
         epdSessionForceOff();
     }
+    // A boot screen skipped for want of drive packets is shown once a config brings them.
+    displayRequestBootAfterConfigWrite();
     od_session_clear(od_session_app_state());
 #ifdef OPENDISPLAY_HAS_WIFI
     // Non-blocking: a config write arrives over a live BLE link, and the blocking
@@ -464,6 +467,7 @@ od_cmd_result_t handleWriteConfig(const od_cmd_ctx_t *ctx, uint8_t* data, uint16
          * final while the session that sent the write is still the one answering it. */
             const od_txq_status_t rc = od_cmd_reply(ctx, responseOk, sizeof(responseOk));
             reloadConfigAfterSave();
+            notifyConfigChangedOverBle();
             return (rc == OD_TXQ_OK) ? OD_CMD_OK : OD_CMD_NACK;
         }
         (void)od_cmd_reply_plain(ctx, responseErr, sizeof(responseErr));
@@ -487,6 +491,7 @@ od_cmd_result_t handleWriteConfig(const od_cmd_ctx_t *ctx, uint8_t* data, uint16
          * final while the session that sent the write is still the one answering it. */
             const od_txq_status_t rc = od_cmd_reply(ctx, responseOk, sizeof(responseOk));
             reloadConfigAfterSave();
+            notifyConfigChangedOverBle();
             return (rc == OD_TXQ_OK) ? OD_CMD_OK : OD_CMD_NACK;
         }
         (void)od_cmd_reply_plain(ctx, responseErr, sizeof(responseErr));
@@ -554,6 +559,7 @@ od_cmd_result_t handleWriteConfigChunk(const od_cmd_ctx_t *ctx, uint8_t* data, u
          * final while the session that sent the write is still the one answering it. */
             const od_txq_status_t rc = od_cmd_reply(ctx, ok_resp, sizeof(ok_resp));
             reloadConfigAfterSave();
+            notifyConfigChangedOverBle();
             return (rc == OD_TXQ_OK) ? OD_CMD_OK : OD_CMD_NACK;
         }
         (void)od_cmd_reply_plain(ctx, err_resp, sizeof(err_resp));

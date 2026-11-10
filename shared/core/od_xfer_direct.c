@@ -54,7 +54,7 @@ od_cmd_result_t od_xfer_direct_start(const od_cmd_ctx_t *ctx, od_span_t body)
         od_xfer_reply_simple_error(ctx, RESP_DIRECT_WRITE_START_ACK);
         return OD_CMD_NACK;
     }
-    if (panel.geometry.layout == OD_COLOR_LAYOUT_SPLIT_HALVES) {
+    if (panel.geometry.layout == OD_COLOR_LAYOUT_SPLIT_HALVES && !split_halves_ok(&panel)) {
         od_xfer_log_start_refused("Direct write", OD_XFER_START_SPLIT_LAYOUT, -1, true);
         od_xfer_reply_simple_error(ctx, RESP_DIRECT_WRITE_START_ACK);
         return OD_CMD_NACK;

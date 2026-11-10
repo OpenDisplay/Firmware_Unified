@@ -6,6 +6,7 @@
  */
 
 #include "od_touch_app.h"
+#include "touch_input.h"
 
 #include "od_hal_gpio.h"
 #include "od_hal_sleep.h"
@@ -14,9 +15,9 @@
 #include "display_service.h"
 
 #include "esp_attr.h"      // IRAM_ATTR
+#include "driver/gpio.h"    // gpio_hold_*
 
-/* Declared here rather than via main.h: that header pulls bb_epaper.h, which is deliberately off
- * the include path and granted per-source in main/CMakeLists.txt. */
+/* Declared here rather than via main.h, which defines the firmware's globals. */
 extern struct od_config globalConfig;
 extern uint8_t dynamicreturndata[11];
 
@@ -121,9 +122,58 @@ void od_touch_app_msd_publish(void)
 
 static uint32_t s_next_due_ms = 0;
 
+/* A touch reset/enable line keeps whatever level it was last driven, and a bare write does not
+ * survive deep sleep, so the off level is latched with a pad hold. A GT911 RST left floating
+ * reads HIGH: out of reset, chip powered. rst_pin's only unused sentinel is 0xFF (GPIO0 is a
+ * valid reset pin); enable_pin treats 0 and 0xFF as unused. */
+static bool touch_enable_pin_used(uint8_t pin) { return pin != 0u && pin != 0xFFu; }
+
+static void touch_pad_hold_disable(uint8_t pin)
+{
+    if (pin == 0xFFu) return;
+    gpio_hold_dis((gpio_num_t)pin);
+}
+
+static void touch_pad_hold(uint8_t pin)
+{
+    if (pin == 0xFFu) return;
+#if !defined(CONFIG_IDF_TARGET_ESP32C6)
+    gpio_deep_sleep_hold_en();
+#endif
+    gpio_hold_en((gpio_num_t)pin);
+}
+
+static void touch_drive_off(const struct TouchController *tc, bool hold)
+{
+    if (tc->rst_pin != 0xFFu) {
+        od_hal_gpio_config_output(tc->rst_pin, false);   /* GT911 RST is active-low */
+        if (hold) touch_pad_hold(tc->rst_pin);
+    }
+    if (touch_enable_pin_used(tc->enable_pin)) {
+        od_hal_gpio_config_output(tc->enable_pin, false);
+        if (hold) touch_pad_hold(tc->enable_pin);
+    }
+}
+
+void touchPrepareForDeepSleep(void)
+{
+    for (uint8_t i = 0; i < globalConfig.touch_controller_count; i++) {
+        touch_drive_off(&globalConfig.touch_controllers[i], true);
+    }
+}
+
 void initTouchInput(void)
 {
     const uint32_t now = od_hal_uptime_ms();
+
+    for (uint8_t i = 0; i < globalConfig.touch_controller_count; i++) {
+        const struct TouchController *tc = &globalConfig.touch_controllers[i];
+        /* A line held across the previous deep sleep ignores writes until released. */
+        touch_pad_hold_disable(tc->rst_pin);
+        if (tc->enable_pin != 0u) touch_pad_hold_disable(tc->enable_pin);
+        /* Force-disabled controller: hold it in reset rather than leave RST floating. */
+        if (tc->touch_ic_type == OD_TOUCH_IC_NONE) touch_drive_off(tc, false);
+    }
 
     s_irq_mask = 0;
     s_next_due_ms = now + od_touch_gt911_init(&globalConfig, now);

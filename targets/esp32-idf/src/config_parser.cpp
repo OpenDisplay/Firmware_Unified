@@ -1,4 +1,6 @@
 #include "config_parser.h"
+#include "od_config_carry.h"
+#include "od_controller_esp.h"
 #include "factory_config.h"
 #include "structs.h"
 #include "od_log.h"
@@ -7,6 +9,7 @@
 #include "od_session.h"
 #include "od_session_app.h"
 #include "power_latch.h"
+#include "protocol_pending.h"  // OD_PANEL_IC_M5PAPER_960X540
 #include "wifi_service.h"  // OPENDISPLAY_HAS_WIFI + lanActivePort()/lanTlsEnabled()
 
 #include <stdio.h>
@@ -24,7 +27,10 @@
 #define DEVICE_FLAG_WS_PP_INIT (1 << 2)
 #define DEVICE_FLAG_BATTERY_LATCH (1 << 3)
 #define DEVICE_FLAG_PWR_LATCH_DFF (1 << 4)
+#define DEVICE_FLAG_NM420_INIT (1 << 5)
 #endif
+void nm420_init();
+void m5paper_init();
 
 extern struct od_config globalConfig;
 extern uint8_t activeLedInstance;
@@ -81,9 +87,16 @@ bool saveConfig(uint8_t* configData, uint32_t len){
      * loop task. The factory-provisioning caller passes a flash pointer, which the core copies
      * in here -- there is nowhere else it could be assembled contiguously. */
     static uint8_t workspace[OD_CONFIG_STORE_MAX_RECORD];
+    uint8_t carried = 0;
 
-    return od_config_store_save(workspace, sizeof(workspace), configData, len)
-           == OD_CONFIG_STORE_OK;
+    /* A config without 0x80+ packets keeps the stored drive packets (od_config_carry.h). */
+    const bool ok = od_config_store_save_carry(workspace, sizeof(workspace), configData, len,
+                                               &carried) == OD_CONFIG_STORE_OK;
+    if (ok && carried != 0u) {
+        od_log_info("config: kept %u stored drive packet(s) the write did not carry",
+                    (unsigned)carried);
+    }
+    return ok;
 }
 
 bool clearStoredConfig(void) {
@@ -260,6 +273,7 @@ bool loadGlobalConfig(){
     uint32_t configLen = OD_CONFIG_MAX_SIZE;
     if (!loadConfig(configData, &configLen)) {
         od_config_reset(&globalConfig);
+        od_controller_esp_reload();
         return false;
     }
 
@@ -268,6 +282,7 @@ bool loadGlobalConfig(){
      * so `loaded` is what consumers must read, not the counts. */
     const enum od_config_tlv_result walk =
         od_config_parse(&globalConfig, od_span_make(configData, configLen), nullptr);
+    od_controller_esp_reload();
     if (walk != OD_CFG_TLV_OK) return false;
 
     if (globalConfig.led_count > 0) {
@@ -305,6 +320,13 @@ void full_config_init() {
             od_log_info("Device flag DEVICE_FLAG_WS_PP_INIT is set, calling ws_pp_init()...");
             ws_pp_init();
             od_log_info("ws_pp_init() completed");
+        }
+        if (globalConfig.loaded && (globalConfig.system_config.device_flags & DEVICE_FLAG_NM420_INIT)) {
+            nm420_init();
+        }
+        if (globalConfig.loaded && globalConfig.display_count > 0 &&
+            globalConfig.displays[0].panel_ic_type == OD_PANEL_IC_M5PAPER_960X540) {
+            m5paper_init();
         }
         // Must run after config load: latch pins/flag come from globalConfig.
         powerLatchBegin();

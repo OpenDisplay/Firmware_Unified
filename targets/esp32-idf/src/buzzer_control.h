@@ -100,6 +100,7 @@ void initPassiveBuzzers(void);
  * section 5 counts it as activity. */
 od_cmd_result_t handleBuzzerActivate(const od_cmd_ctx_t *ctx, uint8_t* data, uint16_t len);
 void passiveBuzzerPowerOffAlert(void);
+void passiveBuzzerButtonPressAlert(void);   // OD_BUZZER_FLAG_BUTTON_PRESS chirp, blocking 60 ms
 void buzzerService(void);   // non-blocking playback tick, called from loop()
 /**
  * Silence the buzzer immediately. DEEP SLEEP ONLY -- not a session-teardown API.

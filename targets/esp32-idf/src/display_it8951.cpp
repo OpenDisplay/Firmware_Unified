@@ -2,7 +2,9 @@
  *
  * 16-gray frames stream straight to the controller, row by row, so the panel needs no framebuffer.
  * 1-bit mode keeps one in PSRAM because a partial update is composed into the previous frame.
- * The panel is mounted mirrored: rows are reversed and sent big-endian.
+ * Frames always load big-endian. On a mirrored panel (ED103TC2 on the E1003) each row is reversed
+ * on the way out. On an unmirrored one (ED047TC1 on the M5Paper) gray rows go as-is and every
+ * 1-bit byte is bit-reversed, because the IT8951 takes the leftmost pixel from bit 0.
  */
 #include "display_it8951.h"
 
@@ -63,6 +65,8 @@
 static int8_t s_mosi, s_miso, s_sclk, s_cs, s_busy, s_rst, s_en, s_ite_en;
 static uint16_t s_w, s_h;
 static bool s_gray16;
+static bool s_mirrored = true;
+static uint16_t s_vcom_mv = VCOM_MV;   /* 0 = keep the controller's stored VCOM */
 static uint16_t s_pitch;
 
 static spi_device_handle_t s_dev;
@@ -226,8 +230,19 @@ static bool bus_up(void)
     return true;
 }
 
+/* A negative pin is not wired (a 0xB3 controller description may leave EN/ITE_EN out). */
+static void pin_level(int8_t pin, int level)
+{
+    if (pin >= 0) {
+        gpio_set_level((gpio_num_t)pin, level);
+    }
+}
+
 static void pin_out(int8_t pin, int level)
 {
+    if (pin < 0) {
+        return;
+    }
     gpio_reset_pin((gpio_num_t)pin);
     gpio_set_direction((gpio_num_t)pin, GPIO_MODE_OUTPUT);
     gpio_set_level((gpio_num_t)pin, level);
@@ -255,8 +270,8 @@ static bool init_controller(void)
         return false;
     }
     vTaskDelay(pdMS_TO_TICKS(100));
-    gpio_set_level((gpio_num_t)s_en, 1);
-    gpio_set_level((gpio_num_t)s_ite_en, 1);
+    pin_level(s_en, 1);
+    pin_level(s_ite_en, 1);
     vTaskDelay(pdMS_TO_TICKS(100));
     gpio_set_level((gpio_num_t)s_rst, 0);
     vTaskDelay(pdMS_TO_TICKS(10));
@@ -275,9 +290,11 @@ static bool init_controller(void)
     }
     s_img_buf = ((uint32_t)info[3] << 16) | info[2];
 
-    write_cmd(CMD_VCOM);
-    write_data(0x0001u);
-    write_data(VCOM_MV);
+    if (s_vcom_mv != 0u) {
+        write_cmd(CMD_VCOM);
+        write_data(0x0001u);
+        write_data(s_vcom_mv);
+    }
     write_reg(REG_I80CPCR, 0x0001u);
     return set_clock(SPI_RUN_HZ);
 }
@@ -359,7 +376,7 @@ static void apply_temperature(void)
 
 static void flush_gray_row(void)
 {
-    for (uint32_t a = 0u, b = s_pitch - 1u; a <= b && b < s_pitch; a++, b--) {
+    for (uint32_t a = 0u, b = s_pitch - 1u; s_mirrored && a <= b && b < s_pitch; a++, b--) {
         const uint8_t x = (uint8_t)((s_row[a] >> 4) | (s_row[a] << 4));
 
         s_row[a] = (uint8_t)((s_row[b] >> 4) | (s_row[b] << 4));
@@ -442,7 +459,14 @@ static void refresh_mono(uint16_t mode)
         const uint8_t *src = s_fb + y * s_pitch;
 
         for (uint32_t i = 0u; i < s_pitch; i++) {
-            s_row[s_pitch - 1u - i] = src[i];
+            if (s_mirrored) {
+                s_row[s_pitch - 1u - i] = src[i];
+            } else {
+                uint8_t b = src[i];
+                b = (uint8_t)((b >> 4) | (b << 4));
+                b = (uint8_t)(((b & 0xCCu) >> 2) | ((b & 0x33u) << 2));
+                s_row[i] = (uint8_t)(((b & 0xAAu) >> 1) | ((b & 0x55u) << 1));
+            }
         }
         send_row_bytes(s_row, s_pitch);
         if ((y & 7u) == 0u) {
@@ -474,6 +498,12 @@ extern "C" void od_it8951_set_panel(int8_t mosi, int8_t miso, int8_t sclk, int8_
     s_h = height;
     s_gray16 = gray16;
     s_pitch = gray16 ? (uint16_t)((width + 1u) / 2u) : (uint16_t)((width + 7u) / 8u);
+}
+
+extern "C" void od_it8951_set_layout(bool mirrored, uint16_t vcom_mv)
+{
+    s_mirrored = mirrored;
+    s_vcom_mv = vcom_mv;
 }
 
 extern "C" void od_it8951_set_temperature(bool valid, int temp_c)
@@ -524,8 +554,8 @@ static void power_down(void)
     stream_close();
     set_running(false);
     write_cmd(CMD_SLEEP);
-    gpio_set_level((gpio_num_t)s_en, 0);
-    gpio_set_level((gpio_num_t)s_ite_en, 0);
+    pin_level(s_en, 0);
+    pin_level(s_ite_en, 0);
     s_hw_ready = false;
 }
 

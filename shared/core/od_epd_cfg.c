@@ -377,6 +377,11 @@ uint8_t od_epd_cfg_busy_idle_level(void)
     return s_desc.busy_idle_level;
 }
 
+bool od_epd_cfg_busy_usable(void)
+{
+    return s_desc.busy_usable;
+}
+
 bool od_epd_cfg_select(uint8_t mode, od_epd_cfg_mode_t *out)
 {
     if (!s_loaded || od_epd_select_mode(&s_epd, mode) != OD_EPD_RC_OK) {

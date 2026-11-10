@@ -81,7 +81,7 @@ boundary_includes() {
     # ESP-IDF families beyond esp_*: driver/, soc/, hal/, rom/ and freertos/ are all IDF-only.
     # miniz.h is the ROM tinfl header -- the portable inflate engine belongs in shared/core, the ROM
     # binding does not. Panel libraries are target-layer: shared/ reaches the panel only through
-    # od_hal_panel.
+    # the od_drive_app / od_epd_cfg bus seams.
     local pattern='#[[:space:]]*include[[:space:]]*[<"]([[:space:]]*)?(esp_|esp32|driver/|soc/|hal/|rom/|miniz|freertos/|nrf_|nrfx|nrf\.h|sl_|sli_|em_|zephyr/|Arduino\.h|WiFi\.h|ESPmDNS|bluefruit\.h|Adafruit|NimBLE|bb_epaper|FastEPD|TFT_eSPI|Seeed)'
     # shared/hal's own headers are od_hal_*.h and may legitimately be included as
     # "hal/od_hal_panel.h", which the IDF `hal/` family above would otherwise flag. Anchor the
@@ -991,7 +991,7 @@ log_hal_structure() {
     fi
 
     hits=$(grep -rInE '\b(od_hal_log_room|od_log_set_ready_hook|od_log_set_loop_task)[[:space:]]*\(|\[DROP:' \
-           shared targets/esp32-idf/src targets/esp32-idf/hal targets/esp32-idf/panel \
+           shared targets/esp32-idf/src targets/esp32-idf/hal \
            targets/nordic-zephyr/src targets/nordic-zephyr/panel \
            targets/efr32bg22-slc --include='*.c' --include='*.cpp' --include='*.h' \
            --include='*.inl' --exclude-dir='build*' 2>/dev/null || true)
@@ -1146,6 +1146,27 @@ nordic_panel_library_absent() {
     return $rc
 }
 check "nordic: no panel library" nordic_panel_library_absent
+
+# PERMANENT. ESP32 drives every SPI panel from the config's drive packets the same way. FastEPD
+# stays, for the IT8951 and parallel panels on its built-in drivers (display_fastepd.cpp is the
+# only file that may name it); bb_epaper, a panel-id table or the od_hal_panel vtable coming back
+# is a second SPI display path.
+esp32_panel_library_absent() {
+    local rc=0
+    absent_or_fail "bb_epaper or a panel-id table returned to the ESP32 build" \
+        '\bbb_epaper\b|\bBBEPDISP\b|\bbbep(Init|Set|Write|Send|Refresh|Sleep|Wake|Fill|Start|CMD|Wait|DeInit|IsBusy)[A-Za-z]*[[:space:]]*\(|\bmapEpd\b|\bod_panel_ops\b|\bod_hal_panel_' \
+        targets/esp32-idf/src targets/esp32-idf/hal targets/esp32-idf/main || rc=1
+    if [ -d targets/esp32-idf/panel ]; then
+        echo "targets/esp32-idf/panel/ is back (it held the bb_epaper backend)"
+        rc=1
+    fi
+    if grep -nE 'bb_epaper' targets/esp32-idf/main/CMakeLists.txt targets/esp32-idf/CMakeLists.txt; then
+        echo "ESP32 CMake compiles or includes bb_epaper again"
+        rc=1
+    fi
+    return $rc
+}
+check "esp32: no panel library" esp32_panel_library_absent
 
 # ================================================================================== host suites ==
 # Two host tests (bench_dispatch_gate, nfc_read_tool) import the ESP32 bench CLI, which needs
@@ -1420,9 +1441,9 @@ fi
 # OD-PATCH in third_party/bb_epaper/src/bb_epaper.h, not by any header the ratchet grepped for.
 # So this checks CALLS, which is the property that actually matters.
 #
-# panel/ and vendor/ are exempt BY DESIGN, not by oversight: od_bbep_idf_io.inl and
-# fastepd_adapter.cpp exist precisely to supply these primitives to the two vendored libraries
-# that demand them, and third_party/ is exempt from the one rule (CLAUDE.md, decision 13).
+# vendor/ is exempt BY DESIGN, not by oversight: fastepd_adapter.cpp exists precisely to supply
+# these primitives to the vendored library that demands them, and third_party/ is exempt from
+# the one rule (CLAUDE.md, decision 13).
 arduino_free() {
     local rc=0
 
@@ -1450,10 +1471,9 @@ arduino_free() {
         rc=1
     fi
 
-    # Calls to Arduino primitives in APP code. panel/ and vendor/ are exempt BY DESIGN:
-    # od_bbep_idf_io.inl and fastepd_adapter.cpp exist precisely to supply these to the two
-    # vendored libraries that demand them, and third_party/ is exempt from the one rule
-    # (CLAUDE.md, decision 13).
+    # Calls to Arduino primitives in APP code. vendor/ is exempt BY DESIGN: fastepd_adapter.cpp
+    # exists precisely to supply these to the vendored library that demands them, and
+    # third_party/ is exempt from the one rule (CLAUDE.md, decision 13).
     #
     # The awk pass strips comments before matching. Without it the check fires on prose --
     # "millis()-poll from loop()" in a header comment is not a call, and a gate that cannot

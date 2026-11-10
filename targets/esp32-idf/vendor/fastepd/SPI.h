@@ -19,24 +19,10 @@
  *   - third_party/FastEPD/src/FastEPD.inl  -- the whole IT8951 command/data/read protocol.
  *                                             This is what the adapter EXISTS for.
  *   - src/display_fastepd.cpp              -- the IT8951 row blit. FastEPD glue by definition.
- *   - src/display_service.cpp              -- the E1004 dual-CS pixel stream. THE ONE LEAK
- *                                             LEFT, and not FastEPD's: see the SPI2_HOST note
- *                                             below. Removing it is phase C step 13.
  *
- * HISTORY, because the previous version of this comment caused a real defect: it claimed
- * "the panel SPI does NOT come through here: bb_epaper drives its own bus via its esp_idf
- * backend, which is why this is so small", and on that basis every method was an empty stub
- * (transfer() returned its argument, writeBytes() did nothing). The claim is true of
- * bb_epaper and false of everything else. With a stubbed transfer16() the IT8951 handshake
- * reads all zeros and every pixel write is discarded, while the panel's GPIO-driven
- * reset/busy handshake still looks healthy -- a failure that only appears on hardware.
- *
- * SPI2_HOST IS CLAIMED TWICE, AND THAT IS A KNOWN HAZARD. This adapter calls
- * spi_bus_initialize(SPI2_HOST) and so does panel/od_bbep_idf_io.inl, which owns the
- * bb_epaper bus. bbepDeInitIO() already logs "another device is still attached" when the
- * E1004 path holds a device here. Two owners of one host is not something the adapter can fix
- * from inside; it is resolved by taking display_service.cpp's E1004 stream off this file and
- * onto the bb_epaper backend that already owns that bus.
+ * SPI2_HOST is shared with src/od_epd_esp.cpp, which drives SPI panels from drive packets. The
+ * config selects one of the two (IT8951 panel_ic_type or not), and each
+ * initialises and frees the host itself, so they never hold it at the same time.
  */
 #pragma once
 /* Deliberately does NOT include arduino_compat.h. FastEPD's arduino_io.inl defines its own
@@ -196,7 +182,7 @@ public:
 
 private:
     /* SPI2_HOST is the general-purpose host on every ESP32 variant this target builds for
-     * (SPI1 is the flash controller). bb_epaper opens its own device on its own terms. */
+     * (SPI1 is the flash controller). */
     static constexpr spi_host_device_t kHost = SPI2_HOST;
 
     bool attach(uint32_t clock, uint8_t mode)

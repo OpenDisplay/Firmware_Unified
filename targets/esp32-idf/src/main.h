@@ -2,15 +2,13 @@
  * firmware's globals; it uses no Arduino type or function of its own, and the three includes
  * were serving main.cpp -- its only consumer -- transitively. main.cpp now names its own
  * dependency explicitly, which is the point: a header that pulls in a surface it does not use
- * hides which file actually depends on it.
- *
- * <bb_epaper.h> below is NOT a back door. It includes <Arduino.h> only under #ifdef ARDUINO,
- * which this build does not define (it takes the __LINUX__ branch), so nothing is laundered
- * in through it. */
+ * hides which file actually depends on it. */
+#include <stdio.h>
+#include <string.h>
+
 #include "structs.h"
 #include "od_cmd.h"   /* od_cmd_result_t / od_cmd_ctx_t, for the handler declarations below */
 #include "od_zlib_inflate.h"
-#include <bb_epaper.h>
 #include "encryption_state.h"
 #include "config_parser.h"
 #include "ble_transport.h"
@@ -57,6 +55,7 @@
 #define DEVICE_FLAG_WS_PP_INIT   (1 << 2)  // Bit 2: Call ws_pp_init() after config load (Waveshare Photo Printer)
 #define DEVICE_FLAG_BATTERY_LATCH (1 << 3) // Bit 3: Self-holding battery latch on pwr_pin_2; optional active-low long-press shutdown button on pwr_pin_3
 #define DEVICE_FLAG_PWR_LATCH_DFF (1 << 4) // Bit 4: 74AHC1G79 D-FF latch; pwr_pin_2=D, pwr_pin_3=CP; release via command 0x0052
+#define DEVICE_FLAG_NM420_INIT   (1 << 5)  // Bit 5: Call nm420_init() after config load (RockBase NM-EPD-420)
 
 
 // No BLE stack types here any more: NimBLE lives behind ble_transport_esp32.cpp.
@@ -69,21 +68,6 @@
 extern bool advertising_timeout_active;
 extern uint32_t advertising_start_time;
 
-BBEPDISP bbep;
-
-// Forward declarations for bbep functions
-void bbepInitIO(BBEPDISP *pBBEP, uint8_t u8DC, uint8_t u8RST, uint8_t u8BUSY, uint8_t u8CS, uint8_t u8MOSI, uint8_t u8SCK, uint32_t u32Speed);
-int bbepSetPanelType(BBEPDISP *pBBEP, int iPanel);
-void bbepSetRotation(BBEPDISP *pBBEP, int iRotation);
-void bbepStartWrite(BBEPDISP *pBBEP, int iPlane);
-int bbepRefresh(BBEPDISP *pBBEP, int iMode);
-bool bbepIsBusy(BBEPDISP *pBBEP);
-void bbepWakeUp(BBEPDISP *pBBEP);
-void bbepSleep(BBEPDISP *pBBEP, int deepSleep);
-void bbepSendCMDSequence(BBEPDISP *pBBEP, const uint8_t *pSeq);
-void bbepSetAddrWindow(BBEPDISP *pBBEP, int x, int y, int cx, int cy);
-void bbepWriteData(BBEPDISP *pBBEP, uint8_t *pData, int iLen);
-
 uint8_t decompressionChunk[OPENDISPLAY_DECOMPRESSION_CHUNK_SIZE];
 uint8_t bleResponseBuffer[94];
 // Rolling MSD sequence nibble; persists across deep sleep so advertisements
@@ -91,7 +75,7 @@ uint8_t bleResponseBuffer[94];
 RTC_DATA_ATTR uint8_t mloopcounter = 0;
 // Persists across deep sleep so a wake is not mistaken for a reboot. Re-armed
 // on the boot-screen path in setup(), which is the only path a real reset takes.
-RTC_DATA_ATTR uint8_t rebootFlag = 1;  // Set to 1 after reboot, cleared to 0 after BLE connection
+RTC_DATA_ATTR uint8_t rebootFlag = 1;  // Set to 1 on reboot or config write, cleared to 0 on BLE connection
 uint8_t connectionRequested = 0;  // Reserved for future features (connection requested flag)
 uint8_t dynamicreturndata[11] = {0};  // Dynamic return data blocks (bytes 2-12 in advertising payload)
 uint8_t msd_payload[16] = {0};  // Manufacturer Specific Data payload (public, updated by updatemsdata())
@@ -143,17 +127,14 @@ bool displayPowerState = false;  // Track display power state (true = powered on
 // enum PwrMgmState + EPD_KEEPALIVE_MAX_S are defined in display_service.h (shared header).
 volatile uint8_t pwrmgmState = PWR_OFF;  // PWR_OFF / PWR_WARM / PWR_ACTIVE
 uint32_t pwrmgmOffDeadlineMs = 0;        // keep-alive deadline (millis); valid only in PWR_WARM
-// Session try-lock, uncontended since Phase 3 moved nRF dispatch onto loop().
-// Kept as defence in depth -- see the rationale at pwrmgmLockTake() in
-// display_service.cpp.
-volatile uint8_t pwrmgmLock = 0;
 
-bool waitforrefresh(int timeout);
 void pwrmgm(bool onoff);
 bool powerDownExternalFlash(uint8_t mosiPin, uint8_t misoPin, uint8_t sckPin, uint8_t csPin, uint8_t wpPin, uint8_t holdPin);
 void powerDownExternalFlashFromConfig(void);
 void xiaoinit();
 void ws_pp_init();
+void nm420_init();
+void nm420HoldForSleep();
 void fullSetupAfterConnection();
 // force: sleep even with a client connected (explicit host request 0x0053).
 // overrideSleepSeconds: nonzero replaces deep_sleep_time_seconds for this one
@@ -190,13 +171,11 @@ od_cmd_result_t handleWriteConfigChunk(const od_cmd_ctx_t *ctx, uint8_t* data, u
 od_cmd_result_t handleFirmwareVersion(const od_cmd_ctx_t *ctx);
 od_cmd_result_t handleReadMSD(const od_cmd_ctx_t *ctx);  // Read Manufacturer Specific Data (MSD) payload
 const char* getFirmwareShaString();
-int mapEpd(int id);
 uint8_t getFirmwareMajor();
 uint8_t getFirmwareMinor();
 uint8_t getFirmwarePatch();
 float readBatteryVoltage();  // Returns battery voltage in volts, or -1.0 if not configured
 float readChipTemperature();  // Returns chip temperature in degrees Celsius
-int displayBootPlane(uint8_t colorScheme);
 int displayBootBitsPerPixel(uint8_t colorScheme);
 
 // chunked_write_state_t comes from config_parser.h so this file and
@@ -242,8 +221,8 @@ static constexpr uint32_t DEFAULT_IDLE_HOLD_MS = 10000;
 
 #define AXP2101_SLAVE_ADDRESS 0x34
 #define AXP2101_REG_POWER_STATUS 0x00
-#define AXP2101_REG_POWER_ON_STATUS 0x01
-#define AXP2101_REG_POWER_OFF_STATUS 0x02
+#define AXP2101_REG_POWER_ON_STATUS 0x20
+#define AXP2101_REG_POWER_OFF_STATUS 0x21
 #define AXP2101_REG_DC_ONOFF_DVM_CTRL 0x80
 #define AXP2101_REG_LDO_ONOFF_CTRL0 0x90
 #define AXP2101_REG_DC_VOL0_CTRL 0x82  // DCDC1 voltage
@@ -253,22 +232,20 @@ static constexpr uint32_t DEFAULT_IDLE_HOLD_MS = 10000;
 #define AXP2101_REG_ADC_CHANNEL_CTRL 0x30
 #define AXP2101_REG_ADC_DATA_BAT_VOL_H 0x34
 #define AXP2101_REG_ADC_DATA_BAT_VOL_L 0x35
-#define AXP2101_REG_ADC_DATA_VBUS_VOL_H 0x36
-#define AXP2101_REG_ADC_DATA_VBUS_VOL_L 0x37
-#define AXP2101_REG_ADC_DATA_SYS_VOL_H 0x38
-#define AXP2101_REG_ADC_DATA_SYS_VOL_L 0x39
+#define AXP2101_REG_ADC_DATA_VBUS_VOL_H 0x38
+#define AXP2101_REG_ADC_DATA_VBUS_VOL_L 0x39
+#define AXP2101_REG_ADC_DATA_SYS_VOL_H 0x3A
+#define AXP2101_REG_ADC_DATA_SYS_VOL_L 0x3B
 #define AXP2101_REG_BAT_PERCENT_DATA 0xA4
 #define AXP2101_REG_PWRON_STATUS 0x20
 #define AXP2101_REG_BAT_DETECTION_CTRL 0x68  // Battery detection control
 #define AXP2101_REG_IRQ_ENABLE1 0x40  // IRQ enable register 1
 #define AXP2101_REG_IRQ_ENABLE2 0x41  // IRQ enable register 2
 #define AXP2101_REG_IRQ_ENABLE3 0x42  // IRQ enable register 3
-#define AXP2101_REG_IRQ_ENABLE4 0x43  // IRQ enable register 4
-#define AXP2101_REG_IRQ_STATUS1 0x44  // IRQ status register 1
-#define AXP2101_REG_IRQ_STATUS2 0x45  // IRQ status register 2
-#define AXP2101_REG_IRQ_STATUS3 0x46  // IRQ status register 3
-#define AXP2101_REG_IRQ_STATUS4 0x47  // IRQ status register 4
-#define AXP2101_REG_LDO_ONOFF_CTRL1 0x91  // LDO control register 1 (BLDO1-2, CPUSLDO, DLDO1-2)
+#define AXP2101_REG_IRQ_STATUS1 0x48  // IRQ status register 1
+#define AXP2101_REG_IRQ_STATUS2 0x49  // IRQ status register 2
+#define AXP2101_REG_IRQ_STATUS3 0x4A  // IRQ status register 3
+#define AXP2101_REG_LDO_ONOFF_CTRL1 0x91  // LDO control register 1 (DLDO2)
 
 // The deferred-work flags that used to be defined here are now file-static in
 // main.cpp: nothing outside it reads them, and the two that other translation
@@ -276,4 +253,3 @@ static constexpr uint32_t DEFAULT_IDLE_HOLD_MS = 10000;
 // requestAdvertisingRestart() (communication.h). Keeping them here would have
 // re-exported mutable state that only one file has any business touching.
 
-extern const uint8_t writelineFont[] PROGMEM;

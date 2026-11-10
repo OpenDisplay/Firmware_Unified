@@ -53,7 +53,11 @@ od_cmd_result_t od_cmd_app_read_ident(const od_cmd_ctx_t *ctx, od_span_t body)
             rsp[n++] = (uint8_t)(d->pixel_height >> 8);
             rsp[n++] = d->color_scheme;
             count++;
-            if (OD_IDENT_CONFIG_DRIVEN && !od_cfg_has_drive_data(d->instance_number)) {
+            if (OD_IDENT_CONFIG_DRIVEN && !od_cfg_has_drive_data(d->instance_number)
+#if OD_IDENT_NATIVE_PANELS
+                && !od_ident_app_native_panel(d)
+#endif
+            ) {
                 flags |= OD_IDENT_FLAG_NEEDS_MIGRATION;
             }
         }
