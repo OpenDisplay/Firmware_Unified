@@ -1312,7 +1312,7 @@ check "host suite (ASan + UBSan)" host_sanitizers
 #
 # A crash writes its input to ./crash-<sha1>. Commit it to the corpus AND pin it as a numbered
 # case in the corresponding ordinary host test, so the regression fails without fuzzing too.
-FUZZ_TARGETS=(session_open_raw session_open_sealed session_auth pipe_start pipe_data)
+FUZZ_TARGETS=(session_open_raw session_open_sealed session_auth pipe_start pipe_data config_drive)
 
 fuzz_all() {
     local dir="$BUILD_ROOT/fuzz" t
