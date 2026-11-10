@@ -2916,7 +2916,9 @@
    "panel_ic_type": 29,
    "name": "EP29YR_128x296",
    "aliases": [],
-   "notes": [],
+   "notes": [
+    "DOUBT: code_map [0, 1, 3, 2] is bb_epaper's pColorLookup; for EP42YR and EP75YR that lookup is the identity while the glass panels.yaml entries use [0,1,3,2], so the BWRY code order of this panel is unproven"
+   ],
    "differences": [
     "D1",
     "D2",
@@ -5167,7 +5169,9 @@
    "panel_ic_type": 52,
    "name": "EP213YR_122x250",
    "aliases": [],
-   "notes": [],
+   "notes": [
+    "DOUBT: code_map [0, 1, 2, 3] is bb_epaper's pColorLookup; for EP42YR and EP75YR that lookup is the identity while the glass panels.yaml entries use [0,1,3,2], so the BWRY code order of this panel is unproven"
+   ],
    "differences": [
     "D1",
     "D2",
@@ -5261,7 +5265,9 @@
    "panel_ic_type": 53,
    "name": "EP37YR_240x416",
    "aliases": [],
-   "notes": [],
+   "notes": [
+    "DOUBT: code_map [0, 1, 2, 3] is bb_epaper's pColorLookup; for EP42YR and EP75YR that lookup is the identity while the glass panels.yaml entries use [0,1,3,2], so the BWRY code order of this panel is unproven"
+   ],
    "differences": [
     "D1",
     "D2",
@@ -5516,7 +5522,8 @@
    "name": "EP397YR_800x480",
    "aliases": [],
    "notes": [
-    "2.x Firmware detects SSD1677 vs SSD2677 at runtime (reg 0x70) and repacks to 2bpp for SSD2677; config-driven drive needs READBACK and PIXEL_XFORM"
+    "2.x Firmware detects SSD1677 vs SSD2677 at runtime (reg 0x70) and repacks to 2bpp for SSD2677; config-driven drive needs READBACK and PIXEL_XFORM",
+    "DOUBT: code_map [0, 1, 2, 3] is bb_epaper's pColorLookup; for EP42YR and EP75YR that lookup is the identity while the glass panels.yaml entries use [0,1,3,2], so the BWRY code order of this panel is unproven"
    ],
    "differences": [
     "D1",
@@ -5779,7 +5786,8 @@
    "name": "EP266YR2_184x360",
    "aliases": [],
    "notes": [
-    "no website preset; legacy color_scheme is the bb_epaper native scheme"
+    "no website preset; legacy color_scheme is the bb_epaper native scheme",
+    "DOUBT: code_map [0, 1, 2, 3] is bb_epaper's pColorLookup; for EP42YR and EP75YR that lookup is the identity while the glass panels.yaml entries use [0,1,3,2], so the BWRY code order of this panel is unproven"
    ],
    "differences": [
     "D1",
@@ -6240,7 +6248,9 @@
    "panel_ic_type": 61,
    "name": "EP215YR_160x296",
    "aliases": [],
-   "notes": [],
+   "notes": [
+    "DOUBT: code_map [0, 1, 2, 3] is bb_epaper's pColorLookup; for EP42YR and EP75YR that lookup is the identity while the glass panels.yaml entries use [0,1,3,2], so the BWRY code order of this panel is unproven"
+   ],
    "differences": [
     "D1",
     "D2",

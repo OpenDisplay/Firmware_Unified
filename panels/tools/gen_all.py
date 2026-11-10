@@ -273,6 +273,10 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
             e["notes"].append("DOUBT: 0xB1 code_map is carried but od_epd_cfg never applies it")
         else:
             pk = encode_derived(p, d)
+            if p["flags"] & 0x0008:
+                e["notes"].append(f"DOUBT: code_map {code_map_of(p)} is bb_epaper's pColorLookup; for EP42YR "
+                                  "and EP75YR that lookup is the identity while the glass panels.yaml "
+                                  "entries use [0,1,3,2], so the BWRY code order of this panel is unproven")
             e["modes"] = [{"index": i, "name": m["flow"], "refresh": REFRESH[m["flow"]], "passes": 1,
                            "color_scheme": m["scheme"], "planes": m["planes"]}
                           for i, m in enumerate(d["modes"])]
