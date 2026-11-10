@@ -4,7 +4,7 @@
 
 #include "em_system.h"
 #include "opendisplay_config_parser.h"
-#include "sl_sleeptimer.h"
+#include "od_hal_time.h"
 
 #include <stdio.h>
 
@@ -23,7 +23,7 @@ const struct SecurityConfig *od_session_app_security(void)
 
 uint32_t od_session_app_now_ms(void)
 {
-  return sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count());
+  return od_hal_uptime_ms();
 }
 
 void od_session_app_device_id(uint8_t out[OD_SESSION_DEVICE_ID_LEN])

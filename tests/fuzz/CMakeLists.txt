@@ -53,3 +53,35 @@ foreach(target pipe_start pipe_data)
     set_tests_properties(fuzz_${target} PROPERTIES
                          ENVIRONMENT "UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1")
 endforeach()
+
+# The stored config through everything that reads it on demand: od_cfg_index (differential
+# against od_config_tlv_walk), od_epd_cfg + od_epd, od_action and od_config_store_save_carry.
+# drive_fixture.h supplies the fake medium and the recording panel bus.
+set(OD_FUZZ_CORE ${CMAKE_CURRENT_LIST_DIR}/../../shared/core)
+set(OD_FUZZ_DRIVE_SOURCES
+    ${OD_FUZZ_CORE}/od_cfg_index.c
+    ${OD_FUZZ_CORE}/od_epd.c
+    ${OD_FUZZ_CORE}/od_epd_cfg.c
+    ${OD_FUZZ_CORE}/od_action.c
+    ${OD_FUZZ_CORE}/od_config_carry.c
+    ../host/od_log_test_stub.c)
+add_executable(od_fuzz_config_drive fuzz_config_drive.c ${OD_FUZZ_DRIVE_SOURCES})
+target_link_libraries(od_fuzz_config_drive od_shared)
+target_include_directories(od_fuzz_config_drive PRIVATE ${CMAKE_CURRENT_LIST_DIR}
+                           ${CMAKE_CURRENT_LIST_DIR}/../host)
+target_compile_options(od_fuzz_config_drive PRIVATE ${OD_FUZZ_FLAGS})
+target_link_options(od_fuzz_config_drive PRIVATE ${OD_FUZZ_FLAGS})
+# New units go to a build-tree directory (libFuzzer writes into the FIRST corpus dir), so a
+# gate run never dirties the committed corpus.
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/config_drive_new)
+add_test(NAME fuzz_config_drive
+         COMMAND od_fuzz_config_drive -runs=2000 -print_final_stats=0
+                 ${CMAKE_CURRENT_BINARY_DIR}/config_drive_new
+                 ${CMAKE_CURRENT_LIST_DIR}/corpus/config_drive)
+set_tests_properties(fuzz_config_drive PROPERTIES
+                     ENVIRONMENT "UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1")
+
+add_executable(od_fuzz_seed_config_drive seed_config_drive.c
+    ${OD_FUZZ_CORE}/od_cfg_index.c ../host/od_log_test_stub.c)
+target_link_libraries(od_fuzz_seed_config_drive od_shared)
+target_include_directories(od_fuzz_seed_config_drive PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../host)

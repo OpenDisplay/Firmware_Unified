@@ -1,0 +1,39 @@
+# EP75_800x480_0x0014: 1 modes, code_map 00 01 02 03, idle 1
+# mode 0 passes 1 scheme 0 frame 48000
+R 10
+C 01
+D 07 07 3f 3f
+C 04
+C 00
+D 1f
+C 61
+D 03 20 01 e0
+C 15
+D 00
+C 50
+D 29 07
+C 60
+D 22
+C 13
+D[16000] crc32=cf97c052
+D[32000] crc32=1eb7f2e0
+C 01
+D 07 07 3f 3f
+C 04
+C 00
+D 1f
+C 61
+D 03 20 01 e0
+C 15
+D 00
+C 50
+D 29 07
+C 60
+D 22
+C 12
+# sleep
+C 50
+D 17
+C 02
+C 07
+D a5

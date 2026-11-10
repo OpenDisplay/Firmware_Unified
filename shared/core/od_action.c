@@ -1,9 +1,8 @@
 /* od_action.c -- see od_action.h. */
 #include "od_action.h"
 
-#include <string.h>
-
 #include <limits.h>
+#include <string.h>
 
 #include "od_action_app.h"
 #include "od_cfg_index.h"
@@ -36,6 +35,26 @@ static const od_cfg_entry_t *table(void)
     return od_cfg_find(OD_PKT_ACTION_TABLE, 0u);
 }
 
+/* The one entry walk every reader shares, so the validator and the runner cannot disagree
+ * about which entries exist. Reads the header at `off` into h. Returns entry_len, the step to
+ * the next entry, or 0 when the walk ends (no room for a header, or an entry_len that is
+ * shorter than a header or runs past the packet: nothing after it can be located). *ok is
+ * false for an entry that can be stepped over but must not run: entry_len disagreeing with
+ * step_count, or more than OD_ACTION_MAX_STEPS steps. */
+static uint8_t entry_at(const od_cfg_entry_t *e, uint16_t off, uint8_t *h, bool *ok)
+{
+    if ((uint32_t)off + OD_ACTION_ENTRY_HDR > e->len ||
+        od_cfg_read(e, off, h, OD_ACTION_ENTRY_HDR) != OD_ACTION_ENTRY_HDR) {
+        return 0u;
+    }
+    if (h[0] < OD_ACTION_ENTRY_HDR || (uint32_t)off + h[0] > e->len) {
+        return 0u;
+    }
+    *ok = h[0] == OD_ACTION_ENTRY_HDR + (uint16_t)h[5] * OD_ACTION_STEP_LEN &&
+          h[5] <= OD_ACTION_MAX_STEPS;
+    return h[0];
+}
+
 static bool effect_known(uint8_t e)
 {
     switch (e) {
@@ -56,38 +75,48 @@ static bool trigger_known(uint8_t t)
     if (t == OD_TRIG_TEMP_ENTER || t == OD_TRIG_TEMP_EXIT) {
         return od_action_app_temperature_c() != INT8_MIN;
     }
-    return t >= OD_TRIG_BOOT && t <= OD_TRIG_HOST;
+    /* BUTTON_LONG is defined but no target emits it yet: report it inactive, not active. */
+    return t >= OD_TRIG_BOOT && t <= OD_TRIG_HOST && t != OD_TRIG_BUTTON_LONG;
 }
 
-/* Temperature edge state. `inside` starts UNKNOWN so the first sample sets a
- * baseline instead of firing: a device booting inside its window has not
- * entered it, and a device booting outside has not left it. Without that a
- * reboot would fire every temperature action once, which on a tag that
- * deep-sleeps and resets often is indistinguishable from a stuck sensor. */
-#define TEMP_POLL_MS 2000u
+/* Temperature edge state, ONE PAIR OF BITS PER TEMPERATURE ENTRY (by its ordinal among the
+ * temperature entries), because each entry carries its own window.
+ *
+ * `known` starts clear so the first sample sets a baseline instead of firing: a device booting
+ * inside its window has not entered it, and one booting outside has not left it. Without that
+ * a reboot would fire every temperature action once.
+ *
+ * HYSTERESIS. An entry is entered at the configured edges (lo <= t <= hi) but left only once t
+ * is more than OD_ACTION_TEMP_HYST_C outside them. The die reading dithers by about +/-2 C, so
+ * a bare comparison turns one slow crossing into a burst of alternating ENTER/EXIT edges, each
+ * of which can be a panel refresh. The band sits on the exit side so ENTER still fires exactly
+ * at the edge the host configured. Entries past OD_ACTION_TEMP_MAX never fire. */
+#define TEMP_POLL_MS          2000u
+#define OD_ACTION_TEMP_HYST_C 3
+#define OD_ACTION_TEMP_MAX    16u
 static struct {
-    bool     known;
-    bool     inside;
+    uint16_t known;
+    uint16_t inside;
+    bool     polled;
     uint32_t next_poll_ms;
 } s_temp;
 
-/* Does `t` sit within the window packed into a trigger_arg? */
-static bool temp_in_window(int8_t t, uint16_t arg)
+/* Inside after sample `t`, given the previous state. */
+static bool temp_inside(int8_t t, uint16_t arg, bool was_inside)
 {
-    const int8_t lo = (int8_t)(arg & 0xFFu);
-    const int8_t hi = (int8_t)((arg >> 8) & 0xFFu);
-    return t >= lo && t <= hi;
+    const int lo = (int8_t)(arg & 0xFFu);
+    const int hi = (int8_t)((arg >> 8) & 0xFFu);
+    const int band = was_inside ? OD_ACTION_TEMP_HYST_C : 0;
+    return (int)t >= lo - band && (int)t <= hi + band;
 }
 
-/* Poll every entry with a temperature trigger and fire the ones whose window
- * this sample just crossed. Each entry carries its OWN window, so the edge is
- * per-entry rather than global -- two entries watching different ranges must
- * not share one inside/outside bit. */
+/* Poll every temperature entry and fire the ones whose window this sample just crossed. */
 static void temp_poll(uint32_t now_ms)
 {
-    if (s_temp.known && (int32_t)(now_ms - s_temp.next_poll_ms) < 0) {
+    if (s_temp.polled && (int32_t)(now_ms - s_temp.next_poll_ms) < 0) {
         return;
     }
+    s_temp.polled = true;
     s_temp.next_poll_ms = now_ms + TEMP_POLL_MS;
 
     const int8_t t = od_action_app_temperature_c();
@@ -101,54 +130,34 @@ static void temp_poll(uint32_t now_ms)
         return;
     }
     uint16_t off = 0u;
-    while (off + OD_ACTION_ENTRY_HDR <= e->len) {
-        uint8_t h[OD_ACTION_ENTRY_HDR];
-        if (od_cfg_read(e, off, h, sizeof h) != sizeof h) {
-            break;
-        }
-        const uint8_t len = h[0];
-        if (len < OD_ACTION_ENTRY_HDR || (uint16_t)(off + len) > e->len) {
-            break;
-        }
+    uint8_t n = 0u;
+    uint8_t len;
+    uint8_t h[OD_ACTION_ENTRY_HDR];
+    bool ok = false;
+    while (n < OD_ACTION_TEMP_MAX && (len = entry_at(e, off, h, &ok)) != 0u) {
         const uint8_t trig = h[1];
-        if ((trig == OD_TRIG_TEMP_ENTER || trig == OD_TRIG_TEMP_EXIT)
-            && (h[4] & 0x01u) != 0u) {
+        if (ok && (trig == OD_TRIG_TEMP_ENTER || trig == OD_TRIG_TEMP_EXIT)) {
+            const uint16_t bit = (uint16_t)(1u << n);
             const uint16_t arg = (uint16_t)(h[2] | ((uint16_t)h[3] << 8));
-            const bool now_in = temp_in_window(t, arg);
-            const bool was_in = s_temp.inside;
-            if (s_temp.known && now_in != was_in) {
-                if (now_in && trig == OD_TRIG_TEMP_ENTER) {
-                    od_action_trigger(trig, arg);
-                } else if (!now_in && trig == OD_TRIG_TEMP_EXIT) {
-                    od_action_trigger(trig, arg);
-                }
+            const bool was_in = (s_temp.inside & bit) != 0u;
+            const bool now_in = temp_inside(t, arg, was_in);
+
+            if ((s_temp.known & bit) != 0u && now_in != was_in && (h[4] & 0x01u) != 0u
+                && now_in == (trig == OD_TRIG_TEMP_ENTER)) {
+                od_action_trigger(trig, arg);
             }
+            s_temp.known |= bit;
+            s_temp.inside = now_in ? (uint16_t)(s_temp.inside | bit)
+                                   : (uint16_t)(s_temp.inside & (uint16_t)~bit);
+            n++;
         }
         off = (uint16_t)(off + len);
-    }
-
-    /* One shared edge bit is only correct while every temperature entry shares a
-     * window. Recorded as a limitation rather than hidden: with two differing
-     * windows the second would track the first's transitions. */
-    const od_cfg_entry_t *first = table();
-    if (first != NULL) {
-        uint8_t h[OD_ACTION_ENTRY_HDR];
-        uint16_t o = 0u;
-        while (o + OD_ACTION_ENTRY_HDR <= first->len) {
-            if (od_cfg_read(first, o, h, sizeof h) != sizeof h) break;
-            if (h[0] < OD_ACTION_ENTRY_HDR) break;
-            if (h[1] == OD_TRIG_TEMP_ENTER || h[1] == OD_TRIG_TEMP_EXIT) {
-                s_temp.inside = temp_in_window(t, (uint16_t)(h[2] | ((uint16_t)h[3] << 8)));
-                s_temp.known = true;
-                break;
-            }
-            o = (uint16_t)(o + h[0]);
-        }
     }
 }
 
 /* Walk the table once, counting. Also the validator: a fault found here drops one
- * entry, never the table, so one bad entry cannot silence the rest. */
+ * entry, never the table, so one bad entry cannot silence the rest -- unless its entry_len
+ * cannot be trusted to find the next one (entry_at), which ends the walk. */
 void od_action_reload(void)
 {
     const od_cfg_entry_t *e = table();
@@ -161,26 +170,31 @@ void od_action_reload(void)
     if (e == NULL) {
         return;
     }
+    /* Only the first 0xB2 is run (od_cfg_find nth 0). More than one is almost always a host
+     * that appended a table instead of replacing it, so count them where ACTION_INFO can
+     * report it rather than shadowing the rest silently. */
+    while (s_stats.tables < 0xFFu && od_cfg_find(OD_PKT_ACTION_TABLE, s_stats.tables) != NULL) {
+        s_stats.tables++;
+    }
     uint16_t off = 0u;
-    while (off + OD_ACTION_ENTRY_HDR <= e->len) {
-        uint8_t h[OD_ACTION_ENTRY_HDR];
-        if (od_cfg_read(e, off, h, sizeof h) != sizeof h) {
-            break;
-        }
-        const uint8_t len = h[0];
+    for (;;) {
+        uint8_t h[OD_ACTION_ENTRY_HDR] = { 0 };
+        bool ok = false;
+        const uint8_t len = entry_at(e, off, h, &ok);
         const uint8_t trig = h[1];
         const uint8_t steps = h[5];
 
-        /* entry_len is the only thing linking one entry to the next, so a value
-         * that disagrees with step_count would desynchronise the whole walk, not
-         * just this entry. Stop rather than guess. */
-        if (len < OD_ACTION_ENTRY_HDR || (uint16_t)(off + len) > e->len ||
-            len != OD_ACTION_ENTRY_HDR + (uint16_t)steps * OD_ACTION_STEP_LEN ||
-            steps > OD_ACTION_MAX_STEPS) {
-            od_log_warn("action: malformed entry at +%u (len %u, steps %u)",
-                        (unsigned)off, (unsigned)len, (unsigned)steps);
-            s_stats.rejected++;
-            break;
+        if (len == 0u || !ok) {
+            if (len != 0u || (uint32_t)off + OD_ACTION_ENTRY_HDR <= e->len) {
+                od_log_warn("action: malformed entry at +%u (len %u, steps %u)",
+                            (unsigned)off, (unsigned)h[0], (unsigned)steps);
+                s_stats.rejected++;
+            }
+            if (len == 0u) {
+                break;
+            }
+            off = (uint16_t)(off + len);
+            continue;
         }
         s_stats.entries++;
 
@@ -236,21 +250,18 @@ static int32_t find_entry(uint8_t trigger, uint16_t arg, uint8_t *steps_out)
         return -1;
     }
     uint16_t off = 0u;
-    while (off + OD_ACTION_ENTRY_HDR <= e->len) {
-        uint8_t h[OD_ACTION_ENTRY_HDR];
-        if (od_cfg_read(e, off, h, sizeof h) != sizeof h) {
-            break;
-        }
-        const uint8_t len = h[0];
-        if (len < OD_ACTION_ENTRY_HDR || (uint16_t)(off + len) > e->len) {
-            break;
-        }
+    uint8_t len;
+    uint8_t h[OD_ACTION_ENTRY_HDR];
+    bool ok = false;
+    while ((len = entry_at(e, off, h, &ok)) != 0u) {
         const uint16_t targ = (uint16_t)(h[2] | ((uint16_t)h[3] << 8));
         const bool enabled = (h[4] & 0x01u) != 0u;
 
-        /* arg 0 on the entry means "any": a button action that did not care which
-         * pin should not have to enumerate them. */
-        if (enabled && h[1] == trigger && (targ == 0u || targ == arg)) {
+        /* arg 0 on the entry means "any". A BUTTON_PRESS arg is a pin MASK, so it matches
+         * any button in it; every other trigger matches its arg exactly. */
+        const bool arg_ok = targ == 0u || targ == arg
+                            || (trigger == OD_TRIG_BUTTON_PRESS && (targ & arg) != 0u);
+        if (ok && enabled && h[1] == trigger && arg_ok) {
             *steps_out = h[5];
             return (int32_t)off;
         }

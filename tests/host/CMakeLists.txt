@@ -161,9 +161,19 @@ add_test(NAME color COMMAND od_color_test)
 # functions under test need no HAL at all. Keeping the policy half linkable without a fake
 # stack is the point -- the record layout is a network specification, checkable on its own.
 add_executable(od_net_a_test net_a_test.c
-    ${CMAKE_CURRENT_LIST_DIR}/../../shared/core/od_net_a.c)
+    ${CMAKE_CURRENT_LIST_DIR}/../../shared/core/od_net_a.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../shared/core/od_net_g.c)
 target_link_libraries(od_net_a_test od_shared)
 add_test(NAME net_a COMMAND od_net_a_test)
+
+# od_action over a fake od_cfg_index and fake effects, so od_shared (which carries the real
+# index) is not linked.
+# (v3/bg22's action_test.c; renamed on merge with v3/host-tests, whose action_test.c drives
+# od_action over the real index and registers as `action` in drive_coverage.cmake.)
+add_executable(od_action_fake_index_test action_fake_index_test.c od_log_test_stub.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../shared/core/od_action.c)
+target_include_directories(od_action_fake_index_test PRIVATE ${OD_SHARED_INCLUDE_DIRS})
+add_test(NAME action_fake_index COMMAND od_action_fake_index_test)
 
 add_executable(od_boot_screen_test boot_screen_test.c
     ${CMAKE_CURRENT_LIST_DIR}/../../third_party/qrcode/qrcode.c)
@@ -1142,6 +1152,8 @@ elseif(NOT Python3_FOUND)
 else()
     message(WARNING "od: ${OD_REPLAY_SCRIPT} missing — replay_vectors NOT registered.")
 endif()
+
+include(${CMAKE_CURRENT_LIST_DIR}/drive_coverage.cmake)
 
 # --------------------------------------------------------------------------------------------
 # Fuzz targets (tests/fuzz/), Clang only -- -fsanitize=fuzzer is a Clang feature and gcc has no

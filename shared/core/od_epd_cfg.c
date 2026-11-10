@@ -162,13 +162,17 @@ static bool io_mode_read(uint8_t index, od_epd_mode_t *out)
     return true;
 }
 
-/* Matched on body[1]: the packet-header byte is a don't-care the host writers disagree about. */
+/* Matched on body[0..1] (instance_number, lut_slot): the packet-header byte is a don't-care the
+ * host writers disagree about. Slot numbers are per display, so the instance must match too. */
+static uint8_t s_instance;
+
 static const od_cfg_entry_t *find_lut(uint8_t slot)
 {
     for (int i = 0; i < od_cfg_index_count(); i++) {
         const od_cfg_entry_t *e = od_cfg_index_entry(i);
 
-        if (e != NULL && e->type == OD_PKT_DISPLAY_LUT && e->sub == slot) {
+        if (e != NULL && e->type == OD_PKT_DISPLAY_LUT && e->instance == s_instance &&
+            e->sub == slot) {
             return e;
         }
     }
@@ -297,6 +301,7 @@ bool od_epd_cfg_load(const struct DisplayConfig *d, const od_epd_cfg_bus_t *bus)
         return load_result(LOAD_NO_INDEX);
     }
     s_bus = bus;
+    s_instance = d->instance_number;
     memset(&s_desc, 0, sizeof(s_desc));
     s_desc.width = d->pixel_width;
     s_desc.height = d->pixel_height;

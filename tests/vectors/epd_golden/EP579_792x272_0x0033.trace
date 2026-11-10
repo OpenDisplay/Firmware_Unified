@@ -1,0 +1,53 @@
+# EP579_792x272_0x0033: 2 modes, code_map 00 01 02 03, idle 0
+# mode 0 passes 1 scheme 0 frame 26928
+R 10
+C 12
+C 3c
+D c0
+C 24
+D[8976] crc32=83ee44a0
+D[17952] crc32=636f3267
+P 01 0
+W 20
+P 01 1
+W 20
+C 12
+C 3c
+D c0
+C 22
+D f7
+C 20
+# mode 1 passes 1 scheme 0 frame 26928
+R 10
+C 12
+C 3c
+D c0
+C 24
+D[8976] crc32=184a4b5f
+D[17952] crc32=42e0408f
+P 01 0
+W 20
+P 01 1
+W 20
+C 12
+C 18
+D 80
+C 22
+D b1
+C 20
+C 1a
+D 64 00
+C 22
+D 91
+C 20
+C 22
+D c7
+C 20
+# sleep
+C 3f
+D 22
+C 22
+D 83
+C 20
+C 10
+D 03

@@ -5,6 +5,7 @@
 #include "opendisplay_display.h"
 #include "od_cfg_index.h"
 #include "od_net_a.h"
+#include "od_net_g.h"
 #include "od_imgstore.h"
 #include "od_action.h"
 #include "od_color.h"
@@ -1074,7 +1075,7 @@ static void od_nfc_init_sequence(void)
   }
 
   sl_udelay_wait(14000);
-  (void)od_nfc_field_detect_refresh(sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count()), true);
+  (void)od_nfc_field_detect_refresh(od_hal_uptime_ms(), true);
 
   if (s_od_nfc_has_pwr_pin) {
     GPIO_PinOutClear(s_od_nfc_pwr_port, s_od_nfc_pwr_pin);
@@ -1511,11 +1512,13 @@ void opendisplay_ble_reload_config_from_nvm(void)
    * error -- the failure that does not announce itself. */
   (void)od_cfg_index_build();
 
-  /* Network A's address and payload are both derived from the key, which a config write can
+  /* Each network's address and payload are derived from its key, which a config write can
    * change. Invalidate first or the sync sees "already started" and keeps advertising the
    * old key. */
   od_net_a_invalidate();
   od_net_a_sync(od_config_findmy(&s_od_global_config));
+  od_net_g_invalidate();
+  od_net_g_sync(od_config_findmy(&s_od_global_config));
   /* After od_cfg_index_build: the table is read through that index, so reloading
    * in the other order would validate against the previous config's offsets. */
   od_action_reload();
@@ -1600,7 +1603,7 @@ static void chip_id_hex6(char out[7])
 static void update_msd_payload(bool quick)
 {
   float chip_temperature = EMU_TemperatureGet();
-  uint32_t now_ms = sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count());
+  uint32_t now_ms = od_hal_uptime_ms();
   bool measure_batt = !quick
                       && ((s_batt_voltage_mv_cache == 0u)
                           || ((now_ms - s_last_batt_measure_ms) > OD_MSD_UPDATE_INTERVAL_MS));
@@ -1844,6 +1847,8 @@ void opendisplay_ble_on_boot(uint8_t advertising_set_handle)
   (void)od_cfg_index_build();
   od_net_a_invalidate();
   od_net_a_sync(od_config_findmy(&s_od_global_config));
+  od_net_g_invalidate();
+  od_net_g_sync(od_config_findmy(&s_od_global_config));
 
   /* Mount the image store. Geometry-hashed so a board re-provisioned onto a different panel
    * reformats rather than serving plane sets that would render as noise. */
@@ -1915,7 +1920,7 @@ void opendisplay_ble_on_boot(uint8_t advertising_set_handle)
   if (!od_advertising_api_ok(
           od_apply_advertising_timing(
               advertising_set_handle,
-              sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count())),
+              od_hal_uptime_ms()),
           "boot advertising timing")) {
     return;
   }
@@ -1936,7 +1941,7 @@ static bool opendisplay_ble_restart_advertising(uint8_t advertising_set_handle)
       !od_advertising_api_ok(
           od_apply_advertising_timing(
               advertising_set_handle,
-              sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count())),
+              od_hal_uptime_ms()),
           "advertising restart timing")) {
     return false;
   }
@@ -1955,7 +1960,7 @@ void opendisplay_ble_on_event(sl_bt_msg_t *evt)
   switch (SL_BT_MSG_ID(evt->header)) {
     case sl_bt_evt_connection_opened_id:
       g_connection = evt->data.evt_connection_opened.connection;
-      s_connection_open_ms = sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count());
+      s_connection_open_ms = od_hal_uptime_ms();
       s_connection_timeout_close_requested = false;
       reboot_flag = 0u;
       printf("[OD] connection opened handle=%u\r\n", (unsigned)g_connection);
@@ -1996,7 +2001,7 @@ void opendisplay_ble_process(void)
 {
   opendisplay_pipe_process();
   opendisplay_led_process();
-  uint32_t now_ms = sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count());
+  uint32_t now_ms = od_hal_uptime_ms();
   od_publish_button_msd(s_adv_handle, now_ms);
   if (s_adv_handle != 0xFFu) {
     od_advertising_interval_tick(s_adv_handle, now_ms);

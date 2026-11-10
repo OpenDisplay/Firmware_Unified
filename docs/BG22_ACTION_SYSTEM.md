@@ -129,53 +129,26 @@ cfg.unknown_ex_packets = [p for p in cfg.unknown_ex_packets if p[1] != 0xB2]
 cfg.unknown_ex_packets.append((0, 0xB2, table))
 ```
 
-Two follow-ups, neither done: `0x004C` should report how many `0xB2` packets were
-found so a shadowed table is diagnosable rather than invisible, and the host
-library should either model the action table properly or refuse to serialize a
-second copy of a packet id that the device resolves by first-match.
+First-match is unchanged, but it is no longer invisible: `0x004C` appends a
+10th byte, `tables`, the number of `0xB2` packets in the config (> 1 means all
+but the first are shadowed). Not yet in the canonical `ActionInfoResponse`.
+Still open: the host library should model the action table or refuse to
+serialize a second copy.
 
-## The temperature window has no hysteresis, and that is a defect
+## Temperature hysteresis and per-entry state
 
-**Measured on OD58FFC4, 2026-11-06.** A window of 32..48 C, cooled through its
-lower edge once, fired **four times** — alternating EXIT/ENTER — for a single
-physical crossing.
+A hard `lo <= t <= hi` against the die reading (+/-2 C dither, 2 s poll) fired a
+32..48 C window four times, alternating EXIT/ENTER, for one slow crossing
+(OD58FFC4, 2026-11-06). `od_action.c` now keeps edge state **per temperature
+entry** (two bits each, up to 16 entries; later ones never fire) and applies
+**3 C of hysteresis on the exit side**: an entry is entered at the configured
+edges and left only when the reading is more than 3 C outside them. So ENTER
+fires exactly at the edge the host set, EXIT 4 C past it (`lo - 4` or `hi + 4`
+in whole degrees), and one crossing is one edge. Host-tested against the
+measured ramp shape (`tests/host/action_test.c`); not re-run on hardware.
 
-The cause is a hard comparison against a noisy signal:
-
-```c
-return t >= lo && t <= hi;       /* no deadband */
-```
-
-`TEMP_POLL_MS` is 2000, and the die reading visibly dithers by +/-2 C
-(`39 40 38 39 ... 35 34 36 35 ... 33 32 33` over one slow ramp). A reading that
-sits near an edge therefore crosses it repeatedly, and every crossing is a real
-edge as far as the runner is concerned.
-
-**This defeats the reason the trigger is an edge at all.** The whole argument
-for edges over levels, stated above, is that a level "would re-fire every poll
-and turn a warm room into a refresh loop that flattens the battery". Chatter
-reintroduces exactly that failure in a narrower band: a `DISPLAY_SLOT` step on a
-temperature trigger means several 20-second panel refreshes, at the highest
-current the board draws, every time ambient drifts past the boundary.
-
-**A fix needs a deadband, not a faster poll.** Enter at `lo`, leave only below
-`lo - N` (and symmetrically at `hi`), or require N consecutive samples on the
-new side before accepting the transition. Either kills chatter; neither costs
-more than a byte of state. The deadband has to be wider than the sensor noise,
-so N=3 C is the floor given what was measured here.
-
-**`0x004C` could not diagnose this and should be able to.** It reports one
-cumulative `fires` count and the `last` trigger, so "fired once" and "fired four
-times, alternating" are the same reading unless you happen to catch the count
-mid-flight. Per-trigger counters would have made the chatter obvious in a single
-poll instead of requiring the count to be watched over a ramp.
-
-## Known limitation
-
-The temperature edge state is **one shared bit**, correct only while every
-temperature entry uses the same window. With two differing windows the second
-would track the first's transitions. Recorded rather than hidden; fixing it
-means per-entry edge state, which costs RAM this part is short of.
+`0x004C` still has one cumulative fire count, so chatter would only be visible
+as a count that jumps; per-trigger counters remain a possible extension.
 
 ## Temperature source
 
@@ -187,7 +160,11 @@ the environment.
 ## Opcodes
 
 `0x004C` `ACTION_INFO` — entries, active, inactive, rejected, last trigger,
-fire count, last temperature.
+fire count, last temperature, tables (count of `0xB2` packets; byte 9, BG22
+only so far).
+
+`BUTTON_PRESS`'s arg is a pin mask: an entry fires for any button in it
+(`0` = any). Other triggers match their arg exactly.
 `0x004D` `ACTION_FIRE` — fire `OD_TRIG_HOST`, so a table can be exercised
 without the physical event it is really for.
 

@@ -17,7 +17,7 @@ set(OD_TNB132M_NDEF_TEXT "OpenDisplay" CACHE STRING "UTF-8 text (lang=en) writte
 set(OD_APP_VERSION "0x0300" CACHE STRING "16-bit BLE app version (hex, high byte=major, low=minor); ignored when OD_FW_VERSION is set")
 set(OD_FW_VERSION "" CACHE STRING "App version string major.minor[.patch] (optional leading v); drives BLE 0x43 + boot screen")
 set(OPENDISPLAY_BUILD_ID "bg22-dev" CACHE STRING "Firmware version string (GATT 0x0043 / build id)")
-set(OD_SL_APPLICATION_VERSION "" CACHE STRING "If set, overrides SL_APPLICATION_VERSION (decimal uint32)")
+set(OD_SL_APPLICATION_VERSION "" CACHE STRING "If set, overrides the derived SL_APPLICATION_VERSION (decimal uint32)")
 
 # Include the definition of the slc_opendisplay-bg22 target,
 # which contains the content of the SLC project
@@ -39,9 +39,40 @@ if(NOT "${OD_FW_VERSION}" STREQUAL "")
   message(STATUS "OpenDisplay FW version: ${OD_FW_VERSION}")
 endif()
 
-if(NOT "${OD_SL_APPLICATION_VERSION}" STREQUAL "")
-  target_compile_definitions(slc PUBLIC "SL_APPLICATION_VERSION=${OD_SL_APPLICATION_VERSION}u")
+# SL_APPLICATION_VERSION (app properties, read by the Gecko Bootloader/AppLoader) is derived
+# from the firmware version unless OD_SL_APPLICATION_VERSION overrides it:
+#
+#     (major << 16) | (minor << 8) | patch        3.0.0 -> 196608, 3.1.2 -> 196866
+#
+# Firmware_Silabs 2.x stamped (major << 8) | minor (2.3.0 -> 515), which tops out at 65535, so
+# every 3.x value is above every 2.x value and the sequence stays monotonic across the switch.
+# The shipped bootloader is built with BOOTLOADER_ROLLBACK_PROTECTION 0, so nothing refuses a
+# lower value today; this keeps that true if rollback protection is ever turned on. Source of
+# the numbers: OD_FW_VERSION ("[v]M.m[.p]") when set, else OD_APP_VERSION (0xMMmm, patch 0).
+if("${OD_SL_APPLICATION_VERSION}" STREQUAL "")
+  if(NOT "${OD_FW_VERSION}" STREQUAL "")
+    string(REGEX MATCH "^v?([0-9]+)\\.([0-9]+)(\\.([0-9]+))?" _od_v "${OD_FW_VERSION}")
+    if(NOT _od_v)
+      message(FATAL_ERROR "OD_FW_VERSION '${OD_FW_VERSION}' is not [v]major.minor[.patch]")
+    endif()
+    set(_od_maj "${CMAKE_MATCH_1}")
+    set(_od_min "${CMAKE_MATCH_2}")
+    set(_od_pat "${CMAKE_MATCH_4}")
+    if("${_od_pat}" STREQUAL "")
+      set(_od_pat 0)
+    endif()
+  else()
+    math(EXPR _od_maj "(${OD_APP_VERSION} >> 8) & 255")
+    math(EXPR _od_min "${OD_APP_VERSION} & 255")
+    set(_od_pat 0)
+  endif()
+  if(_od_maj GREATER 255 OR _od_min GREATER 255 OR _od_pat GREATER 255)
+    message(FATAL_ERROR "firmware version component above 255 cannot be encoded")
+  endif()
+  math(EXPR OD_SL_APPLICATION_VERSION "(${_od_maj} << 16) | (${_od_min} << 8) | ${_od_pat}")
 endif()
+message(STATUS "SL_APPLICATION_VERSION: ${OD_SL_APPLICATION_VERSION}")
+target_compile_definitions(slc PUBLIC "SL_APPLICATION_VERSION=${OD_SL_APPLICATION_VERSION}u")
 
 # Silicon Labs application properties.
 #

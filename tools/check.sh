@@ -210,6 +210,17 @@ time_hal_structure() {
         echo "BG22 time HAL reintroduced the 32-bit tick-domain clock"
         rc=1
     fi
+    # Uptime converted from the 32-bit tick count wraps at the tick rollover (~36 h at
+    # 32.768 kHz), not at 2^32 ms, so now-then arithmetic across it breaks. A tick DELTA
+    # converted afterwards (tick_to_ms(get_tick_count() - t0)) is wrap-safe and allowed.
+    hits=$(grep -rnE 'sl_sleeptimer_tick_to_ms\(sl_sleeptimer_get_tick_count\(\)\)' \
+           --include='*.c' --include='*.cpp' --exclude-dir='cmake_gcc' \
+           targets/efr32bg22-slc 2>/dev/null || true)
+    if [ -n "$hits" ]; then
+        echo "$hits"
+        echo "BG22 uptime read from the 32-bit tick domain; use od_hal_uptime_ms()"
+        rc=1
+    fi
 
     return "$rc"
 }
@@ -1351,7 +1362,7 @@ fi
 #
 # A crash writes its input to ./crash-<sha1>. Commit it to the corpus AND pin it as a numbered
 # case in the corresponding ordinary host test, so the regression fails without fuzzing too.
-FUZZ_TARGETS=(session_open_raw session_open_sealed session_auth pipe_start pipe_data)
+FUZZ_TARGETS=(session_open_raw session_open_sealed session_auth pipe_start pipe_data config_drive)
 
 fuzz_all() {
     local dir="$BUILD_ROOT/fuzz" t

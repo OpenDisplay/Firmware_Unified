@@ -1,0 +1,128 @@
+# EP42B_400x300_0x0002: 3 modes, code_map 00 01 02 03, idle 0
+# mode 0 passes 1 scheme 0 frame 15000
+R 10
+C 12
+C 21
+D 40 00
+C 11
+D 03
+C 44
+D 00 31
+C 4e
+D 00
+C 45
+D 00 00 2b 01
+C 4f
+D 00 00
+C 3c
+D 05
+C 24
+D[5000] crc32=9be3ca5f
+D[10000] crc32=17255a83
+C 12
+C 21
+D 40 00
+C 11
+D 03
+C 44
+D 00 31
+C 4e
+D 00
+C 45
+D 00 00 2b 01
+C 4f
+D 00 00
+C 3c
+D 05
+C 22
+D f7
+C 20
+# mode 1 passes 1 scheme 0 frame 15000
+R 10
+C 12
+C 21
+D 40 00
+C 11
+D 03
+C 44
+D 00 31
+C 4e
+D 00
+C 45
+D 00 00 2b 01
+C 4f
+D 00 00
+C 3c
+D 05
+C 24
+D[5000] crc32=8bffb582
+D[10000] crc32=4897b9f8
+C 12
+C 21
+D 40 00
+C 3c
+D 05
+C 1a
+D 6e
+C 22
+D 91
+C 20
+C 11
+D 03
+C 44
+D 00 31
+C 45
+D 00 00 2b 01
+C 4e
+D 00
+C 4f
+D 00 00
+C 22
+D c7
+C 20
+# mode 2 passes 1 scheme 0 frame 15000
+R 10
+C 21
+D 00 00
+C 11
+D 03
+C 3c
+D 80
+C 44
+D 00 31
+C 45
+D 00 00 2b 01
+C 4e
+D 00
+C 4f
+D 00 00
+C 26
+D[5000] crc32=7fc3773d
+D[2500] crc32=558f098d
+C 24
+D[7500] crc32=f0857d8d
+C 21
+D 00 00
+C 11
+D 03
+C 3c
+D 80
+C 44
+D 00 31
+C 45
+D 00 00 2b 01
+C 4e
+D 00
+C 4f
+D 00 00
+C 22
+D ff
+C 20
+# sleep
+C 3f
+D 22
+C 22
+D 83
+C 20
+C 10
+D 03

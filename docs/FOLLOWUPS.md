@@ -682,7 +682,10 @@ PIPE.
 
 ## 7. `Firmware_Unified` / BG22 — uptime wraps in the hardware-tick domain
 
-**Status:** open, pre-existing target defect; not caused by the shared logging/time-HAL plan.
+**Status:** FIXED in code — every listed BG22 call site now reads `od_hal_uptime_ms()`
+(`opendisplay_display.cpp`'s `od_xfer_app_now_ms` included), and `tools/check.sh`
+`time_hal_structure` refuses the 32-bit form in `targets/efr32bg22-slc`. The dead
+`panel/od_bbep_efr32_io.inl` (not compiled) still has it. Hardware known-interval check open.
 **Evidence:** `verified` against all current BG22 call sites and Simplicity SDK 2025.12.2's
 sleeptimer implementation. **Severity:** latent correctness failure on long-running devices.
 
@@ -1591,7 +1594,9 @@ update in step, so it is filed rather than done here.
 
 ## Duplicate `0xB2` action tables resolve by first-match, silently
 
-**Status: OPEN.** Observed on OD58FFC4, 2026-11-06.
+**Status: fix (1) done, host-tested** — `0x004C` byte 9 `tables` counts the
+`0xB2` packets (needs the canonical `ActionInfoResponse` updated); (2) and (3)
+open. Observed on OD58FFC4, 2026-11-06.
 
 `od_cfg_find` returns the first packet with a given id, so a config carrying two
 action tables runs the **older** one and ignores the newer one. Nothing reports
@@ -1628,8 +1633,9 @@ rather than append — see `docs/BG22_ACTION_SYSTEM.md`.
 
 ## Temperature action triggers chatter at the window edge
 
-**Status: OPEN, and it is a defect rather than a limitation.** Measured on
-OD58FFC4, 2026-11-06.
+**Status: FIXED in firmware, host-tested only** — per-entry state and 3 C
+exit-side hysteresis in `od_action.c`, `tests/host/action_test.c`. Needs a
+hardware re-run of the ramp. Measured on OD58FFC4, 2026-11-06.
 
 A 32..48 C window, cooled through its lower edge **once**, fired **four times**
 — alternating EXIT/ENTER. `od_action.c`'s `temp_in_window()` is a bare
@@ -1753,16 +1759,16 @@ Neither escape has run on hardware: no split-controller or read-back panel is on
 Found while specifying protocol 2.4 / structs 2.3 from `od_action.{h,c}` and `od_cmd_flash.c`;
 none is fixed here.
 
-- **BUTTON_PRESS matches by equality on `1 << button_id`**, so a multi-button mask (as the
-  trigger's documented `arg`) never fires, and `button_id` is masked to 3 bits, so buttons on
+- **BUTTON_PRESS matches by equality on `1 << button_id`** (FIXED, host-tested: now a mask
+  match), so a multi-button mask (as the trigger's documented `arg`) never fired, and `button_id` is masked to 3 bits, so buttons on
   different BinaryInputs instances alias.
-- **BUTTON_LONG is never emitted**, yet entries using it count as active in `ACTION_INFO`.
+- **BUTTON_LONG is never emitted** (now reported INACTIVE at load, host-tested; emitting it is still open).
 - **Comments disagree with the walk:** they say a bad slot / LED argument is rejected and one bad
   entry is dropped "never the table"; the code validates neither and stops the whole walk at the
   first malformed entry. `temp_poll` claims per-entry edge state; one shared bit is used.
 - **`ACTION_INFO.rejected` is 0 or 1**, and nothing reports how many `0xB2` copies a config holds
   (see "Duplicate `0xB2` action tables" above).
-- **Silent failures:** `FLASH_INFO` returns stale stride/capacity when the store is unmounted;
+- **Silent failures:** `FLASH_INFO` returned stale stride/capacity when the store is unmounted (FIXED: zeros unless mounted);
   `FLASH_DISPLAY` and the DISPLAY_SLOT effect fail without a report.
 - **Wire ambiguity, now in the canonical spec:** a `FLASH_ERASE` of all slots ACKs `[00][49][FF]`,
   and an `ACTION_FIRE` `host_id` of `0xFE`/`0xFF` echoes as `[00][4D][FE|FF]` -- both the same

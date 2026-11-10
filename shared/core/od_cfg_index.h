@@ -1,7 +1,8 @@
 /* od_cfg_index -- a MAP of the stored config, not a copy of it.
  *
  * The drive packets are too big to keep resident: a single waveform is 539 bytes and a BG22
- * carries 32 KB of RAM in total. So this keeps one 6-byte entry per packet -- what it is,
+ * carries 32 KB of RAM in total. So this keeps one 6-byte entry per indexed packet -- the
+ * 0xAE-0xB2 range; legacy (< 0x80) packets are stepped over, never recorded -- what it is,
  * which instance, where its body starts and how long it is -- and anything that needs bytes
  * reads them on demand through od_hal_nvs, which takes a read offset for exactly this reason.
  * 32 entries is 192 bytes.
@@ -44,7 +45,7 @@ extern "C" {
 #endif
 
 typedef struct {
-    uint8_t  type;      /* config packet id (0x01, 0x20, 0xAE, ...) */
+    uint8_t  type;      /* config packet id: 0xAE..0xB2 */
     uint8_t  instance;  /* instance_number -- body[0], NOT the header byte */
     uint8_t  sub;       /* body[1]: mode_index for 0xAE, lut_slot for 0xAF */
     uint16_t offset;    /* byte offset of the packet BODY within the payload */

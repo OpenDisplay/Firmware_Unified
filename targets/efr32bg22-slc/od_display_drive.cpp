@@ -18,6 +18,7 @@
 #include "od_color.h"
 #include "od_epd.h"
 #include "od_epd_shim.h"
+#include "od_xfer.h"
 #include <stdio.h>
 #include "opendisplay_config_parser.h"
 #include "opendisplay_display.h"
@@ -73,7 +74,9 @@ extern "C" int od_display_drive_write_start(uint8_t mode, uint8_t refresh, uint8
         return -OD_ERR_DRIVE_NO_CONFIG;
     }
 
-    /* Takes ownership: a drive session and a direct write share one panel object. */
+    /* Takes ownership: a drive session and a direct write share one panel object. The transfer
+     * that held it ends here too, or a refused START leaves it active with no panel. */
+    od_xfer_replace_active();
     opendisplay_display_abort();
 
     temp_c = drive_temp_c();
