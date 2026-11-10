@@ -79,6 +79,25 @@ bool od_display_active(void);
 od_display_rc_t od_display_boot(const struct od_config *cfg, const struct SecurityConfig *sec,
                                 const struct od_boot_bufs *bufs);
 
+/* 1 (default): od_display.c implements the panel half of od_boot_app.h itself. 0: it is exported
+ * under the names below instead, for a target whose od_boot_app_* also feeds a panel od_display
+ * does not drive. Same contracts as the od_boot_app_* they stand for. */
+#ifndef OD_DISPLAY_SHARED_BOOT_SINK
+#define OD_DISPLAY_SHARED_BOOT_SINK 1
+#endif
+#if !OD_DISPLAY_SHARED_BOOT_SINK
+int     od_display_boot_sink_begin_frame(uint16_t width, uint16_t height, uint8_t segments);
+int     od_display_boot_sink_begin_plane(int plane);
+int     od_display_boot_sink_write_row(uint16_t y, uint8_t segment, const uint8_t *row,
+                                       uint16_t len);
+int     od_display_boot_sink_end_plane(int plane);
+int     od_display_boot_sink_end_frame(void);
+int     od_display_boot_sink_bits_per_pixel(uint8_t color_scheme);
+int     od_display_boot_sink_default_plane(uint8_t color_scheme);
+bool    od_display_boot_sink_direct_2bpp(void);
+uint8_t od_display_boot_sink_segments(void);
+#endif
+
 #ifdef __cplusplus
 }
 #endif
