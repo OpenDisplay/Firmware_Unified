@@ -16,8 +16,8 @@
 # some previous run, with nothing on screen saying they are stale -- which is the failure
 # mode a release directory is least able to survive.
 #
-# Only esp32-idf and nordic-zephyr are verified to build headless here. efr32bg22-slc builds
-# but has never been flashed; see CLAUDE.md for the toolchain status of each.
+# All three build headless in CI (.github/workflows/build.yml), which also runs
+# tools/release/collect.py on the result; this script does not. See docs/RELEASE_ARTEFACTS.md.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

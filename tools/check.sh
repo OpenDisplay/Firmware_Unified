@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # check.sh -- every gate this repo has, run locally.
 #
-# There is no CI. The checks that used to live in .github/workflows/ are here instead, which
-# means NOTHING RUNS UNLESS SOMEONE RUNS IT. Run this before you push.
+# CI (.github/workflows/ci.yml) runs this same gate on every push and pull request, via
+# tools/ci_check.sh, with the three target builds split out into build.yml. Run it locally
+# before you push anyway: CI is the backstop, not the first look.
 #
 #   tools/check.sh                 boundary + host suites + sanitizers + fuzz + arduino-free
 #   tools/check.sh --targets       also builds ESP32, Nordic, and Silabs targets. Required before
@@ -1140,6 +1141,26 @@ nordic_epd_spi_ownership() {
 check "nordic: EPD SPI ownership" nordic_epd_spi_ownership
 
 # ================================================================================== host suites ==
+# Two host tests (bench_dispatch_gate, nfc_read_tool) import the ESP32 bench CLI, which needs
+# PyYAML and cryptography in the Python CMake picks (tools/requirements-host.txt; CI installs
+# python3-yaml + python3-cryptography). Missing modules are an environment gap, not a code
+# failure, so those two are excluded and reported as one SKIP below rather than as failures.
+OD_PY_TOOL_TESTS='^(bench_dispatch_gate|nfc_read_tool)$'
+OD_PY_TOOL_MISSING=""
+host_ctest() {
+    local dir="$1"; shift
+    local py
+    py="$(sed -n 's/^_\{0,1\}Python3_EXECUTABLE:[A-Z]*=//p' "$dir/CMakeCache.txt" | head -1)"
+    if [ -n "$py" ] && ! "$py" -c 'import yaml, cryptography' >/dev/null 2>&1; then
+        echo "NOTE: $py lacks PyYAML/cryptography -- excluding $OD_PY_TOOL_TESTS"
+        echo "$py" > "$BUILD_ROOT/py-tool-deps-missing"
+        ctest --test-dir "$dir" -E "$OD_PY_TOOL_TESTS" "$@"
+    else
+        ctest --test-dir "$dir" "$@"
+    fi
+}
+rm -f "$BUILD_ROOT/py-tool-deps-missing"
+
 # The real boundary enforcement: shared/ compiled for the host at -std=c99 -Wall -Wextra -Werror
 # under BOTH compilers. A GNU-ism gcc accepts is a failure discovered later on a target instead.
 host_suite() {
@@ -1147,7 +1168,7 @@ host_suite() {
     command -v "$cc" >/dev/null 2>&1 || return 127
     cmake -S tests/host -B "$dir" -DCMAKE_C_COMPILER="$cc" >/dev/null \
         && cmake --build "$dir" -j"$(nproc)" \
-        && ctest --test-dir "$dir" --output-on-failure --no-tests=error
+        && host_ctest "$dir" --output-on-failure --no-tests=error
 }
 
 for cc in gcc clang; do
@@ -1283,14 +1304,22 @@ host_sanitizers() {
         && cmake --build "$dir" -j"$(nproc)" \
         && UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
            ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=1}" \
-           ctest --test-dir "$dir" --output-on-failure --no-tests=error
+           host_ctest "$dir" --output-on-failure --no-tests=error
 }
 check "host suite (ASan + UBSan)" host_sanitizers
+if [ -f "$BUILD_ROOT/py-tool-deps-missing" ]; then
+    skip "host: python tool tests (bench_dispatch_gate, nfc_read_tool)" \
+         "$(cat "$BUILD_ROOT/py-tool-deps-missing") has no PyYAML/cryptography; pip install -r tools/requirements-host.txt"
+fi
 
 # ======================================================================================== fuzz ==
 # MIGRATION.md Gate 1 requires fuzz coverage for anything reachable pre-authentication. Clang
 # only: -fsanitize=fuzzer is a Clang feature and gcc has no libFuzzer. The corpora under
 # tests/fuzz/corpus/ are committed, so each run starts from the coverage the last one found.
+# They are READ-ONLY here: libFuzzer writes new coverage into its FIRST corpus directory, so
+# that is a scratch directory under build/, and the committed corpus comes second. Promote
+# worthwhile inputs deliberately, e.g.
+#   od_fuzz_<t> -merge=1 tests/fuzz/corpus/<t> build/check/fuzz/new-corpus/<t>
 #
 # A crash writes its input to ./crash-<sha1>. Commit it to the corpus AND pin it as a numbered
 # case in the corresponding ordinary host test, so the regression fails without fuzzing too.
@@ -1310,9 +1339,11 @@ fuzz_all() {
     done
     for t in "${FUZZ_TARGETS[@]}"; do
         echo "--- $t (${FUZZ_TIME}s)"
+        mkdir -p "$dir/new-corpus/$t"
         UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
             "$dir/fuzz/od_fuzz_$t" -max_total_time="$FUZZ_TIME" -runs=2000000 \
-            -print_final_stats=1 "tests/fuzz/corpus/$t" || return 1
+            -print_final_stats=1 "$dir/new-corpus/$t" "tests/fuzz/corpus/$t" || return 1
+        echo "    new inputs (not committed): $(find "$dir/new-corpus/$t" -type f | wc -l)"
     done
 }
 
@@ -1321,6 +1352,13 @@ if command -v clang >/dev/null 2>&1; then
 else
     skip "fuzz: pre-auth surface" "clang not installed; libFuzzer is Clang-only"
 fi
+
+# ===================================================================================== release ==
+# One version string for every target (tools/release/version.sh), and the asset collector that
+# enforces docs/RELEASE_ARTEFACTS.md -- including the refusal to ship a 2.x asset name, which is
+# what stops an old updater from pushing 3.x onto a 2.x device.
+check "release: in-source version defaults agree" tools/release/version.sh --check
+check "release: artefact collector selftest" bash tools/release/selftest.sh
 
 # ============================================================================== wire corpus ==
 # The cross-repo wire contract: the same vectors decoded by this repo's C core and by the

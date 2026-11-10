@@ -1,0 +1,6 @@
+# Python modules the host gate needs beyond the standard library (tools/check.sh).
+# bench_dispatch_gate and nfc_read_tool import targets/esp32-idf/tools/od-device-cli.py.
+# CI installs the distro packages python3-yaml and python3-cryptography instead.
+PyYAML
+cryptography
+# tools/release/*: standard library only.
