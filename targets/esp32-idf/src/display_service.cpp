@@ -230,12 +230,18 @@ static void pwrmgmLockGive(void) {
 // then the image darkens over the following minutes.
 static const uint16_t EPD_POST_SLEEP_BLEED_MS = 200;
 
+static bool panel_is_ep426(void) {
+    return bbep.type == EP426_800x480 || bbep.type == EP426_800x480_4GRAY;
+}
+
 // bbepSleep() on SSD16xx only sends deep sleep; it does not run the analog/HV shutdown. Send
 // EOPT discharge frames (0x3F=0x22) and the power-off sequence (0x22=0x83: clock on, analog off,
-// OSC off, then 0x20) while SPI is still up.
+// OSC off, then 0x20) while SPI is still up. EP426 skips both the sequence and the bleed: there
+// it burns ~1 s at high current for no visible gain.
 static void epdSsd16xxPowerOffDischarge(void) {
     if (bbep.chip_type != BBEP_CHIP_SSD16xx) return;
     if (!bbep.is_awake) return;
+    if (panel_is_ep426()) return;
     bbepCMD2(&bbep, 0x3F, 0x22);
     bbepCMD2(&bbep, SSD1608_DISP_CTRL2, 0x83);
     bbepWriteCmd(&bbep, SSD1608_MASTER_ACTIVATE);
@@ -258,7 +264,7 @@ static void epdSessionForceOffLocked(void) {
     } else {
         epdSsd16xxPowerOffDischarge();
         bbepSleep(&bbep, 1);
-        od_hal_delay_ms(EPD_POST_SLEEP_BLEED_MS);
+        if (!panel_is_ep426()) od_hal_delay_ms(EPD_POST_SLEEP_BLEED_MS);
         /* Release the SPI bus and device now that the controller is asleep and no further
          * bytes are going out. Must be AFTER bbepSleep(), which still needs the bus to send
          * the sleep command, and BEFORE pwrmgm(false), which cuts the rail and parks the pins.
@@ -2016,9 +2022,54 @@ static void partial_set_addr_window(BBEPDISP *pBBEP, int x, int y, int cx, int c
     bbepWaitBusy(pBBEP);
 }
 
+// EP426 (SSD1677) OTP mode 2 under-drives white->black on a partial. Register LUT in EP426B's
+// VS row layout (white on row 1, black on row 2), one ~50-frame phase, activated with 0x22=0xDC
+// (display mode from the register LUT, no OTP load). Gate 0x17, source 0x41/0xA8/0x32,
+// VCOM 0x40 (0x30 drifts white to grey), 0x21 = 00 00.
+static const uint8_t epd426_partial_lut[105] = {
+    /* VS, channel order as bb_epaper's epd426b_init_part */
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    /* TP/RP groups 0..9: one ~50-frame pulse */
+    0x32, 0x00, 0x00, 0x00, 0x01,
+    0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00,
+    /* frame rate */
+    0x22, 0x22, 0x22, 0x22, 0x22,
+};
+
+static void epd426_load_custom_partial_lut(void) {
+    uint8_t ctrl1[2] = {0x00, 0x00};
+    uint8_t src[3] = {0x41, 0xa8, 0x32};
+    bbepWriteCmd(&bbep, SSD1608_WRITE_LUT);
+    bbepWriteData(&bbep, (uint8_t *)epd426_partial_lut, (int)sizeof(epd426_partial_lut));
+    bbepCMD2(&bbep, SSD1608_GATE_VOLTAGE, 0x17);
+    bbepWriteCmd(&bbep, SSD1608_SOURCE_VOLTAGE);
+    bbepWriteData(&bbep, src, 3);
+    bbepCMD2(&bbep, SSD1608_WRITE_VCOM, 0x40);
+    bbepWriteCmd(&bbep, SSD1608_DISP_CTRL1);
+    bbepWriteData(&bbep, ctrl1, 2);
+}
+
 static bool partial_trigger_refresh(int refreshMode) {
     if (refreshMode < 0 || refreshMode > 3) refreshMode = REFRESH_PARTIAL;
     if (panel_skips_reinit_on_partial_refresh(&bbep)) {
+        if (refreshMode == REFRESH_PARTIAL && bbep.type == EP426_800x480) {
+            epd426_load_custom_partial_lut();
+            bbepCMD2(&bbep, SSD1608_DISP_CTRL2, 0xdc);
+            bbepWriteCmd(&bbep, SSD1608_MASTER_ACTIVATE);
+            return waitforrefresh(60);
+        }
         if (panel_uses_ep397_y_decrement(&bbep)) {
             static const uint8_t u8CMDz3[4] = {0xf7, 0xd7, 0xff, 0};
             bbepCMD2(&bbep, SSD1608_DISP_CTRL2, u8CMDz3[refreshMode]);
