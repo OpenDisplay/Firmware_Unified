@@ -14,6 +14,17 @@ if [[ ! -f "${CONFIG}" ]] || ! grep -q '^CONFIG_SOC_NRF52840=y$' "${CONFIG}"; th
   echo "Refusing to flash: ${BUILD_DIR} is not a verified nRF52840 build." >&2
   exit 1
 fi
+if grep -q '^CONFIG_BOOTLOADER_MCUBOOT=y$' "${CONFIG}"; then
+  # The default (MCUboot) layout has no UF2 path: EN04/EN05 expose serial DFU only, and the
+  # first install must erase the SoftDevice. This script does not write flash for it.
+  echo "${BUILD_DIR} is the MCUboot layout. Install it over USB serial DFU:"
+  echo "  tools/release/nrf52840_usb_packages.sh    (builds the two packages into release/)"
+  echo "  adafruit-nrfutil dfu serial --package release/opendisplay-xiao_nrf52840-usb-1-sd-erase.zip -p <port> -b 115200 --singlebank"
+  echo "  adafruit-nrfutil dfu serial --package release/opendisplay-xiao_nrf52840-usb-2-install.zip -p <port> -b 115200 --singlebank"
+  echo "Step 1 only while the SoftDevice is still present. Updates afterwards: SMP with"
+  echo "release/opendisplay-xiao_nrf52840-ota.bin. Procedure and caveats: docs/UPGRADING.md."
+  exit 0
+fi
 if [[ ! -f "${UF2}" ]]; then
   echo "Missing ${UF2}; run ./build-nrf52840.sh first." >&2
   exit 1

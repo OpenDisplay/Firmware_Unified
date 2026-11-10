@@ -1,6 +1,6 @@
 # nRF52840 dual-slot MCUboot, chained behind the Adafruit bootloader, SoftDevice REMOVED.
 #
-# Only read when OD_NRF52840_MCUBOOT=1, and passed explicitly with -DPM_STATIC_YML_FILE.
+# Used by the default nRF52840 build (OD_NRF52840_MCUBOOT unset or 1), and passed explicitly with -DPM_STATIC_YML_FILE.
 # DELIBERATELY NOT NAMED pm_static_xiao_ble_nrf52840.yml: Partition Manager auto-applies a map
 # named for the board to EVERY build of that board, which breaks the default Adafruit-only
 # build with "'_sysbuild/mcuboot_primary_app_hex' ... missing and no known rule to make it".
