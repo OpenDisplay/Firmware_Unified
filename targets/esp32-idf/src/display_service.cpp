@@ -1447,6 +1447,16 @@ void initDisplay(){
      * a watchdog reset can then say whether the panel or something else stopped the last run. */
     od_watchdog_app_phase(OD_WDT_PHASE_BOOT_REFRESH);
     if(globalConfig.display_count > 0){
+        // reTerminal Sticky: the MicroSD slot shares SPI2 with the panel (Seeed pin map: panel
+        // SCK 13 / MOSI 14 / CS 15). Park the card -- SD_CS GPIO8 high, SD_EN GPIO10 low -- before
+        // any panel SPI so an inserted card cannot drive the bus.
+        {
+            const DisplayConfig& d = globalConfig.displays[0];
+            if (d.clk_pin == 13 && d.data_pin == 14 && d.cs_pin == 15) {
+                od_hal_gpio_config_output(8, true);
+                od_hal_gpio_config_output(10, false);
+            }
+        }
 #if defined(OPENDISPLAY_FASTEPD)
     if (fastepd_driver_used()) {
         int bitsPerPixel = displayBootBitsPerPixel(globalConfig.displays[0].color_scheme);
