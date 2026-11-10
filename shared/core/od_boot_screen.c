@@ -487,6 +487,8 @@ bool od_boot_screen_render(const struct od_config *cfg,
     uint8_t whiteValue = (colorScheme < sizeof(kSchemeWhiteValue))
         ? kSchemeWhiteValue[colorScheme]
         : 0xFF;
+    /* 7-colour is 4bpp on the wire (ACeP white = code 1); only a 1bpp stub renders it as mono. */
+    if (colorScheme == OD_COLOR_SCHEME_SEVEN_COLOR && bitsPerPixel == 4) whiteValue = 0x11;
 
     // Footer color swatches: one box per color the scheme can produce, 1px black border.
     const int footerPadTop = useZoneLayout ? 8 : 0;
