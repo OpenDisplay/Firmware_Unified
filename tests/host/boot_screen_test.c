@@ -503,15 +503,15 @@ int main(void)
     assert(h296[0] != h296[1] && h296[1] != h296[2] && h296[0] != h296[2]);
     assert(h400[0] != h400[1] && h400[1] != h400[2] && h400[0] != h400[2]);
     assert(h800[0] != h800[1] && h800[1] != h800[2] && h800[0] != h800[2]);
-    g_hash = h296[0]; PIN(0xE4A6088Bu);
+    g_hash = h296[0]; PIN(0xBB19A4FBu);
     g_hash = h296[1]; PIN(0x7121A3E9u);
-    g_hash = h296[2]; PIN(0x2B5071EAu);
-    g_hash = h400[0]; PIN(0xE6728E27u);
+    g_hash = h296[2]; PIN(0x24904F12u);
+    g_hash = h400[0]; PIN(0x0C38E738u);
     g_hash = h400[1]; PIN(0x32338461u);
-    g_hash = h400[2]; PIN(0x195C898Bu);
-    g_hash = h800[0]; PIN(0xC06ECB0Bu);
+    g_hash = h400[2]; PIN(0x7D3799CCu);
+    g_hash = h800[0]; PIN(0xFAFF75C9u);
     g_hash = h800[1]; PIN(0x642C4AD3u);
-    g_hash = h800[2]; PIN(0xD4FEFD45u);
+    g_hash = h800[2]; PIN(0xC4EB8DA1u);
 
     /* Never a key on these screens (SECURITY_V2 7.8): SHOWN changes no pixel, and the renderer
      * does not even ask. */

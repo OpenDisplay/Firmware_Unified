@@ -98,26 +98,49 @@ int main(void)
     CHECK(strcmp(url, "https://opendisplay.org/l/?EjSrze8AESIzRFVmd4iZqrvM3e7_eFY") == 0);
     CHECK(!od_boot_url_build(0x1234u, 0xabcdefu, key, 0x7856u, line, 8u));
 
-    /* The setup URL (SECURITY_V2 7.8): fixed parameter order, b/d/p omitted when 0. */
+    /* The setup URL (SECURITY_V2 7.8.1, format 1): vectors U1-U4, then the edges. */
     {
+        static const struct {
+            char kind; uint32_t id; uint8_t t, ma, mi, pa; uint16_t b, d, p;
+            const char *url; size_t bytes;
+        } U[] = {
+            {'s', 0x1A2B3Cu, 3u, 3u, 0u, 0u, 16u, 10u, 2u,
+             "https://opendisplay.org/l/?f=1&k=1&i=1A2B3C&t=3&v=3.0.0&b=16&d=10&p=2", 69u},
+            {'r', 0x00ABCDu, 1u, 3u, 0u, 0u, 0u, 0u, 0u,
+             "https://opendisplay.org/l/?f=1&k=2&i=00ABCD&t=1&v=3.0.0", 55u},
+            {'r', 0xFFFFFFu, 99u, 255u, 255u, 255u, 9999u, 9999u, 9999u,
+             "https://opendisplay.org/l/?f=1&k=2&i=FFFFFF&t=99&v=255.255.255&b=9999&d=9999&p=9999", 83u},
+            {'s', 0x000001u, 5u, 3u, 1u, 12u, 10000u, 0u, 7u,
+             "https://opendisplay.org/l/?f=1&k=1&i=000001&t=5&v=3.1.12&p=7", 60u},
+        };
         char su[OD_SETUP_URL_SIZE];
 
-        CHECK(od_setup_url_build('s', 0x1A2B3Cu, 3u, 3u, 0u, 0u, 16u, 10u, 2u, su, sizeof su));
-        CHECK(strcmp(su, "https://opendisplay.org/s/?k=s&i=1A2B3C&t=3&v=3.0.0&b=16&d=10&p=2") == 0);
-        CHECK(strlen(su) == 65u);
-        CHECK(od_setup_url_build('r', 0x1A2B3Cu, 1u, 3u, 0u, 0u, 0u, 0u, 0u, su, sizeof su));
-        CHECK(strcmp(su, "https://opendisplay.org/s/?k=r&i=1A2B3C&t=1&v=3.0.0") == 0);
-        CHECK(od_setup_url_build('s', 0x0000ABu, 2u, 1u, 2u, 3u, 0u, 7u, 0u, su, sizeof su));
-        CHECK(strcmp(su, "https://opendisplay.org/s/?k=s&i=0000AB&t=2&v=1.2.3&d=7") == 0);
-        /* the worst case is 83 bytes and fits; the id is masked to 24 bits */
+        for (unsigned i = 0; i < sizeof U / sizeof U[0]; ++i) {
+            const bool ok = od_setup_url_build(U[i].kind, U[i].id, U[i].t, U[i].ma, U[i].mi, U[i].pa,
+                                               U[i].b, U[i].d, U[i].p, su, sizeof su);
+            if (!ok || strcmp(su, U[i].url) != 0 || strlen(su) != U[i].bytes) {
+                fprintf(stderr, "FAIL U%u: got \"%s\"\n", i + 1u, su);
+                ++failures;
+            }
+        }
+        /* U3 is the worst case: one byte less of room is refused, and leaves "" */
+        CHECK(!od_setup_url_build('r', 0xFFFFFFu, 99u, 255u, 255u, 255u, 9999u, 9999u, 9999u, su,
+                                  OD_SETUP_URL_WORST));
+        CHECK(su[0] == '\0');
+        CHECK(od_setup_url_build('r', 0xFFFFFFu, 99u, 255u, 255u, 255u, 9999u, 9999u, 9999u, su,
+                                 OD_SETUP_URL_WORST + 1u));
+        /* No input exceeds the worst case: out-of-range fields are omitted, the id is masked. */
         CHECK(od_setup_url_build('r', 0xFFFFFFFFu, 255u, 255u, 255u, 255u, 65535u, 65535u, 65535u,
                                  su, sizeof su));
-        CHECK(strlen(su) == 83u);
-        CHECK(strstr(su, "i=FFFFFF&") != NULL);
-        CHECK(!od_setup_url_build('r', 1u, 255u, 255u, 255u, 255u, 65535u, 65535u, 65535u, su, 83u));
-        CHECK(su[0] == '\0');
-        CHECK(od_setup_url_build('r', 1u, 255u, 255u, 255u, 255u, 65535u, 65535u, 65535u, su, 84u));
+        CHECK(strcmp(su, "https://opendisplay.org/l/?f=1&k=2&i=FFFFFF&v=255.255.255") == 0);
+        CHECK(od_setup_url_build('s', 1u, 0u, 1u, 2u, 3u, 1u, 9999u, 10000u, su, sizeof su));
+        CHECK(strcmp(su, "https://opendisplay.org/l/?f=1&k=1&i=000001&v=1.2.3&b=1&d=9999") == 0);
+        CHECK(od_setup_url_build('s', 1u, 100u, 0u, 0u, 0u, 0u, 0u, 0u, su, sizeof su));
+        CHECK(strcmp(su, "https://opendisplay.org/l/?f=1&k=1&i=000001&v=0.0.0") == 0);
+        /* f is first, so the /l/ page can tell it from a legacy 31-character token */
+        CHECK(strncmp(su, "https://opendisplay.org/l/?f=", 29u) == 0);
         CHECK(!od_setup_url_build('x', 1u, 1u, 1u, 1u, 1u, 0u, 0u, 0u, su, sizeof su));
+        CHECK(!od_setup_url_build('1', 1u, 1u, 1u, 1u, 1u, 0u, 0u, 0u, su, sizeof su));
     }
 
     /* The screen content: fixed firmware text, the id, the code. */
@@ -141,11 +164,11 @@ int main(void)
                                      16u, 10u, 2u, &c));
         CHECK(c.qr && c.big == OD_SETUP_NO_BIG && c.n == 6u);
         CHECK(strcmp(c.line[1], "SETUP MODE") == 0);
-        CHECK(strcmp(c.url, "https://opendisplay.org/s/?k=s&i=1A2B3C&t=3&v=3.0.0&b=16&d=10&p=2") == 0);
+        CHECK(strcmp(c.url, "https://opendisplay.org/l/?f=1&k=1&i=1A2B3C&t=3&v=3.0.0&b=16&d=10&p=2") == 0);
         CHECK(od_setup_content_build(OD_SETUP_SCREEN_RESET, false, 0u, 0x1A2B3Cu, 3u, 3u, 0u, 0u,
                                      0u, 0u, 0u, &c));
         CHECK(c.qr && c.n == 2u && strcmp(c.line[0], "RESET") == 0);
-        CHECK(strncmp(c.url, "https://opendisplay.org/s/?k=r&", 31u) == 0);
+        CHECK(strncmp(c.url, "https://opendisplay.org/l/?f=1&k=2&", 35u) == 0);
         CHECK(od_setup_content_build(OD_SETUP_SCREEN_RESET, true, 0u, 1u, 3u, 3u, 0u, 0u,
                                      0u, 0u, 0u, &c));
         CHECK(c.n == 5u && strcmp(c.line[1], "FACTORY RESET") == 0);

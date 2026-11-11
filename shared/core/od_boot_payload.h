@@ -63,12 +63,18 @@ bool od_boot_url_build(uint16_t legacy_tag_type, uint32_t device_id24,
 
 /* ------------------------------------------------- the setup screen family (7.8) --- */
 
-/* https://opendisplay.org/s/?k=<k>&i=<6 hex>&t=<target>&v=<a.b.c>[&b=][&d=][&p=]: worst case
- * 83 bytes, inside QR v6 ECC-M (106). */
+/* SECURITY_V2 7.8.1, format 1:
+ *   https://opendisplay.org/l/?f=1&k=<1|2>&i=<6 HEX>&t=<1..99>&v=<a.b.c>[&b=][&d=][&p=]
+ * Worst case 83 bytes, inside QR v6 ECC-M (106). /l/ is shared with the legacy device link, which
+ * is one 31-character base64url token: the leading "f=" tells the two apart. */
 #define OD_SETUP_URL_SIZE 96u
+#define OD_SETUP_URL_WORST 83u
+#define OD_SETUP_URL_TARGET_MAX 99u
+#define OD_SETUP_URL_INDEX_MAX  9999u
 
-/* kind 's' (SETUP) or 'r' (RESET). b / d / p are omitted when 0. Hand-built (no snprintf: BG22).
- * false = kind invalid or out_size too small (out is then ""). */
+/* kind 's' (SETUP, k=1) or 'r' (RESET, k=2). t is omitted outside 1..99; b / d / p are omitted
+ * when 0 or above 9999. Hand-built (no snprintf: BG22). false = kind invalid or out_size too
+ * small (out is then ""). */
 bool od_setup_url_build(char kind, uint32_t device_id24, uint8_t target,
                         uint8_t fw_major, uint8_t fw_minor, uint8_t fw_patch,
                         uint16_t driver_index, uint16_t display_index, uint16_t power_index,

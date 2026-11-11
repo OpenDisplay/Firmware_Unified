@@ -321,15 +321,30 @@ static void test_v11_at_rest(void)
 
 static void test_v13_url(void)
 {
+    size_t stale = 0u;
+
     CASE("V13: setup URL");
     for (size_t i = 0; i < N(V13); ++i) {
         char url[128];
 
+        /* py-opendisplay's fixture predates revision 5 (7.8.1 replaced /s/?k=s|r with
+         * /l/?f=1&k=1|2): its V13 strings cannot match until py regenerates them. Counted and
+         * reported, not failed; U1-U4 in boot_payload_test.c pin the new grammar meanwhile. */
+        if (strncmp(V13[i].url, "https://opendisplay.org/s/", 26u) == 0) {
+            ++stale;
+            continue;
+        }
         CHECK(od_setup_url_build(V13[i].k, V13[i].i, (uint8_t)V13[i].t, (uint8_t)V13[i].ma,
                                  (uint8_t)V13[i].mi, (uint8_t)V13[i].pa, (uint16_t)V13[i].b,
                                  (uint16_t)V13[i].d, (uint16_t)V13[i].p, url, sizeof url));
         CHECK(strcmp(url, V13[i].url) == 0);
     }
+    if (stale != 0u) {
+        printf("cfg_policy: V13 %u of %u vectors are pre-revision-5 (/s/) and were NOT checked: "
+               "py-opendisplay must regenerate V13 for SECURITY_V2 7.8.1\n",
+               (unsigned)stale, (unsigned)N(V13));
+    }
+    CHECK(stale == 0u || stale == N(V13));   /* a half-regenerated fixture is a real mismatch */
 }
 
 /* ------------------------------------------------------- branches beyond the vectors --- */

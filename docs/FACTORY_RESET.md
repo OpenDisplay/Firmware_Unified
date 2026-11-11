@@ -37,7 +37,7 @@ breakdown is in [SECURITY_V2_IMPLEMENTATION_PLAN.md](SECURITY_V2_IMPLEMENTATION_
 - the secrets are scrubbed before the key is erased (new step R1b, review A4);
 - a key erase that keeps failing ends in LOCKED;
 - the reset ends in **fresh claim mode** (SECURITY_V2 § 7);
-- the reset screen is the RESET kind of the setup screen family, and its URL is `/s/?k=r` (revision 5: `/l/?f=1&k=2`);
+- the reset screen is the RESET kind of the setup screen family, and its URL is `https://opendisplay.org/l/?f=1&k=2&…` (SECURITY_V2 § 7.8.1; the unshipped `/s/?k=r` is withdrawn);
 - the reset pin is sticky on claimed devices (review A9);
 - the ESP32 WiFi NVS copy is erased (review A16);
 - the five-power-cycle alternative is an option only (SECURITY_V2 Appendix B.1; adopted in

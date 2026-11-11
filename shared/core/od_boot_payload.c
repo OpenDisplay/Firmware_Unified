@@ -226,7 +226,6 @@ bool od_setup_url_build(char kind, uint32_t device_id24, uint8_t target,
                         char *out, size_t out_size)
 {
     char id[7];
-    char k[2];
     size_t pos = 0u;
     bool ok;
 
@@ -237,23 +236,25 @@ bool od_setup_url_build(char kind, uint32_t device_id24, uint8_t target,
     if (kind != 's' && kind != 'r') {
         return false;
     }
-    k[0] = kind;
-    k[1] = '\0';
     hex6(device_id24 & 0xFFFFFFu, id);
-    ok = put_str(out, out_size, &pos, "https://opendisplay.org/s/?k=") &&
-         put_str(out, out_size, &pos, k) &&
-         put_str(out, out_size, &pos, "&i=") && put_str(out, out_size, &pos, id) &&
-         put_str(out, out_size, &pos, "&t=") && put_dec(out, out_size, &pos, target) &&
+    /* SECURITY_V2 7.8.1 format 1: f first, then the core k and i, then the rest in fixed order. */
+    ok = put_str(out, out_size, &pos, "https://opendisplay.org/l/?f=1&k=") &&
+         put_str(out, out_size, &pos, kind == 's' ? "1" : "2") &&
+         put_str(out, out_size, &pos, "&i=") && put_str(out, out_size, &pos, id);
+    if (ok && target >= 1u && target <= OD_SETUP_URL_TARGET_MAX) {
+        ok = put_str(out, out_size, &pos, "&t=") && put_dec(out, out_size, &pos, target);
+    }
+    ok = ok &&
          put_str(out, out_size, &pos, "&v=") && put_dec(out, out_size, &pos, fw_major) &&
          put_str(out, out_size, &pos, ".") && put_dec(out, out_size, &pos, fw_minor) &&
          put_str(out, out_size, &pos, ".") && put_dec(out, out_size, &pos, fw_patch);
-    if (ok && driver_index != 0u) {
+    if (ok && driver_index != 0u && driver_index <= OD_SETUP_URL_INDEX_MAX) {
         ok = put_str(out, out_size, &pos, "&b=") && put_dec(out, out_size, &pos, driver_index);
     }
-    if (ok && display_index != 0u) {
+    if (ok && display_index != 0u && display_index <= OD_SETUP_URL_INDEX_MAX) {
         ok = put_str(out, out_size, &pos, "&d=") && put_dec(out, out_size, &pos, display_index);
     }
-    if (ok && power_index != 0u) {
+    if (ok && power_index != 0u && power_index <= OD_SETUP_URL_INDEX_MAX) {
         ok = put_str(out, out_size, &pos, "&p=") && put_dec(out, out_size, &pos, power_index);
     }
     if (!ok) {
