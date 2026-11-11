@@ -96,7 +96,7 @@ static bool digest(uint8_t id, const uint8_t *body, uint8_t out[8])
         memset(msg + 1u + (S2D_NETA + S2D_NETA_LEN - S2D_EIK), 0, 8u);   /* the time bases */
         n = 1u + S2D_ADV + S2D_ADV_LEN - S2D_EIK;
     }
-    ok = od_hal_crypto_cmac(g.key, msg, (uint16_t)n, mac) == OD_HAL_CRYPTO_OK;
+    ok = od_hal_crypto_cmac(g.key, msg, n, mac) == OD_HAL_CRYPTO_OK;
     memcpy(out, mac, 8u);
     memset(msg, 0, sizeof msg);
     memset(mac, 0, sizeof mac);

@@ -320,6 +320,9 @@ static void test_led_and_buzzer_verdicts(void)
     CHECK(g_sent[0].plain);
 }
 
+/* Claim mode is never active here: the planned reboot always proceeds. */
+bool od_claim_mode_before_reboot(void) { return true; }
+
 int main(void)
 {
     test_power_off_is_the_canonical_unsupported_nack();

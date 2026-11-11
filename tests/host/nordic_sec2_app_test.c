@@ -114,6 +114,10 @@ static void test_dflags_and_seams(void)
     CHECK(od_sec2_app_now_ms() == 0xFFFFFFFFu);
 }
 
+/* od_sec2_app_display_busy()'s two predicates live in files this suite does not compile. */
+bool od_xfer_active(void) { return false; }
+bool od_display_active(void) { return false; }
+
 int main(void)
 {
     test_uid();
