@@ -207,6 +207,17 @@ target_include_directories(od_qrcode_test PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/../../third_party/qrcode)
 add_test(NAME qrcode COMMAND od_qrcode_test)
 
+# The BG22 printf family, checked against the host C library. The unit is compiled with its
+# entry points renamed so the host libc stays the reference it is compared with.
+add_library(od_printf_bg22 OBJECT ${CMAKE_CURRENT_LIST_DIR}/../../targets/efr32bg22-slc/od_printf.c)
+target_compile_options(od_printf_bg22 PRIVATE -fno-builtin -U_FORTIFY_SOURCE)
+target_compile_definitions(od_printf_bg22 PRIVATE
+    printf=od_t_printf snprintf=od_t_snprintf vsnprintf=od_t_vsnprintf vprintf=od_t_vprintf
+    puts=od_t_puts putchar=od_t_putchar)
+add_executable(od_printf_bg22_test printf_bg22_test.c $<TARGET_OBJECTS:od_printf_bg22>)
+target_compile_options(od_printf_bg22_test PRIVATE -Wno-format -Wno-format-extra-args)
+add_test(NAME printf_bg22 COMMAND od_printf_bg22_test)
+
 add_executable(od_zlib_pump_test zlib_pump_test.c)
 target_link_libraries(od_zlib_pump_test od_shared)
 add_test(NAME zlib_pump COMMAND od_zlib_pump_test)

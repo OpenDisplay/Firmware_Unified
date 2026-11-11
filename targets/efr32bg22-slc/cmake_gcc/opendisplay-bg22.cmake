@@ -135,6 +135,7 @@ add_library(slc OBJECT
     "${SDK_PATH}/platform_common/platform/common/src/sl_syscalls.c"
     ${OPD_SEGGER_RTT_SRC}
     "../od_rtt.c"
+    "../od_printf.c"
     "${SDK_PATH}/platform_core/platform/common/src/sl_core_cortexm.c"
     "${SDK_PATH}/platform_core/platform/driver/gpio/src/sl_gpio.c"
     "${SDK_PATH}/platform_core/platform/emdrv/nvm3/src/nvm3.c"
