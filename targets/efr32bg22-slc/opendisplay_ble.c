@@ -1,5 +1,6 @@
 #include "od_sec2.h"
 #include "od_diag.h"
+#include "od_fmt.h"
 #include "opendisplay_ble.h"
 #include "od_hal_i2c.h"
 #include "od_nfc_app.h"
@@ -1598,7 +1599,7 @@ static void chip_id_hex6(char out[7])
 {
   uint64_t u = SYSTEM_GetUnique();
   uint32_t id = (uint32_t)(u & 0xFFFFFFu);
-  snprintf(out, 7, "%06lX", (unsigned long)id);
+  *od_fmt_hex(out, id, 6u) = '\0';
 }
 
 static void update_msd_payload(bool quick)
@@ -1889,7 +1890,9 @@ void opendisplay_ble_on_boot(uint8_t advertising_set_handle)
   od_action_trigger(OD_TRIG_BOOT, 0u);
 
   chip_id_hex6(hex);
-  snprintf(s_dev_name, sizeof(s_dev_name), "%s%s", OD_NAME_PREFIX, hex);
+  _Static_assert(sizeof(s_dev_name) >= sizeof(OD_NAME_PREFIX) + 6u, "GAP name buffer");
+  memcpy(s_dev_name, OD_NAME_PREFIX, sizeof(OD_NAME_PREFIX) - 1u);
+  memcpy(s_dev_name + sizeof(OD_NAME_PREFIX) - 1u, hex, 7u);
   OD_DIAG("[OD] GAP name: %s\r\n", s_dev_name);
 
   sc = set_gap_device_name(s_dev_name);

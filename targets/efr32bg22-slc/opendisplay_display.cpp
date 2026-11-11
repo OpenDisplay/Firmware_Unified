@@ -1,5 +1,6 @@
 #include "opendisplay_display.h"
 #include "od_diag.h"
+#include "od_fmt.h"
 #include "od_color.h"
 #include "opendisplay_ble.h"
 #include "opendisplay_config_parser.h"
@@ -414,12 +415,20 @@ static bool render_boot_screen(const struct GlobalConfig *cfg)
   qr_size = qr.size;
   qr_modules = (uint16_t)(qr_size + 8u);
 
-  (void)snprintf(name_line, sizeof(name_line), "OD%06lX", (unsigned long)last3);
+  name_line[0] = 'O';
+  name_line[1] = 'D';
+  *od_fmt_hex(&name_line[2], last3, 6u) = '\0';
   {
+    /* "FW:S M.m.p": 5 + 3 * 3 + 2 dots + NUL = 17 <= sizeof(fw_line). */
     uint16_t ver = opendisplay_ble_get_app_version();
-    (void)snprintf(fw_line, sizeof(fw_line), "FW:S %u.%u.%u",
-                   (unsigned)((ver >> 8) & 0xFFu), (unsigned)(ver & 0xFFu),
-                   (unsigned)opendisplay_ble_get_app_version_patch());
+    char *p = fw_line;
+    memcpy(p, "FW:S ", 5u);
+    p = od_fmt_u8(p + 5, (unsigned)((ver >> 8) & 0xFFu));
+    *p++ = '.';
+    p = od_fmt_u8(p, (unsigned)(ver & 0xFFu));
+    *p++ = '.';
+    p = od_fmt_u8(p, (unsigned)opendisplay_ble_get_app_version_patch());
+    *p = '\0';
   }
   od_boot_format_key_display(key, show_key, key_hex);
   memcpy(k1, key_hex, 16);

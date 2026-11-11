@@ -160,7 +160,7 @@ bool od_boot_url_build(uint16_t legacy_tag_type, uint32_t device_id24,
     static const char prefix[] = "https://opendisplay.org/l/?";
     uint8_t payload[OD_BOOT_PAYLOAD_SIZE];
     char encoded[33];
-    int written;
+    size_t enc_len;
 
     if (out == NULL || out_size == 0u) {
         return false;
@@ -170,10 +170,14 @@ bool od_boot_url_build(uint16_t legacy_tag_type, uint32_t device_id24,
         out[0] = '\0';
         return false;
     }
-    written = snprintf(out, out_size, "%s%s", prefix, encoded);
-    if (written < 0 || (size_t)written >= out_size) {
+    /* Concatenated by hand rather than with snprintf: on EFR32BG22 this is the last caller of
+     * the libc formatter once its diagnostics are compiled out. */
+    enc_len = strlen(encoded);
+    if (sizeof(prefix) - 1u + enc_len >= out_size) {
         out[0] = '\0';
         return false;
     }
+    memcpy(out, prefix, sizeof(prefix) - 1u);
+    memcpy(out + sizeof(prefix) - 1u, encoded, enc_len + 1u);
     return true;
 }
