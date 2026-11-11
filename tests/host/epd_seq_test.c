@@ -2,7 +2,9 @@
  *
  * Covers the escapes whose behaviour is not exercised by any panel on the bench: CS_SELECT
  * (0x08), READ_SCRATCH (0x09) and WRITE_SCRATCH (0x0A), plus the validation rule that a refused
- * sequence executes nothing. Only the hardware beneath od_epd is faked. */
+ * sequence executes nothing, and the streaming reader: a step longer than the window, a storage
+ * read that fails or comes back short at any point of the walk, and a config write landing
+ * between two reads. Only the hardware beneath od_epd is faked. */
 
 #include "od_epd.h"
 
@@ -36,7 +38,7 @@ struct op {
 
 static struct op g_ops[64];
 static unsigned g_nops;
-static uint8_t  g_seq[OD_EPD_SEQ_MAX];
+static uint8_t  g_seq[2048];
 static uint16_t g_seq_len;
 static uint8_t  g_read_src[16];
 static bool     g_cs2_wired;
@@ -62,15 +64,34 @@ static void io_reset(uint32_t ms)                { (void)ms; rec(OP_RESET, 0u, N
 static void io_delay(uint32_t ms)                { (void)ms; }
 static bool io_busy(void)                        { return true; }   /* idle level 1 */
 
+/* Storage faults: the g_fail_call'th seq_read (1-based; 0 = never) returns 0 bytes, or one byte
+ * short when g_fail_short is set, and
+ * the g_bump_call'th bumps the config generation after it returns (a config write landing
+ * between two reads). */
+static unsigned g_read_calls;
+static unsigned g_fail_call;
+static bool     g_fail_short;
+static unsigned g_bump_call;
+static uint32_t g_gen;
+
 static uint16_t io_seq_read(uint8_t mode, uint16_t off, uint8_t *dst, uint16_t len)
 {
     (void)mode;
+    ++g_read_calls;
     if ((uint32_t)off + len > g_seq_len) {
         return 0u;
     }
     memcpy(dst, &g_seq[off], len);
+    if (g_read_calls == g_bump_call) {
+        ++g_gen;
+    }
+    if (g_read_calls == g_fail_call) {
+        return g_fail_short ? (uint16_t)(len - 1u) : 0u;
+    }
     return len;
 }
+
+static uint32_t io_config_gen(void) { return g_gen; }
 
 static od_epd_mode_t g_mode;
 
@@ -127,6 +148,11 @@ static void setup(const uint8_t *seq, uint16_t len, uint8_t passes, bool cs_hook
 {
     memset(g_ops, 0, sizeof g_ops);
     g_nops = 0u;
+    g_read_calls = 0u;
+    g_fail_call = 0u;
+    g_fail_short = false;
+    g_bump_call = 0u;
+    g_gen = 7u;
     memcpy(g_seq, seq, len);
     g_seq_len = len;
     g_cs2_wired = true;
@@ -329,6 +355,172 @@ static void test_lut_slice_after_image(void)
     CHECK(count_kind(OP_CMD) == 2u);
 }
 
+/* A sequence longer than the window with one step longer than it, an image pause and a tail:
+ *   [1][0x10]  [201][0x32][200 B]  [3][0x11][a][b]  IMAGE  [1][0x12]  BUSY  [2][0x13][x] x12  END
+ * and a two-byte sleep sequence [2][0x07][0xA5] END. */
+#define LONG_STEP 200u
+static uint16_t build_long(uint8_t *out)
+{
+    uint16_t n = 0u;
+
+    out[n++] = 1u; out[n++] = 0x10u;
+    out[n++] = (uint8_t)(LONG_STEP + 1u); out[n++] = 0x32u;
+    for (unsigned k = 0u; k < LONG_STEP; ++k) {
+        out[n++] = (uint8_t)k;
+    }
+    out[n++] = 3u; out[n++] = 0x11u; out[n++] = 0xAAu; out[n++] = 0xBBu;
+    out[n++] = 0u; out[n++] = 3u;
+    out[n++] = 1u; out[n++] = 0x12u;
+    out[n++] = 0u; out[n++] = 1u;
+    for (unsigned k = 0u; k < 12u; ++k) {
+        out[n++] = 2u; out[n++] = 0x13u; out[n++] = (uint8_t)k;
+    }
+    out[n++] = 0u; out[n++] = 0u;
+    return n;
+}
+
+static const uint8_t SLEEP_SEQ[] = { 2u, 0x07u, 0xA5u, 0u, 0u };
+
+static void setup_long(void)
+{
+    static uint8_t seq[300];
+    const uint16_t len = build_long(seq);
+
+    setup(seq, len, 1u, false, false);
+    memcpy(g_desc.sleep_seq, SLEEP_SEQ, sizeof SLEEP_SEQ);
+    g_desc.sleep_seq_len = sizeof SLEEP_SEQ;
+    g_io.config_gen = io_config_gen;
+}
+
+static unsigned count_cmd(uint8_t c)
+{
+    unsigned n = 0u;
+    for (unsigned k = 0; k < g_nops; ++k) {
+        n += (g_ops[k].kind == OP_CMD && g_ops[k].a == c) ? 1u : 0u;
+    }
+    return n;
+}
+
+/* begin, one image chunk, finish, then the caller's sleep -- the od_display order, whatever the
+ * outcome. Returns the first failure, or OD_OK. */
+static int drive_long(void)
+{
+    static const uint8_t img[4] = { 9, 9, 9, 9 };
+    int rc = od_epd_begin_pass(&g_epd, 0u);
+
+    if (rc == OD_EPD_RC_OK) {
+        rc = od_epd_write_image_chunk(&g_epd, img, sizeof img);
+    }
+    if (rc == OD_EPD_RC_OK) {
+        rc = od_epd_finish_pass(&g_epd);
+    }
+    (void)od_epd_sleep(&g_epd);
+    return rc;
+}
+
+/* The walk's outcome after a storage fault: either refused before any panel I/O (nothing on the
+ * bus but the caller's sleep, which also runs on a clean pass), or the panel was put to sleep
+ * exactly once, as the last thing on the bus, and the refresh never ran. */
+static unsigned g_pre_io;
+static unsigned g_post_io;
+
+static void check_failed_cleanly(int rc, int want_rc)
+{
+    CHECK(rc == want_rc);
+    CHECK(count_cmd(0x07u) == 1u);
+    CHECK(g_nops >= 2u && g_ops[g_nops - 2u].kind == OP_CMD && g_ops[g_nops - 2u].a == 0x07u);
+    CHECK(g_ops[g_nops - 1u].kind == OP_DATA && g_ops[g_nops - 1u].d[0] == 0xA5u);
+    CHECK(count_cmd(0x12u) == 0u || count_cmd(0x13u) < 12u);
+    if (count_kind(OP_RESET) == 0u) {
+        CHECK(g_nops == 2u);                 /* refused before I/O: only the caller's sleep */
+        ++g_pre_io;
+    } else {
+        ++g_post_io;
+    }
+}
+
+static void test_long_step_is_chunked(void)
+{
+    unsigned k;
+    unsigned got = 0u;
+
+    CASE("a step longer than the window goes out as one command and window-sized data runs");
+    setup_long();
+    CHECK(drive_long() == OD_EPD_RC_OK);
+    for (k = 0u; k < g_nops && !(g_ops[k].kind == OP_CMD && g_ops[k].a == 0x32u); ++k) { }
+    CHECK(k < g_nops);
+    for (++k; k < g_nops && g_ops[k].kind == OP_DATA; ++k) {
+        CHECK(g_ops[k].n <= OD_EPD_SEQ_WINDOW);
+        CHECK(g_ops[k].d[0] == (uint8_t)got);
+        got += g_ops[k].n;
+    }
+    CHECK(got == LONG_STEP);
+    CHECK(count_cmd(0x13u) == 12u && count_cmd(0x12u) == 1u && count_cmd(0x07u) == 1u);
+}
+
+static void test_read_fault_at_every_call(void)
+{
+    unsigned clean_calls;
+    char name[96];
+
+    CASE("the long sequence needs several reads in validation and again in the walk");
+    setup_long();
+    CHECK(drive_long() == OD_EPD_RC_OK);
+    clean_calls = g_read_calls;
+    CHECK(clean_calls >= 4u);
+
+    g_pre_io = g_post_io = 0u;
+    for (unsigned short_by = 0u; short_by < 2u; ++short_by) {
+        for (unsigned call = 1u; call <= clean_calls; ++call) {
+            snprintf(name, sizeof name, "seq_read %u of %u %s", call, clean_calls,
+                     short_by ? "returns one byte short" : "fails");
+            CASE(name);
+            setup_long();
+            g_fail_call = call;
+            g_fail_short = short_by != 0u;
+            check_failed_cleanly(drive_long(), OD_EPD_RC_IO);
+        }
+    }
+    CASE("read faults landed both before the first panel I/O and mid-walk");
+    CHECK(g_pre_io > 0u && g_post_io > 0u);
+}
+
+static void test_config_write_mid_pass(void)
+{
+    unsigned clean_calls;
+    char name[96];
+
+    CASE("a config write during the image pause fails the pass and sleeps the panel once");
+    setup_long();
+    CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_OK);
+    ++g_gen;
+    CHECK(od_epd_finish_pass(&g_epd) == OD_EPD_RC_STALE);
+    CHECK(count_cmd(0x12u) == 0u);
+    CHECK(od_epd_sleep(&g_epd) == OD_EPD_RC_OK);
+    CHECK(count_cmd(0x07u) == 1u);
+    CHECK(g_ops[g_nops - 2u].kind == OP_CMD && g_ops[g_nops - 2u].a == 0x07u);
+
+    CASE("the next pass after a stale one runs normally");
+    g_nops = 0u;
+    CHECK(drive_long() == OD_EPD_RC_OK);
+    CHECK(count_cmd(0x12u) == 1u && count_cmd(0x07u) == 1u);
+
+    setup_long();
+    CHECK(drive_long() == OD_EPD_RC_OK);
+    clean_calls = g_read_calls;
+    g_pre_io = g_post_io = 0u;
+    for (unsigned call = 1u; call < clean_calls; ++call) {
+        snprintf(name, sizeof name, "config generation moves after seq_read %u of %u", call,
+                 clean_calls);
+        CASE(name);
+        setup_long();
+        g_bump_call = call;
+        check_failed_cleanly(drive_long(), OD_EPD_RC_STALE);
+    }
+    CASE("config writes landed both before the first panel I/O and mid-walk");
+    CHECK(g_pre_io > 0u && g_post_io > 0u);
+}
+
 int main(void)
 {
     test_refused_escapes_execute_nothing();
@@ -337,6 +529,9 @@ int main(void)
     test_scratch_is_zeroed_per_pass();
     test_cs_select_is_sticky_and_resets_per_pass();
     test_lut_slice_after_image();
+    test_long_step_is_chunked();
+    test_read_fault_at_every_call();
+    test_config_write_mid_pass();
     printf("epd_seq: %u checks, %u failures\n", g_checks, g_failures);
     return g_failures == 0u ? 0 : 1;
 }

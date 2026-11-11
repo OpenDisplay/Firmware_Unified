@@ -16,6 +16,7 @@
 
 #include "od_cfg_index.h"
 #include "od_color.h"
+#include "od_config_store.h"
 #include "od_epd.h"
 #include "od_epd_cfg.h"
 #include "opendisplay_protocol.h"
@@ -542,7 +543,7 @@ static int try_seq(const uint8_t *seq, uint16_t len, bool *selected)
 
 static void test_malformed_sequences(void)
 {
-    static uint8_t seq[OD_EPD_SEQ_MAX + 8u];
+    static uint8_t seq[1100];
     bool sel = false;
 
     CASE("no END escape: legal, the walk ends at seq_len");
@@ -634,26 +635,47 @@ static void test_malformed_sequences(void)
         CHECK(try_seq(s, sizeof s, &sel) == OD_EPD_RC_SEQ && fx_reset_count == 0u);
     }
 
-    CASE("step cap: OD_EPD_MAX_SEQ_STEPS + 1 one-byte steps");
-    {
+    CASE("step cap: OD_EPD_MAX_SEQ_STEPS + 1 steps are refused, OD_EPD_MAX_SEQ_STEPS run");
+    for (unsigned extra = 0u; extra < 2u; extra++) {
         uint16_t n = 0u;
-        for (unsigned k = 0; k < OD_EPD_MAX_SEQ_STEPS && n + 2u < OD_EPD_SEQ_MAX - 2u; k++) {
+        for (unsigned k = 0; k + 1u < OD_EPD_MAX_SEQ_STEPS + extra; k++) {
             seq[n++] = 1;
             seq[n++] = 0x00;
         }
         seq[n++] = 0;
         seq[n++] = 3;
-        CHECK(try_seq(seq, n, &sel) == (n / 2u > OD_EPD_MAX_SEQ_STEPS ? OD_EPD_RC_SEQ : 0));
+        CHECK(try_seq(seq, n, &sel) == (extra ? OD_EPD_RC_SEQ : 0));
+        CHECK(extra ? fx_reset_count == 0u : od_epd_cfg_finish());
     }
 
-    CASE("seq_len one past OD_EPD_SEQ_MAX: the mode is rejected at select");
+    CASE("no RAM cap on the sequence: 1028 B with four 255-byte steps streams in window chunks");
     {
-        memset(seq, 0, sizeof seq);
-        seq[0] = 0; seq[1] = 3;
-        (void)try_seq(seq, (uint16_t)(OD_EPD_SEQ_MAX + 1u), &sel);
-        CHECK(!sel);
-        (void)try_seq(seq, (uint16_t)OD_EPD_SEQ_MAX, &sel);
-        CHECK(sel);
+        uint16_t n = 0u;
+        for (unsigned k = 0; k < 4u; k++) {
+            seq[n++] = 255u;
+            seq[n++] = (uint8_t)(0x40u + k);
+            for (unsigned j = 0; j < 254u; j++) {
+                seq[n++] = (uint8_t)(j ^ k);
+            }
+        }
+        seq[n++] = 0;
+        seq[n++] = 3;
+        seq[n++] = 1;
+        seq[n++] = 0x12;
+        CHECK(n == 1028u);
+        CHECK(try_seq(seq, n, &sel) == 0 && sel);
+        CHECK(od_epd_cfg_finish());
+        CHECK(fx_cmd_count == 5u && fx_data_bytes == 4u * 254u);
+        /* cmd + data longer than the window: the first window (cmd + OD_EPD_SEQ_WINDOW - 1 data
+         * bytes), then the rest of the data; same bytes, one more data() call. */
+        {
+            const unsigned d0 = OD_EPD_SEQ_WINDOW - 1u;
+            char want[64];
+            snprintf(want, sizeof want, "C 40\nD[%u] crc32=%08x\nD[%u] crc32=%08x\nC 41", d0,
+                     (unsigned)od_config_store_crc32(&seq[2], d0), 254u - d0,
+                     (unsigned)od_config_store_crc32(&seq[2u + d0], 254u - d0));
+            CHECK(strstr(fx_trace, want) != NULL);
+        }
     }
 
     CASE("seq_len larger than the packet body: rejected at select");
@@ -846,6 +868,68 @@ static void test_busy(void)
     CHECK(!still && elapsed == 0u);
 }
 
+static unsigned count_str(const char *hay, const char *needle)
+{
+    unsigned n = 0u;
+    for (const char *at = strstr(hay, needle); at != NULL; at = strstr(at + 1, needle)) {
+        ++n;
+    }
+    return n;
+}
+
+/* A pass streams its sequence from the stored record and pauses at the image marker, so a
+ * config write is refused for exactly the span of the pass; a write that lands anyway (clear()
+ * is never held) fails the pass on the generation check and the panel is put to sleep once. */
+static void test_config_write_during_pass(void)
+{
+    static const uint8_t sleep[] = { 2u, 0x07u, 0xA5u, 0u, 0u };
+    static const uint8_t px[8] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+    static uint8_t ws[OD_CONFIG_STORE_HEADER_SIZE + 64u];
+    static const uint8_t other[24] = { 1, 2, 3 };
+    fx_cfg_t c;
+    unsigned writes;
+
+    begin_cfg(&c, 1u);
+    fx_cfg_ext(&c, OD_PKT_DISPLAY_PANEL, g_b, panel_body(g_b, 0u, sleep, sizeof sleep));
+    add_mode(&c, 0u, 0u, "full", 0, 0, 0, 0xFFu, SEQ_NOLUT, sizeof SEQ_NOLUT);
+    fx_cfg_finish(&c);
+    fx_cfg_store(&c);
+
+    CASE("a config write while a pass is paused on its image marker is refused, medium untouched");
+    CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL));
+    CHECK(od_epd_cfg_begin_pass(0u));
+    writes = fx_nvs_writes;
+    CHECK(od_config_store_save(ws, sizeof ws, other, sizeof other) == OD_CONFIG_STORE_BUSY);
+    CHECK(fx_nvs_writes == writes);
+    CHECK(od_epd_cfg_write(px, sizeof px));
+    CHECK(od_epd_cfg_finish());
+    CHECK(strstr(fx_trace, "C 22") != NULL);
+
+    CASE("the write goes through once the pass has finished");
+    CHECK(od_config_store_save(ws, sizeof ws, other, sizeof other) == OD_CONFIG_STORE_OK);
+    CHECK(fx_nvs_writes == writes + 1u);
+
+    CASE("ending a pass early with sleep releases the hold too");
+    fx_cfg_store(&c);
+    CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL));
+    CHECK(od_epd_cfg_begin_pass(0u));
+    od_epd_cfg_sleep();
+    CHECK(od_config_store_save(ws, sizeof ws, other, sizeof other) == OD_CONFIG_STORE_OK);
+
+    CASE("a clear() mid-pass fails the pass on the generation check; panel sleeps exactly once");
+    fx_cfg_store(&c);
+    CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL));
+    CHECK(od_epd_cfg_begin_pass(0u));
+    CHECK(od_epd_cfg_write(px, sizeof px));
+    CHECK(od_config_store_clear() == OD_CONFIG_STORE_OK);
+    CHECK(!od_epd_cfg_finish());
+    CHECK(od_epd_cfg_last_rc() == OD_EPD_RC_STALE);
+    CHECK(strstr(fx_trace, "C 22") == NULL);          /* the refresh never ran */
+    od_epd_cfg_sleep();
+    CHECK(count_str(fx_trace, "C 07") == 1u);
+    CHECK(od_config_store_save(ws, sizeof ws, other, sizeof other) == OD_CONFIG_STORE_OK);
+}
+
 int main(void)
 {
     test_golden();
@@ -856,6 +940,7 @@ int main(void)
     test_malformed_sequences();
     test_sleep_sequence();
     test_busy();
+    test_config_write_during_pass();
     printf("epd_cfg: %u known bugs\n", fx_xfail_count);
     return OD_CHECK_REPORT_NONEMPTY("epd_cfg", 130);
 }

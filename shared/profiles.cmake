@@ -43,10 +43,7 @@ set(OD_PROFILE_SILABS
     OD_CAP_READ_IDENT=1
     # od_epd's WINDOW/FILL escapes (partial update) cost flash this part does not have, and it
     # has no partial transfer to use them; a sequence carrying them is refused SEQ_UNSUPPORTED.
-    OD_EPD_WITH_WINDOW=0
-    # A mode sequence is held in RAM for the pass; 128 B covers the panels this part ships with.
-    OD_EPD_SEQ_MAX=128u
-    OD_EPD_MAX_SEQ_STEPS=64u)
+    OD_EPD_WITH_WINDOW=0)
 
 # Compile-time log level, one selector for every target.
 #

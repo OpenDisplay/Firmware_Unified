@@ -2,6 +2,7 @@
 #include "od_epd_cfg.h"
 
 #include "od_cfg_index.h"
+#include "od_config_store.h"
 #include "od_epd.h"
 #include "od_log.h"
 #include "opendisplay_protocol.h"
@@ -154,8 +155,7 @@ static bool io_mode_read(uint8_t index, od_epd_mode_t *out)
     out->temp_policy = h[MODE_OFF_TMIN + 2u];
     out->seq_len = rd16(&h[MODE_OFF_SEQLEN]);
     if (out->passes == 0u || out->passes > OD_EPD_MAX_PASSES ||
-        out->seq_len == 0u || out->seq_len > OD_EPD_SEQ_MAX ||
-        (uint32_t)MODE_OFF_SEQ + out->seq_len > e->len) {
+        out->seq_len == 0u || (uint32_t)MODE_OFF_SEQ + out->seq_len > e->len) {
         od_log_warn("drive: mode %u rejected", (unsigned)index);
         return false;
     }
@@ -280,7 +280,17 @@ static od_epd_io_t s_io = {
     .mode_read = io_mode_read,
     .lut_info = io_lut_info,
     .lut_read = io_lut_read,
+    .config_gen = od_config_store_generation,
 };
+
+/* A pass streams its sequence and waveform from the stored config and pauses at the image
+ * marker while the frame arrives, so a config write is refused for exactly that span
+ * (od_config_store_hold_writes); every path that ends a pass comes through here. */
+static void set_in_pass(bool on)
+{
+    s_in_pass = on;
+    od_config_store_hold_writes(on);
+}
 
 /* --- session -------------------------------------------------------------------------------- */
 
@@ -291,7 +301,7 @@ bool od_epd_cfg_load(const struct DisplayConfig *d, const od_epd_cfg_bus_t *bus)
     uint16_t got;
 
     s_loaded = false;
-    s_in_pass = false;
+    set_in_pass(false);
     if (d == NULL || bus == NULL || bus->cmd == NULL || bus->data == NULL ||
         bus->reset == NULL || bus->busy_read == NULL || bus->delay_ms == NULL ||
         bus->now_ms == NULL) {
@@ -503,8 +513,9 @@ bool od_epd_cfg_finish_with_tail(uint8_t mode)
     if (!s_in_pass) {
         return false;
     }
-    s_in_pass = false;
-    return od_epd_finish_with_tail(&s_epd, mode) == OD_EPD_RC_OK && !bus_faulted();
+    s_last_rc = od_epd_finish_with_tail(&s_epd, mode);   /* still held: the tail is read from storage */
+    set_in_pass(false);
+    return s_last_rc == OD_EPD_RC_OK && !bus_faulted();
 }
 
 bool od_epd_cfg_begin_pass(uint8_t pass)
@@ -514,7 +525,7 @@ bool od_epd_cfg_begin_pass(uint8_t pass)
         return false;
     }
     s_last_rc = od_epd_begin_pass(&s_epd, pass);
-    s_in_pass = s_last_rc == OD_EPD_RC_OK && !bus_faulted();
+    set_in_pass(s_last_rc == OD_EPD_RC_OK && !bus_faulted());
     return s_in_pass;
 }
 
@@ -526,7 +537,14 @@ bool od_epd_cfg_write(const uint8_t *data, size_t len)
 
 bool od_epd_cfg_next_plane(void)
 {
-    return s_in_pass && od_epd_next_plane(&s_epd) == OD_EPD_RC_OK;
+    if (!s_in_pass) {
+        return false;
+    }
+    s_last_rc = od_epd_next_plane(&s_epd);
+    if (s_last_rc != OD_EPD_RC_OK) {
+        set_in_pass(false);        /* the walk is over; nothing reads the config any more */
+    }
+    return s_last_rc == OD_EPD_RC_OK;
 }
 
 bool od_epd_cfg_finish(void)
@@ -534,13 +552,14 @@ bool od_epd_cfg_finish(void)
     if (!s_in_pass) {
         return false;
     }
-    s_in_pass = false;
-    return od_epd_finish_pass(&s_epd) == OD_EPD_RC_OK && !bus_faulted();
+    s_last_rc = od_epd_finish_pass(&s_epd);   /* still held: the tail is read from storage */
+    set_in_pass(false);
+    return s_last_rc == OD_EPD_RC_OK && !bus_faulted();
 }
 
 void od_epd_cfg_sleep(void)
 {
-    s_in_pass = false;
+    set_in_pass(false);
     if (s_loaded) {
         (void)od_epd_sleep(&s_epd);
     }

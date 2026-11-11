@@ -244,9 +244,7 @@ def build_replay(cls: str = "default") -> Path:
     out = BUILD / f"od_epd_replay-{cls}"
     BUILD.mkdir(parents=True, exist_ok=True)
     c = CLASSES[cls]
-    defs = [] if cls == "default" else [f"-DOD_EPD_SEQ_MAX={c['seq_max']}u",
-                                        f"-DOD_EPD_MAX_SEQ_STEPS={c['max_steps']}u",
-                                        f"-DOD_EPD_WITH_WINDOW={1 if c['window'] else 0}"]
+    defs = [] if c["window"] else ["-DOD_EPD_WITH_WINDOW=0"]
     subprocess.run([_cc("c"), "-std=c11", "-Wall", "-Wextra", "-Werror", *defs,
                     f"-I{REPO / 'shared' / 'core'}", f"-I{REPO / 'shared' / 'protocol'}",
                     str(HARNESS / "od_epd_replay.c"), str(REPO / "shared" / "core" / "od_epd.c"),

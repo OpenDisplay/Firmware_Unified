@@ -25,8 +25,8 @@ foreach(variant IN ITEMS default silabs)
 endforeach()
 
 # od_epd_cfg + od_epd over the representative real panels (golden traces) and synthetic edges.
-# Default profile only: BG22's smaller OD_EPD_SEQ_MAX is a target compile definition, not part
-# of od_shared_silabs, so a _bg22 variant here would not test the BG22 interpreter limits.
+# Default profile only: the BG22 interpreter differs only by OD_EPD_WITH_WINDOW=0, a target
+# compile definition outside od_shared_silabs; tests/panels replays every panel through that build.
 add_executable(od_epd_cfg_test epd_cfg_test.c od_log_test_stub.c
     ${OD_SHARED_CORE}/od_epd_cfg.c ${OD_SHARED_CORE}/od_epd.c ${OD_SHARED_CORE}/od_cfg_index.c)
 target_link_libraries(od_epd_cfg_test od_shared)

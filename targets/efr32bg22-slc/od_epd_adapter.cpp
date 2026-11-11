@@ -12,6 +12,7 @@
 
 extern "C" {
 #include "od_cfg_index.h"
+#include "od_config_store.h"
 #include "od_epd_io_silabs.h"
 #include "opendisplay_ble.h"   /* opendisplay_get_global_config */
 #include "opendisplay_config_parser.h"
@@ -124,9 +125,9 @@ static bool io_mode_read(uint8_t index, od_epd_mode_t *out)
     out->temp_max_c = (int8_t)h[MODE_OFF_TMIN + 1u];
     out->temp_policy = h[MODE_OFF_TMIN + 2u];
     out->seq_len = rd16(&h[MODE_OFF_SEQLEN]);
+    /* The packet bounds the sequence; od_epd streams it, so there is no RAM cap to apply. */
     if (out->passes == 0u || out->passes > OD_EPD_MAX_PASSES ||
-        out->seq_len == 0u || out->seq_len > OD_EPD_SEQ_MAX ||
-        (uint32_t)MODE_OFF_SEQ + out->seq_len > e->len) {
+        out->seq_len == 0u || (uint32_t)MODE_OFF_SEQ + out->seq_len > e->len) {
         printf("[OD] mode %u rejected (passes=%u seq=%u body=%u)\r\n",
                (unsigned)index, (unsigned)out->passes, (unsigned)out->seq_len,
                (unsigned)e->len);
@@ -309,7 +310,7 @@ extern "C" int od_epd_desc_from_config(od_panel_desc_t *out, uint8_t display_ins
     out->height = d->pixel_height;
     out->colour_scheme = d->color_scheme;
 
-    if (od_cfg_index_count() <= 0 && od_cfg_index_build() < 0) {
+    if ((od_cfg_index_count() <= 0 || !od_cfg_index_current()) && od_cfg_index_build() < 0) {
         printf("[OD] desc: no config index\r\n");
         return desc_fail(-2);
     }
@@ -409,6 +410,7 @@ int OdEpdAdapter::setPanelType(uint8_t display_instance)
     s_io.cs_select = (s_named_pins[3] != 0xFFu && s_named_pins[3] != s_named_pins[2])
                    ? io_cs_select : NULL;
     s_io.read_bytes = io_read_bytes;
+    s_io.config_gen = od_config_store_generation;
     if (od_epd_init(&_epd, &_desc, &s_io) != 0) {
         return BBEP_ERROR_BAD_PARAMETER;
     }

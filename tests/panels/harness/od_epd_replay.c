@@ -4,8 +4,8 @@
  *
  * W/H is the panel size WINDOW/FILL resolve against; x y w h narrows the window to a partial
  * rectangle (od_epd_set_window), as od_display does for a partial update. Built once per
- * target class: the default limits, and BG22's (-DOD_EPD_SEQ_MAX=128u -DOD_EPD_MAX_SEQ_STEPS=64u
- * -DOD_EPD_WITH_WINDOW=0, shared/profiles.cmake).
+ * target class: the defaults, and BG22's -DOD_EPD_WITH_WINDOW=0 (shared/profiles.cmake). The
+ * mode sequence is read from the packet buffer through io->seq_read, as on a target.
  *
  * packets.bin holds framed length-prefixed packets ([number][id][len:2 LE][body]) as a
  * host would append them to a config. The 0xB1/0xAE/0xAF bodies are decoded with the
@@ -111,7 +111,7 @@ static bool io_mode_read(uint8_t index, od_epd_mode_t *out)
     memcpy(out->vsn1, h + 27, 8);
     out->seq_len = rd16(h + 35);
     return out->passes >= 1 && out->passes <= 8 && out->seq_len >= 1 &&
-           out->seq_len <= OD_EPD_SEQ_MAX && 37u + out->seq_len <= bl;
+           37u + out->seq_len <= bl;
 }
 
 static uint16_t crc16(const uint8_t *d, size_t n)
@@ -236,7 +236,9 @@ int main(int argc, char **argv)
         printf("M pass %u\n", p);
         rc = od_epd_begin_pass(&e, p);
         if (rc) return 10 - rc;
-        int imgs = count_images(e.seq, e.seq_len);
+        uint16_t bl;
+        const uint8_t *mb = mode_body(e.mode, &bl);
+        int imgs = mb ? count_images(mb + 37, e.seq_len) : -1;
         if (imgs < 1) return 20;
         for (int k = 0; k < imgs; k++) {
             printf("I %u %u %d\n", e.img_part, e.img_of, g_cs);

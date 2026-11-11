@@ -2,6 +2,7 @@
 #include "od_epd_shim.h"
 
 #include "od_cfg_index.h"
+#include "od_config_store.h"
 #include "od_epd_adapter.h"
 #include "od_log.h"
 #include "opendisplay_structs.h"
@@ -10,6 +11,14 @@
 
 static OdEpdAdapter s_epd;
 static bool s_in_pass;
+
+/* A pass streams its sequence from the stored config and pauses at the image marker while the
+ * frame arrives, so a config write is refused for exactly that span. */
+static void set_in_pass(bool on)
+{
+    s_in_pass = on;
+    od_config_store_hold_writes(on);
+}
 
 bool od_epd_shim_available(uint8_t display_instance)
 {
@@ -25,7 +34,7 @@ bool od_epd_shim_begin(uint8_t display_instance, uint8_t mode_index,
                        uint8_t dc, uint8_t rst, uint8_t busy, uint8_t cs,
                        uint8_t mosi, uint8_t sck)
 {
-    s_in_pass = false;
+    set_in_pass(false);
 
     if (s_epd.setPanelType(display_instance) != BBEP_SUCCESS) {
         od_log_warn("od_epd: no drive data for display %u", (unsigned)display_instance);
@@ -43,7 +52,7 @@ bool od_epd_shim_begin(uint8_t display_instance, uint8_t mode_index,
         od_log_warn("od_epd: beginPass failed rc=%d", s_epd.lastRc());
         return false;
     }
-    s_in_pass = true;
+    set_in_pass(true);
     return true;
 }
 
@@ -58,7 +67,14 @@ bool od_epd_shim_write(const uint8_t *data, uint32_t len)
 
 bool od_epd_shim_next_plane(void)
 {
-    return s_in_pass && s_epd.nextPlane() == BBEP_SUCCESS;
+    if (!s_in_pass) {
+        return false;
+    }
+    if (s_epd.nextPlane() != BBEP_SUCCESS) {
+        set_in_pass(false);        /* the walk is over; nothing reads the config any more */
+        return false;
+    }
+    return true;
 }
 
 bool od_epd_shim_finish(void)
@@ -66,13 +82,14 @@ bool od_epd_shim_finish(void)
     if (!s_in_pass) {
         return false;
     }
-    s_in_pass = false;
-    return s_epd.finishPass() == BBEP_SUCCESS;
+    const bool ok = s_epd.finishPass() == BBEP_SUCCESS;   /* the tail is read from storage */
+    set_in_pass(false);
+    return ok;
 }
 
 void od_epd_shim_sleep(void)
 {
-    s_in_pass = false;
+    set_in_pass(false);
     if (s_epd.ready()) {
         s_epd.sleep(DEEP_SLEEP);
     }
@@ -98,7 +115,7 @@ bool od_epd_shim_drive_begin(uint8_t display_instance, uint8_t mode_index,
                             uint8_t dc, uint8_t rst, uint8_t busy, uint8_t cs,
                             uint8_t mosi, uint8_t sck, od_epd_shim_mode_t *mode_out)
 {
-    s_in_pass = false;
+    set_in_pass(false);
 
     if (s_epd.setPanelType(display_instance) != BBEP_SUCCESS) {
         od_log_warn("drive: no drive data for display %u", (unsigned)display_instance);
@@ -129,10 +146,10 @@ bool od_epd_shim_begin_pass(uint8_t pass)
 {
     if (s_epd.beginPass(pass) != BBEP_SUCCESS) {
         od_log_warn("drive: beginPass %u failed rc=%d", (unsigned)pass, s_epd.lastRc());
-        s_in_pass = false;
+        set_in_pass(false);
         return false;
     }
-    s_in_pass = true;
+    set_in_pass(true);
     return true;
 }
 
@@ -152,7 +169,7 @@ bool od_epd_shim_raw_begin(uint8_t display_instance, uint8_t rotation_quarters,
                            uint8_t dc, uint8_t rst, uint8_t busy, uint8_t cs,
                            uint8_t mosi, uint8_t sck, bool run_panel_init)
 {
-    s_in_pass = false;
+    set_in_pass(false);
 
     if (s_epd.setPanelType(display_instance) != BBEP_SUCCESS) {
         od_log_warn("spi_raw: no drive data for display %u", (unsigned)display_instance);

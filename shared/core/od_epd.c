@@ -16,6 +16,8 @@
 #define OD_ERR_BUSY     OD_EPD_RC_BUSY
 #define OD_ERR_STATE    OD_EPD_RC_STATE
 #define OD_ERR_UNSUP    OD_EPD_RC_UNSUP
+#define OD_ERR_IO       OD_EPD_RC_IO
+#define OD_ERR_STALE    OD_EPD_RC_STALE
 
 /* Streaming chunk for the waveform. 64 B of stack against a 535-byte upload:
  * the alternative is a resident 535-byte buffer, which is 1.7% of this part's
@@ -106,126 +108,210 @@ static void seq_start(od_epd_t *e)
     }
 }
 
-int od_epd_validate(const od_epd_t *e)
+/* ------------------------------------------------------------- the reader */
+
+#define SRC_MODE  0u
+#define SRC_SLEEP 1u
+
+_Static_assert(OD_EPD_SEQ_WINDOW >= 64u && OD_EPD_SEQ_WINDOW <= 0xFFFFu,
+               "the window must hold the largest escape argument run (32 SUBST/WINDOW pairs)");
+
+static void seq_open(od_epd_t *e, uint8_t src, uint8_t mode, uint16_t len)
 {
-    const uint8_t *seq;
-    uint16_t len;
+    e->seq_src = src;
+    e->seq_mode = mode;
+    e->seq_len = len;
+    e->seq_pos = 0u;
+    e->seq_win_off = 0u;
+    e->seq_win_n = 0u;
+}
+
+static bool config_moved(const od_epd_t *e)
+{
+    return e->gen_on && e->io->config_gen() != e->gen;
+}
+
+/* Make bytes [at, at+need) of the sequence resident and return them, or NULL with *rc set:
+ * OD_ERR_SEQ when the range runs past the sequence (a malformed step), OD_ERR_STALE when the
+ * stored config changed since the pass began, OD_ERR_IO when the read fails or is short. The
+ * pointer is valid until the next call. need <= OD_EPD_SEQ_WINDOW. */
+static const uint8_t *seq_at(od_epd_t *e, uint16_t at, uint16_t need, int *rc)
+{
+    uint16_t want;
+    uint16_t got;
+
+    if ((uint32_t)at + need > e->seq_len) {
+        *rc = OD_ERR_SEQ;
+        return NULL;
+    }
+    if (at >= e->seq_win_off && (uint32_t)(at - e->seq_win_off) + need <= e->seq_win_n) {
+        return &e->seq_win[at - e->seq_win_off];
+    }
+    if (e->seq_src == SRC_SLEEP) {
+        return &e->desc->sleep_seq[at];      /* held in the descriptor; seq_len <= its size */
+    }
+    e->seq_win_n = 0u;
+    if (config_moved(e)) {
+        *rc = OD_ERR_STALE;
+        return NULL;
+    }
+    want = (uint16_t)(e->seq_len - at);
+    if (want > OD_EPD_SEQ_WINDOW) {
+        want = OD_EPD_SEQ_WINDOW;
+    }
+    got = e->io->seq_read(e->seq_mode, at, e->seq_win, want);
+    if (got != want) {
+        *rc = OD_ERR_IO;
+        return NULL;
+    }
+    e->seq_win_off = at;
+    e->seq_win_n = want;
+    return e->seq_win;
+}
+
+/* One decoded step. Plain: n = cmd + data length. Escape: n = 0, esc, size, and `a` points at
+ * the resident arguments (fixed args, or the 2*cnt SUBST/WINDOW pair bytes). */
+typedef struct {
+    uint8_t        n;
+    uint8_t        esc;
+    uint8_t        cnt;
+    uint16_t       size;
+    const uint8_t *a;
+} step_t;
+
+/* Decode and check the step at `i`. The validator and the executor both walk through this, so
+ * they cannot disagree about framing or about which arguments are legal: every walk re-reads the
+ * bytes, and the executor indexes arrays with them. Returns OD_OK, or OD_ERR_SEQ (malformed),
+ * OD_ERR_UNSUP (unknown escape, or one this io table does not implement), OD_ERR_IO /
+ * OD_ERR_STALE (from the reader). */
+static int step_decode(od_epd_t *e, uint16_t i, step_t *st)
+{
+    const uint16_t len = e->seq_len;
+    const uint8_t *p;
+    const uint8_t *a;
+    int rc = OD_OK;
+    int args;
+
+    if ((p = seq_at(e, i, 1u, &rc)) == NULL) {
+        return rc;
+    }
+    st->n = p[0];
+    if (st->n != OD_EPD_ESC) {
+        st->size = (uint16_t)(1u + st->n);
+        return (uint32_t)i + st->size > len ? OD_ERR_SEQ : OD_OK;
+    }
+    if ((p = seq_at(e, i, 2u, &rc)) == NULL) {
+        return rc;
+    }
+    st->esc = p[1];
+    st->size = 2u;
+    if (st->esc == OD_EPD_SEQ_END) {
+        return OD_OK;
+    }
+#if !OD_EPD_WITH_WINDOW
+    if (st->esc == OD_EPD_ESC_WINDOW) {
+        return OD_ERR_UNSUP;
+    }
+#endif
+    if (st->esc == OD_EPD_ESC_WAVE || st->esc == OD_EPD_ESC_WINDOW) {
+        if ((p = seq_at(e, i, 3u, &rc)) == NULL) {
+            return rc;
+        }
+        st->cnt = p[2];
+        st->size = (uint16_t)(3u + (uint16_t)st->cnt * 2u);
+        if (st->cnt == 0u || st->cnt > 32u || (uint32_t)i + st->size > len) {
+            return OD_ERR_SEQ;
+        }
+        if ((a = seq_at(e, (uint16_t)(i + 3u), (uint16_t)(st->cnt * 2u), &rc)) == NULL) {
+            return rc;
+        }
+        st->a = a;
+#if OD_EPD_WITH_WINDOW
+        for (uint8_t k = 0u; st->esc == OD_EPD_ESC_WINDOW && k < st->cnt; k++) {
+            const uint8_t v = a[k * 2u + 1u];
+            if (a[k * 2u] == OD_EPD_WIN_KIND_GEOM) {
+                if ((v & 0xC0u) != 0u ||
+                    ((v & OD_EPD_WIN_MIRROR) != 0u && (v & 0x07u) >= OD_EPD_WIN_WIDTH)) {
+                    return OD_ERR_SEQ;
+                }
+            } else if (a[k * 2u] != OD_EPD_WIN_KIND_LITERAL) {
+                return OD_ERR_SEQ;
+            }
+        }
+#endif
+        return OD_OK;
+    }
+    args = esc_arg_bytes(st->esc);
+    if (args < 0) {
+        /* Unknown escape -- including the reserved 0x80+ length-carrying range, which this
+         * executor does not implement either. Refusing the WHOLE sequence at validation
+         * (nothing has touched the panel yet) is the contract behind
+         * OD_ERR_DRIVE_SEQ_UNSUPPORTED. */
+        return OD_ERR_UNSUP;
+    }
+    st->size = (uint16_t)(2u + (uint16_t)args);
+    if ((uint32_t)i + st->size > len) {
+        return OD_ERR_SEQ;
+    }
+#if !OD_EPD_WITH_WINDOW
+    if (st->esc == OD_EPD_ESC_FILL) {
+        return OD_ERR_UNSUP;   /* after the length check, as the validator always ordered it */
+    }
+#endif
+    /* Known but not implemented by THIS io table. */
+    if ((st->esc == OD_EPD_ESC_SET_PIN && e->io->set_pin == NULL) ||
+        (st->esc == OD_EPD_ESC_CS_SELECT && e->io->cs_select == NULL) ||
+        (st->esc == OD_EPD_ESC_READ_SCRATCH && e->io->read_bytes == NULL)) {
+        return OD_ERR_UNSUP;
+    }
+    if ((p = seq_at(e, i, st->size, &rc)) == NULL) {
+        return rc;
+    }
+    a = st->a = p + 2;
+    switch (st->esc) {
+        case OD_EPD_ESC_CS_SELECT:     return a[0] > 1u ? OD_ERR_SEQ : OD_OK;   /* cs_pin / cs_pin_2 */
+        case OD_EPD_ESC_READ_SCRATCH:  return (a[1] == 0u || a[1] > OD_EPD_SCRATCH_LEN)
+                                              ? OD_ERR_SEQ : OD_OK;
+        case OD_EPD_ESC_WRITE_SCRATCH: return (uint32_t)a[1] + a[2] > OD_EPD_SCRATCH_LEN
+                                              ? OD_ERR_SEQ : OD_OK;
+        case OD_EPD_ESC_IMAGE_SLICE:   return (a[1] == 0u || a[0] >= a[1]) ? OD_ERR_SEQ : OD_OK;
+        case OD_EPD_ESC_SET_PIN:       return a[1] > 2u ? OD_ERR_SEQ : OD_OK;   /* 0, 1, 2 = Hi-Z */
+        case OD_EPD_ESC_FILL:          return ((a[2] & 0x03u) > 2u || (a[2] & 0x7Cu) != 0u)
+                                              ? OD_ERR_SEQ : OD_OK;
+        default:                       return OD_OK;
+    }
+}
+
+int od_epd_validate(od_epd_t *e)
+{
     uint16_t i = 0;
     uint16_t steps = 0;
+    step_t st;
 
     if (e == NULL || e->io == NULL) {
         return OD_ERR_ARG;
     }
-    seq = e->seq;
-    len = e->seq_len;
+    e->seq_has_window = false;
+    e->seq_tail = 0u;
 
-    while (i < len) {
+    while (i < e->seq_len) {
         if (++steps > OD_EPD_MAX_SEQ_STEPS) {
             return OD_ERR_SEQ;
         }
-        uint8_t n = seq[i];
-        if (n != OD_EPD_ESC) {
-            if ((uint32_t)i + 1u + n > len) {
-                return OD_ERR_SEQ;
+        int rc = step_decode(e, i, &st);
+        if (rc != OD_OK) {
+            return rc;
+        }
+        i = (uint16_t)(i + st.size);
+        if (st.n == 0u) {
+            if (st.esc == OD_EPD_SEQ_END) {
+                return OD_OK;
             }
-            i += 1u + n;
-            continue;
-        }
-        if (i + 1u >= len) {
-            return OD_ERR_SEQ;
-        }
-        uint8_t esc = seq[i + 1u];
-        if (esc == OD_EPD_SEQ_END) {
-            return OD_OK;
-        }
-        if (esc == OD_EPD_ESC_WAVE) {
-            if (i + 2u >= len) {
-                return OD_ERR_SEQ;
+            if (st.esc == OD_EPD_ESC_IMAGE || st.esc == OD_EPD_ESC_IMAGE_SLICE) {
+                e->seq_tail = i;
             }
-            uint8_t cnt = seq[i + 2u];
-            if (cnt == 0u || cnt > 32u ||
-                (uint32_t)i + 3u + (uint32_t)cnt * 2u > len) {
-                return OD_ERR_SEQ;
-            }
-            i += 3u + (uint16_t)cnt * 2u;
-            continue;
+            e->seq_has_window = e->seq_has_window || st.esc == OD_EPD_ESC_WINDOW;
         }
-        if (esc == OD_EPD_ESC_WINDOW) {
-#if OD_EPD_WITH_WINDOW
-            if (i + 2u >= len) {
-                return OD_ERR_SEQ;
-            }
-            uint8_t cnt = seq[i + 2u];
-            if (cnt == 0u || cnt > 32u ||
-                (uint32_t)i + 3u + (uint32_t)cnt * 2u > len) {
-                return OD_ERR_SEQ;
-            }
-            for (uint8_t k = 0u; k < cnt; k++) {
-                const uint8_t kind = seq[i + 3u + k * 2u];
-                const uint8_t v = seq[i + 4u + k * 2u];
-                if (kind == OD_EPD_WIN_KIND_GEOM) {
-                    if ((v & 0xC0u) != 0u ||
-                        ((v & OD_EPD_WIN_MIRROR) != 0u && (v & 0x07u) >= OD_EPD_WIN_WIDTH)) {
-                        return OD_ERR_SEQ;
-                    }
-                } else if (kind != OD_EPD_WIN_KIND_LITERAL) {
-                    return OD_ERR_SEQ;
-                }
-            }
-            i += 3u + (uint16_t)cnt * 2u;
-            continue;
-#else
-            return OD_ERR_UNSUP;
-#endif
-        }
-        int args = esc_arg_bytes(esc);
-        if (args < 0) {
-            /* Unknown escape -- including the reserved 0x80+ length-carrying
-             * range, which this executor does not implement either. Refusing
-             * the WHOLE sequence here (nothing has touched the panel yet) is
-             * the contract behind OD_ERR_DRIVE_SEQ_UNSUPPORTED. */
-            return OD_ERR_UNSUP;
-        }
-        if ((uint32_t)i + 2u + (uint32_t)args > len) {
-            return OD_ERR_SEQ;
-        }
-        /* Known but not implemented by THIS io table. */
-        if ((esc == OD_EPD_ESC_SET_PIN && e->io->set_pin == NULL) ||
-            (esc == OD_EPD_ESC_CS_SELECT && e->io->cs_select == NULL) ||
-            (esc == OD_EPD_ESC_READ_SCRATCH && e->io->read_bytes == NULL)) {
-            return OD_ERR_UNSUP;
-        }
-        if (esc == OD_EPD_ESC_CS_SELECT && seq[i + 2u] > 1u) {
-            return OD_ERR_SEQ;      /* 0 = cs_pin, 1 = cs_pin_2 */
-        }
-        if (esc == OD_EPD_ESC_READ_SCRATCH &&
-            (seq[i + 3u] == 0u || seq[i + 3u] > OD_EPD_SCRATCH_LEN)) {
-            return OD_ERR_SEQ;
-        }
-        if (esc == OD_EPD_ESC_WRITE_SCRATCH &&
-            (uint32_t)seq[i + 3u] + seq[i + 4u] > OD_EPD_SCRATCH_LEN) {
-            return OD_ERR_SEQ;
-        }
-        if (esc == OD_EPD_ESC_IMAGE_SLICE) {
-            uint8_t part = seq[i + 2u];
-            uint8_t of = seq[i + 3u];
-            if (of == 0u || part >= of) {
-                return OD_ERR_SEQ;
-            }
-        }
-        if (esc == OD_EPD_ESC_SET_PIN && seq[i + 3u] > 2u) {
-            return OD_ERR_SEQ;      /* level is 0, 1 or 2 (Hi-Z) */
-        }
-        if (esc == OD_EPD_ESC_FILL) {
-#if OD_EPD_WITH_WINDOW
-            if ((seq[i + 4u] & 0x03u) > 2u || (seq[i + 4u] & 0x7Cu) != 0u) {
-                return OD_ERR_SEQ;
-            }
-#else
-            return OD_ERR_UNSUP;
-#endif
-        }
-        i += 2u + (uint16_t)args;
     }
     /* Running off the end without an END escape is legal -- the runtime walk
      * treats it as end-of-sequence, so the validator must agree with it. */
@@ -249,6 +335,9 @@ static int stream_lut(od_epd_t *e, uint8_t slot, uint8_t vsn1,
     while (off < end) {
         uint16_t want = (uint16_t)((uint16_t)(end - off) < (uint16_t)LUT_CHUNK
                                  ? (uint16_t)(end - off) : (uint16_t)LUT_CHUNK);
+        if (config_moved(e)) {
+            return OD_ERR_STALE;
+        }
         uint16_t got = e->io->lut_read(slot, off, buf, want);
         if (got != want) {
             return OD_ERR_LUT;
@@ -323,227 +412,151 @@ static void run_fill(od_epd_t *e, uint8_t cmd, uint8_t value, uint8_t flags)
 }
 #endif
 
+/* cmd + data of a plain step [n][cmd][data...] at `i`. The first window's worth is read before
+ * the command byte goes out, so a step that fits the window is one cmd() and one data() call; a
+ * longer step continues in window-sized data() calls. */
+static int run_plain(od_epd_t *e, uint16_t i, uint8_t n)
+{
+    uint16_t at = (uint16_t)(i + 1u);
+    uint16_t left = n;
+    bool first = true;
+    int rc = OD_OK;
+
+    while (left > 0u) {
+        const uint16_t c = left < OD_EPD_SEQ_WINDOW ? left : (uint16_t)OD_EPD_SEQ_WINDOW;
+        const uint8_t *p = seq_at(e, at, c, &rc);
+        if (p == NULL) {
+            return rc;
+        }
+        if (first) {
+            e->io->cmd(p[0]);
+            if (c > 1u) {
+                e->io->data(&p[1], (size_t)(c - 1u));
+            }
+            first = false;
+        } else {
+            e->io->data(p, c);
+        }
+        at = (uint16_t)(at + c);
+        left = (uint16_t)(left - c);
+    }
+    return OD_OK;
+}
+
 static int run_sequence(od_epd_t *e)
 {
-    const uint8_t *hdr = e->lut_hdr;
-    const bool have_hdr = e->lut_have;
-    const uint8_t slot = e->lut_slot;
-    const uint8_t vsn1 = e->lut_vsn1;
-    const uint16_t lut_len = e->lut_len;
-    const uint8_t *seq = e->seq;
-    uint16_t len = e->seq_len;
+    const uint16_t len = e->seq_len;
     uint16_t i = e->seq_pos;
     uint16_t steps = 0;
     uint8_t  buf[32];
+    step_t   st;
+    int rc;
 
     while (i < len) {
         if (++steps > OD_EPD_MAX_SEQ_STEPS) {
             e->seq_pos = i;
             return OD_ERR_SEQ;
         }
-        uint8_t n = seq[i];
+        if ((rc = step_decode(e, i, &st)) != OD_OK) {
+            return rc;
+        }
+        const uint8_t *a = st.a;
+        bool ok = true;
 
-        if (n != OD_EPD_ESC) {
+        if (st.n != 0u) {
             /* plain step: [len][cmd][data...] */
-            if ((uint32_t)i + 1u + n > len) {
-                return OD_ERR_SEQ;
-            }
-            e->io->cmd(seq[i + 1u]);
-            if (n > 1u) {
-                e->io->data(&seq[i + 2u], (size_t)(n - 1u));
-            }
-            i += 1u + n;
-            continue;
-        }
-
-        /* escape */
-        if (i + 1u >= len) {
-            return OD_ERR_SEQ;
-        }
-        uint8_t esc = seq[i + 1u];
-
-        if (esc == OD_EPD_SEQ_END) {
-            e->seq_pos = len;
-            return OD_OK;
-        }
-        if (esc == OD_EPD_ESC_BUSY) {
-            if (!od_epd_wait_idle(e, e->desc->busy_timeout_ms)) {
-                return OD_ERR_BUSY;
-            }
-            i += 2u;
-            continue;
-        }
-        if (esc == OD_EPD_ESC_DELAY) {
-            if ((uint32_t)i + 4u > len) {
-                return OD_ERR_SEQ;
-            }
-            e->io->delay_ms((uint32_t)seq[i + 2u] | ((uint32_t)seq[i + 3u] << 8));
-            i += 4u;
-            continue;
-        }
-        if (esc == OD_EPD_ESC_IMAGE) {
-            e->img_part = 0u;
-            e->img_of = 1u;
-            e->seq_pos = (uint16_t)(i + 2u);
-            return 1;            /* caller streams the frame, then resumes */
-        }
-        if (esc == OD_EPD_ESC_IMAGE_SLICE) {
-            if ((uint32_t)i + 4u > len) {
-                return OD_ERR_SEQ;
-            }
-            e->img_part = seq[i + 2u];
-            e->img_of = seq[i + 3u];
-            e->seq_pos = (uint16_t)(i + 4u);
-            return 1;            /* caller streams frame_bytes / img_of bytes */
-        }
-        if (esc == OD_EPD_ESC_SET_PIN) {
-            if ((uint32_t)i + 4u > len) {
-                return OD_ERR_SEQ;
-            }
-            if (e->io->set_pin == NULL ||
-                !e->io->set_pin(seq[i + 2u], seq[i + 3u])) {
-                /* Validation keeps a NULL hook from ever landing here; a false
-                 * return means the pin reference is unwired on this board. */
-                return OD_ERR_UNSUP;
-            }
-            i += 4u;
-            continue;
-        }
-        if (esc == OD_EPD_ESC_CS_SELECT) {
-            if ((uint32_t)i + 3u > len) {
-                return OD_ERR_SEQ;
-            }
-            if (seq[i + 2u] > 1u) {
-                return OD_ERR_SEQ;
-            }
-            if (e->io->cs_select == NULL || !e->io->cs_select(seq[i + 2u])) {
-                return OD_ERR_UNSUP;
-            }
-            i += 3u;
-            continue;
-        }
-        if (esc == OD_EPD_ESC_READ_SCRATCH) {
-            const uint8_t n_rd = ((uint32_t)i + 4u <= len) ? seq[i + 3u] : 0u;
-            if (n_rd == 0u || n_rd > OD_EPD_SCRATCH_LEN) {
-                return OD_ERR_SEQ;
-            }
-            if (e->io->read_bytes == NULL ||
-                !e->io->read_bytes(seq[i + 2u], e->scratch, n_rd)) {
-                return OD_ERR_UNSUP;
-            }
-            i += 4u;
-            continue;
-        }
-        if (esc == OD_EPD_ESC_WRITE_SCRATCH) {
-            if ((uint32_t)i + 5u > len) {
-                return OD_ERR_SEQ;
-            }
-            const uint8_t off = seq[i + 3u];
-            const uint8_t n_wr = seq[i + 4u];
-            if ((uint32_t)off + n_wr > OD_EPD_SCRATCH_LEN) {
-                return OD_ERR_SEQ;
-            }
-            e->io->cmd(seq[i + 2u]);
-            if (n_wr > 0u) {
-                e->io->data(&e->scratch[off], n_wr);
-            }
-            i += 5u;
-            continue;
-        }
-        if (esc == OD_EPD_ESC_LUT) {
-            /* Loud, not silent: a mode whose sequence uploads a waveform but
-             * whose pass resolved no slot would otherwise refresh with whatever
-             * the panel had in its waveform register. */
-            if (!have_hdr) {
-                return OD_ERR_LUT;
-            }
-            int rc = stream_lut(e, slot, vsn1, 0u, lut_len);
-            if (rc != OD_OK) {
+            if ((rc = run_plain(e, i, st.n)) != OD_OK) {
                 return rc;
             }
-            i += 2u;
+            i = (uint16_t)(i + st.size);
             continue;
         }
-        if (esc == OD_EPD_ESC_LUT_SLICE) {
-            if ((uint32_t)i + 6u > len) {
-                return OD_ERR_SEQ;
-            }
-            uint16_t s_off = (uint16_t)(seq[i + 2u] | ((uint16_t)seq[i + 3u] << 8));
-            uint16_t s_len = (uint16_t)(seq[i + 4u] | ((uint16_t)seq[i + 5u] << 8));
-            if (!have_hdr) {
-                return OD_ERR_LUT;
-            }
-            if ((uint32_t)s_off + s_len > lut_len) {
-                return OD_ERR_SEQ;   /* slice runs past the stored slot */
-            }
-            int rc = stream_lut(e, slot, vsn1, s_off, s_len);
-            if (rc != OD_OK) {
-                return rc;
-            }
-            i += 6u;
-            continue;
-        }
-#if OD_EPD_WITH_WINDOW
-        if (esc == OD_EPD_ESC_FILL) {
-            if ((uint32_t)i + 5u > len) {
-                return OD_ERR_SEQ;
-            }
-            if ((seq[i + 4u] & 0x03u) > 2u) {
-                return OD_ERR_SEQ;  /* bpp code indexes bpp_of[3] */
-            }
-            run_fill(e, seq[i + 2u], seq[i + 3u], seq[i + 4u]);
-            i += 5u;
-            continue;
-        }
-        if (esc == OD_EPD_ESC_WINDOW) {
-            if (i + 2u >= len) {
-                return OD_ERR_SEQ;
-            }
-            uint8_t cnt = seq[i + 2u];
-            if (cnt == 0u || cnt > sizeof(buf) ||
-                (uint32_t)i + 3u + (uint32_t)cnt * 2u > len) {
-                return OD_ERR_SEQ;
-            }
-            const uint8_t *p = &seq[i + 3u];
-            for (uint8_t k = 0; k < cnt; k++) {
-                if (p[k * 2u] == OD_EPD_WIN_KIND_GEOM) {
-                    const uint16_t v = win_value(e, p[k * 2u + 1u]);
-                    buf[k] = (uint8_t)(((p[k * 2u + 1u] & OD_EPD_WIN_HIGH) != 0u) ? (v >> 8) : v);
-                } else {
-                    buf[k] = p[k * 2u + 1u];
+        switch (st.esc) {
+            case OD_EPD_SEQ_END:
+                e->seq_pos = len;
+                return OD_OK;
+            case OD_EPD_ESC_IMAGE:
+            case OD_EPD_ESC_IMAGE_SLICE:
+                e->img_part = st.esc == OD_EPD_ESC_IMAGE_SLICE ? a[0] : 0u;
+                e->img_of = st.esc == OD_EPD_ESC_IMAGE_SLICE ? a[1] : 1u;
+                e->seq_pos = (uint16_t)(i + st.size);
+                return 1;        /* caller streams frame_bytes / img_of bytes, then resumes */
+            case OD_EPD_ESC_BUSY:
+                if (!od_epd_wait_idle(e, e->desc->busy_timeout_ms)) {
+                    return OD_ERR_BUSY;
                 }
+                break;
+            case OD_EPD_ESC_DELAY:
+                e->io->delay_ms((uint32_t)a[0] | ((uint32_t)a[1] << 8));
+                break;
+            /* Validation keeps a NULL hook from ever landing on these three; a false return
+             * means the reference is unwired on this board. */
+            case OD_EPD_ESC_SET_PIN:
+                ok = e->io->set_pin(a[0], a[1]);
+                break;
+            case OD_EPD_ESC_CS_SELECT:
+                ok = e->io->cs_select(a[0]);
+                break;
+            case OD_EPD_ESC_READ_SCRATCH:
+                ok = e->io->read_bytes(a[0], e->scratch, a[1]);
+                break;
+            case OD_EPD_ESC_WRITE_SCRATCH:
+                e->io->cmd(a[0]);
+                if (a[2] > 0u) {
+                    e->io->data(&e->scratch[a[1]], a[2]);
+                }
+                break;
+            case OD_EPD_ESC_LUT:
+            case OD_EPD_ESC_LUT_SLICE: {
+                /* Loud, not silent: a mode whose sequence uploads a waveform but whose pass
+                 * resolved no slot would otherwise refresh with whatever the panel had in its
+                 * waveform register. */
+                uint16_t s_off = 0u;
+                uint16_t s_len = e->lut_len;
+                if (st.esc == OD_EPD_ESC_LUT_SLICE) {
+                    s_off = (uint16_t)(a[0] | ((uint16_t)a[1] << 8));
+                    s_len = (uint16_t)(a[2] | ((uint16_t)a[3] << 8));
+                }
+                if (!e->lut_have) {
+                    return OD_ERR_LUT;
+                }
+                if ((uint32_t)s_off + s_len > e->lut_len) {
+                    return OD_ERR_SEQ;   /* slice runs past the stored slot */
+                }
+                if ((rc = stream_lut(e, e->lut_slot, e->lut_vsn1, s_off, s_len)) != OD_OK) {
+                    return rc;
+                }
+                break;
             }
-            e->io->cmd(buf[0]);
-            if (cnt > 1u) {
-                e->io->data(&buf[1], (size_t)(cnt - 1u));
-            }
-            i += 3u + (uint16_t)cnt * 2u;
-            continue;
-        }
+#if OD_EPD_WITH_WINDOW
+            case OD_EPD_ESC_FILL:
+                run_fill(e, a[0], a[1], a[2]);
+                break;
 #endif
-        if (esc == OD_EPD_ESC_WAVE) {
-            if (i + 2u >= len) {
-                return OD_ERR_SEQ;
-            }
-            uint8_t cnt = seq[i + 2u];
-            if (cnt == 0u || cnt > sizeof(buf) ||
-                (uint32_t)i + 3u + (uint32_t)cnt * 2u > len) {
-                return OD_ERR_SEQ;
-            }
-            const uint8_t *p = &seq[i + 3u];
-            for (uint8_t k = 0; k < cnt; k++) {
-                buf[k] = (p[k * 2u] == 0xFFu)
-                       ? wave_byte(hdr, have_hdr, p[k * 2u + 1u])
-                       : p[k * 2u + 1u];
-            }
-            e->io->cmd(buf[0]);
-            if (cnt > 1u) {
-                e->io->data(&buf[1], (size_t)(cnt - 1u));
-            }
-            i += 3u + (uint16_t)cnt * 2u;
-            continue;
+            default:   /* SUBST, WINDOW: one command built from (kind, value) pairs */
+                for (uint8_t k = 0; k < st.cnt; k++) {
+                    const uint8_t kind = a[k * 2u];
+                    const uint8_t v = a[k * 2u + 1u];
+#if OD_EPD_WITH_WINDOW
+                    if (st.esc == OD_EPD_ESC_WINDOW) {
+                        const uint16_t w = kind == OD_EPD_WIN_KIND_GEOM ? win_value(e, v) : v;
+                        buf[k] = (uint8_t)((kind == OD_EPD_WIN_KIND_GEOM &&
+                                            (v & OD_EPD_WIN_HIGH) != 0u) ? (w >> 8) : w);
+                        continue;
+                    }
+#endif
+                    buf[k] = (kind == 0xFFu) ? wave_byte(e->lut_hdr, e->lut_have, v) : v;
+                }
+                e->io->cmd(buf[0]);
+                if (st.cnt > 1u) {
+                    e->io->data(&buf[1], (size_t)(st.cnt - 1u));
+                }
+                break;
         }
-        return OD_ERR_SEQ;
+        if (!ok) {
+            return OD_ERR_UNSUP;
+        }
+        i = (uint16_t)(i + st.size);
     }
     e->seq_pos = len;
     return OD_OK;
@@ -618,48 +631,26 @@ void od_epd_set_window(od_epd_t *e, uint16_t x, uint16_t y, uint16_t w, uint16_t
 }
 
 #if OD_EPD_WITH_WINDOW
-/* A validated sequence only. A rectangle smaller than the panel can only be addressed by a
- * sequence that places the RAM window itself; one without WINDOW would write the rectangle's
- * bytes from the panel origin. */
-static bool seq_uses_window(const od_epd_t *e)
-{
-    uint16_t i = 0u;
-
-    while ((uint32_t)i + 1u < e->seq_len) {
-        const uint8_t n = e->seq[i];
-        uint8_t esc;
-        int args;
-
-        if (n != OD_EPD_ESC) {
-            i = (uint16_t)(i + 1u + n);
-            continue;
-        }
-        esc = e->seq[i + 1u];
-        if (esc == OD_EPD_SEQ_END) {
-            return false;
-        }
-        if (esc == OD_EPD_ESC_WINDOW) {
-            return true;
-        }
-        if (esc == OD_EPD_ESC_WAVE) {
-            i = (uint16_t)(i + 3u + (uint16_t)e->seq[i + 2u] * 2u);
-            continue;
-        }
-        args = esc_arg_bytes(esc);
-        if (args < 0) {
-            return false;
-        }
-        i = (uint16_t)(i + 2u + (uint16_t)args);
-    }
-    return false;
-}
-
 static bool window_is_panel(const od_epd_t *e)
 {
     return e->win_x == 0u && e->win_y == 0u &&
            e->win_w == e->desc->width && e->win_h == e->desc->height;
 }
 #endif
+
+/* A storage failure once the panel has seen I/O: put it to sleep from the descriptor's copy of
+ * the sleep sequence (RAM, so it cannot fail the same way), then report the failure. The
+ * caller's own od_epd_sleep() that normally follows a failed pass is absorbed, so the panel
+ * sees the sleep sequence once. */
+static int pass_failed(od_epd_t *e, int rc)
+{
+    e->paused = false;
+    if ((rc == OD_ERR_IO || rc == OD_ERR_STALE) && e->io_started) {
+        (void)od_epd_sleep(e);
+        e->slept_on_fail = true;
+    }
+    return rc;
+}
 
 int od_epd_begin_pass(od_epd_t *e, uint8_t pass)
 {
@@ -668,22 +659,20 @@ int od_epd_begin_pass(od_epd_t *e, uint8_t pass)
     if (pass >= m->passes) {
         return OD_ERR_MODE;
     }
-    if (m->seq_len == 0u || m->seq_len > OD_EPD_SEQ_MAX) {
+    if (m->seq_len == 0u) {
         return OD_ERR_SEQ;
     }
     e->pass = pass;
     e->paused = false;
+    e->io_started = false;
+    e->slept_on_fail = false;
+    e->gen_on = e->io->config_gen != NULL;
+    e->gen = e->gen_on ? e->io->config_gen() : 0u;
+    seq_open(e, SRC_MODE, e->mode, m->seq_len);
 
-    /* Pull this pass's recipe out of NVM3. One read, 128 B max. */
-    e->seq_len = e->io->seq_read(e->mode, 0u, e->seq, m->seq_len);
-    if (e->seq_len != m->seq_len) {
-        return OD_ERR_SEQ;
-    }
-    e->seq_pos = 0u;
-
-    /* Capability + structure pre-scan BEFORE any panel I/O. A sequence using an
-     * escape this target does not implement is refused wholesale here -- no
-     * reset, no power, nothing half-executed (wire: SEQ_UNSUPPORTED). */
+    /* Capability + structure pre-scan BEFORE any panel I/O, over the same reader the walk
+     * uses. A sequence using an escape this target does not implement is refused wholesale
+     * here -- no reset, no power, nothing half-executed (wire: SEQ_UNSUPPORTED). */
     {
         int vrc = od_epd_validate(e);
         if (vrc != OD_OK) {
@@ -691,7 +680,7 @@ int od_epd_begin_pass(od_epd_t *e, uint8_t pass)
         }
     }
 #if OD_EPD_WITH_WINDOW
-    if (!window_is_panel(e) && !seq_uses_window(e)) {
+    if (!window_is_panel(e) && !e->seq_has_window) {
         return OD_ERR_UNSUP;
     }
 #endif
@@ -703,6 +692,7 @@ int od_epd_begin_pass(od_epd_t *e, uint8_t pass)
         }
     }
 
+    e->io_started = true;
     e->io->reset(10);
     if (!od_epd_wait_idle(e, e->desc->busy_timeout_ms)) {
         return OD_ERR_BUSY;
@@ -710,7 +700,7 @@ int od_epd_begin_pass(od_epd_t *e, uint8_t pass)
 
     int rc = run_sequence(e);
     if (rc < 0) {
-        return rc;
+        return pass_failed(e, rc);
     }
     if (rc == 1) {
         e->paused = true;        /* stopped on the image marker, as expected */
@@ -735,21 +725,30 @@ int od_epd_write_image_chunk(od_epd_t *e, const uint8_t *buf, size_t n)
     return OD_OK;
 }
 
+/* Resume a paused walk. The bytes ahead are read from storage again, so the config must still be
+ * the one the pass began on. */
+static int resume(od_epd_t *e)
+{
+    int rc;
+
+    e->paused = false;
+    if (config_moved(e)) {
+        return pass_failed(e, OD_ERR_STALE);
+    }
+    rc = run_sequence(e);
+    return rc < 0 ? pass_failed(e, rc) : rc;
+}
+
 int od_epd_next_plane(od_epd_t *e)
 {
     /* Panels that take two 1bpp planes (3-colour black/white/red) have a second
      * image command between them -- bb_epaper spelled this startWrite(PLANE_1).
      * Here it is a second image marker in the same sequence, so the register
-     * that opens plane 1 is config data like every other byte.
-     *
-     * No panel in this branch uses it: the three BWRY panels are single-plane
-     * 2bpp. It exists so a 3-colour panel is EXPRESSIBLE in a sequence rather
-     * than blocked on a driver change. */
+     * that opens plane 1 is config data like every other byte. */
     if (!e || !e->paused) {
         return OD_ERR_STATE;
     }
-    e->paused = false;
-    int rc = run_sequence(e);
+    int rc = resume(e);
     if (rc < 0) {
         return rc;
     }
@@ -765,98 +764,66 @@ int od_epd_finish_pass(od_epd_t *e)
     if (!e || !e->paused) {
         return OD_ERR_STATE;
     }
-    e->paused = false;
     /* The tail -- power-on, refresh opcode, BUSY wait -- is the remainder of
      * the same sequence. A panel needing a different refresh command or an
      * extra register poke after the frame needs no code change here. */
-    int rc = run_sequence(e);
+    int rc = resume(e);
     return (rc < 0) ? rc : OD_OK;
-}
-
-/* Offset just past the LAST image marker of a validated sequence, or 0 when it has none. */
-static uint16_t after_last_image(const uint8_t *seq, uint16_t len)
-{
-    uint16_t i = 0u;
-    uint16_t after = 0u;
-
-    while (i < len) {
-        const uint8_t n = seq[i];
-        if (n != OD_EPD_ESC) {
-            i = (uint16_t)(i + 1u + n);
-            continue;
-        }
-        if (i + 1u >= len) {
-            break;
-        }
-        const uint8_t esc = seq[i + 1u];
-        if (esc == OD_EPD_SEQ_END) {
-            break;
-        }
-        if (esc == OD_EPD_ESC_WAVE || esc == OD_EPD_ESC_WINDOW) {
-            i = (uint16_t)(i + 3u + (uint16_t)seq[i + 2u] * 2u);
-            continue;
-        }
-        i = (uint16_t)(i + 2u + (uint16_t)esc_arg_bytes(esc));
-        if (esc == OD_EPD_ESC_IMAGE || esc == OD_EPD_ESC_IMAGE_SLICE) {
-            after = i;
-        }
-    }
-    return after;
 }
 
 int od_epd_finish_with_tail(od_epd_t *e, uint8_t mode)
 {
     od_epd_mode_t m;
-    uint16_t at;
     int rc;
 
     if (!e || !e->paused) {
         return OD_ERR_STATE;
     }
-    if (mode >= e->desc->mode_count || !e->io->mode_read(mode, &m) ||
-        m.seq_len == 0u || m.seq_len > OD_EPD_SEQ_MAX) {
+    if (mode >= e->desc->mode_count || !e->io->mode_read(mode, &m) || m.seq_len == 0u) {
         return OD_ERR_MODE;
     }
     e->paused = false;
-    e->seq_len = e->io->seq_read(mode, 0u, e->seq, m.seq_len);
-    if (e->seq_len != m.seq_len) {
-        return OD_ERR_SEQ;
+    if (config_moved(e)) {
+        return pass_failed(e, OD_ERR_STALE);
     }
+    seq_open(e, SRC_MODE, mode, m.seq_len);
     rc = od_epd_validate(e);
     if (rc != OD_OK) {
-        return rc;
+        return pass_failed(e, rc);
     }
-    at = after_last_image(e->seq, e->seq_len);
-    if (at == 0u) {
+    if (e->seq_tail == 0u) {
         return OD_ERR_SEQ;      /* a tail is defined by the image marker it follows */
     }
     rc = resolve_lut(e, m.lut_slot[0], m.vsn1[0]);
     if (rc != OD_OK) {
         return rc;
     }
-    e->seq_pos = at;
+    e->seq_pos = e->seq_tail;
     rc = run_sequence(e);
     if (rc == 1) {
         return OD_ERR_SEQ;      /* only the last marker's tail may run here */
     }
-    return (rc < 0) ? rc : OD_OK;
+    return (rc < 0) ? pass_failed(e, rc) : OD_OK;
 }
 
 int od_epd_sleep(od_epd_t *e)
 {
+    if (e != NULL && e->slept_on_fail) {
+        e->slept_on_fail = false;
+        return OD_OK;            /* the failed pass already ran it */
+    }
     if (!e || e->desc->sleep_seq_len == 0u) {
         return OD_OK;            /* panel declares no sleep sequence */
     }
     if (e->desc->sleep_seq_len > OD_EPD_SLEEP_SEQ_MAX) {
         return OD_ERR_SEQ;
     }
-    memcpy(e->seq, e->desc->sleep_seq, e->desc->sleep_seq_len);
-    e->seq_len = e->desc->sleep_seq_len;
-    e->seq_pos = 0u;
+    seq_open(e, SRC_SLEEP, 0u, e->desc->sleep_seq_len);
     e->paused = false;
     e->lut_have = false;
     /* The sleep sequence is config data like any mode sequence: same validator, before any
-     * panel I/O. run_sequence() relies on it (FILL's bpp code, CS_SELECT's range). */
+     * panel I/O. run_sequence() relies on it (FILL's bpp code, CS_SELECT's range). It is held
+     * in the descriptor, so it does not depend on the stored config staying put. */
     int rc = od_epd_validate(e);
     if (rc != OD_OK) {
         return rc;

@@ -288,11 +288,12 @@ class Equivalence(unittest.TestCase):
                                      v["status"] == "equivalent")
         self.assertGreaterEqual(n, 200)
 
-    def test_default_blob_refused_by_bg22_when_too_big(self):
-        """The BG22-built interpreter really refuses what the bg22 view leaves out."""
-        e = PRESETS["panels"]["0x000C"]
-        self.assertEqual(e["targets"]["bg22"]["status"], "blocked")
-        rc, _ = P.replay(bytes.fromhex(e["framed_hex"]), "0", "bg22", [e["width"], e["height"]])
+    def test_default_window_mode_refused_by_bg22(self):
+        """The BG22-built interpreter really refuses what the bg22 view leaves out (WINDOW/FILL)."""
+        e = PRESETS["panels"]["0x0001"]
+        m = next(m for m in e["modes"] if m["window"])
+        self.assertFalse(any(x["window"] for x in e["targets"]["bg22"]["modes"]))
+        rc, _ = P.replay(bytes.fromhex(e["framed_hex"]), str(m["index"]), "bg22", [e["width"], e["height"]])
         self.assertNotEqual(rc, 0)
 
     def test_alternatives_walk_on_bg22(self):

@@ -30,11 +30,18 @@
  * callbacks, not pointed at: a 535-byte waveform is streamed to the panel in
  * chunks rather than copied into RAM first.
  *
+ * SEQUENCES ARE STREAMED TOO. The interpreter holds a reference to the
+ * active sequence (its source and length) and a position, and pulls bytes
+ * through io->seq_read into a fixed window as it walks. Its length is bounded
+ * by the packet that carries it, i.e. by the config size, not by RAM.
+ *
  * SAFETY. Sequences are now UNTRUSTED INPUT on the pre-auth config path. The
  * interpreter is deliberately not a VM: it is a forward-only walk over
- * length-prefixed steps with a hard cap on step count and total length, no
- * jumps, no loops, no addressing. The worst a malformed sequence can do is
- * clock out garbage and time out -- which raw SPI can already do.
+ * length-prefixed steps with a hard cap on step count, no jumps, no loops, no
+ * addressing. The worst a malformed sequence can do is clock out garbage and
+ * time out -- which raw SPI can already do. Every walk re-reads, so the
+ * executor re-checks every argument it indexes with rather than trusting the
+ * validator's earlier read.
  */
 #ifndef OD_EPD_H
 #define OD_EPD_H
@@ -47,16 +54,20 @@
 extern "C" {
 #endif
 
-/* One mode's sequence is held in od_epd_t for the whole pass (the walk pauses at the image
- * marker), so this is RAM. 512 B / 96 steps fits every bb_epaper flow the panel database encodes
- * (the longest needs 424 B and 80 steps). BG22 keeps 128 / 64 through its profile: there a
- * longer mode is refused at select, and the host sees the panel as not drivable in that mode. */
-#ifndef OD_EPD_SEQ_MAX
-#define OD_EPD_SEQ_MAX        512u
+/* Sequence window: the bytes of the active sequence resident at once. A step is [n][cmd][data]
+ * with n up to 255; one whose cmd + data fits here goes to the bus as one cmd() and one data()
+ * call, a longer one continues in window-sized data() calls, the way a waveform slot and the
+ * frame already reach the bus. 128 holds every escape whole (the largest, SUBST/WINDOW with 32
+ * pairs, is 67 B) and every step of 70 of the 77 database panels; the other seven have one 0x32
+ * waveform-register step of 154 or 229 B (cmd + data), which goes out in two data() calls. Same
+ * value on every target. */
+#ifndef OD_EPD_SEQ_WINDOW
+#define OD_EPD_SEQ_WINDOW     128u
 #endif
-#ifndef OD_EPD_MAX_SEQ_STEPS
-#define OD_EPD_MAX_SEQ_STEPS   96u
-#endif
+/* Runaway bound, not a RAM cap: a walk is forward-only over a bounded packet, so this limits
+ * how long a malformed sequence can keep the panel (each step may be a 65 s DELAY or a BUSY wait).
+ * The largest real sequence has 79 steps (panels/generated, 0x0042 dual-controller Spectra 6). */
+#define OD_EPD_MAX_SEQ_STEPS  128u
 #define OD_EPD_LUT_BYTES      535u   /* 7-byte analog header + 528-byte body */
 #define OD_EPD_SLEEP_SEQ_MAX   16u
 #define OD_EPD_SCRATCH_LEN     16u   /* READ_SCRATCH/WRITE_SCRATCH buffer, zeroed per sequence */
@@ -176,6 +187,9 @@ extern "C" {
 #define OD_EPD_RC_UNSUP      -7   /* sequence refused at validation: unknown or
                                    * unimplemented escape. NOTHING was sent to
                                    * the panel. */
+#define OD_EPD_RC_IO         -8   /* a sequence read failed or came back short */
+#define OD_EPD_RC_STALE      -9   /* the stored config changed under the pass
+                                   * (io->config_gen moved since it began) */
 
 /* One drive mode. */
 typedef struct {
@@ -246,6 +260,11 @@ typedef struct {
      * if the reference is unwired. Backs READ_SCRATCH; WRITE_SCRATCH needs no
      * hook beyond cmd/data. */
     bool     (*read_bytes)(uint8_t pin_ref, uint8_t *dst, uint8_t n);
+    /* config_gen: OPTIONAL. A value that changes whenever the stored bytes behind seq_read /
+     * lut_read may have changed. Sampled when a pass begins and compared before every storage
+     * read and on every resume after the image marker; a difference fails the pass with
+     * OD_EPD_RC_STALE instead of walking on into another config's bytes. */
+    uint32_t (*config_gen)(void);
 } od_epd_io_t;
 
 typedef struct {
@@ -254,12 +273,29 @@ typedef struct {
     uint8_t                mode;
     uint8_t                pass;
     od_epd_mode_t          active;   /* the selected mode, read from config */
-    /* The active pass's recipe, copied out of NVM3 once per pass. Held because
-     * the walk PAUSES at the image marker and resumes after the caller has
-     * streamed the frame -- the bytes must outlive that gap. 128 B bounded. */
-    uint8_t                seq[OD_EPD_SEQ_MAX];
+    /* The sequence being walked: a reference into storage (mode `seq_mode` through
+     * io->seq_read, or the descriptor's sleep_seq), its length and the resume position. The
+     * walk PAUSES at the image marker and resumes after the frame has been streamed; only the
+     * reference and position need to outlive that gap, not the bytes. */
+    uint8_t                seq_src;
+    uint8_t                seq_mode;
     uint16_t               seq_len;
     uint16_t               seq_pos;
+    /* Window over the sequence: seq_win[0..seq_win_n) holds bytes [seq_win_off, +n). */
+    uint8_t                seq_win[OD_EPD_SEQ_WINDOW];
+    uint16_t               seq_win_off;
+    uint16_t               seq_win_n;
+    /* Filled by od_epd_validate(): whether the sequence has a WINDOW step, and the offset just
+     * past its last image marker (0 = none). */
+    bool                   seq_has_window;
+    uint16_t               seq_tail;
+    /* io->config_gen at pass start (gen_on: the hook exists and a pass sampled it). */
+    uint32_t               gen;
+    bool                   gen_on;
+    /* The panel has seen I/O in this pass (reset onward); a failed read after that point runs
+     * the sleep sequence, and the caller's next od_epd_sleep() is then absorbed. */
+    bool                   io_started;
+    bool                   slept_on_fail;
     bool                   paused;
     /* Which image stream the walk is paused on: IMAGE pauses as part 0 of 1;
      * IMAGE_SLICE pauses with its [part][of] args. The caller sizes the bytes
@@ -286,18 +322,23 @@ typedef struct {
 int  od_epd_init(od_epd_t *e, const od_panel_desc_t *d, const od_epd_io_t *io);
 int  od_epd_select_mode(od_epd_t *e, uint8_t mode);
 
-/* Static pre-scan of a loaded sequence: structure (step bounds, arg counts)
- * plus CAPABILITY (every escape known AND implemented by this io table).
- * Returns OD_EPD_RC_OK, OD_EPD_RC_SEQ (malformed) or OD_EPD_RC_UNSUP. Runs
- * inside od_epd_begin_pass before any panel I/O, so a refused sequence
- * executes NOTHING -- the wire contract behind OD_ERR_DRIVE_SEQ_UNSUPPORTED.
- * Public so the conformance suite can exercise it directly. */
-int  od_epd_validate(const od_epd_t *e);
+/* Static pre-scan of the referenced sequence, read through the same window as
+ * execution: structure (step bounds, arg counts) plus CAPABILITY (every escape
+ * known AND implemented by this io table). Returns OD_EPD_RC_OK,
+ * OD_EPD_RC_SEQ (malformed), OD_EPD_RC_UNSUP, or OD_EPD_RC_IO / _STALE when
+ * the bytes cannot be read. Runs inside od_epd_begin_pass before any panel
+ * I/O, so a refused sequence executes NOTHING -- the wire contract behind
+ * OD_ERR_DRIVE_SEQ_UNSUPPORTED. Public so the conformance suite can exercise
+ * it directly. */
+int  od_epd_validate(od_epd_t *e);
 
 /* Run a pass up to the image marker: reset, registers, waveform upload. The
  * caller then streams the frame with od_epd_write_image_chunk and calls
  * od_epd_finish_pass to run the tail (power-on, refresh, BUSY wait). */
 int  od_epd_begin_pass(od_epd_t *e, uint8_t pass);
+/* A storage read that fails (IO) or finds the config changed (STALE) after the panel has seen
+ * I/O ends the pass: the sleep sequence (held in the descriptor, not in storage) runs at once,
+ * the next od_epd_sleep() is absorbed, and every resume returns OD_EPD_RC_STATE. */
 int  od_epd_write_image_chunk(od_epd_t *e, const uint8_t *buf, size_t n);
 /* Advance to the next image marker, for panels that take two 1bpp planes. */
 int  od_epd_next_plane(od_epd_t *e);
