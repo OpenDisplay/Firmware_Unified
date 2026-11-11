@@ -23,6 +23,8 @@
 #include "od_hal_time.h"
 #include "od_ident_app.h"
 #include "od_log.h"
+#include "od_claim_mode.h"
+#include "od_sec2_app.h"
 #include "od_spi_raw_app.h"
 #include "od_txq.h"
 #include "od_watchdog_app.h"
@@ -400,6 +402,17 @@ void opendisplay_display_request_boot(void)
   if (!s_boot_applied) {
     s_boot_pending = true;
   }
+}
+
+/* SECURITY_V2 10.7 (od_sec2_app.h): the key lines went stale, so the NORMAL boot screen is drawn
+ * again over whatever the panel shows, from opendisplay_display_service() once the link is idle. */
+void od_sec2_app_key_screen_changed(void)
+{
+  if (od_claim_mode_active()) {
+    return;
+  }
+  s_boot_applied = false;
+  s_boot_pending = true;
 }
 
 /* --- CMD_SPI_RAW ------------------------------------------------------------------------------

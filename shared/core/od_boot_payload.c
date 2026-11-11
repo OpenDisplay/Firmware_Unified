@@ -19,13 +19,28 @@ bool od_boot_key_is_zero(const uint8_t key[OD_BOOT_KEY_SIZE])
     return true;
 }
 
-enum od_boot_key_state od_boot_key_state(const struct SecurityConfig *sec)
+enum od_boot_key_state od_boot_key_policy(bool claimed, bool locked, uint8_t sec_flags)
 {
-    if (sec == NULL || sec->encryption_enabled == 0u ||
-        od_boot_key_is_zero(sec->encryption_key)) {
+    if (locked) {
+        return OD_BOOT_KEY_HIDDEN;
+    }
+    if (!claimed) {
         return OD_BOOT_KEY_NOT_SET;
     }
-    return OD_BOOT_KEY_HIDDEN;
+    return (sec_flags & OD_SECURITY_FLAG_SHOW_KEY_ON_SCREEN) != 0u ? OD_BOOT_KEY_SHOWN
+                                                                   : OD_BOOT_KEY_HIDDEN;
+}
+
+static void bytes_to_hex(const uint8_t *in, size_t len, char *out)
+{
+    static const char hex[] = "0123456789ABCDEF";
+    size_t i;
+
+    for (i = 0u; i < len; ++i) {
+        out[i * 2u] = hex[(in[i] >> 4) & 0x0Fu];
+        out[i * 2u + 1u] = hex[in[i] & 0x0Fu];
+    }
+    out[len * 2u] = '\0';
 }
 
 /* Appends src at *pos while it fits; false once it does not. */
@@ -65,22 +80,50 @@ static void hex6(uint32_t v, char out[7])
     out[6] = '\0';
 }
 
-void od_boot_format_key_line(const char *label, bool key_set, char *out, size_t out_size)
+void od_boot_format_key_display(enum od_boot_key_state st, const uint8_t key[OD_BOOT_KEY_SIZE],
+                                char out[OD_BOOT_KEY_HEX_SIZE])
 {
+    if (out == NULL) {
+        return;
+    }
+    if (st == OD_BOOT_KEY_SHOWN && key != NULL) {
+        bytes_to_hex(key, OD_BOOT_KEY_SIZE, out);
+        return;
+    }
+    memset(out, st == OD_BOOT_KEY_NOT_SET ? '-' : 'X', OD_BOOT_KEY_HEX_SIZE - 1u);
+    out[OD_BOOT_KEY_HEX_SIZE - 1u] = '\0';
+}
+
+void od_boot_format_key_line(const char *label, enum od_boot_key_state st,
+                             const uint8_t *key_part, size_t key_part_len,
+                             char *out, size_t out_size)
+{
+    char hex[OD_BOOT_KEY_HEX_SIZE + 1u];
     size_t pos = 0u;
+    const char *tail;
 
     if (out == NULL || out_size == 0u) {
         return;
     }
     out[0] = '\0';
+    if (st == OD_BOOT_KEY_SHOWN) {
+        if (key_part == NULL || key_part_len > OD_BOOT_KEY_SIZE) {
+            return;
+        }
+        hex[0] = ' ';
+        bytes_to_hex(key_part, key_part_len, hex + 1);
+        tail = hex;
+    } else {
+        tail = st == OD_BOOT_KEY_HIDDEN ? " hidden" : " not set";
+    }
     if (!put_str(out, out_size, &pos, label != NULL ? label : "") ||
-        !put_str(out, out_size, &pos, key_set ? " hidden" : " not set")) {
+        !put_str(out, out_size, &pos, tail)) {
         out[0] = '\0';
     }
 }
 
 void od_boot_payload_build(uint16_t legacy_tag_type, uint32_t device_id24,
-                           uint16_t manufacturer_id,
+                           const uint8_t key[OD_BOOT_KEY_SIZE], uint16_t manufacturer_id,
                            uint8_t out[OD_BOOT_PAYLOAD_SIZE])
 {
     if (out == NULL) {
@@ -92,6 +135,9 @@ void od_boot_payload_build(uint16_t legacy_tag_type, uint32_t device_id24,
     out[2] = (uint8_t)(device_id24 >> 16);
     out[3] = (uint8_t)(device_id24 >> 8);
     out[4] = (uint8_t)device_id24;
+    if (key != NULL) {
+        memcpy(&out[5], key, OD_BOOT_KEY_SIZE);
+    }
     out[21] = (uint8_t)(manufacturer_id >> 8);
     out[22] = (uint8_t)manufacturer_id;
 }
@@ -142,7 +188,8 @@ size_t od_boot_base64url_encode(const uint8_t *data, size_t len, char *out, size
 }
 
 bool od_boot_url_build(uint16_t legacy_tag_type, uint32_t device_id24,
-                       uint16_t manufacturer_id, char *out, size_t out_size)
+                       const uint8_t key[OD_BOOT_KEY_SIZE], uint16_t manufacturer_id,
+                       char *out, size_t out_size)
 {
     static const char prefix[] = "https://opendisplay.org/l/?";
     uint8_t payload[OD_BOOT_PAYLOAD_SIZE];
@@ -152,11 +199,13 @@ bool od_boot_url_build(uint16_t legacy_tag_type, uint32_t device_id24,
     if (out == NULL || out_size == 0u) {
         return false;
     }
-    od_boot_payload_build(legacy_tag_type, device_id24, manufacturer_id, payload);
+    od_boot_payload_build(legacy_tag_type, device_id24, key, manufacturer_id, payload);
     if (od_boot_base64url_encode(payload, sizeof(payload), encoded, sizeof(encoded)) == 0u) {
         out[0] = '\0';
+        memset(payload, 0, sizeof payload);
         return false;
     }
+    memset(payload, 0, sizeof payload);   /* it may hold K_dev */
     /* Concatenated by hand rather than with snprintf: on EFR32BG22 this is the last caller of
      * the libc formatter once its diagnostics are compiled out. */
     enc_len = strlen(encoded);

@@ -440,8 +440,7 @@ static void bootGray4FillSwatchCodes(uint16_t panelIc, bool direct2bpp, uint8_t 
 bool od_boot_screen_render(const struct od_config *cfg,
                            const struct SecurityConfig *security,
                            const struct od_boot_bufs *bufs) {
-    /* The key is never rendered (SECURITY_V2 10.7): only whether one is in force. */
-    const bool keySet = od_boot_key_state(security) != OD_BOOT_KEY_NOT_SET;
+    (void)security;   /* the key comes from od_boot_screen_key(), never the 0x27 at rest */
     if (cfg == NULL || cfg->display_count == 0u || bufs == NULL ||
         bufs->row == NULL || bufs->qr == NULL) {
       return false;
@@ -541,8 +540,29 @@ bool od_boot_screen_render(const struct od_config *cfg,
     snprintf(last6, sizeof(last6), "%06lX", (unsigned long)last3);
 
     char url[OD_BOOT_URL_SIZE];
-    if (!od_boot_url_build(cfg->displays[0].legacy_tag_type, last3,
-                           cfg->manufacturer_data.manufacturer_id, url, sizeof(url))) return false;
+    /* SECURITY_V2 10.7: od_boot_screen_key() is the whole policy; this renderer only spends it.
+     * key[] is K_dev when SHOWN and zeros otherwise, so the key lines, the small-screen hex and
+     * the QR payload all agree. It is wiped before anything else can return. */
+    uint8_t key[OD_BOOT_KEY_SIZE];
+    const enum od_boot_key_state keyState = od_boot_screen_key(key);
+    char k1[24], k2[24];
+    if (useZoneLayout) {
+        od_boot_format_key_line("KEY1:", keyState, key, 8u, k1, sizeof(k1));
+        od_boot_format_key_line("KEY2:", keyState, key + 8, 8u, k2, sizeof(k2));
+    } else {
+        char keyHex[OD_BOOT_KEY_HEX_SIZE];
+        od_boot_format_key_display(keyState, key, keyHex);
+        memcpy(k1, keyHex, 16);
+        k1[16] = '\0';
+        memcpy(k2, keyHex + 16, 16);
+        k2[16] = '\0';
+        memset(keyHex, 0, sizeof keyHex);
+    }
+    const bool urlOk = od_boot_url_build(cfg->displays[0].legacy_tag_type, last3,
+                                         keyState == OD_BOOT_KEY_SHOWN ? key : NULL,
+                                         cfg->manufacturer_data.manufacturer_id, url, sizeof(url));
+    memset(key, 0, sizeof key);
+    if (!urlOk) return false;
 
     QRCode qr;
     const uint8_t qrVersion = 6;
@@ -581,9 +601,6 @@ bool od_boot_screen_render(const struct od_config *cfg,
         snprintf(fwLine, sizeof(fwLine), "FW:O %u.%u.%u",
                  (unsigned)fwMajor, (unsigned)fwMinor, (unsigned)fwPatch);
     }
-    char k1[24];
-    const char *k2 = "";
-    od_boot_format_key_line("KEY:", keySet, k1, sizeof(k1));
 
     char vStr[8] = "";
     char tStr[8] = "";

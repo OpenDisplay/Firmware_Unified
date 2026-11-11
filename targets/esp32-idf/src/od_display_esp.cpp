@@ -9,6 +9,8 @@
  * display_service.cpp.
  */
 #include "od_display_esp.h"
+#include "od_claim_mode.h"
+#include "od_sec2_app.h"
 
 #include <string.h>
 
@@ -376,6 +378,17 @@ bool displayBootConfigDriven(void)
 void displayRequestBootAfterConfigWrite(void)
 {
     if (!s_boot_applied && !displayUsesNativeDriver()) {
+        s_boot_pending = true;
+    }
+}
+
+/* SECURITY_V2 10.7 (od_sec2_app.h): the key lines went stale, so the NORMAL boot screen is drawn
+ * again over whatever the panel shows, from displayServiceDeferredBoot() once the link is idle.
+ * Config-driven panels only: a native-driver panel shows the new state at its next boot. */
+extern "C" void od_sec2_app_key_screen_changed(void)
+{
+    if (!displayUsesNativeDriver() && !od_claim_mode_active()) {
+        s_boot_applied = false;
         s_boot_pending = true;
     }
 }

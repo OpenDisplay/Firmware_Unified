@@ -13,36 +13,53 @@ extern "C" {
 
 #define OD_BOOT_PAYLOAD_SIZE 23u
 #define OD_BOOT_KEY_SIZE 16u
+#define OD_BOOT_KEY_HEX_SIZE 33u
 #define OD_BOOT_URL_SIZE 64u
 
 bool od_boot_key_is_zero(const uint8_t key[OD_BOOT_KEY_SIZE]);
 
-/* What the boot screen may say about the key, as one decision. The panel never shows the key
- * and no QR carries it (SECURITY_V2 section 10.7): SHOW_KEY_ON_SCREEN is reserved and has no
- * effect.
- *   encryption_enabled == 0, or key all-zero / absent -> NOT_SET
- *   otherwise                                          -> HIDDEN */
+/* What the NORMAL boot screen says about the key, as one decision (SECURITY_V2 10.7). Every
+ * renderer asks this rather than re-deriving it: the panel layouts differ, the policy does not.
+ *   unclaimed                                  -> NOT_SET   ("not set", "----", QR key zero)
+ *   claimed, SHOW_KEY_ON_SCREEN clear (default) -> HIDDEN    ("hidden", "XXXX", QR key zero)
+ *   claimed, SHOW_KEY_ON_SCREEN set            -> SHOWN     (K_dev as hex, and in the QR)
+ *   LOCKED                                     -> HIDDEN    (the key is unreadable)
+ * The setup screen family never asks: it shows no key at all. */
 enum od_boot_key_state {
     OD_BOOT_KEY_NOT_SET = 0,
-    OD_BOOT_KEY_HIDDEN
+    OD_BOOT_KEY_HIDDEN,
+    OD_BOOT_KEY_SHOWN
 };
 
-struct SecurityConfig;
+/* The pure policy above; `sec_flags` is 0x27 SecurityConfig.flags. */
+enum od_boot_key_state od_boot_key_policy(bool claimed, bool locked, uint8_t sec_flags);
 
-enum od_boot_key_state od_boot_key_state(const struct SecurityConfig *sec);
+/* The live answer for the renderers (od_boot_key.c, APP_SESSION tier): the policy over the
+ * security state and the parsed 0x27, and K_dev into key[] when SHOWN (zeros otherwise). A
+ * SHOWN whose key cannot be read is reported HIDDEN. */
+enum od_boot_key_state od_boot_screen_key(uint8_t key[OD_BOOT_KEY_SIZE]);
 
-/* "<label> not set" or "<label> hidden". */
-void od_boot_format_key_line(const char *label, bool key_set, char *out, size_t out_size);
+/* The small-layout key text, 32 characters: "----..." NOT_SET, "XXXX..." HIDDEN, hex SHOWN. */
+void od_boot_format_key_display(enum od_boot_key_state st, const uint8_t key[OD_BOOT_KEY_SIZE],
+                                char out[OD_BOOT_KEY_HEX_SIZE]);
 
-/* The 23-byte /l/ payload. Bytes 5..20 (the 2.x key field) are always zero. */
+/* "<label> not set", "<label> hidden" or "<label> <hex of key_part>" (upper-case hex, the 2.x
+ * zone-layout KEY1/KEY2 lines). Hand-built (no snprintf: BG22). */
+void od_boot_format_key_line(const char *label, enum od_boot_key_state st,
+                             const uint8_t *key_part, size_t key_part_len,
+                             char *out, size_t out_size);
+
+/* The 23-byte /l/ payload (2.x layout): tag type BE, device id 3 B, key 16 B, manufacturer BE.
+ * `key` NULL means zeros; a renderer passes K_dev only when the state is SHOWN. */
 void od_boot_payload_build(uint16_t legacy_tag_type, uint32_t device_id24,
-                           uint16_t manufacturer_id,
+                           const uint8_t key[OD_BOOT_KEY_SIZE], uint16_t manufacturer_id,
                            uint8_t out[OD_BOOT_PAYLOAD_SIZE]);
 
 size_t od_boot_base64url_encode(const uint8_t *data, size_t len, char *out, size_t out_size);
 
 bool od_boot_url_build(uint16_t legacy_tag_type, uint32_t device_id24,
-                       uint16_t manufacturer_id, char *out, size_t out_size);
+                       const uint8_t key[OD_BOOT_KEY_SIZE], uint16_t manufacturer_id,
+                       char *out, size_t out_size);
 
 /* ------------------------------------------------- the setup screen family (7.8) --- */
 

@@ -1,3 +1,4 @@
+#include "od_boot_payload.h"
 #include "od_boot_app.h"
 #include "od_boot_screen.h"
 #include "od_color.h"
@@ -34,6 +35,10 @@ static uint8_t g_gray4_direct[4];
 /* The primary plane of a 1-segment frame, kept so a test can look at the picture itself. */
 #define CAP_MAX (800u * 480u / 8u)
 static uint8_t g_cap[CAP_MAX];
+/* od_boot_screen_key() is the renderer's only key input (SECURITY_V2 10.7); this suite answers
+ * it, so the security state is the test's choice and od_sec2 stays unlinked. */
+static enum od_boot_key_state g_key_state;
+static unsigned g_key_calls;
 static uint16_t g_cap_pitch;
 static uint16_t g_cap_rows;
 
@@ -56,6 +61,8 @@ static void reset_fake(void)
   g_last_y = 0;
   g_last_plane = -1;
   g_hash = 2166136261u;
+  g_key_state = OD_BOOT_KEY_HIDDEN;   /* claimed, SHOW_KEY_ON_SCREEN clear: the default */
+  g_key_calls = 0;
   g_current_plane = -1;
   g_bwr_primary_black = 1u;
   g_bwr_primary_color = 0u;
@@ -230,6 +237,15 @@ void od_boot_app_firmware_version(uint8_t *a, uint8_t *b, uint8_t *c)
 float od_boot_app_battery_volts(void) { return 3.14f; }
 float od_boot_app_chip_temp_c(void) { return 22.5f; }
 
+enum od_boot_key_state od_boot_screen_key(uint8_t key[OD_BOOT_KEY_SIZE])
+{
+  ++g_key_calls;
+  for (unsigned i = 0; i < OD_BOOT_KEY_SIZE; i++) {
+    key[i] = g_key_state == OD_BOOT_KEY_SHOWN ? (uint8_t)(0xA0u + i) : 0u;
+  }
+  return g_key_state;
+}
+
 static void make_case(struct od_config *cfg, struct SecurityConfig *sec,
                       uint16_t width, uint16_t height, uint8_t scheme)
 {
@@ -271,23 +287,48 @@ int main(void)
   assert(render(&cfg, &sec, row, sizeof(row), qr, sizeof(qr)));
   assert(g_begin_frames == 1 && g_begin_planes == 1 && g_writes == 128);
   assert(g_end_planes == 1 && g_end_frames == 1);
-  PIN(0x3040D050u);
+  PIN(0x40A07124u);
 
-  /* A stored key with encryption_enabled == 0 is not in force, so the key lines and the QR
-   * payload render it as absent -- byte for byte what a device carrying no key at all renders.
-   * Asserted as an identity rather than a second pinned hash so the two cannot drift apart. */
-  reset_fake();
-  make_case(&cfg, &sec, 296, 128, OD_COLOR_SCHEME_MONO);
-  sec.encryption_enabled = 0u;
-  assert(render(&cfg, &sec, row, sizeof(row), qr, sizeof(qr)));
-  const uint32_t absent_key_hash = g_hash;
-  assert(absent_key_hash != 0xBA916E4Cu);
+  /* The three key states, golden renders on both layouts (SECURITY_V2 10.7): 296x128 is the
+   * small layout (two 16-character lines), 400x300 the zone layout (KEY1:/KEY2: lines). The 0x27
+   * passed in is ignored: the same SHOW_KEY + key that rendered HIDDEN above renders the other
+   * two states only because od_boot_screen_key() says so. */
+  {
+    static const enum od_boot_key_state st[3] = {OD_BOOT_KEY_NOT_SET, OD_BOOT_KEY_HIDDEN,
+                                                 OD_BOOT_KEY_SHOWN};
+    uint32_t small[3], zone[3];
 
-  reset_fake();
-  make_case(&cfg, &sec, 296, 128, OD_COLOR_SCHEME_MONO);
-  memset(sec.encryption_key, 0, sizeof(sec.encryption_key));
-  assert(render(&cfg, &sec, row, sizeof(row), qr, sizeof(qr)));
-  assert(g_hash == absent_key_hash);
+    for (unsigned k = 0; k < 3u; k++) {
+      reset_fake();
+      g_key_state = st[k];
+      make_case(&cfg, &sec, 296, 128, OD_COLOR_SCHEME_MONO);
+      assert(render(&cfg, &sec, row, sizeof(row), qr, sizeof(qr)));
+      assert(g_key_calls == 1u);
+      small[k] = g_hash;
+
+      reset_fake();
+      g_key_state = st[k];
+      make_case(&cfg, &sec, 400, 300, OD_COLOR_SCHEME_BWR);
+      assert(render(&cfg, &sec, row, sizeof(row), qr, sizeof(qr)));
+      zone[k] = g_hash;
+    }
+    assert(small[0] != small[1] && small[1] != small[2] && small[0] != small[2]);
+    assert(zone[0] != zone[1] && zone[1] != zone[2] && zone[0] != zone[2]);
+    g_hash = small[0]; PIN(0x759A6E44u);
+    g_hash = small[1]; PIN(0x40A07124u);
+    g_hash = small[2]; PIN(0x51721EB0u);
+    g_hash = zone[0]; PIN(0xED4716F5u);
+    g_hash = zone[1]; PIN(0x044D10C9u);
+    g_hash = zone[2]; PIN(0xB5FEC7E3u);
+
+    /* The 0x27 handed to the renderer changes nothing: no key and no flag, same picture. */
+    reset_fake();
+    g_key_state = OD_BOOT_KEY_SHOWN;
+    make_case(&cfg, &sec, 296, 128, OD_COLOR_SCHEME_MONO);
+    memset(&sec, 0, sizeof sec);
+    assert(render(&cfg, &sec, row, sizeof(row), qr, sizeof(qr)));
+    assert(g_hash == small[2]);
+  }
 
   reset_fake();
   make_case(&cfg, &sec, 296, 128, OD_COLOR_SCHEME_GRAY8);
@@ -361,7 +402,7 @@ int main(void)
   /* Zone layout composition, not just its write count: this is the only case that renders the
    * QR right-placement B3 corrects and the swatch band B2 changes. Without it both can be
    * reverted silently -- the 296x128 case is below useZoneLayout and never reaches either. */
-  PIN(0x16867395u);
+  PIN(0x044D10C9u);
 
   /* EP368 0x0048 uses the V2 LUT. The packed swatches are converted back to the
    * controller's stored codes 3,2,1,0 across the two 1bpp planes. */
@@ -398,7 +439,7 @@ int main(void)
   make_case(&cfg, &sec, 800, 480, OD_COLOR_SCHEME_BWR);
   assert(render(&cfg, &sec, row, sizeof(row), qr, sizeof(qr)));
   assert(g_begin_planes == 2 && g_writes == 960);
-  PIN(0x089FE8A5u);
+  PIN(0xE33DADFEu);
 
   /* BWGBRY_SPLIT is scheme 8 and was the one scheme with no case. It needs its own: the local
    * scheme enum this renderer replaced had no entry for it, so it fell past the end of
@@ -414,7 +455,7 @@ int main(void)
   cfg.displays[0].rotation = 1;   /* landscape: w_log 1600, h_log 1200 */
   assert(render(&cfg, &sec, row_wide, sizeof(row_wide), qr, sizeof(qr)));
   assert(g_begin_planes == 2 && g_writes == 3200 && g_end_frames == 1);
-  PIN(0xE212C6C2u);
+  PIN(0x0EADB8A8u);
   /* One byte short of the full pitch is refused, not silently half-rendered. */
   reset_fake();
   g_segments = 2;
@@ -471,6 +512,16 @@ int main(void)
     g_hash = h800[0]; PIN(0xC06ECB0Bu);
     g_hash = h800[1]; PIN(0x642C4AD3u);
     g_hash = h800[2]; PIN(0xD4FEFD45u);
+
+    /* Never a key on these screens (SECURITY_V2 7.8): SHOWN changes no pixel, and the renderer
+     * does not even ask. */
+    for (unsigned k = 0; k < 3u; k++) {
+      reset_fake();
+      g_key_state = OD_BOOT_KEY_SHOWN;
+      make_case(&cfg, &sec, 800, 480, OD_COLOR_SCHEME_MONO);
+      assert(od_boot_screen_render_setup(&cfg, kinds[k], 123456u, &bufs));
+      assert(g_hash == h800[k] && g_key_calls == 0u);
+    }
 
     /* The code is the variable input of CODE, and only of CODE. */
     reset_fake();

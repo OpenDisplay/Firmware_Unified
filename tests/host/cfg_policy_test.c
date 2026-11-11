@@ -131,6 +131,8 @@ void od_sec2_app_uid(uint8_t uid[8]) { memcpy(uid, g_uid, 8u); }
 uint8_t od_sec2_app_dflags(void) { return 0u; }
 const struct SecurityConfig *od_sec2_app_security(void) { return g_parsed_present ? &g_parsed : NULL; }
 bool od_sec2_app_display_busy(void) { return false; }
+static unsigned g_key_screen;
+void od_sec2_app_key_screen_changed(void) { ++g_key_screen; }
 
 static bool find27(void *ctx, uint8_t id, od_span_t body)
 {
@@ -517,6 +519,92 @@ static void test_branches(void)
     CHECK(save(b, n) == OD_ERR_CONFIG_SECRET_NEEDS_CLAIM);
 }
 
+/* SECURITY_V2 10.3 / 10.7: SHOW_KEY_ON_SCREEN is stored only on a claimed device, and a stored
+ * toggle asks the target for a boot-screen redraw. */
+static void test_show_key(void)
+{
+    const uint8_t SK = OD_SECURITY_FLAG_SHOW_KEY_ON_SCREEN;
+    uint8_t pk[200], b[300], got[OD_CONFIG_MAX_SIZE];
+    uint32_t n;
+
+    CASE("SHOW_KEY: an unclaimed write stores bit 1 as 0, other flags as sent, no redraw");
+    reset_all();
+    boot();
+    g_key_screen = 0u;
+    n = frame_blob(pk, pkt27(pk, 0u, NULL, (uint8_t)(SK | OD_SECURITY_FLAG_RESET_PIN_ENABLED), 4u, 0u), b);
+    CHECK(save(b, n) == OD_CFG_POLICY_OK);
+    (void)stored(got);
+    CHECK(got[3u + 2u + 19u] == OD_SECURITY_FLAG_RESET_PIN_ENABLED);
+    CHECK(g_key_screen == 0u);
+
+    CASE("SHOW_KEY: a LOCKED device stores bit 1 as 0");
+    reset_all();
+    n = frame_blob(pk, pkt27(pk, 1u, K1, 0u, 0xFFu, OD_SEC27_AT_REST_SEC2), b);
+    store_blob(b, n);
+    boot();
+    CHECK(od_sec2_state() == OD_SEC2_LOCKED);
+    g_key_screen = 0u;
+    n = frame_blob(pk, pkt27(pk, 0u, NULL, SK, 0xFFu, 0u), b);
+    CHECK(save(b, n) == OD_CFG_POLICY_OK);
+    (void)stored(got);
+    CHECK((got[3u + 2u + 19u] & SK) == 0u);
+    CHECK(g_key_screen == 0u);
+
+    CASE("SHOW_KEY: claimed, set -> stored as sent and one redraw; same again -> none; clear -> one");
+    reset_all();
+    n = frame_blob(pk, pkt27(pk, 1u, K1, 0u, 0xFFu, OD_SEC27_AT_REST_SEC2), b);
+    store_blob(b, n);
+    put_key(OD_SEC2_ORIGIN_LEGACY, 1u, K1);
+    boot();
+    CHECK(od_sec2_state() == OD_SEC2_CLAIMED);
+    g_key_screen = 0u;
+    n = frame_blob(pk, pkt27(pk, 0u, NULL, SK, 0xFFu, 0u), b);
+    CHECK(save(b, n) == OD_CFG_POLICY_OK);
+    od_claim_app_config_changed();
+    (void)stored(got);
+    CHECK((got[3u + 2u + 19u] & SK) != 0u);
+    CHECK(g_key_screen == 1u);
+    CHECK(save(b, n) == OD_CFG_POLICY_OK);
+    od_claim_app_config_changed();
+    CHECK(g_key_screen == 1u);
+    /* a write without 0x27 keeps the stored one, and with it the bit: no redraw */
+    n = frame_blob(pk, pkt26(pk, 0u), b);
+    CHECK(save(b, n) == OD_CFG_POLICY_OK);
+    od_claim_app_config_changed();
+    CHECK(g_key_screen == 1u);
+    CHECK(g_parsed_present && (g_parsed.flags & SK) != 0u);
+    n = frame_blob(pk, pkt27(pk, 0u, NULL, 0u, 0xFFu, 0u), b);
+    CHECK(save(b, n) == OD_CFG_POLICY_OK);
+    od_claim_app_config_changed();
+    CHECK(g_key_screen == 2u);
+    CHECK(g_parsed_present && (g_parsed.flags & SK) == 0u);
+
+    CASE("SHOW_KEY: a refused claimed write (wrong key) asks for nothing");
+    {
+        uint8_t bad[16];
+        memcpy(bad, K1, 16u);
+        bad[0] ^= 0xFFu;
+        n = frame_blob(pk, pkt27(pk, 1u, bad, SK, 0xFFu, 0u), b);
+    }
+    CHECK(save(b, n) == OD_ERR_CONFIG_KEY_MISMATCH);
+    CHECK(g_key_screen == 2u);
+
+    CASE("SHOW_KEY: a store failure asks for nothing");
+    n = frame_blob(pk, pkt27(pk, 0u, NULL, SK, 0xFFu, 0u), b);
+    g_nvs_fail = 0;
+    CHECK(save(b, n) != OD_CFG_POLICY_OK);
+    g_nvs_fail = -1;
+    CHECK(g_key_screen == 2u);
+
+    CASE("SHOW_KEY: UNCLAIM's scrub clears it");
+    CHECK(save(b, n) == OD_CFG_POLICY_OK);
+    od_claim_app_config_changed();
+    CHECK(g_key_screen == 3u);
+    CHECK(od_cfg_policy_scrub());
+    (void)stored(got);
+    CHECK((got[3u + 2u + 19u] & SK) == 0u);
+}
+
 int main(void)
 {
     test_v1_kdf();
@@ -524,6 +612,7 @@ int main(void)
     test_v11_at_rest();
     test_v13_url();
     test_branches();
+    test_show_key();
     printf("cfg_policy: %u checks, %u failures\n", g_checks, g_failures);
     return g_failures == 0u ? 0 : 1;
 }

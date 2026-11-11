@@ -11,6 +11,8 @@
 #include "od_cmd_flash.h"
 #include "od_imgstore.h"
 #include "od_boot_payload.h"
+#include "od_claim_mode.h"
+#include "od_sec2_app.h"
 #include "od_claim_app.h"
 #include "od_caps.h"
 #include "od_txq.h"
@@ -577,7 +579,11 @@ static bool render_boot_screen(const struct GlobalConfig *cfg)
   char url[OD_BOOT_URL_SIZE];
   char name_line[16];
   char fw_line[20];
-  char key_line[16];
+  char k1[17], k2[17];
+  char key_hex[OD_BOOT_KEY_HEX_SIZE];
+  uint8_t key[OD_BOOT_KEY_SIZE];
+  enum od_boot_key_state key_state;
+  bool url_ok;
   uint8_t major, minor, patch;
 
   if (cfg == nullptr || cfg->display_count == 0u) {
@@ -585,8 +591,20 @@ static bool render_boot_screen(const struct GlobalConfig *cfg)
   }
   dc = &cfg->displays[0];
   last3 = (uint32_t)(SYSTEM_GetUnique() & 0xFFFFFFu);
-  if (!od_boot_url_build(dc->legacy_tag_type, last3, cfg->manufacturer_data.manufacturer_id,
-                         url, sizeof(url))) {
+  /* SECURITY_V2 10.7: the same policy the other targets get through od_boot_screen_render();
+   * key[] is K_dev only when SHOWN (claimed + SHOW_KEY_ON_SCREEN) and zeros otherwise, so the
+   * two hex lines and the QR payload always agree. Wiped before anything can return. */
+  key_state = od_boot_screen_key(key);
+  url_ok = od_boot_url_build(dc->legacy_tag_type, last3, key_state == OD_BOOT_KEY_SHOWN ? key : nullptr,
+                             cfg->manufacturer_data.manufacturer_id, url, sizeof(url));
+  od_boot_format_key_display(key_state, key, key_hex);
+  memset(key, 0, sizeof key);
+  memcpy(k1, key_hex, 16u);
+  k1[16] = '\0';
+  memcpy(k2, key_hex + 16, 16u);
+  k2[16] = '\0';
+  memset(key_hex, 0, sizeof key_hex);
+  if (!url_ok) {
     return false;
   }
   name_line[0] = 'O';
@@ -604,12 +622,13 @@ static bool render_boot_screen(const struct GlobalConfig *cfg)
     p = od_fmt_u8(p, patch);
     *p = '\0';
   }
-  /* The key is never rendered (SECURITY_V2 10.7): only whether one is in force. */
-  od_boot_format_key_line("KEY:", od_boot_key_state(od_get_parsed_security()) != OD_BOOT_KEY_NOT_SET,
-                          key_line, sizeof(key_line));
   {
-    const char *lines[4] = { "OPENDISPLAY.ORG", name_line, fw_line, key_line };
-    return render_screen(dc, lines, 4u, BOOT_NO_BIG, url, false);
+    const char *lines[5] = { "OPENDISPLAY.ORG", name_line, fw_line, k1, k2 };
+    const bool ok = render_screen(dc, lines, 5u, BOOT_NO_BIG, url, false);
+    memset(k1, 0, sizeof k1);
+    memset(k2, 0, sizeof k2);
+    memset(url, 0, sizeof url);
+    return ok;
   }
 }
 
@@ -1009,6 +1028,18 @@ extern "C" void opendisplay_display_boot_request(void)
   if (!s_boot_applied) {
     od_panel_defer_request(&s_boot_defer);
   }
+}
+
+/* SECURITY_V2 10.7 (od_sec2_app.h): the key lines went stale, so the NORMAL boot screen is drawn
+ * again over whatever the panel shows. Like every BG22 boot pass it waits for the link to close
+ * (s_boot_defer): the refresh blocks the Bluetooth host. */
+extern "C" void od_sec2_app_key_screen_changed(void)
+{
+  if (od_claim_mode_active()) {
+    return;
+  }
+  s_boot_applied = false;
+  od_panel_defer_request(&s_boot_defer);
 }
 
 extern "C" void od_xfer_app_prepare_start(void)

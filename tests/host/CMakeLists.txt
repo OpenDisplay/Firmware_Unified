@@ -547,7 +547,7 @@ add_test(NAME epd_seq COMMAND od_epd_seq_test)
 # display: the shared config-driven display path (od_display -> od_epd_cfg -> od_epd) from a
 # stored config record to the bytes on a recorded panel bus, for every colour class, the real
 # panel data in display_presets.inc, the boot screen and a config without drive packets.
-add_executable(od_display_test display_test.c
+add_executable(od_display_test display_test.c boot_key_stub.c
     ../../shared/core/od_display.c
     ../../shared/core/od_epd_cfg.c
     ../../shared/core/od_epd.c
@@ -567,7 +567,7 @@ add_library(od_xfer_split STATIC
     ${CMAKE_CURRENT_LIST_DIR}/../../shared/core/od_pipe.c)
 target_include_directories(od_xfer_split PUBLIC ${OD_SHARED_INCLUDE_DIRS})
 target_compile_definitions(od_xfer_split PUBLIC OD_XFER_SPLIT_HALVES=1)
-add_executable(od_xfer_split_test xfer_split_test.c
+add_executable(od_xfer_split_test xfer_split_test.c boot_key_stub.c
     ../../shared/core/od_display.c
     ../../shared/core/od_epd_cfg.c
     ../../shared/core/od_epd.c
@@ -581,7 +581,7 @@ add_test(NAME xfer_split COMMAND od_xfer_split_test)
 # compressed and not, and PIPE -- for one panel of every colour class, replayed into od_display:
 # it must render through mode 0 exactly as mode 0 driven directly does
 # (tests/vectors/legacy_uploads.inc, from gen_legacy_uploads.py). Same composition as xfer_split.
-add_executable(od_legacy_upload_test legacy_upload_test.c
+add_executable(od_legacy_upload_test legacy_upload_test.c boot_key_stub.c
     ../../shared/core/od_display.c
     ../../shared/core/od_epd_cfg.c
     ../../shared/core/od_epd.c

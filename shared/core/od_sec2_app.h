@@ -38,6 +38,13 @@ const struct SecurityConfig *od_sec2_app_security(void);
  * answered OD_SEC_ERR_BUSY at once instead of waiting behind the pass (section 8.7, BUSY). */
 bool od_sec2_app_display_busy(void);
 
+/* The NORMAL boot screen's key lines are stale (SECURITY_V2 10.7): a ROTATE_CONFIRM persisted a
+ * new key while SHOW_KEY_ON_SCREEN is set, or a stored config write toggled that bit on a claimed
+ * device. The target redraws the NORMAL boot screen once from its loop, over whatever the panel
+ * shows, after the reply has left. Only sets a request: no panel work here. Ignored while claim
+ * mode is active: it owns the panel until the END reboot, which draws the normal screen anyway. */
+void od_sec2_app_key_screen_changed(void);
+
 /* ---- claim mode (od_claim_mode.c) ---- */
 
 struct od_sec2_claim_mode {

@@ -1294,6 +1294,13 @@ od_cmd_result_t od_sec2_key_cmd(const od_cmd_ctx_t *ctx, od_span_t body)
         set_key(OD_SEC2_ORIGIN_CLAIMED, gen, s.u.c.k_new);
         od_sec2_app_rest_sync();
         OD_SEC2_TRACE_PAUSE("rotate step 4 (0x27 at rest rewritten)");
+        {
+            /* 10.7: a panel showing the key must not go on showing the dead one. */
+            const struct SecurityConfig *sc = od_sec2_app_security();
+            if (sc != NULL && (sc->flags & OD_SECURITY_FLAG_SHOW_KEY_ON_SCREEN) != 0u) {
+                od_sec2_app_key_screen_changed();
+            }
+        }
     } else if (after == UNCLAIMED) {
         s.state = OD_SEC2_UNCLAIMED;
         wipe(s.k_dev, sizeof s.k_dev);

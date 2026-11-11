@@ -137,6 +137,8 @@ void od_sec2_app_claim_event(enum od_sec2_claim_event ev, uint32_t arg)
 bool od_sec2_app_scrub(void) { return g_scrub_ok; }
 bool od_sec2_app_display_busy(void) { return g_busy; }
 void od_sec2_app_rest_sync(void) { ++g_rest_syncs; }
+static unsigned g_key_screen;
+void od_sec2_app_key_screen_changed(void) { ++g_key_screen; }
 
 /* Time passing while the loop runs (pumped every 100 ms). A jump of g_now_ms without a pump is a
  * stalled loop, which od_sec2 compensates (OD_SEC2_STALL_MS). */
@@ -238,6 +240,7 @@ static void setup(bool claimed)
     g_scrub_ok = true;
     g_rest_syncs = 0u;
     g_hook_calls = 0u;
+    g_key_screen = 0u;
     sec_init(0u);
     g_app_sec = &g_sec;
     (void)od_sec2_boot(claimed ? &g_sec : NULL);
@@ -1115,6 +1118,25 @@ static void test_sec_key(void)
     CHECK(od_sec2_os2k_decode(g_secret[0].data, &k) && k.gen == 2u && memcmp(k.key, knew, 16u) == 0 &&
           k.origin == OD_SEC2_ORIGIN_CLAIMED);
     CHECK(sec2c_auth(&C, &BLE) == OD_SEC_ERR_AUTH_FAILED);   /* the old key no longer works */
+    CHECK(g_key_screen == 0u);    /* SHOW_KEY_ON_SCREEN clear: the panel shows no key to refresh */
+    memcpy(C.k_dev, knew, 16u);
+    g_now_ms += OD_SEC2_RATE_WINDOW_MS;
+    CHECK(sec2c_auth(&C, &BLE) == 0);
+
+    CASE("ROTATE_CONFIRM with SHOW_KEY_ON_SCREEN set: one boot-screen redraw request (10.7)");
+    g_sec.flags |= OD_SECURITY_FLAG_SHOW_KEY_ON_SCREEN;
+    p[0] = OD_SEC2_KEY_ROTATE;
+    CHECK(send_sealed(CMD_SEC_KEY, p, 1u) == 1u);
+    CHECK(sec2c_open(&C, f0, n0, r, &rn) && rn == 19u);
+    memcpy(knew, &r[3], 16u);
+    memcpy(ctx, UID, 8u);
+    memcpy(&ctx[8], C.sid, 16u);
+    sec2c_kdf(knew, "OD2/k-conf", UID, 8u, kconf);
+    p[0] = OD_SEC2_KEY_ROTATE_CONFIRM;
+    sec2c_kdf(kconf, "OD2/rotate-c", ctx, 24u, &p[1]);
+    CHECK(send_sealed(CMD_SEC_KEY, p, 17u) == 1u);
+    CHECK(sec2c_open(&C, f0, n0, r, &rn) && rn == 3u && r[0] == 0x00u);
+    CHECK(g_key_screen == 1u);
     memcpy(C.k_dev, knew, 16u);
     g_now_ms += OD_SEC2_RATE_WINDOW_MS;
     CHECK(sec2c_auth(&C, &BLE) == 0);
@@ -1127,6 +1149,8 @@ static void test_sec_key(void)
     CHECK(send_sealed(CMD_SEC_KEY, p, 17u) == 1u);
     CHECK(sec2c_open(&C, f0, n0, r, &rn) && rn == 4u && r[0] == 0xFFu && r[3] == OD_SEC_ERR_AUTH_FAILED);
     CHECK(od_sec2_session_live(NULL));
+    CHECK(g_key_screen == 1u);    /* the old key stands: nothing to redraw */
+    g_sec.flags &= (uint8_t)~OD_SECURITY_FLAG_SHOW_KEY_ON_SCREEN;
 
     CASE("ROTATE_CONFIRM without ROTATE: BAD_STATE");
     CHECK(send_sealed(CMD_SEC_KEY, p, 17u) == 1u);

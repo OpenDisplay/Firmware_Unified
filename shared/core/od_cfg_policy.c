@@ -257,12 +257,20 @@ static bool stored_at_rest(uint8_t body[S27_LEN])
     return at_rest(body, cur);
 }
 
+/* Also drops SHOW_KEY_ON_SCREEN (10.3): an open writer must not pre-arm a key display for the
+ * device's future owner, and an unclaimed device has no key to show. */
 static void unclaimed_form(uint8_t *b)
 {
     b[S27_ENABLED] = 0u;
     memset(b + S27_KEY, 0, 16u);
+    b[S27_FLAGS] = (uint8_t)(b[S27_FLAGS] & ~OD_SECURITY_FLAG_SHOW_KEY_ON_SCREEN);
     b[S27_RES0] = 0u;
 }
+
+/* Bit 1 of every 0x27 in an admitted record, against the bit in force: true when the record would
+ * change what the NORMAL boot screen shows (10.7). A record without 0x27 on a claimed device has
+ * the stored one inserted, so it changes nothing. */
+static bool s_admit_show_key_changed;
 
 /* ------------------------------------------------------------------------- admit --- */
 
@@ -286,7 +294,16 @@ uint8_t od_cfg_policy_admit(uint8_t *blob, uint32_t *len, uint32_t cap)
     return (sc.secret || sc.key27) ? OD_ERR_CONFIG_SECRET_NEEDS_CLAIM : OD_CFG_POLICY_OK;
 #else
     st = od_sec2_state();
+    s_admit_show_key_changed = false;
     if (st == OD_SEC2_CLAIMED) {
+        const struct SecurityConfig *cur = od_sec2_app_security();
+        const uint8_t was = cur != NULL ? (uint8_t)(cur->flags & OD_SECURITY_FLAG_SHOW_KEY_ON_SCREEN) : 0u;
+
+        for (i = 0u; i < sc.n27; ++i) {
+            if ((uint8_t)(sc.p27[i][S27_FLAGS] & OD_SECURITY_FLAG_SHOW_KEY_ON_SCREEN) != was) {
+                s_admit_show_key_changed = true;
+            }
+        }
         for (i = 0u; i < sc.n27; ++i) {
             if (any_nonzero(sc.p27[i] + S27_KEY, 16u) && !od_sec2_key_is(sc.p27[i] + S27_KEY)) {
                 return OD_ERR_CONFIG_KEY_MISMATCH;
@@ -328,6 +345,10 @@ uint8_t od_cfg_policy_admit(uint8_t *blob, uint32_t *len, uint32_t cap)
         if (sc.secret || sc.key27) {
             return OD_ERR_CONFIG_SECRET_NEEDS_CLAIM;
         }
+        /* LOCKED: not claimed as far as this firmware can prove, so the bit is not stored. */
+        for (i = 0u; i < sc.n27; ++i) {
+            sc.p27[i][S27_FLAGS] = (uint8_t)(sc.p27[i][S27_FLAGS] & ~OD_SECURITY_FLAG_SHOW_KEY_ON_SCREEN);
+        }
     }
     if (crc_was_ok) {
         crc_put(blob, *len);
@@ -363,7 +384,18 @@ enum od_config_store_result od_cfg_policy_save(void *workspace, uint32_t workspa
         od_config_store_set_save_error(rc);
         return OD_CONFIG_STORE_IO;
     }
-    return od_config_store_save(workspace, workspace_cap, slot, n);
+    {
+        const bool redraw = s_admit_show_key_changed;
+        const enum od_config_store_result r = od_config_store_save(workspace, workspace_cap, slot, n);
+
+        s_admit_show_key_changed = false;
+        /* 10.7: a stored toggle of SHOW_KEY_ON_SCREEN redraws the boot screen at once (the
+         * target ignores it in claim mode, od_sec2_app.h). */
+        if (r == OD_CONFIG_STORE_OK && redraw) {
+            od_sec2_app_key_screen_changed();
+        }
+        return r;
+    }
 }
 
 /* --------------------------------------------------------- stored-record rewrites --- */

@@ -2380,10 +2380,14 @@ CONFIG_CLEAR never touches OS2K, OS2S or the image store.
 
   | State | bit 1 | Key lines (zone / small) | QR key bytes |
   |---|---|---|---|
-  | UNCLAIMED (incl. LEGACY_SECRETS) | any | `KEY: not set` / `----…` | zero |
-  | CLAIMED | 0 (default) | `KEY: hidden` / `XXXX…` | zero |
-  | CLAIMED | 1 | `KEY1: …` `KEY2: …` / two hex lines | K_dev |
-  | LOCKED | any | `KEY: hidden` / `XXXX…` (the key is unreadable) | zero |
+  | UNCLAIMED (incl. LEGACY_SECRETS) | any (stored 0) | `KEY1: not set` `KEY2: not set` / two lines of 16 `-` | zero |
+  | CLAIMED | 0 (default) | `KEY1: hidden` `KEY2: hidden` / two lines of 16 `X` | zero |
+  | CLAIMED | 1 | `KEY1: <16 hex>` `KEY2: <16 hex>` / two lines of 16 hex digits | K_dev |
+  | LOCKED | any | as CLAIMED with bit 1 = 0 (the key is unreadable) | zero |
+
+  Every target renders the same lines: ESP32 and Nordic through `od_boot_screen_render()`, BG22
+  (small layout only) through its own renderer; both ask `od_boot_screen_key()` for the decision.
+  K_dev that cannot be read is rendered as `hidden`.
 
 - **Never on the setup screen family.** SETUP, CODE and RESET never show a key (§ 7.8): they
   belong to unclaimed or resetting devices, and their "no attacker-writable text next to the

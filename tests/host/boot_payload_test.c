@@ -25,67 +25,78 @@ int main(void)
     char line[32];
     char url[OD_BOOT_URL_SIZE];
 
-    /* The 2.x key field is always zero: no QR carries the key (SECURITY_V2 10.7). */
-    od_boot_payload_build(0x1234u, 0xabcdefu, 0x7856u, payload);
+    /* No key: the 2.x key field is zero (SECURITY_V2 10.7, every state but SHOWN). */
+    od_boot_payload_build(0x1234u, 0xabcdefu, NULL, 0x7856u, payload);
     CHECK(payload[0] == 0x12u && payload[1] == 0x34u);
     CHECK(payload[2] == 0xabu && payload[3] == 0xcdu && payload[4] == 0xefu);
     CHECK(memcmp(&payload[5], zero, sizeof(zero)) == 0);
     CHECK(payload[21] == 0x78u && payload[22] == 0x56u);
+    /* SHOWN: bytes 5..20 carry the key, as on 2.x. */
+    od_boot_payload_build(0x1234u, 0xabcdefu, key, 0x7856u, payload);
+    CHECK(memcmp(&payload[5], key, sizeof(key)) == 0);
+    CHECK(payload[21] == 0x78u && payload[22] == 0x56u);
 
-    od_boot_format_key_line("KEY:", true, line, sizeof(line));
-    CHECK(strcmp(line, "KEY: hidden") == 0);
-    od_boot_format_key_line("KEY:", false, line, sizeof(line));
-    CHECK(strcmp(line, "KEY: not set") == 0);
-    od_boot_format_key_line("KEY:", false, line, 6u);
+    /* The zone-layout key lines (2.x format). */
+    od_boot_format_key_line("KEY1:", OD_BOOT_KEY_HIDDEN, key, 8u, line, sizeof(line));
+    CHECK(strcmp(line, "KEY1: hidden") == 0);
+    od_boot_format_key_line("KEY1:", OD_BOOT_KEY_NOT_SET, key, 8u, line, sizeof(line));
+    CHECK(strcmp(line, "KEY1: not set") == 0);
+    od_boot_format_key_line("KEY1:", OD_BOOT_KEY_SHOWN, key, 8u, line, sizeof(line));
+    CHECK(strcmp(line, "KEY1: 0011223344556677") == 0);
+    od_boot_format_key_line("KEY2:", OD_BOOT_KEY_SHOWN, key + 8, 8u, line, sizeof(line));
+    CHECK(strcmp(line, "KEY2: 8899AABBCCDDEEFF") == 0);
+    od_boot_format_key_line("KEY1:", OD_BOOT_KEY_SHOWN, key, 8u, line, 22u);   /* one short */
+    CHECK(line[0] == '\0');
+    od_boot_format_key_line("KEY1:", OD_BOOT_KEY_SHOWN, key, 8u, line, 23u);
+    CHECK(strcmp(line, "KEY1: 0011223344556677") == 0);
+    od_boot_format_key_line("KEY:", OD_BOOT_KEY_NOT_SET, NULL, 0u, line, 6u);
+    CHECK(line[0] == '\0');
+    od_boot_format_key_line("KEY1:", OD_BOOT_KEY_SHOWN, NULL, 8u, line, sizeof(line));
     CHECK(line[0] == '\0');
 
-    /* The key-state tree, every input combination. SHOW_KEY_ON_SCREEN is reserved: it never
-     * changes the answer. */
+    /* The small-layout hex. */
+    {
+        char hex[OD_BOOT_KEY_HEX_SIZE];
+
+        od_boot_format_key_display(OD_BOOT_KEY_NOT_SET, key, hex);
+        CHECK(strcmp(hex, "--------------------------------") == 0);
+        od_boot_format_key_display(OD_BOOT_KEY_HIDDEN, key, hex);
+        CHECK(strcmp(hex, "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX") == 0);
+        od_boot_format_key_display(OD_BOOT_KEY_SHOWN, key, hex);
+        CHECK(strcmp(hex, "00112233445566778899AABBCCDDEEFF") == 0);
+    }
+
+    /* The policy, every input combination (SECURITY_V2 10.7): only CLAIMED + bit 1 shows. */
     {
         static const struct {
-            uint8_t enabled;
-            bool key_set;
+            bool claimed, locked;
             uint8_t flags;
             enum od_boot_key_state want;
         } cases[] = {
-            {0u, false, 0u,                                   OD_BOOT_KEY_NOT_SET},
-            {0u, false, OD_SECURITY_FLAG_SHOW_KEY_ON_SCREEN,   OD_BOOT_KEY_NOT_SET},
-            {0u, true,  0u,                                   OD_BOOT_KEY_NOT_SET},
-            {0u, true,  OD_SECURITY_FLAG_SHOW_KEY_ON_SCREEN,   OD_BOOT_KEY_NOT_SET},
-            {1u, false, 0u,                                   OD_BOOT_KEY_NOT_SET},
-            {1u, false, OD_SECURITY_FLAG_SHOW_KEY_ON_SCREEN,   OD_BOOT_KEY_NOT_SET},
-            {1u, true,  0u,                                   OD_BOOT_KEY_HIDDEN},
-            {1u, true,  OD_SECURITY_FLAG_SHOW_KEY_ON_SCREEN,   OD_BOOT_KEY_HIDDEN},
+            {false, false, 0u,                                   OD_BOOT_KEY_NOT_SET},
+            {false, false, OD_SECURITY_FLAG_SHOW_KEY_ON_SCREEN,   OD_BOOT_KEY_NOT_SET},
+            {false, false, 0xFFu,                                OD_BOOT_KEY_NOT_SET},
+            {true,  false, 0u,                                   OD_BOOT_KEY_HIDDEN},
+            {true,  false, (uint8_t)~OD_SECURITY_FLAG_SHOW_KEY_ON_SCREEN, OD_BOOT_KEY_HIDDEN},
+            {true,  false, OD_SECURITY_FLAG_SHOW_KEY_ON_SCREEN,   OD_BOOT_KEY_SHOWN},
+            {true,  false, 0xFFu,                                OD_BOOT_KEY_SHOWN},
+            {false, true,  0u,                                   OD_BOOT_KEY_HIDDEN},
+            {false, true,  OD_SECURITY_FLAG_SHOW_KEY_ON_SCREEN,   OD_BOOT_KEY_HIDDEN},
+            {true,  true,  OD_SECURITY_FLAG_SHOW_KEY_ON_SCREEN,   OD_BOOT_KEY_HIDDEN},
         };
         for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
-            struct SecurityConfig sec;
-            memset(&sec, 0, sizeof(sec));
-            sec.encryption_enabled = cases[i].enabled;
-            sec.flags = cases[i].flags;
-            if (cases[i].key_set) {
-                memcpy(sec.encryption_key, key, sizeof(sec.encryption_key));
-            }
-            if (od_boot_key_state(&sec) != cases[i].want) {
-                fprintf(stderr, "FAIL key_state case %u: enabled=%u key_set=%d flags=0x%02X\n",
-                        i, cases[i].enabled, (int)cases[i].key_set, cases[i].flags);
+            if (od_boot_key_policy(cases[i].claimed, cases[i].locked, cases[i].flags) != cases[i].want) {
+                fprintf(stderr, "FAIL key_policy case %u\n", i);
                 ++failures;
             }
         }
-        /* An absent config is a device with nothing configured, not a crash. */
-        CHECK(od_boot_key_state(NULL) == OD_BOOT_KEY_NOT_SET);
-        /* One non-zero byte is a key. The zero test is over the whole 16, not a prefix. */
-        {
-            struct SecurityConfig sec;
-            memset(&sec, 0, sizeof(sec));
-            sec.encryption_enabled = 1u;
-            sec.encryption_key[15] = 0x01u;
-            CHECK(od_boot_key_state(&sec) == OD_BOOT_KEY_HIDDEN);
-        }
     }
 
-    CHECK(od_boot_url_build(0x1234u, 0xabcdefu, 0x7856u, url, sizeof(url)));
+    CHECK(od_boot_url_build(0x1234u, 0xabcdefu, NULL, 0x7856u, url, sizeof(url)));
     CHECK(strcmp(url, "https://opendisplay.org/l/?EjSrze8AAAAAAAAAAAAAAAAAAAAAeFY") == 0);
-    CHECK(!od_boot_url_build(0x1234u, 0xabcdefu, 0x7856u, line, 8u));
+    CHECK(od_boot_url_build(0x1234u, 0xabcdefu, key, 0x7856u, url, sizeof(url)));
+    CHECK(strcmp(url, "https://opendisplay.org/l/?EjSrze8AESIzRFVmd4iZqrvM3e7_eFY") == 0);
+    CHECK(!od_boot_url_build(0x1234u, 0xabcdefu, key, 0x7856u, line, 8u));
 
     /* The setup URL (SECURITY_V2 7.8): fixed parameter order, b/d/p omitted when 0. */
     {

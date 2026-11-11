@@ -19,6 +19,8 @@ struct od_boot_bufs {
   size_t qr_len;
 };
 
+/* The NORMAL boot screen. `security` is unused (kept for the callers): what the key lines and the
+ * QR say comes only from od_boot_screen_key() (od_boot_payload.h, SECURITY_V2 10.7). */
 bool od_boot_screen_render(const struct od_config *cfg,
                            const struct SecurityConfig *security,
                            const struct od_boot_bufs *bufs);

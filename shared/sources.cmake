@@ -166,6 +166,7 @@ set(OD_SHARED_SOURCES_APP_SESSION
     "${CMAKE_CURRENT_LIST_DIR}/core/od_claim_mode.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_factory_reset.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_sec2_hooks.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_boot_key.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_reply.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_gate.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_config_read.c"
