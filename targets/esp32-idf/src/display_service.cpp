@@ -1174,6 +1174,9 @@ extern "C" bool od_xfer_app_panel_info(od_xfer_panel_info_t *out) {
 
 static bool displayStarted(od_display_rc_t rc, const char *what) {
     if (rc != OD_DISPLAY_OK) {
+        if (rc == OD_DISPLAY_PANEL_BUSY) {
+            od_xfer_app_note_start_error(OD_ERR_PANEL_BUSY);
+        }
         od_log_error("display: %s refused rc=%d", what, (int)rc);
         touchResumeAfterUpload();
         return false;

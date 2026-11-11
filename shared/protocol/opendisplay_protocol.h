@@ -370,7 +370,9 @@
  *                 single-frame path and NACK the following 0x42 chunks.
  *              -> remaining bytes follow as CMD_CONFIG_CHUNK (0x0042) frames.
  * @response: [0x00][0x41] on accept (or after last chunk); [0xFF][0x41] on error.
- * @errors:   NACK on malformed TLV, size overflow, or bad chunk sequencing.
+ * @errors:   NACK on malformed TLV, size overflow, or bad chunk sequencing:
+ *            [0xFF][0x41][err][0x00], err = OD_ERR_CONFIG_WRITE_* (SECTION 4g);
+ *            0x01 BUSY while a display pass reads the stored config.
  * @state:    session required when security enabled. Device computes
  *            expectedChunks = ceil(total / 200).
  * @limits:   CONFIG_CHUNK_SIZE 200; first chunk payload CONFIG_CHUNK_SIZE_WITH_PREFIX 202.
@@ -1320,6 +1322,17 @@
 #define OD_ERR_DRIVE_SEQ_UNSUPPORTED   0x07u   /* sequence contains an escape this target
                                                 * does not implement; refused at START,
                                                 * before any panel I/O */
+#define OD_ERR_DRIVE_PANEL_BUSY        0x08u   /* the panel stayed BUSY while pass 0 was
+                                                * brought up; transient, retry */
+
+/* --------------------------------------------------------------------------
+ * 4g. CONFIG-WRITE errors -- scope: CMD_CONFIG_WRITE (0x0041) and
+ *     CMD_CONFIG_CHUNK (0x0042) when the write is committed.
+ *     NACK frame: [0xFF][0x41|0x42][err][0x00].
+ * -------------------------------------------------------------------------- */
+#define OD_ERR_CONFIG_WRITE_FAILED     0x00u   /* malformed, oversize or storage error */
+#define OD_ERR_CONFIG_WRITE_BUSY       0x01u   /* refused while a display pass reads the
+                                                * stored config; nothing stored, retry */
 
 /* --------------------------------------------------------------------------
  * 4f. RAW-SPI errors -- scope: CMD_SPI_RAW (0x0084) ONLY.

@@ -138,7 +138,8 @@ extern "C" int od_display_drive_write_start(uint8_t mode, uint8_t refresh, uint8
         opendisplay_display_power(false);
         /* A sequence using an escape this target does not implement is its own error, so a host
          * can tell "I cannot run this waveform" from "your mode index is wrong". */
-        return (rc == OD_EPD_RC_UNSUP) ? -OD_ERR_DRIVE_SEQ_UNSUPPORTED : -OD_ERR_DRIVE_NO_CONFIG;
+        return (rc == OD_EPD_RC_UNSUP) ? -OD_ERR_DRIVE_SEQ_UNSUPPORTED
+             : (rc == OD_EPD_RC_BUSY)  ? -OD_ERR_DRIVE_PANEL_BUSY : -OD_ERR_DRIVE_NO_CONFIG;
     }
 
     if (!opendisplay_display_drive_adopt(&geom, hdr.passes, mode,

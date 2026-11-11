@@ -223,6 +223,12 @@ uint32_t od_xfer_app_now_ms(void) { return fake_k_uptime_ms; }
 
 bool initConfigStorage(void) { return fake_store_init_ok; }
 
+/* The fake store never holds writes, so a refused save is always the generic failure. */
+uint8_t od_config_store_save_error(void)
+{
+    return OD_ERR_CONFIG_WRITE_FAILED;
+}
+
 bool saveConfig(uint8_t *data, uint32_t len)
 {
     if (!fake_store_save_ok) {

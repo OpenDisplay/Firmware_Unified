@@ -20,6 +20,7 @@
 #include "od_epd.h"
 #include "od_reply.h"
 #include "od_spi_raw_app.h"
+#include "od_xfer.h"
 #include "opendisplay_protocol.h"
 
 #include <stddef.h>
@@ -70,8 +71,11 @@ od_cmd_result_t od_cmd_app_spi_raw(const od_cmd_ctx_t *ctx, od_span_t body)
 
     switch (sub) {
     case SPI_RAW_SUB_OPEN:
-        /* The flags byte is optional and absent means zero: pins and power only, nothing
-         * clocked out, so virgin register state is observable. */
+        /* The session takes the panel, so an upload in flight ends here: left active with no
+         * panel behind it, it would defer the display service until it timed out. The flags
+         * byte is optional and absent means zero: pins and power only, nothing clocked out, so
+         * virgin register state is observable. */
+        od_xfer_replace_active();
         rc = opendisplay_display_spi_raw_open(
             args_len >= 1u && (args[0] & SPI_RAW_OPEN_FLAG_PANEL_INIT) != 0u);
         break;

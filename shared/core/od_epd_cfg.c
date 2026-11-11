@@ -556,9 +556,15 @@ bool od_epd_cfg_begin_pass(uint8_t pass)
         s_last_rc = OD_EPD_RC_ARG;
         return false;
     }
+    set_in_pass(true);   /* before the walk reads the stored sequence */
     s_last_rc = od_epd_begin_pass(&s_epd, pass);
     set_in_pass(s_last_rc == OD_EPD_RC_OK && !bus_faulted());
     return s_in_pass;
+}
+
+void od_epd_cfg_raw_detach(void)
+{
+    set_in_pass(false);
 }
 
 bool od_epd_cfg_write(const uint8_t *data, size_t len)

@@ -5,6 +5,7 @@
 #include "opendisplay_constants.h"
 #include "opendisplay_runtime.h"
 #include "od_epd_shim.h"
+#include "od_epd.h"
 #include "od_cmd_flash.h"
 #include "od_imgstore.h"
 #include "od_boot_payload.h"
@@ -993,6 +994,9 @@ extern "C" bool od_xfer_app_begin_full(const od_color_geometry_t *geometry)
   if (!od_epd_shim_begin(d->instance_number, 0u, d->rotation,
                          d->dc_pin, d->reset_pin, d->busy_pin, d->cs_pin,
                          d->data_pin, d->clk_pin)) {
+    if (od_epd_shim_last_rc() == OD_EPD_RC_BUSY) {
+      od_xfer_app_note_start_error(OD_ERR_PANEL_BUSY);
+    }
     display_power_set(false);
     return false;
   }

@@ -17,6 +17,7 @@
 #include "od_session_app.h"
 #include "opendisplay_ble.h"
 #include "opendisplay_config_parser.h"
+#include "od_config_store.h"
 #include "opendisplay_config_storage.h"
 #include "opendisplay_constants.h"
 #include "opendisplay_protocol.h"
@@ -228,6 +229,7 @@ od_cmd_result_t od_cmd_app_config_write(const od_cmd_ctx_t *ctx, od_span_t body)
         clear_session();
         rc = OD_CMD_OK;
       } else {
+        err[2] = od_config_store_save_error();
         (void)od_cmd_reply_plain(ctx, err, sizeof(err));
         rc = OD_CMD_NACK;
       }
@@ -254,6 +256,7 @@ od_cmd_result_t od_cmd_app_config_write(const od_cmd_ctx_t *ctx, od_span_t body)
     opendisplay_ble_reload_config_from_nvm();
     clear_session();
   } else {
+    err[2] = od_config_store_save_error();
     (void)od_cmd_reply_plain(ctx, err, sizeof(err));
     return OD_CMD_NACK;
   }
@@ -325,6 +328,7 @@ od_cmd_result_t od_cmd_app_config_chunk(const od_cmd_ctx_t *ctx, od_span_t body)
       clear_session();
       rc = OD_CMD_OK;
     } else {
+      err[2] = od_config_store_save_error();
       (void)od_cmd_reply_plain(ctx, err, sizeof(err));
       rc = OD_CMD_NACK;
     }

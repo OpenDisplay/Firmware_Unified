@@ -33,6 +33,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "opendisplay_protocol.h"
+
 #include "od_config_asm.h"   /* OD_CONFIG_MAX_SIZE, OD_STATIC_ASSERT, struct od_config_asm */
 
 #ifdef __cplusplus
@@ -101,11 +103,32 @@ enum od_config_store_result od_config_store_clear(void);
  * under its offsets are the ones it validated. */
 uint32_t od_config_store_generation(void);
 
+/* A target whose display pass and config writes run on different threads (Nordic: the boot
+ * render runs on a work queue) sets OD_CONFIG_STORE_LOCKING=1 and implements the two hooks with
+ * its own mutex. The hold flag and a save's check-then-write are taken under it, so a write
+ * either completes before a pass takes the hold or sees the hold. Without it they are no-ops. */
+#ifndef OD_CONFIG_STORE_LOCKING
+#define OD_CONFIG_STORE_LOCKING 0
+#endif
+#if OD_CONFIG_STORE_LOCKING
+void od_config_store_app_lock(void);
+void od_config_store_app_unlock(void);
+#else
+#define od_config_store_app_lock()   ((void)0)
+#define od_config_store_app_unlock() ((void)0)
+#endif
+
 /* While held, od_config_store_save() refuses with OD_CONFIG_STORE_BUSY before touching the
  * workspace (BG22's workspace is the live config assembler). Held by the display binding for
  * exactly the span of a pass, which streams its sequence from the medium and pauses at the image
  * marker while the frame arrives. */
 void od_config_store_hold_writes(bool held);
+
+/* The config-write NACK data byte ([FF][41|42][err][00]) for the most recent failed save, read
+ * once (the call clears it):
+ * OD_ERR_CONFIG_WRITE_BUSY when the hold refused it (transient: retry once the refresh is
+ * done), else OD_ERR_CONFIG_WRITE_FAILED. */
+uint8_t od_config_store_save_error(void);
 
 /* CRC-32 (reflected, polynomial 0xEDB88320) over the payload. Bit-serial deliberately: a table
  * costs 1 KB of flash on a part with 480 B of RAM headroom, and this runs once per config

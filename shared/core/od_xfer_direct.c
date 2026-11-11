@@ -75,10 +75,18 @@ od_cmd_result_t od_xfer_direct_start(const od_cmd_ctx_t *ctx, od_span_t body)
     state->geometry = panel.geometry;
 
     od_xfer_log_start();
+    (void)od_xfer_take_start_error();
     if (!od_xfer_app_begin_full(&state->geometry)) {
+        const uint8_t err = od_xfer_take_start_error();
+
         od_xfer_fail_active(OD_XFER_TERM_PANEL_PREPARATION, "START", -1, 0u, 0u,
                             OD_XFER_ABORT_START_FAILED, false);
-        od_xfer_reply_simple_error(ctx, RESP_DIRECT_WRITE_START_ACK);
+        if (err != 0u) {
+            const uint8_t nack[] = { RESP_NACK, RESP_DIRECT_WRITE_START_ACK, err, 0u };
+            od_xfer_reply_error(ctx, nack, (uint16_t)sizeof nack);
+        } else {
+            od_xfer_reply_simple_error(ctx, RESP_DIRECT_WRITE_START_ACK);
+        }
         return OD_CMD_NACK;
     }
     if (compressed) {

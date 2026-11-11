@@ -64,6 +64,21 @@ static void log_hex(char *buf, size_t size, const uint8_t *data, uint8_t len)
 }
 #endif
 
+static uint8_t s_start_error;
+
+void od_xfer_app_note_start_error(uint8_t err)
+{
+    s_start_error = err;
+}
+
+uint8_t od_xfer_take_start_error(void)
+{
+    const uint8_t err = s_start_error;
+
+    s_start_error = 0u;
+    return err;
+}
+
 od_xfer_state_t *od_xfer_state(void)
 {
     return &s_xfer;

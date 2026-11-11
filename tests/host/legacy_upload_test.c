@@ -154,7 +154,12 @@ static void bus_data(const uint8_t *d, size_t n)
 }
 
 static void bus_reset(uint32_t ms) { g_now += ms * 3u; trace(0x300u); }
-static int bus_busy(void) { return (int)od_epd_cfg_busy_idle_level(); }
+static bool g_stuck_busy;
+static int bus_busy(void)
+{
+    const int idle = (int)od_epd_cfg_busy_idle_level();
+    return g_stuck_busy ? !idle : idle;
+}
 static void bus_delay(uint32_t ms) { g_now += ms; }
 static uint32_t bus_now(void) { return g_now; }
 static bool bus_pin(uint8_t pin, uint8_t level) { trace((uint16_t)(0x400u | level)); (void)pin; return true; }
@@ -224,9 +229,15 @@ bool od_xfer_app_panel_info(od_xfer_panel_info_t *out)
     return true;
 }
 
+/* As ESP32 and Nordic do: a panel stuck BUSY gives the START NACK its own byte. */
 bool od_xfer_app_begin_full(const od_color_geometry_t *geometry)
 {
-    return od_display_begin_full(geometry) == OD_DISPLAY_OK;
+    const od_display_rc_t rc = od_display_begin_full(geometry);
+
+    if (rc == OD_DISPLAY_PANEL_BUSY) {
+        od_xfer_app_note_start_error(OD_ERR_PANEL_BUSY);
+    }
+    return rc == OD_DISPLAY_OK;
 }
 
 bool od_xfer_app_begin_partial(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint32_t pb)
@@ -461,6 +472,30 @@ static void run_broken_mode0(const lu_panel_t *p)
     CHECK(od_display_needs_migration());
 }
 
+/* The panel never releases BUSY while mode 0 brings it up: START NACK [FF][70][09][00] (retry),
+ * not the generic one, and config writes are not left held. */
+static void run_stuck_busy(const lu_panel_t *p)
+{
+    static uint8_t ws[OD_CONFIG_STORE_MAX_RECORD];
+    const uint8_t payload[3] = { 0, 0, 1 };
+
+    g_case = "panel stuck BUSY: START NACK 0x09";
+    provision(p, p->drive, p->drive_n);
+    g_stuck_busy = true;
+    CHECK(replay(p->z, 2u + (size_t)(p->z[0] | (p->z[1] << 8))) == 1u);
+    g_stuck_busy = false;
+    CHECK(g_last[0] == RESP_NACK && g_last[1] == RESP_DIRECT_WRITE_START_ACK &&
+          g_last[2] == OD_ERR_PANEL_BUSY && g_last[3] == 0u);
+    CHECK(!od_display_active() && !od_xfer_active() && g_refreshed == 0u);
+    /* The fake medium refuses every write (EIO); what matters is that the hold did not. */
+    CHECK(od_config_store_save(ws, sizeof ws, payload, sizeof payload) != OD_CONFIG_STORE_BUSY);
+
+    g_case = "the next START after a generic refusal carries no stale busy byte";
+    provision(p, p->drive, p->drive_n);
+    CHECK(replay(p->z, p->z_n) > 1u);
+    CHECK(g_last[0] == RESP_ACK);
+}
+
 int main(void)
 {
     g_trace = malloc(sizeof(uint16_t) * TRACE_CAP);
@@ -480,6 +515,7 @@ int main(void)
         }
     }
     run_broken_mode0(&LU_PANELS[0]);
+    run_stuck_busy(&LU_PANELS[0]);
     printf("legacy_upload: %u checks, %u failures\n", g_checks, g_failures);
     free(g_trace);
     free(g_frame);

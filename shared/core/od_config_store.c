@@ -66,6 +66,7 @@ uint32_t od_config_store_crc32(const uint8_t *data, uint32_t len)
 
 static uint32_t s_generation;
 static bool     s_writes_held;
+static bool     s_last_save_busy;
 
 uint32_t od_config_store_generation(void)
 {
@@ -74,7 +75,17 @@ uint32_t od_config_store_generation(void)
 
 void od_config_store_hold_writes(bool held)
 {
+    od_config_store_app_lock();
     s_writes_held = held;
+    od_config_store_app_unlock();
+}
+
+uint8_t od_config_store_save_error(void)
+{
+    const bool busy = s_last_save_busy;
+
+    s_last_save_busy = false;
+    return busy ? OD_ERR_CONFIG_WRITE_BUSY : OD_ERR_CONFIG_WRITE_FAILED;
 }
 
 static enum od_config_store_result from_hal(int rc)
@@ -105,6 +116,7 @@ enum od_config_store_result od_config_store_save(void *workspace, uint32_t works
     uint32_t total;
     uint32_t crc;
 
+    s_last_save_busy = false;
     if (ws == NULL || payload == NULL) {
         od_log_error("Config save rejected: invalid arguments");
         return OD_CONFIG_STORE_IO;
@@ -120,8 +132,13 @@ enum od_config_store_result od_config_store_save(void *workspace, uint32_t works
                      (unsigned)workspace_cap, (unsigned)total);
         return OD_CONFIG_STORE_TOO_BIG;
     }
+    /* From the hold check to the end of the write under one lock, so a pass cannot take the
+     * hold between the check and the medium write. */
+    od_config_store_app_lock();
     if (s_writes_held) {
+        od_config_store_app_unlock();
         od_log_warn("Config save refused: a display pass is reading the stored config");
+        s_last_save_busy = true;
         return OD_CONFIG_STORE_BUSY;
     }
 
@@ -148,6 +165,7 @@ enum od_config_store_result od_config_store_save(void *workspace, uint32_t works
         ++s_generation;
         rc = from_hal(od_hal_nvs_write(ws, total));
         ++s_generation;
+        od_config_store_app_unlock();
 
         if (rc == OD_CONFIG_STORE_OK) {
             od_log_info("Config stored: %u bytes", (unsigned)len);

@@ -139,8 +139,11 @@ od_cmd_result_t od_xfer_partial_start(const od_cmd_ctx_t *ctx, od_span_t body)
     state->partial.height = height;
 
     od_xfer_log_start();
+    (void)od_xfer_take_start_error();
     if (!od_xfer_app_begin_partial(x, y, width, height, plane_bytes)) {
-        return partial_terminal_fail(ctx, 0x76u, OD_ERR_PARTIAL_STREAM,
+        const uint8_t err = od_xfer_take_start_error();
+
+        return partial_terminal_fail(ctx, 0x76u, err != 0u ? err : OD_ERR_PARTIAL_STREAM,
                                      OD_XFER_TERM_PANEL_PREPARATION, "START", 0u, 0u,
                                      OD_XFER_ABORT_START_FAILED);
     }

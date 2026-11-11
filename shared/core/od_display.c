@@ -127,7 +127,8 @@ static od_display_rc_t open_pass(const struct DisplayConfig *d, const od_color_g
         od_epd_cfg_sleep();
         od_drive_app_panel_down();
         phase(OD_DISPLAY_PHASE_IDLE);
-        return unsup ? OD_DISPLAY_SEQ_UNSUPPORTED : OD_DISPLAY_PANEL;
+        return unsup ? OD_DISPLAY_SEQ_UNSUPPORTED
+                     : rc == OD_EPD_RC_BUSY ? OD_DISPLAY_PANEL_BUSY : OD_DISPLAY_PANEL;
     }
     if (!od_epd_cfg_stream_init(&s_stream, g, 1u, false, NULL, 0u)) {
         od_epd_cfg_sleep();

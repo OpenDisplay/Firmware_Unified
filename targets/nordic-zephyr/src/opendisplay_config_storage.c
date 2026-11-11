@@ -4,6 +4,23 @@
 
 #include "od_config_store.h"
 
+#include <zephyr/kernel.h>
+
+/* od_config_store_hold_writes() runs on the display work queue during the boot render and on
+ * main otherwise; saves run on main. A k_mutex, not a spinlock: the save holds it across the NVS
+ * write. */
+K_MUTEX_DEFINE(s_config_store_lock);
+
+void od_config_store_app_lock(void)
+{
+	(void)k_mutex_lock(&s_config_store_lock, K_FOREVER);
+}
+
+void od_config_store_app_unlock(void)
+{
+	(void)k_mutex_unlock(&s_config_store_lock);
+}
+
 /* Framing, CRC and bounds are shared/core's; the medium is src/od_hal_nvs.c. What is left here
  * is the four names this target's callers use and the workspace the record is assembled in. */
 

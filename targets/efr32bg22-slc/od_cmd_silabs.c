@@ -11,6 +11,7 @@
 #include "od_txq.h"
 #include "opendisplay_ble.h"
 #include "opendisplay_config_parser.h"
+#include "od_config_store.h"
 #include "opendisplay_config_storage.h"
 #include "opendisplay_constants.h"
 #include "opendisplay_led.h"
@@ -54,6 +55,7 @@ static od_cmd_result_t persist_config(const od_cmd_ctx_t *ctx, uint8_t response,
 
   /* Persistence is the commit point. A success response must never get ahead of it. */
   if (!saveConfig((uint8_t *)(uintptr_t)data, len)) {
+    err[2] = od_config_store_save_error();
     (void)reply_plain(ctx, err, sizeof(err));
     return OD_CMD_NACK;
   }

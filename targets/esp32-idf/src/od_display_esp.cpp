@@ -433,6 +433,9 @@ extern "C" int opendisplay_display_spi_raw_open(bool run_panel_init)
         rail_off();
         return -OD_ERR_SPI_RAW_PANEL;
     }
+    if (run_panel_init) {
+        od_epd_cfg_raw_detach();
+    }
     s_spi_raw_open = true;
     return 0;
 }

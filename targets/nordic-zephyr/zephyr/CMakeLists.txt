@@ -116,6 +116,9 @@ target_compile_definitions(app PRIVATE
   OD_CAP_DRIVE_WRITE=1
   OD_CAP_SPI_RAW=1
   OD_CAP_READ_IDENT=1
+  # The boot render runs on a work queue beside config writes on main: the config-write hold
+  # and a save's check-then-write share a k_mutex (opendisplay_config_storage.c).
+  OD_CONFIG_STORE_LOCKING=1
 )
 
 if(OD_EPD_SPI_REQUIRE_SPIM)

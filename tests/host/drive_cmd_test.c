@@ -19,6 +19,7 @@
 #include "od_epd_cfg.h"
 #include "od_inflate_app.h"
 #include "od_reply.h"
+#include "od_config_store.h"
 #include "od_spi_raw_app.h"
 #include "od_xfer.h"
 #include "od_xfer_app.h"
@@ -134,6 +135,9 @@ int opendisplay_display_spi_raw_open(bool run_panel_init)
     if (run_panel_init && (!od_epd_cfg_select(0u, NULL) || !od_epd_cfg_begin_pass(0u))) {
         od_drive_app_panel_down();
         return -OD_ERR_SPI_RAW_PANEL;
+    }
+    if (run_panel_init) {
+        od_epd_cfg_raw_detach();
     }
     g_raw_open = true;
     return 0;
@@ -362,16 +366,18 @@ static void test_start_panel_failures(void)
         CHECK(start(b, 5u) == OD_CMD_NACK && reply_is(NACK(OD_ERR_DRIVE_SEQ_UNSUPPORTED, 2u)));
         CHECK(!g_up && fx_cmd_count == 0u && fx_reset_count == 0u && !od_xfer_active());
     }
-    CASE("BUSY never releasing in pass 0: refused, panel down -- reported as NO_CONFIG");
+    CASE("BUSY never releasing in pass 0: PANEL_BUSY, panel down, config writes not held");
     {
         const uint8_t b[5] = { 3, 0, 0, 0, 0 };
+        static uint8_t ws[OD_CONFIG_STORE_MAX_RECORD];
+        const uint8_t payload[3] = { 0, 0, 1 };
         g_stuck_busy = true;
         const od_cmd_result_t r = start(b, 5u);
         g_stuck_busy = false;
         CHECK(r == OD_CMD_NACK && !g_up && !od_xfer_active());
-        /* od_epd_cfg_last_rc() is OD_EPD_RC_BUSY here; drive_begin() folds everything but UNSUP
-         * into NO_CONFIG, so a host is told "migrate your config" for a stuck panel. */
-        CHECK(reply_is(NACK(OD_ERR_DRIVE_NO_CONFIG, 3u)));
+        CHECK(reply_is(NACK(OD_ERR_DRIVE_PANEL_BUSY, 3u)));
+        CHECK(od_config_store_save(ws, sizeof ws, payload, sizeof payload) == OD_CONFIG_STORE_OK);
+        store_cfg(true);
     }
 }
 
@@ -493,6 +499,40 @@ static void test_spi_raw(void)
         CHECK(raw(open, 2u) == OD_CMD_OK && fx_reset_count == 1u);
         CHECK(strstr(fx_trace, "C 12") != NULL && strstr(fx_trace, "C 22") == NULL);
         opendisplay_display_spi_raw_close();
+    }
+    CASE("an open PANEL_INIT session does not hold config writes");
+    {
+        const uint8_t open[2] = { SPI_RAW_SUB_OPEN, SPI_RAW_OPEN_FLAG_PANEL_INIT };
+        static uint8_t ws[OD_CONFIG_STORE_MAX_RECORD];
+        const uint8_t payload[3] = { 0, 0, 1 };
+        CHECK(raw(open, 2u) == OD_CMD_OK && g_raw_open);
+        CHECK(od_config_store_save(ws, sizeof ws, payload, sizeof payload) == OD_CONFIG_STORE_OK);
+        opendisplay_display_spi_raw_close();
+        store_cfg(true);
+    }
+    CASE("a config write during a pass: BUSY, and the NACK byte says so once");
+    {
+        static uint8_t ws[OD_CONFIG_STORE_MAX_RECORD];
+        const uint8_t payload[3] = { 0, 0, 1 };
+        od_config_store_hold_writes(true);
+        CHECK(od_config_store_save(ws, sizeof ws, payload, sizeof payload) == OD_CONFIG_STORE_BUSY);
+        CHECK(od_config_store_save_error() == OD_ERR_CONFIG_WRITE_BUSY);
+        CHECK(od_config_store_save_error() == OD_ERR_CONFIG_WRITE_FAILED);
+        od_config_store_hold_writes(false);
+        CHECK(od_config_store_save(ws, sizeof ws, payload, 99999u) == OD_CONFIG_STORE_TOO_BIG);
+        CHECK(od_config_store_save_error() == OD_ERR_CONFIG_WRITE_FAILED);
+        store_cfg(true);
+    }
+    CASE("N1: OPEN ends an upload in flight");
+    {
+        const uint8_t ok[5] = { 0, 0, 0, 0, 0 };
+        const uint8_t open[1] = { SPI_RAW_SUB_OPEN };
+        g_temp = 20;
+        CHECK(start(ok, 5u) == OD_CMD_OK && od_xfer_active());
+        CHECK(raw(open, 1u) == OD_CMD_OK && reply_is(RACK(SPI_RAW_SUB_OPEN)));
+        CHECK(!od_xfer_active());
+        opendisplay_display_spi_raw_close();
+        g_temp = OD_DRIVE_TEMP_UNKNOWN;
     }
 }
 

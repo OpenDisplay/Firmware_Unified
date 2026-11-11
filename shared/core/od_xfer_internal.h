@@ -12,6 +12,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* The error od_xfer_app_note_start_error() recorded since the last call; 0 if none. */
+uint8_t od_xfer_take_start_error(void);
+
 typedef enum {
     OD_XFER_IDLE = 0,
     OD_XFER_DIRECT_FULL,

@@ -67,10 +67,11 @@ static uint8_t drive_begin(uint8_t *mode, uint8_t flags, od_span_t tail, uint8_t
         return OD_ERR_DRIVE_NO_CONFIG;
     }
     if (!od_epd_cfg_begin_pass(0u)) {
-        const bool unsupported = od_epd_cfg_last_rc() == OD_EPD_RC_UNSUP;
+        const int rc = od_epd_cfg_last_rc();
 
         od_drive_app_panel_down();
-        return unsupported ? OD_ERR_DRIVE_SEQ_UNSUPPORTED : OD_ERR_DRIVE_NO_CONFIG;
+        return rc == OD_EPD_RC_UNSUP ? OD_ERR_DRIVE_SEQ_UNSUPPORTED
+             : rc == OD_EPD_RC_BUSY  ? OD_ERR_DRIVE_PANEL_BUSY : OD_ERR_DRIVE_NO_CONFIG;
     }
     if (!od_drive_app_adopt(geom, hdr.passes, (flags & DRIVE_WRITE_FLAG_COMPRESSED) != 0u,
                             tail)) {

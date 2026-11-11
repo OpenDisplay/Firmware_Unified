@@ -50,6 +50,17 @@ typedef struct {
 #define OD_ERR_NEEDS_MIGRATION 0x08u
 #endif
 
+/* NACK data byte for "the panel stayed BUSY when the upload tried to bring it up": a transient
+ * condition, unlike NEEDS_MIGRATION, so a host retries rather than rewrites the config. Same three
+ * STARTs and the same namespaces; 0x09 is free in both. */
+#ifndef OD_ERR_PANEL_BUSY
+#define OD_ERR_PANEL_BUSY 0x09u
+#endif
+
+/* Called by od_xfer_app_begin_full / _begin_partial before returning false, to give the START
+ * NACK a specific data byte (OD_ERR_PANEL_BUSY). Without a call the NACK is the generic one. */
+void od_xfer_app_note_start_error(uint8_t err);
+
 typedef enum {
     OD_XFER_BARRIER_PROCEED = 0,
     OD_XFER_BARRIER_ABORT,

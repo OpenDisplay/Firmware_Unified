@@ -108,6 +108,9 @@ bool    od_epd_cfg_write(const uint8_t *data, size_t len);
 bool    od_epd_cfg_next_plane(void);
 bool    od_epd_cfg_finish(void);
 void    od_epd_cfg_sleep(void);
+/* CMD_SPI_RAW with panel init: the walk paused at the image marker is never resumed (the host
+ * owns the panel from there), so the config-write hold ends here rather than at CLOSE. */
+void    od_epd_cfg_raw_detach(void);
 /* The od_epd return code of the last failed begin_pass. */
 int     od_epd_cfg_last_rc(void);
 

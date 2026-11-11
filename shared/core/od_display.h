@@ -48,7 +48,8 @@ typedef enum {
     OD_DISPLAY_BAD_MODE,          /* mode missing or unusable for this operation */
     OD_DISPLAY_TEMP_RANGE,        /* temp_policy = REJECT and the reading is out of window */
     OD_DISPLAY_SEQ_UNSUPPORTED,   /* sequence uses an escape this target does not implement */
-    OD_DISPLAY_PANEL,             /* rail, bus, BUSY or a malformed sequence */
+    OD_DISPLAY_PANEL_BUSY,        /* the panel stayed BUSY while the pass was brought up */
+    OD_DISPLAY_PANEL,             /* rail, bus or a malformed sequence */
 } od_display_rc_t;
 
 /* "3.x config-driven firmware, but this config has no drive data": the state a 2.x config is in

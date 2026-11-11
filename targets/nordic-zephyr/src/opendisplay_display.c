@@ -406,6 +406,9 @@ int opendisplay_display_spi_raw_open(bool run_panel_init)
     od_drive_app_panel_down();
     return -OD_ERR_SPI_RAW_PANEL;
   }
+  if (run_panel_init) {
+    od_epd_cfg_raw_detach();
+  }
   s_spi_raw_open = true;
   return 0;
 }
@@ -513,6 +516,9 @@ bool od_xfer_app_panel_info(od_xfer_panel_info_t *out)
 static bool display_started(od_display_rc_t rc, const char *what)
 {
   if (rc != OD_DISPLAY_OK) {
+    if (rc == OD_DISPLAY_PANEL_BUSY) {
+      od_xfer_app_note_start_error(OD_ERR_PANEL_BUSY);
+    }
     od_log_error("display: %s refused rc=%d", what, (int)rc);
     od_epd_spi_deinit();
     (void)od_epd_spi_fault_reset();

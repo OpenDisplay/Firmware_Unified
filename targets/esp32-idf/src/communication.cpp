@@ -23,6 +23,7 @@
 
 /* Chunked CONFIG_WRITE reassembly, promoted to shared/core (F3). */
 #include "od_config_asm.h"
+#include "od_config_store.h"
 #include "od_config_read.h"
 #include "od_dispatch.h"   /* od_dispatch_budget, for the migration's legacy reservations */
 #include "od_cmd_reply.h"
@@ -470,6 +471,7 @@ od_cmd_result_t handleWriteConfig(const od_cmd_ctx_t *ctx, uint8_t* data, uint16
             notifyConfigChangedOverBle();
             return (rc == OD_TXQ_OK) ? OD_CMD_OK : OD_CMD_NACK;
         }
+        responseErr[2] = od_config_store_save_error();
         (void)od_cmd_reply_plain(ctx, responseErr, sizeof(responseErr));
         return OD_CMD_NACK;
     }
@@ -494,6 +496,7 @@ od_cmd_result_t handleWriteConfig(const od_cmd_ctx_t *ctx, uint8_t* data, uint16
             notifyConfigChangedOverBle();
             return (rc == OD_TXQ_OK) ? OD_CMD_OK : OD_CMD_NACK;
         }
+        responseErr[2] = od_config_store_save_error();
         (void)od_cmd_reply_plain(ctx, responseErr, sizeof(responseErr));
         return OD_CMD_NACK;
     }
@@ -562,6 +565,7 @@ od_cmd_result_t handleWriteConfigChunk(const od_cmd_ctx_t *ctx, uint8_t* data, u
             notifyConfigChangedOverBle();
             return (rc == OD_TXQ_OK) ? OD_CMD_OK : OD_CMD_NACK;
         }
+        err_resp[2] = od_config_store_save_error();
         (void)od_cmd_reply_plain(ctx, err_resp, sizeof(err_resp));
         return OD_CMD_NACK;
     }
