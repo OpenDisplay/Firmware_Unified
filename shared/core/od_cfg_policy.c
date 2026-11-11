@@ -279,6 +279,7 @@ uint8_t od_cfg_policy_admit(uint8_t *blob, uint32_t *len, uint32_t cap)
     crc_was_ok = crc_ok(blob, *len);
 
 #if !OD_SEC2
+    (void)crc_was_ok;
     (void)st;
     (void)i;
     (void)cap;

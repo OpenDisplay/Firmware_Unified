@@ -740,6 +740,29 @@ add_executable(od_sec2_test sec2_test.c od_log_test_stub.c)
 target_link_libraries(od_sec2_test od_session_fake_dispatch)
 add_test(NAME sec2 COMMAND od_sec2_test)
 
+# cfg_policy: the SEC2 config policy over real od_sec2 + od_config_store, checked against
+# py-opendisplay's independent vectors (tests/vectors/sec2_vectors.json, copied verbatim from
+# py-opendisplay v3/py f02e380 tests/fixtures) and the branches they do not reach.
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+set(OD_SEC2_VEC_INC ${CMAKE_CURRENT_BINARY_DIR}/sec2_vectors.inc)
+add_custom_command(
+    OUTPUT ${OD_SEC2_VEC_INC}
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/gen_sec2_vectors.py
+            ${CMAKE_CURRENT_LIST_DIR}/../vectors/sec2_vectors.json ${OD_SEC2_VEC_INC}
+    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/gen_sec2_vectors.py ${CMAKE_CURRENT_LIST_DIR}/../vectors/sec2_vectors.json
+    VERBATIM)
+add_executable(od_cfg_policy_test cfg_policy_test.c od_log_test_stub.c ${OD_SEC2_VEC_INC})
+target_include_directories(od_cfg_policy_test PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(od_cfg_policy_test od_session_fake)
+add_test(NAME cfg_policy COMMAND od_cfg_policy_test)
+
+# cfg_policy_core: the same policy compiled with OD_SEC2=0 (a "Core" build, Q14).
+add_executable(od_cfg_policy_core_test cfg_policy_core_test.c od_log_test_stub.c
+    nvs_empty_test_stub.c ../../shared/core/od_cfg_policy.c)
+target_compile_definitions(od_cfg_policy_core_test PRIVATE OD_SEC2=0)
+target_link_libraries(od_cfg_policy_core_test od_shared)
+add_test(NAME cfg_policy_core COMMAND od_cfg_policy_core_test)
+
 # The same suite with the counter ceiling at 5, so exhaustion is reachable: od_sec2.c is compiled
 # into the executable with the override, ahead of the archive copy.
 add_executable(od_sec2_ctr_test sec2_ctr_test.c od_log_test_stub.c ../../shared/core/od_sec2.c)
