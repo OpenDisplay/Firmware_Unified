@@ -819,7 +819,7 @@ Consequences:
 - **No remote path sets FRESH.** CONFIG_CLEAR does not touch OS2S, and no opcode erases it. Only
   three things can make a device fresh: virgin storage, a factory reset (physical), or replaced
   firmware (§ 1.4 item 1).
-- `OS2S.FRESH` is cleared when the FRESH session ends (§ 7.3), whatever the reason. A power loss
+- `OS2S.FRESH` is cleared when the FRESH session ends (§ 7.3), whatever the reason (Q15, decided). A power loss
   during a FRESH session keeps it, so the next boot starts a new FRESH session.
 
 ### 7.2 Detecting two quick power-cycles
@@ -2069,7 +2069,7 @@ carry the SEC2-capable py-opendisplay (plan WP10).
 | Build | Behaviour |
 |---|---|
 | `OD_SEC2=1` (every OpenDisplay 3.0 build) | this specification |
-| `OD_SEC2=0` (a third-party product without the module) | READ_IDENT SEC_V2 = 0. 0x0054-0x0057 are unknown opcodes. 0x0050 answers NOT_CONFIG. No claim mode, no gesture counter, no OS2* records. MSD bit 3 = 0. Panel writes are always allowed, and FD is never sent. **Secrets: refused with 0x10** (the rule stays universal, so "secrets accepted" always means "protected"), **pending Q14** |
+| `OD_SEC2=0` (a third-party product without the module) | READ_IDENT SEC_V2 = 0. 0x0054-0x0057 are unknown opcodes. 0x0050 answers NOT_CONFIG. No claim mode, no gesture counter, no OS2* records. MSD bit 3 = 0. Panel writes are always allowed, and FD is never sent. **Secrets: refused with 0x10** (the rule stays universal, so "secrets accepted" always means "protected"). No build flag allows storing them (Q14, decided) |
 
 Clients treat `SEC_V2 = 0` on firmware ≥ 3 as "this display cannot be claimed or hold secrets".
 

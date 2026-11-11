@@ -86,7 +86,7 @@ Rule for every WP: host-tested ≠ hardware-verified. Every hardware row goes in
   - **Header text** rewritten for SEC2: "ENCRYPTED ENVELOPE", "AUTH GATING", "CHUNK BUDGETS".
     The auth-required shape there must also be corrected to `[00][cmd][FE]` (the code's shape,
     `od_gate.c:15-22`).
-- **Acceptance**: the maintainer answers § 9 Q14-Q16, or accepts the recommendations.
+- **Acceptance**: the maintainer answers § 9 Q16, or accepts the recommendation (Q14 and Q15 are decided).
 
 ## 3. Firmware
 
@@ -478,14 +478,14 @@ present. The ESPHome-proxy end-to-end test is a hardware row (open).
 | Q11 | factory reset erases config, key, image store and bonds |
 | Q12 | a device without a panel may be claimed after an explicit warning |
 | Q13 | the website requires typing the code |
+| Q14 | a Core build without the SEC2 module (`OD_SEC2=0`) refuses WiFi / FindMy secrets with 0x10, like every unclaimed device; no build flag allows storing them (SECURITY_V2 § 13.7) |
+| Q15 | a FRESH claim-mode session that ends without a claim (timeout, skip, 3 codes) clears FRESH; the device is then an ordinary open device, and claiming it later needs the gesture (§ 7.3) |
 | new | claim mode by a deliberate gesture (two quick power-cycles), or fresh / factory-reset; panel writes refused; 10 minutes; the screen shows it; reboot into normal mode at the end |
 
 **Open** (each has a default in the spec that can be flipped without touching the wire format):
 
 | # | Question | Options | Recommendation |
 |---|---|---|---|
-| Q14 | Third-party "Core" builds without the SEC2 module (`OD_SEC2=0`): may they store WiFi / FindMy secrets? (SECURITY_V2 § 13.7) | (a) no: they refuse with 0x10, like every unclaimed device; the rule stays universal, so "secrets accepted" always means "protected" (spec default). (b) yes, and they report it: a READ_IDENT bit SECRETS_UNPROTECTED, with clients warning. (c) (a) by default, with (b) behind an explicit integrator build flag | **(c)**. OpenDisplay builds keep the universal rule; an integrator with its own protection can opt out visibly |
-| Q15 | When a FRESH claim-mode session ends without a claim (timeout, skip, 3 codes), does the device stay "fresh"? | (a) no: FRESH is cleared; the device is an ordinary open device, and claiming it later needs the gesture (spec default). (b) yes, until it is claimed or explicitly skipped: every power-on re-enters claim mode, and old clients' uploads are refused for 10 minutes after each power-on | **(a)**. (b) makes an open device that someone deliberately leaves unclaimed misbehave at every power-on, which contradicts "open devices behave exactly as today" |
 | Q16 | BG22 flash. SEC2 + claim mode + factory reset are estimated to leave between about +2.2 KB and −1.1 KB of the 5,436 B free on `v3/decisions` (§ 4); the 4,000 B stop line cannot hold | (a) accept a lower floor for 3.0 (e.g. 1,024 B), decided at the WP3 checkpoint; (b) BG22-only UI cuts (savings s3 / s4: the reduced screen layout, one LED pattern); (c) find space elsewhere on BG22 (logging, LTO, s1 / s5), measured; (d) defer part of the scope on BG22 only (e.g. the setup URL QR on the CODE / RESET screens) | **Measure at the WP3 checkpoint first**, then (c) + (b). (a) only for what remains. None of these changes the wire format |
 
 ## 10. What this plan does not cover
