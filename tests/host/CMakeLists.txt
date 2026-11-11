@@ -295,17 +295,6 @@ add_executable(od_config_store_cap_test config_store_test.c)
 target_link_libraries(od_config_store_cap_test od_shared_silabs)
 add_test(NAME config_store_cap COMMAND od_config_store_cap_test)
 
-# config_carry: od_config_carry over a fake medium, at both config caps.
-add_executable(od_config_carry_test config_carry_test.c
-    ../../shared/core/od_config_carry.c ../../shared/core/od_cfg_index.c)
-target_link_libraries(od_config_carry_test od_shared)
-add_test(NAME config_carry COMMAND od_config_carry_test)
-
-add_executable(od_config_carry_cap_test config_carry_test.c
-    ../../shared/core/od_config_carry.c ../../shared/core/od_cfg_index.c)
-target_link_libraries(od_config_carry_cap_test od_shared_silabs)
-add_test(NAME config_carry_cap COMMAND od_config_carry_cap_test)
-
 # i2c_contract: shared/hal/od_hal_i2c.h as an EXECUTABLE contract. The assertions are about
 # framing and bus selection -- where STOPs fall, and which pins an operation reaches -- because
 # those are what an engine gets wrong while still returning plausible bytes. Bound here to a
@@ -403,9 +392,7 @@ add_executable(od_silabs_storage_test
     silabs_storage_test.c
     fake_silabs/nvm3_fake.c
     ../../targets/efr32bg22-slc/od_hal_nvs.c
-    ../../targets/efr32bg22-slc/opendisplay_config_storage.c
-    ../../shared/core/od_config_carry.c
-    ../../shared/core/od_cfg_index.c)
+    ../../targets/efr32bg22-slc/opendisplay_config_storage.c)
 # The TARGET's own config/ is on the path, not a stub copy of it: the storage guard compares
 # OD_CONFIG_MAX_SIZE against NVM3_DEFAULT_MAX_OBJECT_SIZE, and a hand-mirrored copy of the
 # second one silently stops testing the real relationship the moment either moves.

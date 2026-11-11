@@ -113,8 +113,7 @@ static void test_record_framing(void)
     fx_nvs[8] ^= 0x01u;
     CHECK(od_cfg_index_build() == 0);
     /* The boot path refuses this record as CORRUPT and boots on defaults, but the index
-     * consumers -- the drive path and the action runner -- still read it.
-     * od_config_store_save_carry verifies the record itself (CARRY-CORRUPT). */
+     * consumers -- the drive path and the action runner -- still read it. */
 
     CASE("a data_len that agrees with the record is used, not the record size");
     fx_cfg_store(&c);

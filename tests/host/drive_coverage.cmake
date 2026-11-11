@@ -1,4 +1,4 @@
-# Host coverage for the config-driven 3.0 stack: od_cfg_index, od_config_carry, od_epd_cfg /
+# Host coverage for the config-driven 3.0 stack: od_cfg_index, od_epd_cfg /
 # od_epd (golden panel traces), od_cmd_drive / od_cmd_spi_raw, od_imgstore / od_flash_nor and
 # od_action. Included from CMakeLists.txt; everything here links the same od_shared archives
 # as the rest of the gate. drive_fixture.h (the fake medium, config builder and recording bus)
@@ -22,20 +22,6 @@ foreach(variant IN ITEMS default silabs)
         ${OD_SHARED_CORE}/od_cfg_index.c)
     target_link_libraries(od_cfg_index${sfx}_test ${lib})
     add_test(NAME cfg_index${sfx} COMMAND od_cfg_index${sfx}_test)
-endforeach()
-
-foreach(variant IN ITEMS default silabs)
-    if(variant STREQUAL "silabs")
-        set(lib od_shared_silabs)
-        set(sfx _bg22)
-    else()
-        set(lib od_shared)
-        set(sfx "")
-    endif()
-    add_executable(od_config_carry_adversarial${sfx}_test config_carry_adversarial_test.c
-        od_log_test_stub.c ${OD_SHARED_CORE}/od_config_carry.c ${OD_SHARED_CORE}/od_cfg_index.c)
-    target_link_libraries(od_config_carry_adversarial${sfx}_test ${lib})
-    add_test(NAME config_carry_adversarial${sfx} COMMAND od_config_carry_adversarial${sfx}_test)
 endforeach()
 
 # od_epd_cfg + od_epd over the representative real panels (golden traces) and synthetic edges.

@@ -1,14 +1,15 @@
 /* libFuzzer target: a stored config record, end to end through everything that reads it on
- * demand -- od_cfg_index, od_epd_cfg + od_epd (load, every mode, one pass), od_action, and
- * od_config_store_save_carry. The config is written by any client and, with encryption off,
+ * demand -- od_cfg_index, od_epd_cfg + od_epd (load, every mode, one pass) and od_action, then a
+ * config write over it. The config is written by any client and, with encryption off,
  * before authentication; every one of these runs on it at boot or at the next START.
  *
  * Input: [ctl:1][temp:1][payload...]. ctl bits pick the display geometry/scheme and whether the
- * carry runs; temp is the reading the drive temp policy sees (0x7F = none).
+ * overwrite runs; temp is the reading the drive temp policy sees (0x7F = none).
  *
  * Oracles beyond ASan/UBSan (abort() = finding):
  *   - od_cfg_index entries equal the packets od_config_tlv_walk delivers (first 32);
- *   - a carry that returns OK leaves a record od_config_store_load accepts.
+ *   - whatever is stored (corrupt, truncated, unwalkable), a new config write succeeds and
+ *     loads back byte for byte: a bad stored record never blocks its own replacement.
  * Known divergences (KNOWN_BUG ids in the tests/host suites) are not asserted here.
  */
 #include "od_check.h"   /* only for KNOWN_BUG's guard in the fixture; no CHECKs here */
@@ -17,7 +18,7 @@
 #include "od_action.h"
 #include "od_action_app.h"
 #include "od_cfg_index.h"
-#include "od_config_carry.h"
+#include "od_config_store.h"
 #include "od_epd.h"
 #include "od_epd_cfg.h"
 
@@ -139,21 +140,25 @@ static void actions(int8_t temp)
     }
 }
 
-static void carry(void)
+static void overwrite(uint8_t poke)
 {
     static uint8_t ws[OD_CONFIG_STORE_HEADER_SIZE + OD_CONFIG_MAX_SIZE];
+    static uint8_t out[OD_CONFIG_MAX_SIZE];
+    uint32_t n = sizeof out;
     fx_cfg_t c;
     struct DisplayConfig d = fx_display(0u, 400u, 300u, 0u);
 
+    /* Damage the stored record anywhere, header included, before writing over it. */
+    if (fx_nvs_len > 0u) {
+        fx_nvs[poke % fx_nvs_len] ^= 0xA5u;
+    }
     fx_cfg_begin(&c, 1u);
     fx_cfg_legacy_head(&c, &d);
     fx_cfg_finish(&c);
-    if (od_config_store_save_carry(ws, sizeof ws, c.b, c.n, NULL) == OD_CONFIG_STORE_OK) {
-        static uint8_t out[OD_CONFIG_MAX_SIZE];
-        uint32_t n = sizeof out;
-        if (od_config_store_load(out, &n) != OD_CONFIG_STORE_OK) {
-            abort();
-        }
+    if (od_config_store_save(ws, sizeof ws, c.b, c.n) != OD_CONFIG_STORE_OK
+        || od_config_store_load(out, &n) != OD_CONFIG_STORE_OK
+        || n != c.n || memcmp(out, c.b, c.n) != 0) {
+        abort();
     }
 }
 
@@ -172,7 +177,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     drive(ctl, temp);
     actions(temp);
     if (ctl & 0x80u) {
-        carry();
+        overwrite((uint8_t)temp);
     }
     return 0;
 }
