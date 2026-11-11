@@ -9,6 +9,7 @@
 #include "od_runtime_types.h"
 #include "od_watchdog_app.h"
 #include "od_test_bench.h"
+#include "od_img_confirm_app.h"
 #include "od_sec2_trace.h"
 
 #include <stdio.h>
@@ -89,23 +90,17 @@ int main(void)
 	od_watchdog_app_arm();
 
 	od_board_early_init();
+	/* MCUboot image confirmation is EVIDENCE-BASED (shared/core/od_img_confirm.h): a swapped-in
+	 * image confirms on the first GATT write it serves (or after 24 h with no dead link), and
+	 * one whose links carry no ATT resets so MCUboot reverts it. Confirming here, before any
+	 * link had carried GATT, let an image with a dead GATT server confirm itself and become
+	 * unrecoverable over the air -- the BG22 stranding. Without the image manager (one slot,
+	 * nothing to revert to) this is a no-op. */
+	od_img_confirm_app_boot();   /* before the radio: no link can predate its callbacks */
 	opendisplay_ble_init();
-#if defined(CONFIG_MCUBOOT_IMG_MANAGER)
-	/* Confirm running image so MCUboot will not revert after OTA.
-	 *
-	 * Guarded on IMG_MANAGER, not BOOTLOADER_MCUBOOT: the latter only says this was built as
-	 * an MCUboot image, while boot_write_img_confirmed() comes from the image manager. The
-	 * two coincided until firmware-updater mode, which is an MCUboot build with NO second
-	 * slot -- so no image manager, and this became an undefined reference at link time.
-	 * Nothing is lost by skipping it there: with one slot there is no copy to revert to.
-	 */
 #if defined(OD_TEST_BENCH) && OD_TEST_BENCH
-	/* Bench image: confirm, or (bench revert switch) stay unconfirmed and arm the no-touch
-	 * revert -- src/od_test_bench.c. */
+	/* Bench image: the no-touch revert timer on top (src/od_test_bench.c). */
 	od_test_bench_image_boot();
-#else
-	(void)boot_write_img_confirmed();
-#endif
 #endif
 
 	while (1) {

@@ -165,6 +165,11 @@ add_executable(od_health_pattern_test health_test.c ${CMAKE_CURRENT_LIST_DIR}/..
 target_include_directories(od_health_pattern_test PRIVATE ${OD_SHARED_INCLUDE_DIRS})
 target_compile_definitions(od_health_pattern_test PRIVATE OD_HEALTH_UPDATE_PATTERN_SHORT_BOOTS=2u)
 add_test(NAME health_pattern COMMAND od_health_pattern_test)
+# img_confirm: when an nRF MCUboot image confirms itself or reverts (od_img_confirm.h), driven
+# through the real od_health.
+add_executable(od_img_confirm_test img_confirm_test.c)
+target_link_libraries(od_img_confirm_test od_shared)
+add_test(NAME img_confirm COMMAND od_img_confirm_test)
 
 add_executable(od_boot_payload_test boot_payload_test.c)
 target_link_libraries(od_boot_payload_test od_shared)

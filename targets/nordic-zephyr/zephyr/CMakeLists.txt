@@ -303,6 +303,7 @@ target_sources(app PRIVATE
   ${SRC_DIR}/od_cmd_config.c
   ${SRC_DIR}/od_rxq_app.c
   ${SRC_DIR}/od_sec2_app.c
+  ${SRC_DIR}/od_img_confirm_app.c
   ${SRC_DIR}/od_claim_app_nordic.c
   ${SRC_DIR}/od_hal_secret.c
   ${SRC_DIR}/od_hal_radio.c
