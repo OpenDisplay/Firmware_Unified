@@ -114,26 +114,13 @@ A 2.x config after an OTA has a display (0x20) but no 0xAE/0xB1. Firmware then d
 - Hosts learn the state from READ_IDENT's NEEDS_MIGRATION flag (below). The MSD has no free status bit (bit 3 is
   ENCRYPTION_ENABLED, bits 4-7 the loop counter), so it does not carry this.
 
-### Config-write guard (proposal, awaiting maintainer decision: merge vs refuse)
+### Config writes are stored exactly as sent
 
-A 2.x client rewriting the config would otherwise erase the drive packets it does not know
-about. `od_config_store_save_carry()` (`shared/core/od_config_carry.c`, used by Nordic and BG22
-`saveConfig`) applies this rule:
-
-- The incoming config has **no packet id >= 0x80** (and walks to its end) and the stored config
-  has 0xAE-0xB1 packets: those packets are appended unchanged, in stored order, before the CRC
-  tail. The CRC-16 is recomputed only if the incoming one matched.
-- The incoming config carries **any** 0x80+ packet: it is stored exactly as sent. A 3.x client
-  owns the drive data.
-- **Explicit wipe**: a zero-length 0xB1 (`[n][0xB1][00 00]`). The index ignores empty bodies, so
-  the device then has no drive data (and reports NEEDS_MIGRATION).
-- A merge that would exceed `OD_CONFIG_MAX_SIZE` (or the workspace) is **refused**
-  (OD_CONFIG_STORE_TOO_BIG, the write NACKs) with nothing written, rather than stored without
-  the drive packets.
-
-The alternative is to refuse every such write outright; that is one branch in the function.
-ESP32 `saveConfig` calls it too, in a commit of its own so the decision stays revertable.
-Cost on BG22: +448 B flash, no RAM.
+Firmware does not merge or carry anything across a config write. A 2.x client that rewrites the
+config without drive packets leaves a device with none: it draws nothing, uploads NACK at START
+(above) and READ_IDENT reports NEEDS_MIGRATION, which is how a 3.x client detects the device and
+repairs it by writing a complete config. A config write never reads the stored record, so a
+damaged record (bad CRC, magic or length) never blocks its own replacement.
 
 ## READ_IDENT (0x0046)
 
@@ -254,8 +241,8 @@ it exists so fielded configs keep working. Removing it is a maintainer decision.
 
 Not data, and not proposed as data: the IT8951 word protocol and its DEV_INFO / LISAR readback,
 the IT8951 waveform-mode choice per refresh (INIT/GC16/DU/A2 stay in `display_it8951.cpp`), and
-the parallel waveform engine. 0xB3 is not carried by `od_config_store_save_carry()` (it carries
-0xAE-0xB1), so a 2.x config write drops it and the legacy table takes over again.
+the parallel waveform engine. Like every packet, 0xB3 is stored only if the config write
+contains it, so a 2.x config write drops it and the legacy table takes over again.
 
 ## FastEPD parallel: why it stays on FastEPD
 
