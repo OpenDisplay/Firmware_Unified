@@ -78,14 +78,34 @@ them.
 
 | | default (Nordic, ESP32, host) | BG22 |
 |---|---|---|
-| `OD_EPD_SEQ_MAX` (one mode's sequence, held in RAM per pass) | 512 B | 128 B |
-| `OD_EPD_MAX_SEQ_STEPS` | 96 | 64 |
+| mode sequence length | no cap (the record) | no cap (the record) |
+| `OD_EPD_MAX_SEQ_STEPS` | 128 | 128 |
+| `OD_EPD_SEQ_WINDOW` (sequence bytes resident in RAM) | 128 B | 128 B |
 | `OD_EPD_SLEEP_SEQ_MAX` | 16 B | 16 B |
 | `OD_EPD_LUT_BYTES` | 535 B | 535 B |
 
-512 / 96 covers every flow the panel database encodes (longest 424 B, 80 steps). On BG22 a
-longer mode is refused at select. A host cannot query these yet; regenerate the panel data
-against these values.
+A mode sequence is not copied into RAM: od_epd reads it from the stored record through
+`io->seq_read` into a 128-byte window as it walks, for validation and execution alike (the sleep
+sequence is read from the descriptor's copy). The only bound is the step cap, 128 on every
+target. It exists to stop a runaway or hostile sequence, not to save memory; the largest panel
+in the database has 79 steps. 128 B is the window because it holds every escape with its
+arguments whole (the largest, SUBST or WINDOW with 32 pairs, is 67 B) and every step of 70 of the
+77 database panels. The other seven (0x001B, 0x0020, 0x002F, 0x0043, 0x004B, 0x004C with a
+154-byte 0x32 waveform-register step, 0x0044 with 229 B) send that one step as the command plus
+two data runs, which is how a LUT slot and the frame already reach the bus (one `data()` call
+per run, D/C held high). The bytes are the same as 2.x (the panel replay compares them); the
+split itself has not been checked on glass for those seven panels. A host cannot query these
+limits; it should refuse more than 128 steps before writing.
+
+A pass reads the stored record from begin to the end of its tail, pausing at the image marker
+while the frame arrives. For that whole span the display binding holds config writes:
+`od_config_store_save()` returns `OD_CONFIG_STORE_BUSY` and the CONFIG_WRITE is NACKed as a
+failed save, so the host retries after the refresh. `od_config_store_clear()` is never held (it
+is the security erase ahead of an unauthenticated rewrite), so od_epd also compares the store's
+generation counter before every read: a moved config, or a storage read that fails or comes back
+short, fails the pass (`OD_EPD_RC_STALE`, `OD_EPD_RC_IO`) and, if the panel has already seen I/O,
+runs the sleep sequence before returning; the caller's own sleep afterwards is absorbed so the
+panel sees it once. A failure before the first panel I/O touches nothing, as any refusal.
 
 ## Escape support per target
 
@@ -159,7 +179,7 @@ From the panel database's `blocked_on` ids, against this firmware:
 
 | id | status |
 |---|---|
-| SEQ_MAX | lifted to 512 B / 96 steps (BG22 unchanged) |
+| SEQ_MAX | gone: sequences stream from the record on every target, 128-step cap |
 | LUT_AFTER_IMAGE | done: LUT context survives the image pause |
 | SET_PIN_RESET | done on Nordic and BG22 (SET_PIN with OD_SEQ_PINREF_RESET) |
 | WINDOW | provisional escape 0x0C (+ FILL 0x0D); the generator does not emit it yet |
