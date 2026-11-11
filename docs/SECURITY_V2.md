@@ -1,8 +1,10 @@
 # OpenDisplay Secure Session v2 ("SEC2") — normative specification
 
-Status: **DRAFT revision 2 for maintainer and expert review, 2026-11-11.** Nothing here is
-implemented or measured on hardware. Every opcode, status byte, error code, flag bit, record
-layout and label is **provisional** until it is written into the canonical
+Status: **DRAFT revision 4 for maintainer and expert review, 2026-11-11.** Implemented on
+`v3/head` for all three targets and host-tested. Parts were run on two devices (one ESP32-S3
+reTerminal Sticky, one EFR32BG22 M3 Pro); § 19.1 says exactly which, and lists what has never run
+on hardware. Nordic has not run on hardware at all. Every opcode, status byte, error code, flag
+bit, record layout and label is **provisional** until it is written into the canonical
 `opendisplay-protocol` header. § 19 lists what still needs a cryptographer or a measurement on
 a device; those points are not settled claims.
 
@@ -15,6 +17,27 @@ The words MUST, MUST NOT, SHOULD and MAY are used in the RFC 2119 sense.
 ---
 
 ## Changelog
+
+### Revision 4 (2026-11-11)
+
+Inputs: the first hardware runs (ESP32-S3 Sticky: `impl_sec2-esp32-hw`; BG22 M3 Pro:
+`impl_sec2-hw`, `impl_reconnect-fix`), the py-opendisplay cross-harness, and two maintainer
+decisions of 2026-11-11 (advertised data is public; the five-cycle reset can be switched off per
+device).
+
+| What changed | Why |
+|---|---|
+| **Advertised data is public by design.** READ_MSD (0x0044), and any opcode that returns only what the device already advertises, is in the plaintext set on a claimed device. READ_MSD returns exactly the 16 advertised MSD bytes and nothing else, on every target (§ 6 rule 6) | maintainer decision |
+| **The five-cycle factory reset can be switched off per device**: 0x27 `flags` bit 6 `NO_RESET_PATTERN` (provisional). Clear = on, the default. A LOCKED device ignores it. The security consequence both ways, and the client warning for "claimed, pattern off, no reset pin" (§ 7.10.1, FACTORY_RESET.md § 3.4) | maintainer decision |
+| **The oversize refusal `[FF][cmd][FE]` is sealed inside a live session** for a gated opcode, and plaintext otherwise. A client accepts both forms (§ 3.4) | a sealed session must not carry a plaintext answer to a sealed request; the cross-harness saw `ff71fe` in clear |
+| **Repeated FE closes the link** on BG22 (3 in a row) and ESP32 (10 in a row); Nordic does not. What a client concludes from that disconnect (§ 6 rule 5) | measured on both devices; the spec was silent |
+| 0x0057 SEC_KEY in claim mode is **FD**, as the firmware answers; the table said NOT_CLAIMED. The claim-mode allow-list now names the 0x0056 refusal (§ 6) | ESP32 run D-7: the gate runs before routing |
+| **BUSY now counts in the handshake rate limiter**; RATE_LIMITED refusals still do not (§ 8.7, § 17) | otherwise BEGIN/HELLO during a refresh is a free ECC-less probe loop; BG22 run finding 6 |
+| **Superseded secrets are purged from the raw storage** after UNCLAIM and factory reset, on every target (new § 10.4a, OS2S flag bit 3 PURGE). Key rotation does not purge; the residual is stated (§ 11) | ESP32 run D-2 / D-4: NVS kept 6 old WiFi-password copies and the old K_dev |
+| The crypto HAL contract: buffers are **never NULL**, also for an empty plaintext (§ 9.5 rule 5b) | BG22 PSA refused a NULL plaintext on hardware |
+| The power-cycle count is written on time while the panel draws, on every target (§ 7.2) | ESP32 run D-5: a blocking refresh moved T_ARM to 5.66 s and the "wait 5 s" instruction failed |
+| Measured: handshake about 90 ms per step on BG22; ESP32-S3 reset causes; the gesture window after the timing fix; the BG22 advertising pause of about 24 s and that BUSY is visible only on an open link (§ 7.2, § 17, § 19.1) | hardware runs |
+| § 19 split: what the hardware runs answered (§ 19.1), what is still unverified (§ 19.2), and the open client-option questions (§ 19.3) | maintainer request |
 
 ### Revision 3 (2026-11-11)
 
@@ -563,10 +586,18 @@ Rules (normative, A18.4):
 |---|---|---|
 | `[00][cmd_lo][FE]` | SESSION_REQUIRED: gated command, claimed device, no live session | dispatcher gate (the existing `RESP_AUTH_REQUIRED` shape, `od_gate.c` `queue_status`) |
 | `[00][cmd_lo][FF]` | v1 decrypt failure (existing, 2.x/v1 only; not sent by 3.0) | — |
-| `[FF][cmd_lo][FE]` | frame too long (existing, `od_dispatch.c` `refuse_oversize`) | dispatcher |
+| `[FF][cmd_lo][FE]` | frame too long (existing, `od_dispatch.c` `refuse_oversize`). **Sealed** when a session is live on this connection and the opcode is gated; plaintext when no session is live, and always for a plaintext-set opcode (§ 6 rule 1) | dispatcher |
 | **`[FF][cmd_lo][FD]`** | **CLAIM_MODE: refused because the device is in claim mode** (new, provisional, `OD_GATE_CLAIM_MODE`) | dispatcher gate, plaintext on an unclaimed device and sealed after the claim |
 | `[FF][cmd_lo][F1..F3]` inside a sealed D->H frame | RECORD / REPLAY / INTEGRITY (§ 9.5) | record layer |
 | `[FF][cmd_lo][sub][err]` | SEC opcode error (§ 3.2) | SEC handlers |
+
+**Oversize inside a session (revision 4).** A frame longer than the receive buffer is refused
+before the record layer can open it. Inside a live session the refusal for a gated opcode is
+sealed like any other answer, so a session never carries a plaintext reply to a sealed request.
+A client MUST accept the oversize refusal in **both** forms: sealed (inside a live session) and
+plaintext (no session, a plaintext-set opcode, or a firmware before revision 4). It reports
+"frame too long" and does not count it as an integrity failure. Over BLE, GATT usually refuses
+an over-MTU write first, so the refusal is rare in practice.
 
 `0xFD` follows the dispatcher-level precedent of `0xFE` (oversize). It is not a per-opcode error
 byte, and no per-opcode namespace in the `v3/decisions` header uses `0xFD`. Old clients see a
@@ -588,7 +619,7 @@ WP2):
 | Record | Layout | Written |
 |---|---|---|
 | **OS2K** key | `"OS2K"(4) \| ver 0x02 \| origin (1: 0x01 CLAIMED, 0x02 LEGACY) \| gen (2 LE) \| K_dev (16) \| crc32 (4)` = 28 B | claim, migration, rotation; erased by UNCLAIM and factory reset |
-| **OS2S** state | `"OS2S"(4) \| ver 0x01 \| flags (1) \| short_boots (1) \| reserved (1) \| key_gen (2 LE) \| reserved (2) \| crc32 (4)` = 16 B. flags: bit0 FRESH, bit1 LEGACY_SECRETS (accepted at the first 3.0 boot), bit2 MIGRATED (first 3.0 boot done), others 0 | first 3.0 boot; the gesture counter (§ 7.2); claim-mode end (clears FRESH); key_gen on claim/rotation; set FRESH by factory reset |
+| **OS2S** state | `"OS2S"(4) \| ver 0x01 \| flags (1) \| short_boots (1) \| reserved (1) \| key_gen (2 LE) \| reserved (2) \| crc32 (4)` = 16 B. flags: bit0 FRESH, bit1 LEGACY_SECRETS (accepted at the first 3.0 boot), bit2 MIGRATED (first 3.0 boot done), bit3 PURGE (superseded secrets still in the raw medium, § 10.4a; revision 4, internal), others 0 | first 3.0 boot; the gesture counter (§ 7.2); claim-mode end (clears FRESH); key_gen on claim/rotation; set FRESH by factory reset |
 | **OS2R** reset marker | FACTORY_RESET.md § 5.2 | factory reset only |
 
 crc32 is ISO-HDLC, as in `od_config_store`, over all preceding bytes of the record. A record
@@ -775,7 +806,7 @@ Values:
 | 0x0041 | CONFIG_WRITE | open; secret → NACK 0x10 | **FRESH, before the first code render: open (secret → 0x10). Otherwise FD** | FE | sealed; key must be 0 or K_dev, else 0x11; reset pin sticky (§ 10.6) | FE | CONFIG_WRITE BUSY 0x01 (`v3/decisions`) applies unchanged |
 | 0x0042 | CONFIG_CHUNK | as 0x0041 (checked at the last chunk) | as 0x0041 | FE | sealed | FE | |
 | 0x0043 | FIRMWARE_VERSION | open | open | open | **plaintext** | open | unchanged |
-| 0x0044 | READ_MSD | open | open | open | **plaintext** | open | made plaintext-exempt on every target |
+| 0x0044 | READ_MSD | open | open | open | **plaintext** | open | public by design: exactly the 16 advertised MSD bytes, nothing more (rule 6) |
 | 0x0045 | CONFIG_CLEAR | open | as 0x0041 | FE | sealed | FE | preserves 0x27's reset-pin fields and the claim evidence (§ 10.6); never touches OS2K/OS2S |
 | 0x0046 | READ_IDENT | open | open | open | **plaintext** | open | SEC bits (§ 5.2) |
 | 0x0047..0x004D | FLASH_* / ACTION_* | open | **FD** | FE | sealed | FE | image store and actions can put pixels on the panel |
@@ -786,7 +817,7 @@ Values:
 | 0x0054 | SEC_STATUS | open | open | open | **plaintext** | open | |
 | 0x0055 | SEC_CLAIM | NOT_IN_CLAIM_MODE | **open** (BLE only) | ALREADY_CLAIMED (EXIT: § 8.1) | ALREADY_CLAIMED (EXIT: § 8.1) | LOCKED | |
 | 0x0056 | SEC_AUTH | NOT_CLAIMED | NOT_CLAIMED | open (handshake) | open; a HELLO tears the live session down (§ 9.6) | LOCKED | BLE only |
-| 0x0057 | SEC_KEY | NOT_CLAIMED (4-byte error) | NOT_CLAIMED | FE | sealed | FE | rotation / unclaim, BLE only |
+| 0x0057 | SEC_KEY | NOT_CLAIMED (4-byte error) | **FD** (the gate runs before routing; revision 4 aligns the table with the firmware) | FE | sealed | FE | rotation / unclaim, BLE only |
 | 0x0070..0x0072 | DIRECT_WRITE_* | open | **FD** | FE | sealed | FE | |
 | 0x0073 | LED_ACTIVATE | open | **FD** | FE | sealed | FE | the device owns the LED for its claim-mode pattern |
 | 0x0075 | LED_STOP | open | **FD** | FE | sealed | FE | |
@@ -801,7 +832,7 @@ Values:
 
 Claim mode is an **allow-list**, not a deny-list:
 - allowed: {0x000F, 0x0040, 0x0041/0x0042/0x0045 (FRESH, before the first render), 0x0043,
-  0x0044, 0x0046, 0x0050 refusal, 0x0054, 0x0055};
+  0x0044, 0x0046, 0x0050 refusal, 0x0054, 0x0055, 0x0056 refusal (NOT_CLAIMED)};
 - every other opcode, including any added later, is FD.
 
 Rules:
@@ -822,6 +853,38 @@ Rules:
    - the post-config-write boot-screen redraw (replaced by the setup screen, § 7.8).
 
    The only pixels drawn in claim mode are the firmware's setup screens.
+5. **Repeated FE closes the link** (measured, revision 4). A run of consecutive FE answers on one
+   BLE connection ends that connection:
+
+   | Target | Run that closes | How |
+   |---|---|---|
+   | efr32bg22-slc | 3 | the third gated command is refused and the link closed at once (`OD_AUTH_ABUSE_LIMIT`); the third FE may not arrive |
+   | esp32-idf | 10 | the tenth FE is sent, then the link drops within 500 ms (`OD_AUTH_ABUSE_THRESHOLD`, `OD_AUTH_ABUSE_FLUSH_MS`); on the bench the link went at the eleventh command |
+   | nordic-zephyr | none | no auth-abuse drop |
+
+   Any answered command (ACK or handler NACK) and a completed SEC_AUTH reset the run. Plaintext-set
+   commands neither reset nor advance it; LAN traffic never counts. **What a client concludes:** a
+   disconnect right after one or more FE answers means "this peer kept sending gated commands
+   without a session". It is not a crash, not a lost key and not evidence about the device's
+   state, so a client deletes nothing (§ 8.8). It reconnects and runs SEC_AUTH **before** any
+   gated command. A client MUST NOT send more than two gated commands without a session.
+6. **Advertised data is public** (maintainer decision, revision 4). Everything the device
+   broadcasts in its advertisement can be read by anyone in range without connecting. Answering
+   the same bytes over a connection without a session therefore discloses nothing, and lets a
+   client or HA read a claimed device's sensor values without its key. So READ_MSD (0x0044), and
+   any future opcode that returns **only** advertised data, is in the plaintext set. Such an
+   opcode MUST NOT return anything beyond the advertisement. READ_MSD returns exactly the 16-byte
+   MSD that is (or is about to be) on air, on every target:
+   - company id (2 B);
+   - `dynamic[11]`: config-owned sensor bytes (buttons, touch, SHT40, BQ27220 fuel gauge);
+   - temperature (1 B);
+   - battery (1 B, with bit 8 in the status byte);
+   - status bits: REBOOT, CONNECTION_REQUESTED, ENCRYPTION_ENABLED (claimed or LOCKED), claim mode
+     through CONNECTION_REQUESTED (§ 5.3), and the loop counter.
+
+   On Nordic the reply is the staging copy, which may be one update newer than the copy on air.
+   What this costs: a claimed device's sensor values and battery are public, which they already
+   were over the air (§ 1.4).
 
 ### 6.1 DFU (decided: as today)
 
@@ -912,7 +975,7 @@ k = OS2S.short_boots: the consecutive previous counted boots that lived 2-10 s
 
 at boot, every state (UNCLAIMED, CLAIMED, LOCKED):
    if cause is counted:
-       if k >= 4:                            # five quick power-cycles (§ 7.10)
+       if k >= 4 and the pattern is on:      # five quick power-cycles (§ 7.10; off: § 7.10.1)
            factory reset
        if k >= 1 and UNCLAIMED and not CONTINUE / FRESH:
            enter claim mode, kind GESTURE    # the count is NOT consumed
@@ -933,6 +996,20 @@ windows are compile-time constants (`OD_CM_T_ARM_MS`, `OD_CM_T_CLEAR_MS`,
 
 - A POR boot of an unclaimed device stays awake at least until T_ARM. Today's boot (boot screen,
   advertising) already does.
+- **The count is written on time, whatever the panel does** (revision 4). A blocking refresh at
+  boot MUST NOT delay the T_ARM write: every blocking panel wait calls
+  `od_claim_mode_tick_count()` at least every 100 ms (ESP32 the EPD busy-wait; BG22 `io_delay_ms`;
+  Nordic the boot-display wait). On the ESP32-S3 Sticky the boot-screen refresh had moved the
+  T_ARM write to 5.66 s, so a 4.25 s on-period failed. With the tick, T_ARM lands at 2.9 s
+  (about 0.9 s of display init does not pass through the busy-wait) and a 4.25 s on-period opens
+  claim mode. **Measured effective window there: an on-period of about 2.9 s to 10 s.** BG22 and
+  Nordic have the tick and a host test (a 5.6 s refresh still arms at 2.0 s), not a hardware
+  measurement.
+- **Measured reset causes, ESP32-S3 (reTerminal Sticky, CH343 USB-serial):** the EN pin (which
+  the USB-serial RTS line drives, and the reset button) reports `ESP_RST_POWERON` and counts; so
+  does esptool's default reset (bench only). REBOOT, claim-mode END and esptool's hard reset
+  report `ESP_RST_SW` and do not count, and clear k. Watchdog, panic and deep-sleep wake causes
+  were not exercised (§ 19.2).
 - **User instruction** (identical in every client and on the website): *"Switch the display off
   and on. Wait about 5 seconds. Switch it off and on again. It now shows SETUP MODE."* Keep it
   off for at least 2 seconds each time, so that supply capacitors drain and the chip really
@@ -1238,6 +1315,43 @@ wake reset in between, and no on-period longer than 10 s.
 **Wear.** At most two 16-byte OS2S writes per counted boot on every device (§ 7.2 table). A
 display that is switched on twice a day writes about 1 500 small records a year.
 
+#### 7.10.1 Switching the pattern off per device (revision 4, maintainer decision)
+
+The pattern is **on by default on every target.** A config switches it off with 0x27
+SecurityConfig `flags` **bit 6 `NO_RESET_PATTERN`** (provisional: bits 0-5 are taken; bit 0
+REWRITE_ALLOWED is not reused; `OD_SECURITY_FLAG_NO_RESET_PATTERN` in
+`shared/core/od_sec2_wire.h`, PROTOCOL_CHANGES_3.0 row 20).
+
+| Bit | Device state | Effect |
+|---|---|---|
+| clear (default; every existing config) | any | the pattern resets, as above |
+| set | CLAIMED | no reset by the pattern; the count is not kept (no OS2S writes per boot). The reset pin still works |
+| set | UNCLAIMED | no reset by the pattern; the two-cycle claim gesture still counts, and k ≥ 4 stays a claim-mode boot |
+| set | LOCKED | **ignored**: the pattern resets. The stored config may be what locked the device, and the pattern is its only way out without a reset pin |
+
+- The bit is read from the 0x27 that was loaded at boot, like `reset_pin`. It is written like
+  any other 0x27 flag: on a claimed device only through a sealed config write, so only the owner
+  can change it; on an unclaimed device by anyone in range.
+- `OD_FR_PATTERN_SHORT_BOOTS 0` stays the build-level override: it removes the pattern from a
+  whole build whatever the bit says.
+- The two-cycle claim gesture is unaffected.
+
+**Security consequences, both ways.**
+- **Off, for flaky power.** An owner whose supply produces the § 7.10 rhythm (energy harvesting,
+  a sagging battery, a port that power-cycles) switches the pattern off and no longer risks an
+  erase.
+- **Off, on an unclaimed device.** Anyone in range can set the bit, as they can write any
+  config there. That is acceptable: they could equally claim the device. The bit gives them
+  nothing beyond that, and a later owner sees and can change it.
+- **Off, claimed, and no reset pin: no lost-key recovery.** Such a device has no firmware path
+  back if its key is lost; the only recovery is a wired reflash with a full erase (FACTORY_RESET.md
+  § 7.3). **Clients MUST warn before writing a config that leaves a claimed device with the bit
+  set and no enabled reset pin**, and require an explicit confirmation. The stored reset pin
+  counts, because it is sticky (§ 10.6). Follow-up for the website, py-opendisplay and HA;
+  py-opendisplay `v3/py` 801047e already refuses it without `allow_no_recovery`.
+- **On (the default).** Physical access to the power supply is a factory reset: a DoS, never a
+  data leak (§ 1.4 item 19).
+
 ## 8. Claim protocol — `CMD_SEC_CLAIM` 0x0055
 
 ### 8.1 Messages
@@ -1442,14 +1556,19 @@ display stays blank" for every preset tried:
 | CONFIRM, OS2K persist fails | STORAGE_ERROR (discards; unclaimed) |
 | ABORT with nothing pending | empty reply |
 | ECC/RNG failure at any step | CRYPTO_ERROR (discards) |
-| a display pass or flash erase holds the device | BUSY |
+| a display pass or flash erase holds the device | BUSY (counts in the rate limiter, revision 4) |
 
 **Rate limiter (A18.6), per device, RAM only, reset at boot:**
 - The device keeps a ring of the uptimes of the last 10 *counted events*.
 - Counted events: every complete, well-formed BEGIN and HELLO (counted before the ECC work),
-  every AUTH_FAILED, and every failed CONFIRM tag.
+  **every BEGIN and HELLO answered BUSY** (revision 4), every AUTH_FAILED, and every failed
+  CONFIRM tag.
 - A new BEGIN or HELLO is refused with RATE_LIMITED if the ring holds 10 entries and the oldest
-  is less than 60 000 ms old. Refused starts are not counted.
+  is less than 60 000 ms old. RATE_LIMITED refusals are not counted. A full ring answers
+  RATE_LIMITED before BUSY.
+- Why BUSY counts: otherwise a peer can repeat BEGIN/HELLO during every refresh without limit.
+  A well-behaved client retries a BUSY after the pass (a few seconds), so the ten-per-minute
+  budget is not reached in normal use.
 
 ### 8.8 Client key retention (normative for every client, review A2)
 
@@ -1633,6 +1752,9 @@ device never seals different content under a counter it has used. Clients tolera
 5b. **A crypto-engine fault** (the HAL returns an error that is not a tag mismatch, or the
    plaintext does not fit): the sealed `[FF][cmd_lo][0x00]`. It counts no strike, and the counter
    is not committed, so the client may retry the identical frame. A no-ack frame stays silent.
+   The crypto HAL contract (`shared/hal/od_hal_crypto.h`): the plaintext and ciphertext buffers
+   are **never NULL**, also for an empty plaintext. A NULL buffer is refused before the backend
+   on every target (BG22 PSA returned an error for a tag-only CCM decrypt with NULL on hardware).
 6. Only after the tag has verified: commit the counter to the window, then dispatch (and apply
    the claim-mode refusals, § 6).
 
@@ -1919,6 +2041,36 @@ removes them, and the LEGACY_SECRETS flag is cleared at the next boot (§ 10.1 r
 The first 3.0 boot erases `nvs.net80211` once, because 2.x left a copy there with
 `CONFIG_ESP_WIFI_NVS_ENABLED=y`. Every scrub and factory reset erases it again.
 
+### 10.4a Superseded secrets in the raw storage (revision 4)
+
+Every target's storage is log-structured: ESP-IDF NVS, Silabs NVM3 and Zephyr NVS append a new
+copy and only mark the old one deleted. An old copy stays readable in the raw flash until its
+page is reclaimed. On the ESP32-S3 run, after UNCLAIM the raw NVS still held 6 old WiFi-password
+copies and the last K_dev; before the R5 fix, a factory reset left 3 password copies and the key.
+The scrub (§ 10.4) and the key erase are logical only. So they are followed by a **purge**:
+
+1. SEC_KEY UNCLAIM and factory-reset step R6 set OS2S flag bit 3 **PURGE** in the same write that
+   ends them.
+2. The next boot, in `od_security_boot()` before the radio starts, sees PURGE and calls
+   `od_claim_app_storage_purge()`. Only when that succeeds does it clear PURGE. A purge that fails
+   or is cut by a power loss is retried at the following boot.
+
+| Target | Purge | Power cut in between |
+|---|---|---|
+| esp32-idf | read every live entry of the NVS partition into RAM (dropping `nvs.net80211`), erase the partition, write them back. The factory reset already erases the whole partition at R5 | the device boots with whatever was written back. At worst it is blank and unclaimed, which UNCLAIM and the reset already made it |
+| efr32bg22-slc | append a throw-away 64 B NVM3 object until NVM3 has repacked and erased every page once (`fifoFirstIdx` advanced by the page count), then delete it. Live objects (config, OS2S, bonds) survive | NVM3's own power-safe repack; PURGE is still set, so the next boot continues |
+| nordic-zephyr | rewrite a throw-away settings key with changing bytes until the NVS write sector has moved once per sector; each move garbage-collects a sector, copying only live entries | NVS's own power-safe GC; retried at the next boot |
+
+UNCLAIM keeps the config, so erasing the whole store there (the factory reset's choice on ESP32)
+is not an option on BG22 and Nordic. Residuals:
+- **Not verified on hardware.** No raw-flash census has been taken after a purge on any target
+  (§ 19.2).
+- On Nordic, a store whose live entries nearly fill a sector cannot complete the purge. It then
+  retries at every boot, costing a few writes and a GC each time, until the config shrinks.
+- Between UNCLAIM and the next boot, the old secrets are still in the raw medium.
+- Flash encryption is not used on any target. A device with a flash read-out port open is read
+  by anyone who holds it; the purge only removes what is no longer current.
+
 ### 10.5 Devices upgraded from 2.x (decided)
 
 A 2.x config is stored verbatim and may hold a v1 key (0x27), a WiFi password and FindMy key
@@ -2033,7 +2185,7 @@ the work and persists first, and only then replies** (review A10).
 |---|---|---|---|
 | 0x01 ROTATE | empty | K_new = RAND(16), held pending in RAM (it replaces any earlier pending K_new) | `[K_new:16]` |
 | 0x02 ROTATE_CONFIRM | `[tag:16]`, tag = KDF(K_conf_new, "OD2/rotate-c", uid \|\| sid), with K_conf_new = KDF(K_new, "OD2/k-conf", uid) | (1) verify the tag, else AUTH_FAILED (the pending key is dropped); (2) persist OS2K `{origin CLAIMED, gen + 1, K_new}` atomically, else STORAGE_ERROR (old key in force); (3) `OS2S.key_gen = gen + 1`; (4) rewrite 0x27 at rest with the new K_v1. Failures of (3) and (4) are repaired at boot (§ 10.1 row 2); the new key is in force once (2) succeeded | empty success, sealed under the **current** session; then teardown |
-| 0x03 UNCLAIM | `[0xA5][0x5A]` (a guard against a stray frame) | (1) scrub (§ 10.4), one atomic config rewrite, else STORAGE_ERROR (still claimed); (2) erase OS2K, else STORAGE_ERROR (still claimed, no secrets; row 2 repairs the marker at boot); (3) `OS2S.key_gen = gen + 1`, a tombstone, so that an erased OS2K which a backend brings back is caught by § 10.1 row 1 (a failure here is harmless) | empty success; then teardown. The device is UNCLAIMED in **normal mode**, open. Claiming again needs the gesture |
+| 0x03 UNCLAIM | `[0xA5][0x5A]` (a guard against a stray frame) | (1) scrub (§ 10.4), one atomic config rewrite, else STORAGE_ERROR (still claimed); (2) erase OS2K, else STORAGE_ERROR (still claimed, no secrets; row 2 repairs the marker at boot); (3) `OS2S.key_gen = gen + 1`, a tombstone, so that an erased OS2K which a backend brings back is caught by § 10.1 row 1 (a failure here is harmless), with OS2S PURGE set, so the next boot purges the raw medium (§ 10.4a) | empty success; then teardown. The device is UNCLAIMED in **normal mode**, open. Claiming again needs the gesture |
 
 Rules:
 
@@ -2053,6 +2205,19 @@ Rules:
   - without it: factory reset, which ends in fresh claim mode.
 
   There is no remote re-claim of a claimed device.
+- **Rotation leaves the old key in the raw medium** (revision 4, analysed, not fixed). After
+  ROTATE_CONFIRM, the superseded OS2K copy and the old K_v1 in the previous 0x27 stay readable in
+  raw flash until the storage reclaims their page, on all three targets. Rotation does not purge:
+  - Whoever can read the flash already reads the **current** key, so the old one gives them no
+    access they do not have.
+  - The only extra exposure is retrospective: with the old key, recorded traffic from before the
+    rotation can be decrypted, but only v1 (2.x) traffic, which had no forward secrecy. SEC2
+    sessions use fresh ECDH, so the old K_dev does not open recorded SEC2 sessions.
+  - On ESP32 a purge means erasing and rewriting the whole NVS partition with the claimed config.
+    A power cut in between would leave a claimed device without its config. That costs more than
+    the residual above.
+  A hand-over to a new owner should therefore use UNCLAIM (purged) or a factory reset, not a
+  rotation.
 
 ---
 
@@ -2279,7 +2444,9 @@ or drop it without touching the protocol.
 | counters | 1 .. 0xFFFFFFFE per direction; then teardown and a new HELLO |
 | END reply flush before the reboot | ≤ 500 ms |
 | factory-reset pattern | the fifth counted power-on after four on-periods of 2 000-9 999 ms (§ 7.10) |
-| BEGIN / HELLO during a display pass | answered at once with BUSY (0x0C); nothing pending changes, no rate-limit event. The client retries after the pass (a few seconds) |
+| BEGIN / HELLO during a display pass | answered at once with BUSY (0x0C); nothing pending changes; **counts one rate-limit event** (revision 4). The client retries after the pass (a few seconds). **Only observable on a link that is already open**: on BG22 a new client sees no adverts for the length of the refresh instead (next row) |
+| BG22: advertising during a refresh with no link open | connectable advertising is paused for the refresh, **about 24 s** on the M3 Pro 2.9in BWRY after a config write or at boot (measured). A client allows at least 30 s to find the device again after a config write, or retries |
+| measured handshake latency | BG22 M3 Pro: HELLO 86-96 ms, FINISH 85-91 ms (frag 244), BUSY 89 ms, F3 about 90 ms, so about 90 ms per step. ESP32-S3: BEGIN 142 ms, NONCE 134 ms, CONFIRM 26 ms, HELLO 290 ms, FINISH 88 ms. Both well inside the 2 s target |
 | the device's own blocking (a refresh, a flash write) | a loop stall over 2 000 ms moves the pending handshake step's and the reassembly's clocks forward by the stall, so it never expires a peer's step |
 
 The rate limiter is per device, not per peer, since there is one connection. It is a DoS lever
@@ -2344,18 +2511,70 @@ the wire format is frozen. **H** items need hardware and are open rows in
 | E13 | Constant-time compares; ECC side channels | ct_equal specified; side channels out of scope (§ 1.4 item 16) |
 | E14 | LAN TLS-PSK with a static PSK | no forward secrecy unless (EC)DHE-PSK is negotiated (R12) |
 | H1 | V0 and V7 (invalid points) through the real HAL on each backend: Silabs CRYPTOACC, nrf_cc3xx (CC310), CRACEN (nRF54), Oberon, ESP-IDF HW ECC on C6/S3 | open |
-| H2 | ECC keygen + ECDH latency per target; handshake time via an ESPHome proxy | open (§ 9.1 is an estimate) |
+| H2 | ECC keygen + ECDH latency per target; handshake time via an ESPHome proxy | **answered for BG22 and ESP32-S3 over direct BLE** (§ 17: about 90 ms per step on BG22; BG22 keygen 12.8 ms, agree 8.8 ms HAL time). Open: Nordic, and via an ESPHome proxy |
 | H3 | Corruption semantics with injected faults: does Zephyr NVS return an older entry for a corrupt newest ATE? What does NVM3 do on a bad object? ESP-IDF NVS on a torn write | open; it drives § 10.1 and its residual |
 | H4 | What 2.x firmware does with a 3.0 config (downgrade): does it parse it, and what does CONFIG_READ return? | open; it decides how much § 10.2 buys |
 | H5 | ESP32 RNG quality during a claim (BT on) per board | open |
 | H6 | ATT MTU through ESPHome proxies (≥ 185?) | open (R9) |
 | H7 | BG22 effective connection count (`sl_bluetooth_config.h` (0) vs `sl_bluetooth_connection_config.h` (4)) | open; WP7 sets 1 |
-| H8 | Reset causes per board: unplug/replug, battery pull and latch button give POR (not brown-out); nRF54 POR/BOR reporting; RESETREAS clearing | **open, needed before the gesture and the five-cycle reset (§ 7.10) ship** |
+| H8 | Reset causes per board: unplug/replug, battery pull and latch button give POR (not brown-out); nRF54 POR/BOR reporting; RESETREAS clearing | **partly answered**: ESP32-S3 EN / USB-serial reset = POWERON, counted; software reset = SW, not counted (§ 7.2). Open: WDT, panic and deep-sleep causes; every Nordic SoC; BG22 entirely; latch boards; battery pull |
 | H9 | Gesture usability: the 2-10 s window on real boards with large supply capacitors | open |
 | H10 | Setup QR scanned from a 1.54in panel at 4 px/module, and from a 2.9in at 2 px/module | open |
 | H11 | nRF52840 / nRF54 `hwinfo_get_device_id` bytes vs FICR, recorded per board | **open, blocks vectors** |
 | H12 | Claim-mode battery cost per target | open |
-| H13 | Nordic storage budget: OS2K/OS2S/OS2R in a separate area, with a 4 kB config still fitting the 2 x 4 kB config NVS | open |
+| H13 | Nordic storage budget: OS2K/OS2S/OS2R in a separate area, with a 4 kB config still fitting the 2 x 4 kB config NVS | open. The records currently share the config's settings NVS (`od_hal_secret.c`) |
+
+### 19.1 Answered by the hardware runs (revision 4)
+
+Two devices: one ESP32-S3 reTerminal Sticky (`s3-n32r8-extuart`, USB), one EFR32BG22 M3 Pro
+2.9in BWRY (BLE OTA only). Nothing on Nordic.
+
+| Item | Result | Where |
+|---|---|---|
+| claim end to end (FRESH claim mode, code, CONFIRM, sealed config with secrets, EXIT) | PASS on ESP32-S3 | § 7, § 8 |
+| auth, sealed records, replay / truncation / counter 0, three bad tags | PASS on both | § 9.5 |
+| rotation with an EN reset at every storage step; UNCLAIM guard | PASS on ESP32-S3 | § 11 |
+| corrupt OS2K + marker → LOCKED, recovered only by the five-cycle reset | PASS on ESP32-S3 (injected) | § 10.1 row 3 |
+| two-cycle gesture (after the timing fix), five-cycle reset unclaimed / claimed / LOCKED, interrupted reset resuming at R1b, R2, R5c, R6 | PASS on ESP32-S3 | § 7.2, § 7.10, FACTORY_RESET.md § 5.3 |
+| nothing of the owner in raw NVS after a factory reset (after the R5 fix) | PASS on ESP32-S3 | § 10.4a |
+| claim-mode gating (FD for every gated opcode and every SPI_RAW sub), claimed gating (FE), the plaintext set | PASS on ESP32-S3; claimed gating also on BG22 | § 6 |
+| the 600 s claim-mode timeout, FRESH cleared | PASS on ESP32-S3 | § 7.3 |
+| HELLO rate limit; BUSY on an open link during a refresh | PASS on BG22 (BUSY was then not counted; it is now, § 8.7) | § 8.7, § 17 |
+| handshake latency, reset causes, gesture window, BG22 advertising pause | measured | § 7.2, § 17 |
+| SMP refused on a claimed device without a sealed ENTER_DFU; SEC2 → B+FIX OTA after a sealed ENTER_DFU | PASS on ESP32-S3 / BG22 | § 6.1 |
+
+### 19.2 Still unverified on hardware
+
+Each of these has host tests only, or nothing:
+- **the claim-mode caps**: the 3-render attempt cap, the restart cap, and a second claimant
+  (§ 7.5, § 8.7);
+- **reset causes other than EN and software**: watchdog, panic and deep-sleep wake on ESP32; every
+  cause on BG22 and on every Nordic SoC (H8);
+- **fail-open storage paths**: injected storage write failures (STORAGE_ERROR paths, § 10.1
+  repairs); host power-cut tests only;
+- **LAN on air**: plaintext LAN refusals and TLS-PSK on a claimed device, the ciphersuite (§ 12);
+- **Nordic entirely**: nothing in this document has run on an nRF52840 or nRF54;
+- **the reset pin**: hold-to-reset on any board (FACTORY_RESET.md § 3);
+- **BG22 on-panel code**: the CODE screen drawn on the BG22 panel, and whether its blocking draw
+  starves the claimant's open link;
+- **BG22 claim mode and both gestures**: the two-cycle gesture and the five-cycle reset on BG22
+  (the test unit was CLAIMED);
+- the § 10.4a purge on any target (raw-flash census after UNCLAIM; BG22 and Nordic repack);
+- the NO_RESET_PATTERN flag (§ 7.10.1) on any target;
+- the sealed oversize refusal on air (GATT refuses an over-MTU write first);
+- the BG22 tag-only CCM decrypt through the fixed HAL (§ 9.5 rule 5b).
+
+### 19.3 Open questions for the maintainer (not decided here)
+
+1. **Default key file.** Should a client create a durable key store on its own (for example
+   py-opendisplay's `~/.config/opendisplay/sec2_keys.json`) when the caller passed none, so that
+   claim and rotation work out of the box? Or must every caller pass one explicitly, so a library
+   never writes a key file nobody asked for? py-opendisplay `v3/py` 801047e currently does the
+   latter in the library and the former only in its CLI.
+2. **SEC_STATUS probe on connect.** Should a client probe SEC_STATUS on every connect (costs up
+   to 1.5 s against a silent 2.x device), or only when FIRMWARE_VERSION reports 3.x or the device
+   is pinned as SEC2? py-opendisplay 801047e currently does the latter, with a per-address memo,
+   and keeps downgrade protection for pinned devices.
 
 ---
 

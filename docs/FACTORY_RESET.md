@@ -1,9 +1,19 @@
 # Factory reset, reset pin and reset screen — specification
 
-Status: **DRAFT revision 3, 2026-11-11, implemented on `v3/sec2` (host-tested, not
-hardware-verified).** Values marked provisional need
-adopting in the protocol repo. This is a companion to [SECURITY_V2.md](SECURITY_V2.md); the work
+Status: **DRAFT revision 4, 2026-11-11, implemented on `v3/head` (host-tested; the five-cycle
+reset and the erase ordering were run on one ESP32-S3, nothing else on hardware, SECURITY_V2
+§ 19).** Values marked provisional need adopting in the protocol repo. This is a companion to [SECURITY_V2.md](SECURITY_V2.md); the work
 breakdown is in [SECURITY_V2_IMPLEMENTATION_PLAN.md](SECURITY_V2_IMPLEMENTATION_PLAN.md).
+
+**Revision 4 changes:**
+- the five-cycle pattern stays **on by default** on every target, and a config can switch it off
+  per device with 0x27 `flags` bit 6 `NO_RESET_PATTERN` (provisional; § 3.4, SECURITY_V2
+  § 7.10.1). A LOCKED device ignores the bit. A claimed device with the bit set and no reset pin
+  has no lost-key recovery except a wired reflash, so clients warn before writing that;
+- R6 also sets OS2S PURGE: the next boot purges the superseded secrets from the raw storage
+  (SECURITY_V2 § 10.4a). ESP32's R5 already erases the whole NVS partition (measured: nothing of
+  the owner left in raw NVS);
+- the boot count is written on time while the panel draws (SECURITY_V2 § 7.2).
 
 **Revision 3 changes:**
 - **five quick power-cycles are a second trigger** (§ 3.4), on every device, normative in
@@ -175,12 +185,35 @@ bit 3 cleared, bit 2 set for claim mode) and READ_IDENT CLAIM_MODE.
 The second trigger, normative in SECURITY_V2 § 7.10: a counted (power-on) boot whose boot history
 holds `short_boots ≥ 4`, i.e. four consecutive previous power-ons that each lived 2-10 s. It needs
 no pin and no config, so it is the reset for button-less boards and for LOCKED devices. It runs
-the same procedure (§ 5) and ends in the same fresh claim mode. A build disables it with
-`OD_FR_PATTERN_SHORT_BOOTS 0` (board profiles for energy-harvesting supplies SHOULD).
+the same procedure (§ 5) and ends in the same fresh claim mode.
+
+**On by default; off per device or per build** (revision 4, maintainer decision):
+- every target ships with the pattern on;
+- a config switches it off with 0x27 `flags` bit 6 `NO_RESET_PATTERN` (provisional). Clear = on,
+  so every existing config keeps it. The reset pin and the two-cycle claim gesture are
+  unaffected. On an unclaimed device the gesture still counts and a fifth quick boot is a claim
+  mode boot, not a reset;
+- a **LOCKED** device ignores the bit and resets: its stored config may be what locked it;
+- a build removes the pattern with `OD_FR_PATTERN_SHORT_BOOTS 0` whatever the bit says (board
+  profiles for energy-harvesting supplies SHOULD).
+
+Consequences (SECURITY_V2 § 7.10.1): an owner with flaky power switches it off and no longer
+risks an erase; on an unclaimed device anyone in range can switch it, which is acceptable
+because they could claim the device as well; **a claimed device with the bit set and no enabled
+reset pin has no lost-key recovery except a wired reflash (§ 7.3)**. Clients MUST warn and ask
+for confirmation before writing that combination.
 
 Feedback: k + 1 short LED blinks at 2 s of each counted boot; no e-paper refresh during the
 pattern (the boot screen and the SETUP screen wait until 10 s); the RESET screen once, before the
-erase. False-trigger analysis and mitigations: SECURITY_V2 § 7.10.
+erase. The count is written at 2 s even when a boot-screen refresh is blocking (measured on the
+ESP32-S3 Sticky: the write lands at 2.9 s, so an on-period of about 3-10 s counts there).
+
+**False triggers.** A false trigger needs five power-ons in a row whose first four on-periods each
+last 2-10 s, with no other reset in between. The supplies that can produce it, and why nRF52
+brown-outs count, are in SECURITY_V2 § 7.10. The result is an erased, FRESH device that anyone
+nearby can claim until its owner does; nothing leaks, because the secrets are scrubbed first. A
+device on such a supply should have the pattern switched off (bit 6) **and** a reset pin
+configured, so it keeps a recovery path.
 
 ## 4. The RESET screen
 
@@ -282,7 +315,7 @@ stage: 1 SCRUB, 2 DRAW, 3 ERASE_REST, 4 KEY_ERASE_FAILED
 | R5a | erase the **image store**: all slots (`od_imgstore_erase_all()`, or each slot's header sector where that is much faster). Skipped if the store is not configured or does not mount | must come before the config erase: the store's SPI pins and geometry come from the config (0x2B, 0x20) |
 | R5b | erase the **BLE bonds** (nordic-zephyr `bt_unpair(BT_ID_DEFAULT, BT_ADDR_LE_ANY)`; BG22 `sl_bt_sm_delete_bondings()`, if the SM ever stored any; ESP32 persists none) and the target extras: BG22 FMDN / FindMy runtime NVM3 objects, if any exist outside the config | |
 | R5c | erase the **config record** (`od_config_store_clear()`; on ESP32 via `od_hal_nvs_secure_erase()`) | the last data erase |
-| R6 | write `OS2S {FRESH, MIGRATED, short_boots 0, key_gen = previous key_gen + 1}`. The key_gen tombstone means an erased OS2K that a backend brings back is caught (SECURITY_V2 § 10.1 row 1) | the device must come back fresh |
+| R6 | write `OS2S {FRESH, MIGRATED, PURGE, short_boots 0, key_gen = previous key_gen + 1}`. The key_gen tombstone means an erased OS2K that a backend brings back is caught (SECURITY_V2 § 10.1 row 1). PURGE makes the next boot remove the superseded copies from the raw storage (SECURITY_V2 § 10.4a) | the device must come back fresh |
 | R7 | delete the marker | |
 | R8 | software reset, without OS2C → the boot sees FRESH → **fresh claim mode** (SECURITY_V2 § 7) | the user is present, and the device is ready to be set up |
 
@@ -364,11 +397,14 @@ There is no physical factory reset through firmware. For a lost key, the recover
   reset pin (§ 2.1).
 
 Since revision 3 the firmware-level path is **five quick power-cycles** (§ 3.4, SECURITY_V2
-§ 7.10), adopted by maintainer decision. Its cost is stated there: a false trigger erases the
+§ 7.10), adopted by maintainer decision, on by default. **If a claimed device has the pattern
+switched off (0x27 bit 6) and no reset pin, this section's wired reflash is its only lost-key
+recovery** (revision 4; clients warn before writing that combination). Its cost is stated there: a false trigger erases the
 key, WiFi and FindMy settings and leaves the device fresh and claimable by anyone nearby, and
 flaky supplies (supercap and solar boards, sagging batteries, nRF52's indistinguishable
-brown-outs) can produce the pattern. Boards with such supplies should build with
-`OD_FR_PATTERN_SHORT_BOOTS 0` and keep a pad or jumper reset pin.
+brown-outs) can produce the pattern. Boards with such supplies should switch the pattern off
+(0x27 bit 6 per device, or `OD_FR_PATTERN_SHORT_BOOTS 0` per build) and keep a pad or jumper reset
+pin.
 
 ## 8. Per-target notes
 
@@ -399,7 +435,11 @@ new HAL functions.
 - RESET-screen renders for 152x152, 200x200, 128x296 and one 800x480 layout, with the QR decoded
   back to the URL, and with a config whose 0x2C strings are set, to prove they are not drawn.
 
-**Hardware** (each row goes into `docs/HARDWARE_VERIFICATION_CHECKLIST.md`, all **open**):
+**Hardware.** Run so far (revision 4), on one ESP32-S3 only: the five-cycle trigger on an
+unclaimed, a claimed and a LOCKED device; an EN reset landing at R1b, R2, R5c and R6, each
+resuming correctly; a raw NVS readback after the reset showing nothing of the owner. Everything
+below is still **open** (each row goes into `docs/HARDWARE_VERIFICATION_CHECKLIST.md`), as is
+every row on BG22 and Nordic:
 - hold-to-reset on one board per target;
 - on a latch board;
 - on a LOCKED device;
