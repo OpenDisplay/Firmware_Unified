@@ -64,6 +64,19 @@ uint32_t od_config_store_crc32(const uint8_t *data, uint32_t len)
     return ~crc;
 }
 
+static uint32_t s_generation;
+static bool     s_writes_held;
+
+uint32_t od_config_store_generation(void)
+{
+    return s_generation;
+}
+
+void od_config_store_hold_writes(bool held)
+{
+    s_writes_held = held;
+}
+
 static enum od_config_store_result from_hal(int rc)
 {
     switch (rc) {
@@ -107,6 +120,10 @@ enum od_config_store_result od_config_store_save(void *workspace, uint32_t works
                      (unsigned)workspace_cap, (unsigned)total);
         return OD_CONFIG_STORE_TOO_BIG;
     }
+    if (s_writes_held) {
+        od_log_warn("Config save refused: a display pass is reading the stored config");
+        return OD_CONFIG_STORE_BUSY;
+    }
 
     /* Before the header is written: on a target whose workspace overlays the config assembler,
      * the four words this is about to overwrite are that assembler's live state, and the
@@ -126,7 +143,11 @@ enum od_config_store_result od_config_store_save(void *workspace, uint32_t works
     put_u32le(ws + 12, len);
 
     {
-        const enum od_config_store_result rc = from_hal(od_hal_nvs_write(ws, total));
+        enum od_config_store_result rc;
+
+        ++s_generation;
+        rc = from_hal(od_hal_nvs_write(ws, total));
+        ++s_generation;
 
         if (rc == OD_CONFIG_STORE_OK) {
             od_log_info("Config stored: %u bytes", (unsigned)len);
@@ -226,8 +247,11 @@ enum od_config_store_result od_config_store_load(uint8_t *payload, uint32_t *len
 
 enum od_config_store_result od_config_store_clear(void)
 {
-    const enum od_config_store_result rc = from_hal(od_hal_nvs_erase());
+    enum od_config_store_result rc;
 
+    ++s_generation;
+    rc = from_hal(od_hal_nvs_erase());
+    ++s_generation;
     if (rc == OD_CONFIG_STORE_OK) {
         od_log_info("Stored config cleared");
     } else {

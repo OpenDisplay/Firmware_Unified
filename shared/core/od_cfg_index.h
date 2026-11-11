@@ -76,6 +76,10 @@ const od_cfg_entry_t *od_cfg_find(uint8_t type, uint8_t nth);
  * to hand out a pointer into. */
 uint32_t od_cfg_read(const od_cfg_entry_t *e, uint16_t off, uint8_t *dst, uint16_t len);
 
+/* Whether no config write or clear has happened since the last build (od_config_store's
+ * generation). False means the offsets describe a previous config: rebuild before reading. */
+bool od_cfg_index_current(void);
+
 /* Payload length of the stored config, for diagnostics. */
 uint32_t od_cfg_blob_len(void);
 

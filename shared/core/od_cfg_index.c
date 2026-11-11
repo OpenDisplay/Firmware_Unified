@@ -14,6 +14,7 @@
 static od_cfg_entry_t s_index[OD_CFG_INDEX_MAX];
 static uint8_t        s_count;
 static uint32_t       s_blob_len;
+static uint32_t       s_gen;
 
 /* Read from the PAYLOAD, hiding the record header. od_hal_nvs_read offsets are into the whole
  * record, and every offset this module stores is payload-relative. */
@@ -35,6 +36,7 @@ int od_cfg_index_build(void)
 
     s_count = 0;
     s_blob_len = 0;
+    s_gen = od_config_store_generation();
 
     if (od_hal_nvs_size(&record_len) != OD_HAL_NVS_OK ||
         record_len <= OD_CONFIG_STORE_HEADER_SIZE) {
@@ -177,6 +179,8 @@ uint32_t od_cfg_read(const od_cfg_entry_t *e, uint16_t off, uint8_t *dst, uint16
 }
 
 uint32_t od_cfg_blob_len(void) { return s_blob_len; }
+
+bool od_cfg_index_current(void) { return s_gen == od_config_store_generation(); }
 
 bool od_cfg_has_drive_data(uint8_t instance)
 {
