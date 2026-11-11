@@ -912,6 +912,23 @@ static void test_plaintext_set(void)
     n = sec2c_seal(&C, CMD_FIRMWARE_VERSION, NULL, 0u, f);
     CHECK(send(&BLE, f, n) == 1u && f0[0] == 0x00u && g_hook_calls == 1u && !g_hook_sealed);
 
+    CASE("an oversize frame inside a session: the refusal is sealed (9.5 rule 5)");
+    {
+        uint8_t big[248];
+        const uint8_t fe[3] = { 0xFFu, (uint8_t)CMD_DIRECT_WRITE_DATA, 0xFEu };
+        const uint8_t fe43[3] = { 0xFFu, (uint8_t)CMD_FIRMWARE_VERSION, 0xFEu };
+
+        memset(big, 0x5A, sizeof big);
+        big[0] = 0x00u;
+        big[1] = (uint8_t)CMD_DIRECT_WRITE_DATA;
+        CHECK(send(&BLE, big, sizeof big) == 1u && f0[0] == OD_SEC2_SEALED_STATUS && reply_is(fe, 3u));
+        CHECK(g_hook_calls == 0u && od_sec2_session_live(NULL));
+        big[1] = (uint8_t)CMD_FIRMWARE_VERSION;   /* the plaintext set keeps plaintext */
+        CHECK(send(&BLE, big, sizeof big) == 1u && plain_is(fe43, 3u));
+        big[1] = (uint8_t)CMD_DIRECT_WRITE_DATA;  /* no session on this link: plaintext */
+        CHECK(send(&BLE2, big, sizeof big) == 1u && plain_is(fe, 3u));
+    }
+
     CASE("SEC_STATUS bytes on a claimed, legacy device with a session");
     {
         uint8_t s[2] = { 0x00u, (uint8_t)CMD_SEC_STATUS };

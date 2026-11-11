@@ -138,6 +138,14 @@ static uint16_t origin_ceiling(od_origin_t origin)
     return (origin == OD_ORIGIN_BLE) ? OD_DISPATCH_MAX_BLE : OD_DISPATCH_MAX_LAN;
 }
 
+/* SECURITY_V2 section 6 rule 1: answered in plaintext in every state, inside a session too. */
+static bool od_dispatch_plaintext_set(uint16_t cmd)
+{
+    return cmd == CMD_AUTHENTICATE || cmd == CMD_SEC_STATUS || cmd == CMD_SEC_CLAIM ||
+           cmd == CMD_SEC_AUTH || cmd == CMD_FIRMWARE_VERSION || cmd == CMD_READ_MSD ||
+           cmd == CMD_READ_IDENT;
+}
+
 /* THE OVERSIZE REFUSAL, and its bytes are the two donors' rather than this dispatcher's invention:
  * [0xFF][cmd_lo][0xFE]. Firmware_NRF54 (opendisplay_pipe.c:1366) and Firmware_Silabs
  * (opendisplay_pipe.c:1235) both ship exactly that, and DIVERGENCE 1.3 records it.
@@ -165,7 +173,16 @@ static void refuse_oversize(const od_reply_t *rp, uint16_t cmd)
      * header names no constant for "frame too long" and is frozen, so the literal stays with this
      * note rather than borrowing a name that means something else. */
     frame[2] = 0xFEu;
-    (void)od_reply_plain(&r, rp, frame, sizeof frame);
+    /* SECURITY_V2 9.5: inside a session the refusal is SEALED like every other answer to a gated
+     * opcode, so a conforming client, which discards unsealed frames there, sees it instead of
+     * waiting out its timeout. Nothing of the refused frame is read to do so. The plaintext set
+     * keeps its plaintext answers, and so does a link with no session (it has no key to read a
+     * sealed one with). */
+    if (!od_dispatch_plaintext_set(cmd) && od_sec2_session_live(rp)) {
+        (void)od_reply(&r, rp, frame, sizeof frame);
+    } else {
+        (void)od_reply_plain(&r, rp, frame, sizeof frame);
+    }
     od_txq_release(&r);
 }
 
