@@ -373,8 +373,70 @@ static void test_counter(void)
     }
 }
 
+/* SECURITY_V2 5.3.3: the advertising PDU arithmetic every target relies on. */
+static void test_pdu_budget(void)
+{
+    CASE("flags + name + MSD is exactly one legacy PDU");
+    CHECK(OD_ADVERT_AD_FLAGS_LEN == 3u);
+    CHECK(OD_ADVERT_AD_NAME_LEN == 10u);
+    CHECK(OD_ADVERT_AD_MSD_LEN == 18u);
+    CHECK(OD_ADVERT_ADV_PDU_LEN == 31u);
+    CHECK(OD_ADVERT_ADV_PDU_LEN <= OD_ADVERT_LEGACY_PDU_MAX);
+}
+
+/* SECURITY_V2 5.3.1: the device-state half of the status byte, as a pure function. */
+static void test_device_state(void)
+{
+    static const uint8_t dd[11] = { 1,2,3,4,5,6,7,8,9,10,11 };
+    struct od_advert_inputs in;
+    struct od_advert_device_state st;
+    uint8_t out[16];
+    unsigned i;
+
+    CASE("claim mode sets bit 2, a session requirement bit 3, independently");
+    for (i = 0u; i < 4u; i++) {
+        memset(&in, 0, sizeof in);
+        in.dynamic = dd;
+        in.encryption_enabled = true;        /* the caller's value is replaced, never OR'd */
+        st.claim_mode = (i & 1u) != 0u;
+        st.session_required = (i & 2u) != 0u;
+        st.display_drivable = true;
+        od_advert_apply_device_state(&in, &st);
+        od_advert_build(&in, out);
+        CHECK((out[15] & 0x0Cu) == (uint8_t)(((i & 1u) ? 0x04u : 0u) | ((i & 2u) ? 0x08u : 0u)));
+        CHECK(memcmp(&out[2], dd, 11u) == 0);
+    }
+
+    CASE("a target's own connection-requested trigger survives outside claim mode");
+    memset(&in, 0, sizeof in);
+    in.connection_requested = true;
+    memset(&st, 0, sizeof st);
+    st.display_drivable = true;
+    od_advert_apply_device_state(&in, &st);
+    od_advert_build(&in, out);
+    CHECK((out[15] & 0x0Cu) == 0x04u);
+
+    CASE("no drivable display: dynamic is FF x 11, whatever the caller passed");
+    memset(&in, 0, sizeof in);
+    in.dynamic = dd;
+    memset(&st, 0, sizeof st);
+    st.claim_mode = true;
+    od_advert_apply_device_state(&in, &st);
+    od_advert_build(&in, out);
+    for (i = 2u; i < 13u; i++) {
+        CHECK(out[i] == 0xFFu);
+    }
+    CHECK((out[15] & 0x0Cu) == 0x04u);
+
+    CASE("NULL inputs are ignored");
+    od_advert_apply_device_state(NULL, &st);
+    od_advert_apply_device_state(&in, NULL);
+}
+
 int main(void)
 {
+    test_pdu_budget();
+    test_device_state();
     test_agrees_with_shipped();
     test_layout();
     test_temperature();

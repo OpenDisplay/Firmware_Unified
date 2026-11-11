@@ -583,28 +583,32 @@ BT_GATT_SERVICE_DEFINE(
 			       BT_GATT_PERM_WRITE, NULL, od_gatt_write, NULL),
 	BT_GATT_CCC(od_ccc_cfg_changed, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE), );
 
-static const struct bt_data ad[] = {
+/* SECURITY_V2 5.3.3: the name is in the advertising PDU, as on every other target, so passive
+ * scanners (and HA's name check) see it: flags 3 + MSD 18 + name 10 = 31 bytes, exactly full.
+ * The scan response keeps the 16-bit service UUID and, with Channel Sounding, the Ranging UUID. */
+static struct bt_data ad[] = {
 	BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
 	BT_DATA(BT_DATA_MANUFACTURER_DATA, s_programmed_msd, MSD_PAYLOAD_LEN),
+	BT_DATA(BT_DATA_NAME_COMPLETE, s_dev_name, OD_ADVERT_NAME_LEN),
 };
+BUILD_ASSERT(sizeof(OD_NAME_PREFIX) - 1u + 6u == OD_ADVERT_NAME_LEN,
+	     "the advertised name is OD + 6 hex digits");
+BUILD_ASSERT(OD_ADVERT_ADV_PDU_LEN <= 31u, "flags + MSD + name exceed a legacy PDU");
 
-static struct bt_data sd_name = BT_DATA(BT_DATA_NAME_COMPLETE, s_dev_name, 0);
 static const struct bt_data sd_od_uuid = BT_DATA_BYTES(BT_DATA_UUID16_ALL, 0x46, 0x24);
 static struct bt_data sd_cs_uuid;
-static struct bt_data sd_buf[3];
+static struct bt_data sd_buf[2];
 
 static unsigned sd_prepare(void)
 {
-	unsigned count = 2u;
+	unsigned count = 1u;
 	unsigned cs_extra = 0u;
 
-	sd_name.data_len = (uint8_t)strlen(s_dev_name);
-	sd_buf[0] = sd_name;
-	sd_buf[1] = sd_od_uuid;
+	sd_buf[0] = sd_od_uuid;
 	opendisplay_cs_fill_scan_response(&s_od_global_config, &sd_cs_uuid, 1u, &cs_extra);
 	if (cs_extra != 0u) {
-		sd_buf[2] = sd_cs_uuid;
-		count = 3u;
+		sd_buf[1] = sd_cs_uuid;
+		count = 2u;
 	}
 	return count;
 }

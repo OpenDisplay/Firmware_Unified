@@ -49,6 +49,16 @@ extern "C" {
  * choose. This module copies it verbatim and never interprets it. */
 #define OD_ADVERT_DYNAMIC_LEN 11u
 
+/* The legacy advertising PDU every target sends (SECURITY_V2 5.3.3): flags + the local name
+ * "OD" + 6 hex + this MSD, in 31 bytes exactly. An AD structure is 1 length + 1 type + payload. */
+#define OD_ADVERT_NAME_LEN        8u    /* "OD1A2B3C" */
+#define OD_ADVERT_AD_FLAGS_LEN    3u
+#define OD_ADVERT_AD_NAME_LEN     (2u + OD_ADVERT_NAME_LEN)
+#define OD_ADVERT_AD_MSD_LEN      (2u + OD_ADVERT_MSD_LEN)
+#define OD_ADVERT_LEGACY_PDU_MAX  31u
+#define OD_ADVERT_ADV_PDU_LEN     (OD_ADVERT_AD_FLAGS_LEN + OD_ADVERT_AD_NAME_LEN + \
+                                   OD_ADVERT_AD_MSD_LEN)
+
 /* THE COMPANY ID BELONGS IN THE PROTOCOL HEADER, and is here only because that header is
  * frozen. Today the value is written in four places -- two per-target #defines, one bare
  * literal in the ESP32 builder, and a same-numbered service UUID that is a DIFFERENT constant

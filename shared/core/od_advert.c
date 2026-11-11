@@ -33,6 +33,9 @@ OD_STATIC_ASSERT(offsetof(struct MsdAdvertisement, battery_voltage_low) == OD_AD
 OD_STATIC_ASSERT(offsetof(struct MsdAdvertisement, status) == OD_ADV_OFF_STATUS,
                  "status offset moved");
 
+OD_STATIC_ASSERT(OD_ADVERT_ADV_PDU_LEN <= OD_ADVERT_LEGACY_PDU_MAX,
+                 "flags + name + MSD must fit one legacy advertising PDU");
+
 uint8_t od_advert_encode_temperature(float chip_temperature_c)
 {
     float steps = (chip_temperature_c - OD_ADVERT_TEMP_MIN_C) * 2.0f;
