@@ -100,7 +100,7 @@ byte-aligned rectangle; BG22's class has no WINDOW/FILL, so there partial modes 
 whole-panel rectangle. EP213ZZ (0x0049) keeps a whole-panel partial on every target (its RAM X
 offset is not expressible as WINDOW geometry).
 
-## Provisional escapes (need opendisplay-protocol adoption)
+## 3.0 escapes (WINDOW, FILL)
 
 | esc | args | meaning |
 |---|---|---|
@@ -109,8 +109,8 @@ offset is not expressible as WINDOW geometry).
 
 The window is the partial rectangle during a partial update and the whole panel otherwise.
 Both compile out on BG22 (`OD_EPD_WITH_WINDOW=0`), where a sequence using them is refused
-SEQ_UNSUPPORTED. The numbers are provisional until the canonical `DriveSeqEscape` enum takes
-them.
+SEQ_UNSUPPORTED. Both are in `DriveSeqEscape` (`shared/protocol/opendisplay_structs.h`), final
+since 2026-11-11.
 
 ## Limits
 
@@ -153,7 +153,7 @@ panel sees it once. A failure before the first panel I/O touches nothing, as any
 | CS_SELECT | yes | yes | yes | offered only when `cs_pin_2` is wired and distinct |
 | READ_SCRATCH | **no** | **no** | yes | the Nordic and ESP32 panel buses are write-only (no MISO) |
 | WRITE_SCRATCH, LUT, LUT_SLICE, IMAGE_SLICE, SUBST, DELAY, BUSY | yes | yes | yes | LUT steps work after the image marker too |
-| WINDOW, FILL | yes | yes | no | provisional |
+| WINDOW, FILL | yes | yes | no | final |
 
 An unsupported escape anywhere in a sequence refuses the whole sequence before the panel is
 touched (wire: OD_ERR_DRIVE_SEQ_UNSUPPORTED under 0x0085).
@@ -162,7 +162,7 @@ touched (wire: OD_ERR_DRIVE_SEQ_UNSUPPORTED under 0x0085).
 
 A 2.x config after an OTA has a display (0x20) but no 0xAE/0xB1. Firmware then draws nothing:
 
-- **Upload starts NACK `0x08` (OD_ERR_NEEDS_MIGRATION, provisional)**:
+- **Upload starts NACK `0x08` (OD_ERR_NEEDS_MIGRATION, protocol § 4h)**:
   `[FF][70][08][00]` (0x70 START; its other refusals stay the 2-byte `[FF][70]`), `[FF][76][08][00]`,
   `[FF][80][08][00]` (PIPE START). 0x08 is free in both the OD_ERR_PARTIAL_* and the
   OD_ERR_PIPE_START_* namespaces. 0x0085 keeps OD_ERR_DRIVE_NO_CONFIG (0x02).
@@ -227,7 +227,7 @@ From the panel database's `blocked_on` ids, against this firmware:
 | SEQ_MAX | gone: sequences stream from the record on every target, 128-step cap |
 | LUT_AFTER_IMAGE | done: LUT context survives the image pause |
 | SET_PIN_RESET | done on Nordic and BG22 (SET_PIN with OD_SEQ_PINREF_RESET) |
-| WINDOW | provisional escape 0x0C (+ FILL 0x0D); the generator does not emit it yet |
+| WINDOW | escape 0x0C (+ FILL 0x0D); the generator does not emit it yet |
 | CS_BOTH | not added, deliberately: the panel database expands every both-CS transfer into a cs0 copy then a cs1 copy (its D6), so no flow needs it. Making CS_SELECT take 2 would be a value BG22 accepts at validation and then fails at runtime |
 | PIXEL_XFORM | missing: firmware-side repacking (SSD2683 1->2 bpp, 4BPP_DATA, Spectra nibble clamp); hosts must send controller format |
 | READBACK | missing: controller detection by register read-back (SSD2677 sticky variant); needs a conditional/branch primitive, and READ_SCRATCH, which Nordic cannot do |
@@ -270,10 +270,10 @@ re-creates it, by design):
 - EP397 / EP426 partial RAM windows (Y-decrement, X-mirror): need WINDOW from the generator.
 - SSD2677 vs SSD1677 on the Sticky (register 0x70): needs READBACK.
 
-## Built-in controller drivers (0xB3 display_controller, PROVISIONAL)
+## Built-in controller drivers (0xB3 display_controller)
 
-**For the protocol owner: a wire addition, not in opendisplay-protocol.** The id is a fallback
-`#define` in `shared/core/od_cfg_index.h`; it goes when the canonical header assigns one.
+`OD_PKT_DISPLAY_CONTROLLER` in `shared/protocol/opendisplay_structs.h` (final since 2026-11-11;
+the protocol repo still has to adopt it, docs/PROTOCOL_CHANGES_3.0.md).
 
 Two panel classes cannot be driven by a command walk (analysis: the panel-data stream's
 `panels/NOTES_special.md`). IT8951 speaks a 16-bit word protocol with a handshake per word and

@@ -37,6 +37,8 @@ _Static_assert(offsetof(struct DisplayModeHead, color_scheme) == MODE_OFF_SCHEME
 _Static_assert(sizeof(struct DisplayLutHead) == LUT_OFF_DATA, "0xAF head size");
 _Static_assert(offsetof(struct DisplayLutHead, crc16) == LUT_OFF_CRC, "0xAF crc");
 _Static_assert(sizeof(struct DisplayPanelHead) == PANEL_OFF_SLEEPSEQ, "0xB1 head size");
+_Static_assert(OD_EPD_ESC_WINDOW == OD_SEQ_ESC_WINDOW, "WINDOW escape value");
+_Static_assert(OD_EPD_ESC_FILL == OD_SEQ_ESC_FILL, "FILL escape value");
 
 #define RAW_BUSY_POLL_MS 2u
 

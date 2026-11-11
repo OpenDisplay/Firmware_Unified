@@ -126,10 +126,7 @@ extern "C" {
 #define OD_EPD_ESC_READ_SCRATCH    0x09u   /* [pin_ref][len<=16] clock bytes into scratch */
 #define OD_EPD_ESC_WRITE_SCRATCH   0x0Au   /* [cmd][off][len] cmd + scratch[off..off+len) */
 #define OD_EPD_ESC_LUT_SLICE       0x0Bu   /* [off:2 LE][len:2 LE] of the slot */
-/* PROVISIONAL -- not yet in opendisplay_structs.h's DriveSeqEscape enum. Values are reserved
- * here first because the canonical header is a byte-for-byte copy this repo must not edit;
- * docs/CONFIG_DRIVEN_DISPLAY.md specifies both, and the protocol repo has to adopt them before
- * any host relies on the numbers.
+/* OD_SEQ_ESC_WINDOW / OD_SEQ_ESC_FILL in opendisplay_structs.h (3.0).
  *
  * WINDOW: [n][(kind,val) * n] -- one step whose n bytes (cmd first, n = 1..32) are each a
  *   literal (kind 0x00, val = the byte) or a GEOMETRY byte (kind 0x01, val = descriptor):

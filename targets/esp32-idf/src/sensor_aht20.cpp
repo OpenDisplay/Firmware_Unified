@@ -11,7 +11,7 @@
 #include "od_hal_i2c.h"
 #include "od_hal_sleep.h"
 #include "od_log.h"
-#include "protocol_pending.h"
+#include "opendisplay_structs.h"
 #include "structs.h"
 
 extern struct od_config globalConfig;

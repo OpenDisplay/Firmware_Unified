@@ -303,9 +303,6 @@ The count *can* still reach 0: the last three entries (`buzzer_hw.cpp`, `device_
 `encryption.cpp`) are counted only for their `TARGET_NRF` arms, which leave at migration
 step 4.
 
-`protocol_pending.h` is also outstanding — two panel-IC wire values that belong in the
-canonical protocol header.
-
 ### Toolchain translation findings
 
 Recorded as they are found, since TOOLCHAINS.md's translation table was written from reading

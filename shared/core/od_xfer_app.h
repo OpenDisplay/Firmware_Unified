@@ -12,6 +12,7 @@
 #include "od_color.h"
 #include "od_span.h"
 #include "od_txq.h"
+#include "opendisplay_protocol.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -42,20 +43,8 @@ typedef struct {
 #endif
 } od_xfer_panel_info_t;
 
-/* NACK data byte for "this config cannot drive the panel; write a config with drive packets".
- * Shared by the 0x70 START ([FF][70][08][00]), the 0x76 START (OD_ERR_PARTIAL_* namespace) and
- * the PIPE 0x80 START (OD_ERR_PIPE_START_* namespace): 0x08 is free in both. Provisional until
- * opendisplay-protocol assigns it. */
-#ifndef OD_ERR_NEEDS_MIGRATION
-#define OD_ERR_NEEDS_MIGRATION 0x08u
-#endif
-
-/* NACK data byte for "the panel stayed BUSY when the upload tried to bring it up": a transient
- * condition, unlike NEEDS_MIGRATION, so a host retries rather than rewrites the config. Same three
- * STARTs and the same namespaces; 0x09 is free in both. */
-#ifndef OD_ERR_PANEL_BUSY
-#define OD_ERR_PANEL_BUSY 0x09u
-#endif
+/* The START NACK data bytes OD_ERR_NEEDS_MIGRATION (0x08) and OD_ERR_PANEL_BUSY (0x09) are in
+ * opendisplay_protocol.h section 4h. */
 
 /* Called by od_xfer_app_begin_full / _begin_partial before returning false, to give the START
  * NACK a specific data byte (OD_ERR_PANEL_BUSY). Without a call the NACK is the generic one. */

@@ -27,21 +27,19 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "opendisplay_structs.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #define OD_CFG_INDEX_MAX 32u
 
-/* 0xB3 display_controller: PROVISIONAL, not yet in opendisplay-protocol (docs/
+/* 0xB3 display_controller (OD_PKT_DISPLAY_CONTROLLER, opendisplay_structs.h; docs/
  * CONFIG_DRIVEN_DISPLAY.md, "Built-in controller drivers"). Indexed only where a target sets
- * OD_CFG_INDEX_CONTROLLER=1; everywhere else it is skipped like any unknown length-prefixed id.
- * The fallback value goes when the canonical header defines the id. */
+ * OD_CFG_INDEX_CONTROLLER=1; everywhere else it is skipped like any unknown length-prefixed id. */
 #ifndef OD_CFG_INDEX_CONTROLLER
 #define OD_CFG_INDEX_CONTROLLER 0
-#endif
-#ifndef OD_PKT_DISPLAY_CONTROLLER
-#define OD_PKT_DISPLAY_CONTROLLER 0xB3u
 #endif
 
 typedef struct {

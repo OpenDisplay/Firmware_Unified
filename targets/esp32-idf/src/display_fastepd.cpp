@@ -6,11 +6,6 @@
 #include "od_sensor_sht40.h"
 #include "display_service.h"
 #include "structs.h"
-/* OD-PORT: two panel IC values this file compares against are missing from
- * shared/protocol/ -- they were added to Firmware's VENDORED copy of the wire contract
- * and never propagated to canonical. See protocol_pending.h; it is a debt with a
- * documented removal sequence, not a second home for wire constants. */
-#include "protocol_pending.h"
 /* No <Arduino.h>: this file never used one. Its only Arduino-shaped names -- SPISettings,
  * MSBFIRST, SPI_MODE0 -- come from the FastEPD vendor adapter below, which is permanent and
  * deliberately not counted by the arduino-free check in tools/check.sh. */

@@ -4,7 +4,7 @@
 #include "od_hal_i2c.h"
 #include "od_log.h"
 #include "power_latch.h"
-#include "protocol_pending.h"
+#include "opendisplay_structs.h"
 #include "structs.h"
 
 extern struct od_config globalConfig;

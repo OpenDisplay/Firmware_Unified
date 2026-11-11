@@ -55,6 +55,12 @@
  *   Unreleased (since 2.4)
  *     - Add each further wire-spec change here as it lands. On the next version
  *       bump, move these under a new "MAJOR.MINOR (YYYY-MM-DD)" heading.
+ *     - Firmware 3.0 (Firmware_Unified, decided 2026-11-11; to be adopted by
+ *       opendisplay-protocol): CMD_READ_IDENT tail (flags, limits, escapes)
+ *       and one fw_target per MCU family (0x05 nRF52840); upload START NACK
+ *       data bytes 0x08 NEEDS_MIGRATION and 0x09 PANEL_BUSY (section 4h);
+ *       OD_ERR_DRIVE_PANEL_BUSY 0x08 (4e); CONFIG_WRITE NACK byte (4g);
+ *       CMD_ACTION_INFO reply 10 bytes.
  *
  *   2.4  (2026-11-06)  -- image store + action table (Firmware_Unified BG22)
  *     - MINOR: seven new opcodes in the free 0x0047..0x004F gap, landed from
@@ -652,25 +658,30 @@
  * @opcode: 0x004C   @name: CMD_ACTION_INFO   @dir: host->device
  * @request:  [0x00][0x4C]  (no payload)
  * @response: [0x00][0x4C][entries:1][active:1][inactive:1][rejected:1]
- *                        [last_trigger:1][fire_count:1][last_temp_c:1]
- *            (9 bytes; data layout = ActionInfoResponse, opendisplay_structs.h)
+ *                        [last_trigger:1][fire_count:1][last_temp_c:1][tables:1]
+ *            (10 bytes; data layout = ActionInfoResponse, opendisplay_structs.h;
+ *            2.4 firmware sent 9, without `tables`)
  *              entries      = structurally valid entries loaded from the table.
  *              active       = entries this build can run.
  *              inactive     = valid entries with a trigger or effect this build
  *                             does not know or cannot perform. active +
  *                             inactive == entries.
- *              rejected     = 0 or 1. The loader STOPS at the first structural
- *                             fault, so entries after it are not counted at all.
+ *              rejected     = malformed entries skipped. A malformed entry
+ *                             drops only itself; the walk continues.
  *              last_trigger = ActionTrigger that last started a sequence
  *                             (0 = none since boot / the last config write).
  *              fire_count   = sequences started, mod 256.
  *              last_temp_c  = latest temperature sample, int8 degrees C (0
  *                             before the first sample).
+ *              tables       = number of 0xB2 packets in the config; only the
+ *                             first runs.
  *            All counters reset on boot and on every config write.
  * @errors:   none -- always ACKs (all zero with no table).
- * @state:    describes the FIRST 0xB2 packet only. A config carrying two shows
- *            the first and silently shadows the second (see 0xB2 rule 1 in
- *            opendisplay_structs.h).
+ * @state:    describes the FIRST 0xB2 packet only. A config carrying two runs
+ *            the first and counts both in `tables` (see 0xB2 rule 1 in
+ *            opendisplay_structs.h). Trigger entries for BUTTON_LONG count as
+ *            inactive; temperature triggers fire on the edge and re-arm 3 C
+ *            past it.
  * @targets:  Unified (efr32bg22-slc, OD_CAP_IMGSTORE)
  * @since:    2.4
  * -------------------------------------------------------------------------- */
@@ -1324,6 +1335,21 @@
                                                 * before any panel I/O */
 #define OD_ERR_DRIVE_PANEL_BUSY        0x08u   /* the panel stayed BUSY while pass 0 was
                                                 * brought up; transient, retry */
+
+/* --------------------------------------------------------------------------
+ * 4h. UPLOAD-START errors -- scope: the START of CMD_DIRECT_WRITE_START
+ *     (0x0070), CMD_PARTIAL_WRITE (0x0076) and PIPE (0x0080). The byte goes
+ *     where each START's NACK puts its error: [0xFF][0x70][err][0x00],
+ *     [0xFF][0x76][err][0x00] (4b namespace), [0xFF][0x80][err]... (4c).
+ *     Both values are free in every one of those sets.
+ * -------------------------------------------------------------------------- */
+#define OD_ERR_NEEDS_MIGRATION         0x08u   /* config has no drive packets for the
+                                                * display (or mode 0 breaks the mode-0
+                                                * rule): write a config with drive data */
+#define OD_ERR_PANEL_BUSY              0x09u   /* the panel stayed BUSY while the upload
+                                                * brought it up; transient, retry. Not
+                                                * sent by PIPE, which ACKs before the
+                                                * panel comes up */
 
 /* --------------------------------------------------------------------------
  * 4g. CONFIG-WRITE errors -- scope: CMD_CONFIG_WRITE (0x0041) and

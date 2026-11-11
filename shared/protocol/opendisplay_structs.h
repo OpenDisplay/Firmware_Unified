@@ -69,6 +69,13 @@
  *   Unreleased (since 2.3)
  *     - Add each payload-layout change here as it lands. On the next version bump,
  *       move these under a new "MAJOR.MINOR (YYYY-MM-DD)" heading.
+ *     - Firmware 3.0 (Firmware_Unified, decided 2026-11-11; to be adopted by
+ *       opendisplay-protocol):
+ *         PanelIC 3005 OD_PANEL_IC_M5PAPER_960X540; SensorType 7 AHT20 and
+ *         8 PCF8563; DeviceFlags bit 5 OD_DEVICE_FLAG_NM420_INIT; config
+ *         packet 0xB3 OD_PKT_DISPLAY_CONTROLLER; DriveSeqEscape 0x0C WINDOW
+ *         and 0x0D FILL; ActionInfoResponse grows to 8 B (`tables`) and
+ *         `rejected` counts every skipped entry.
  *
  *   2.3  (2026-11-06)  -- action table + image-store payloads (Firmware_Unified BG22)
  *     - Config packet 0xB2 = OD_PKT_ACTION_TABLE (length-prefixed, SINGLETON):
@@ -456,7 +463,8 @@ enum ConfigPacketType {
     OD_PKT_DISPLAY_LUT    = 0xAF, /**< @doc "display_lut (length-prefixed; repeatable, max 8): one waveform slot at its real size." @since 1.6 */
     OD_PKT_DISPLAY_CAL    = 0xB0, /**< @doc "display_calibration (length-prefixed; repeatable, max 32): per-mode palette -- per-pass codes + measured CIELAB. HOST-ONLY: the device skips it." @since 1.6 */
     OD_PKT_DISPLAY_PANEL  = 0xB1, /**< @doc "display_panel (length-prefixed; repeatable, max 4): per-panel drive properties -- BUSY trust/sense, colour code map, sleep sequence." @since 1.6 */
-    OD_PKT_ACTION_TABLE   = 0xB2  /**< @doc "action_table (length-prefixed; SINGLETON -- at most one per config, and a client replaces it rather than appending a second): trigger -> effect sequences the device runs locally. Body = ActionEntryHead + ActionStep records; see the 0xB2 section." @since 1.6 */
+    OD_PKT_ACTION_TABLE   = 0xB2, /**< @doc "action_table (length-prefixed; SINGLETON -- at most one per config, and a client replaces it rather than appending a second): trigger -> effect sequences the device runs locally. Body = ActionEntryHead + ActionStep records; see the 0xB2 section." @since 1.6 */
+    OD_PKT_DISPLAY_CONTROLLER = 0xB3  /**< @doc "display_controller (length-prefixed; per instance, first wins): selects a built-in controller driver (IT8951, MCU-timed parallel) instead of drive packets. v0 body 12 B: instance, version 0, class (0 command-driven, 1 IT8951, 2 parallel), flags (bit0 MIRRORED, bit1 GRAY16, bit2 TEMP_SENSOR), vcom_mv LE16 (0 keep stored), default_temp_c int8 (0x7F driver default), parallel_panel (1 Inkplate 5 V2, 2 Inkplate 10, 3 PaperS3), miso_pin, en_pin, ite_en_pin (0xFF none), reserved 0. A longer body is accepted; an unknown version or class is ignored." @since 3.0 */
 };
 
 /* ==========================================================================
@@ -524,6 +532,7 @@ enum ManufacturerId {
 #define OD_DEVICE_FLAG_WS_PP_INIT      (1u << 2) /* @doc "apply Waveshare PhotoPainter low-power init" */
 #define OD_DEVICE_FLAG_PWR_LATCH       (1u << 3) /* @doc "self-holding MOSFET latch on pwr_pin_2; optional long-press shutdown button on pwr_pin_3" */
 #define OD_DEVICE_FLAG_PWR_LATCH_DFF   (1u << 4) /* @doc "74AHC1G79 D-FF latch: pwr_pin_2=D (hold), pwr_pin_3=CP (clock); command 0x0052 releases latch" */
+#define OD_DEVICE_FLAG_NM420_INIT      (1u << 5) /* @doc "apply RockBase NM-EPD-420 low-power init: default peripheral and ADC enable pins LOW; hold them LOW in deep sleep" @since 3.0 */
 
 /** @struct SystemConfig  @packet 0x01  @required
  *  @doc "Host IC identity, communication capabilities, and power-management pins.
@@ -785,7 +794,8 @@ enum PanelIC {
     OD_PANEL_IC_ED103TC2_1872X1404_4GRAY = 3001, /**< @doc "same panel as 3000; 4bpp (16-level gray via FastEPD)" */
     OD_PANEL_IC_INKPLATE5V2_1280X720     = 3002, /**< @doc "Soldered Inkplate 5 V2 (ED050WROW, 1280x720, 1bpp; FastEPD native parallel path)" */
     OD_PANEL_IC_INKPLATE10_1200X825      = 3003, /**< @doc "Soldered Inkplate 10 (ED097TC2, 1200x825, 1bpp; FastEPD native parallel path)" */
-    OD_PANEL_IC_M5PAPERS3_960X540        = 3004  /**< @doc "M5Stack PaperS3 (ED047TC1-class, 960x540, 16-gray capable; FastEPD native parallel path)" @since 1.5 */
+    OD_PANEL_IC_M5PAPERS3_960X540        = 3004, /**< @doc "M5Stack PaperS3 (ED047TC1-class, 960x540, 16-gray capable; FastEPD native parallel path)" @since 1.5 */
+    OD_PANEL_IC_M5PAPER_960X540          = 3005  /**< @doc "M5Stack M5Paper (ED047TC1 behind an IT8951 over SPI; FastEPD IT8951 path)" @since 3.0 */
 };
 
 /* DisplayConfig.transmission_modes @bits TransmissionModes (bits 5-6 reserved --
@@ -878,7 +888,10 @@ enum SensorType {
     OD_SENSOR_TYPE_HUMIDITY    = 2, /**< @doc "generic humidity sensor" */
     OD_SENSOR_TYPE_AXP2101     = 3, /**< @doc "AXP2101 power-management IC" */
     OD_SENSOR_TYPE_SHT40       = 4, /**< @doc "Sensirion SHT40 (I2C); writes 3 LE bytes into MSD dynamic data (21 bits: 0.1C, 0.1% RH)" */
-    OD_SENSOR_TYPE_BQ27220     = 5  /**< @doc "TI BQ27220 fuel gauge (I2C 0x55); voltage in MSD bytes 14-15, one packed dynamic byte (bits 0-6 SOC%, bit7 charging)" */
+    OD_SENSOR_TYPE_BQ27220     = 5, /**< @doc "TI BQ27220 fuel gauge (I2C 0x55); voltage in MSD bytes 14-15, one packed dynamic byte (bits 0-6 SOC%, bit7 charging)" */
+    /* 6 is taken by the nRF firmware's nPM1300 PMIC (targets/nordic-zephyr protocol_pending.h). */
+    OD_SENSOR_TYPE_AHT20       = 7, /**< @doc "AHT20 (I2C 0x38); wake-time sample in SHT40-compatible 3-byte MSD format" @since 3.0 */
+    OD_SENSOR_TYPE_PCF8563     = 8  /**< @doc "PCF8563 / BM8563 RTC (I2C 0x51) as the power-off wake source; publishes no MSD data" @since 3.0 */
 };
 
 /** @struct SensorData  @packet 0x23  @repeatable max=4
@@ -1280,7 +1293,9 @@ enum DriveSeqEscape {
     OD_SEQ_ESC_CS_SELECT     = 0x08, /**< @doc "args [cs_sel]: route following steps to chip-select n (0 = cs_pin, 1 = cs_pin_2). Sticky until changed; every sequence starts at 0." @since 1.6 */
     OD_SEQ_ESC_READ_SCRATCH  = 0x09, /**< @doc "args [pin_ref][len]: clock `len` bytes (<= 16) into the scratch buffer, sampling `pin_ref` (DriveSeqPinRef) as the data-in line -- explicit because the read source varies (dc_pin doubles as MISO on some boards; a waveform EEPROM has its own MISO on an aux pin). Scratch is 16 bytes, zeroed at sequence start." @since 1.6 */
     OD_SEQ_ESC_WRITE_SCRATCH = 0x0A, /**< @doc "args [cmd][off][len]: send command byte `cmd` followed by scratch[off..off+len) as data. With READ_SCRATCH this expresses e.g. the UC8159 panel-EEPROM flow (SET_PIN eeprom-CS, READ_SCRATCH PLL/VCOM, WRITE_SCRATCH into registers)." @since 1.6 */
-    OD_SEQ_ESC_LUT_SLICE     = 0x0B  /**< @doc "args [off:2 LE][len:2 LE]: stream bytes [off, off+len) of the current pass's waveform slot. For controllers whose waveform spans several registers (UC81xx 0x20-0x24): the slot stores the concatenation and the sequence sends one slice per register, so ONE slot per pass still suffices." @since 1.6 */
+    OD_SEQ_ESC_LUT_SLICE     = 0x0B, /**< @doc "args [off:2 LE][len:2 LE]: stream bytes [off, off+len) of the current pass's waveform slot. For controllers whose waveform spans several registers (UC81xx 0x20-0x24): the slot stores the concatenation and the sequence sends one slice per register, so ONE slot per pass still suffices." @since 1.6 */
+    OD_SEQ_ESC_WINDOW        = 0x0C, /**< @doc "args [n][(kind,val)*n]: one step of n bytes (cmd first, n 1..32), each a literal (kind 0) or a geometry byte (kind 1; val bits 2..0 x0/x1/y0/y1/W-1/H-1/w/h, bit3 divide by 8, bit4 mirror, bit5 high byte) of the update window (the partial rectangle, else the whole panel)." @since 3.0 */
+    OD_SEQ_ESC_FILL          = 0x0D  /**< @doc "args [cmd][value][flags]: cmd, then a plane of `value`; flags bits 1..0 bpp (1/2/4; 3 refused), bit 7 the window instead of the whole panel." @since 3.0 */
 };
 
 /** @enum DriveSeqPinRef  @width 1
@@ -1674,19 +1689,21 @@ struct FlashSlotRecord {
 OD_STATIC_ASSERT(sizeof(struct FlashSlotRecord) == 6, "FlashSlotRecord wire size");
 
 /** @struct ActionInfoResponse  @message CMD_ACTION_INFO
- *  @doc "7-byte CMD_ACTION_INFO 0x004C response DATA (device->host): load
+ *  @doc "8-byte CMD_ACTION_INFO 0x004C response DATA (device->host): load
  *  statistics of the FIRST 0xB2 action table plus runner observability. All
- *  counters reset on boot and on every config write." */
+ *  counters reset on boot and on every config write. A 2.4 reader of the
+ *  first 7 bytes is unaffected by `tables`." */
 struct ActionInfoResponse {
     uint8_t entries;      /**< @doc "structurally valid entries loaded (= active + inactive)." */
     uint8_t active;       /**< @doc "entries this build can run." */
     uint8_t inactive;     /**< @doc "valid entries with an unknown or unperformable trigger/effect." */
-    uint8_t rejected;     /**< @max 1 @doc "1 if the walk stopped at a structural fault (later entries are not counted at all), else 0." */
+    uint8_t rejected;     /**< @doc "malformed entries skipped; each drops only itself and the walk continues." */
     uint8_t last_trigger; /**< @enum ActionTrigger @doc "trigger that last started a sequence; 0 = none yet." */
     uint8_t fire_count;   /**< @doc "sequences started, mod 256." */
     uint8_t last_temp_c;  /**< @unit C @doc "latest temperature sample, SIGNED int8 two's complement; 0 before the first sample." */
+    uint8_t tables;       /**< @doc "number of 0xB2 packets in the config; only the first runs (> 1 means a host appended instead of replacing)." @since 3.0 */
 } __attribute__((packed));
-OD_STATIC_ASSERT(sizeof(struct ActionInfoResponse) == 7, "ActionInfoResponse wire size");
+OD_STATIC_ASSERT(sizeof(struct ActionInfoResponse) == 8, "ActionInfoResponse wire size");
 
 /* ==========================================================================
  * SECTION 6 -- BLE MANUFACTURER-SPECIFIC ADVERTISEMENT (MSD)

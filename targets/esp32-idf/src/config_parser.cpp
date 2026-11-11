@@ -8,7 +8,7 @@
 #include "od_session.h"
 #include "od_session_app.h"
 #include "power_latch.h"
-#include "protocol_pending.h"  // OD_PANEL_IC_M5PAPER_960X540
+#include "opendisplay_structs.h"
 #include "wifi_service.h"  // OPENDISPLAY_HAS_WIFI + lanActivePort()/lanTlsEnabled()
 
 #include <stdio.h>

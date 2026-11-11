@@ -13,11 +13,6 @@
 /* shared/core: the 16-byte MSD encoding. This target no longer assembles those bytes. */
 #include "od_advert.h"
 #include "od_color.h"
-/* OD-PORT: two panel IC values this file compares against are missing from
- * shared/protocol/ -- they were added to Firmware's VENDORED copy of the wire contract
- * and never propagated to canonical. See protocol_pending.h; it is a debt with a
- * documented removal sequence, not a second home for wire constants. */
-#include "protocol_pending.h"
 #include "od_log.h"
 #include "od_watchdog_app.h"
 #include "buzzer_control.h"

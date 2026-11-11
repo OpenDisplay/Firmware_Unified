@@ -10,7 +10,7 @@
 #include "od_cfg_index.h"
 #include "od_config_store.h"
 #include "od_hal_nvs.h"
-#include "protocol_pending.h"
+#include "opendisplay_structs.h"
 #include "structs.h"
 
 struct od_config globalConfig;
