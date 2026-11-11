@@ -57,7 +57,7 @@ presets; `legacy/migrate_drive_config.py` is superseded by the host migrate func
    partial init and the panel is mono), sleep.
 2. **derive** -- once per target class (below). Each flow is normalised and turned
    mechanically into od_epd steps. Register payloads move into a 0xAF slot streamed with
-   `LUT_SLICE` until the sequence fits the class's `OD_EPD_SEQ_MAX` / step cap. Partial modes:
+   `LUT_SLICE` until the sequence fits the class's packing target / step cap. Partial modes:
    `bbep_capture rects` records the 2.x partial flow for three sub-rectangles; the bytes that
    follow the rectangle are inferred as WINDOW geometry and the whole-plane white writes
    (`bbepFill`) become FILL, on classes that have WINDOW/FILL. Anything the sequence language
@@ -116,17 +116,19 @@ supplies it and bb_epaper's `bbepWakeUp` does the same thing.
 
 ## Target classes
 
-| class | targets | OD_EPD_SEQ_MAX | steps | WINDOW/FILL | config cap |
+| class | targets | packing target (`seq_max`) | steps | WINDOW/FILL | config cap |
 |---|---|---|---|---|---|
-| `default` | ESP32, Nordic (od_epd.h defaults) | 512 B | 96 | yes | 4096 B |
-| `bg22` | EFR32BG22 (`shared/profiles.cmake`) | 128 B | 64 | no | 3120 B |
+| `default` | ESP32, Nordic (od_epd.h defaults) | 512 B | 128 | yes | 4096 B |
+| `bg22` | EFR32BG22 (`shared/profiles.cmake`) | 512 B | 128 | no | 3120 B |
 
-Every panel is derived for each class separately (`targets.<class>`). On BG22 a mode that does
-not fit is dropped, and partial modes are whole-panel only (no WINDOW). When even the full mode
-does not fit, the panel is unavailable on BG22 (`bg22_unavailable`). For such panels a
-**single-init alternative** may be offered under `alternatives[]`: the init block bb_epaper
-re-sends after the frame is removed. It is NOT equivalent to 2.x and has never been seen on
-glass. It is never the default; a host offers it only as an explicit opt-in.
+od_epd streams a mode sequence from the stored record through a 128-byte window, so no target
+has a sequence-length cap; the only interpreter bound is `OD_EPD_MAX_SEQ_STEPS` (128 steps, the
+same everywhere). `seq_max` is the generator's packing target: above it, register payloads move
+into a LUT slot. Every panel is still derived for each class separately (`targets.<class>`)
+because BG22 builds without WINDOW/FILL: its partial modes are whole-panel only. A mode that does
+not fit a class is dropped; when even the full mode does not fit, the panel is listed in
+`bg22_unavailable` (empty since schema_minor 2: the doubled bb_epaper init runs on BG22 too).
+`alternatives[]` stays in the schema but is no longer emitted.
 
 ## `generated/drive_presets.json` -- schema v1 (STABLE CONTRACT)
 
@@ -138,7 +140,7 @@ removes or changes the meaning of a field bumps `schema_version`.
 {
   "schema": "opendisplay.drive_presets",
   "schema_version": 1,
-  "schema_minor": 1,                  // 1: target classes (additive; see "Changes in minor 1")
+  "schema_minor": 2,                  // 1: target classes; 2: one step cap, no BG22 length cap
   "sources": {
     "bb_epaper": "4edfa7f",            // revision the streams were captured from
     "bb_epaper_vendored": "5dccfbb",   // third_party/ copy (drift listed in coverage.md)
@@ -148,7 +150,7 @@ removes or changes the meaning of a field bumps `schema_version`.
   "caps": {                             // config byte ceilings (whole config blob) + od_epd limits
     "bg22": 3120, "esp32": 4096, "nordic": 4096,
     "typical_base_config_bytes": 417,   // legacy-only config used for the fits check
-    "seq_max": 128, "max_steps": 64, "sleep_max": 16, "lut_max": 535
+    "seq_max": 512, "max_steps": 128, "sleep_max": 16, "lut_max": 535
   },
   "names": {"EP29YR_168x384": "0x001E"},// name -> key (aliases excluded)
   "panels": {
@@ -196,11 +198,11 @@ removes or changes the meaning of a field bumps `schema_version`.
       // ---- schema_minor 1 (additive) ----
       "fits_target": {"default": true, "bg22": true},  // top-level packets run unchanged on that class
       "targets": {                      // per class: same fields as the top level, plus
-        "default": {"limits": {"seq_max": 512, "max_steps": 96, "window": true},
+        "default": {"limits": {"seq_max": 512, "max_steps": 128, "window": true},
                     "status": "equivalent", "modes": [], "packets": [], "fits_config": true, "…": "…"},
-        "bg22":    {"limits": {"seq_max": 128, "max_steps": 64, "window": false}, "…": "…"}
+        "bg22":    {"limits": {"seq_max": 512, "max_steps": 128, "window": false}, "…": "…"}
       },
-      "alternatives": [                 // only where targets.bg22 is blocked and a variant fits
+      "alternatives": [                 // not emitted since minor 2 (readers treat absent as [])
         {"variant": "single_init", "target_class": "bg22", "status": "alternative",
          "verified": "untested", "equivalent": false, "modes": [], "packets": [], "…": "…"}
       ]
@@ -253,12 +255,22 @@ whether an alternative exists), per-entry `targets`, `fits_target`, `alternative
 `MAX_STEPS` / `REPLAY_REFUSED`. `caps.seq_max` / `caps.max_steps` now give the `default` class
 (512 / 96). Nothing was removed or renamed.
 
+### Changes in minor 2
+
+The firmware streams sequences from storage, so neither class has a sequence-length cap and both
+use one step cap of 128. `max_steps` is 128 in `caps`, `target_classes` and every
+`targets.<class>.limits`; `seq_max` is 512 for both classes and is now only the generator's
+packing target. `targets.bg22` carries the full doubled-init sequences: the 18 panels that were
+blocked on BG22 by `SEQ_MAX`/`MAX_STEPS` are `equivalent` there, `bg22_unavailable` is empty and
+no `alternatives` are emitted. The `default` class drive data is byte-identical to minor 1.
+A client must stop refusing sequences longer than 128 B (or 64 steps) for BG22.
+
 ## Primitives (`blocked_on` / "Needed from others" ids)
 
 | id | missing in od_epd / od_epd_cfg |
 |---|---|
-| `SEQ_MAX` | a mode sequence longer than the class's `OD_EPD_SEQ_MAX` even after moving payloads into a slot; `modes_blocked[].fits_with` gives the cap that would fit |
-| `MAX_STEPS` | more steps than the class's `OD_EPD_MAX_SEQ_STEPS` |
+| `SEQ_MAX` | a mode sequence longer than the class's packing target even after moving payloads into a slot; `modes_blocked[].fits_with` gives the target that would fit (no current panel hits it) |
+| `MAX_STEPS` | more steps than `OD_EPD_MAX_SEQ_STEPS` (128) |
 | `LUT_AFTER_IMAGE` | (no longer emitted: od_epd keeps the slot across the image pause) |
 | `REPLAY_REFUSED` | a glass entry the class's interpreter refuses |
 | `LUT_MAX` | the moved payloads exceed one 535-byte slot |

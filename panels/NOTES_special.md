@@ -52,7 +52,7 @@ Mapping onto od_epd:
 | waveform mode per update | one mode per 0xAE | fine: one 0xAE per waveform mode (INIT, GC16, DU, A2) |
 
 With an `IT8951` backend plus `READBACK` and scratch substitution, a full-screen GC16 update would, by
-estimate (not encoded), fit in well under 100 bytes of sequence, under `OD_EPD_SEQ_MAX`. Partial updates additionally need `WINDOW`.
+estimate (not encoded), fit in well under 100 bytes of sequence. Partial updates additionally need `WINDOW`.
 The other costs are that the frame (1872x1404 at 4bpp is about 1.3 MB) only works on PSRAM
 targets, and that the multi-attempt probe and power sequencing in `bbepInitIT8951` (EN and
 ITE_EN pins, retries on HRDY timeout) would still be target code. **Recommendation:** keep IT8951

@@ -8,8 +8,8 @@ Pipeline per legacy panel_ic_type (panels/panel_ids.json):
   1. capture: build bb_epaper (BBEP_REF_REV) against the recording backend and record the
      2.x full / fast / partial / sleep flows, plus the partial flow for three sub-rectangles
      (tests/panels/harness/bbep_capture.cpp);
-  2. derive, once per target class (pdlib.CLASSES: the od_epd defaults, and BG22's smaller
-     limits without WINDOW/FILL): normalise each flow, turn it into od_epd steps, move oversize
+  2. derive, once per target class (pdlib.CLASSES: the od_epd defaults, and BG22 without
+     WINDOW/FILL): normalise each flow, turn it into od_epd steps, move oversize
      payloads into a LUT slot, give partial modes WINDOW/FILL where the class has them, encode
      0xB1 / 0xAE / 0xAF (panels.yaml entries are encoded from the YAML instead);
   3. replay: run the encoded packets through shared/core/od_epd.c built with that class's
@@ -34,7 +34,7 @@ OUT_STREAMS = P.GENERATED / "bbep_streams.json"
 OUT_COVERAGE = P.GENERATED / "coverage.md"
 
 FLOW_ORDER = ("full", "fast", "partial")
-SCHEMA_MINOR = 1
+SCHEMA_MINOR = 2
 DIFFS_BASE = ["D1", "D2", "D3", "D4", "D5"]
 
 
@@ -106,27 +106,12 @@ def fits_class(stat: dict, cls: str) -> bool:
 # ----------------------------------------------------------------------------- derive
 
 def needed_caps(raw: list[tuple]) -> dict:
-    """Smallest OD_EPD_SEQ_MAX (8-byte steps) and step cap at which this flow would fit."""
+    """Smallest packing target (8-byte steps) and step count at which this flow would fit."""
     for lim in range(128, 2049, 8):
         st, _, bl = P.fit_steps(raw, lim, max_steps=255)
         if not bl:
             return {"seq_max": lim, "steps": P.count_steps(st)}
     return {"seq_max": None, "steps": None}
-
-
-def single_init(toks: list[tuple]) -> list[tuple] | None:
-    """Drop the init block bb_epaper re-sends after the frame (bbepRefresh re-runs pInitFull).
-    -> tokens, or None when the flow has no such repeat."""
-    imgs = [i for i, t in enumerate(toks) if t[0] == "IMAGE"]
-    if not imgs:
-        return None
-    li = imgs[-1] + 1
-    k = 0
-    while k < imgs[0] and li + k < len(toks) and toks[k] == toks[li + k]:
-        k += 1
-    if k < 2:
-        return None
-    return toks[:li] + toks[li + k:]
 
 
 def partial_tokens(p: dict, window: bool) -> tuple[list[tuple], list[tuple[list[int] | None, list[tuple]]], list[str]]:
@@ -142,7 +127,7 @@ def partial_tokens(p: dict, window: bool) -> tuple[list[tuple], list[tuple[list[
     return wt, runs, []
 
 
-def derive(p: dict, cls: str, variant: str = "equivalent") -> dict:
+def derive(p: dict, cls: str) -> dict:
     c = P.CLASSES[cls]
     layout = P.frame_layout(p)
     scheme = P.native_scheme(p)
@@ -157,8 +142,6 @@ def derive(p: dict, cls: str, variant: str = "equivalent") -> dict:
             notes += n
         else:
             toks = strip_wake(P.normalise(p["flows"][flow], "bbep"))
-            if variant == "single_init":
-                toks = single_init(toks) or toks
             refs = [(None, toks)]
         raw, r, bl = P.tokens_to_steps(toks, layout, flow)
         steps, slot, bl2 = P.fit_steps(raw, c["seq_max"], max_steps=c["max_steps"])
@@ -236,10 +219,10 @@ def equivalence(p: dict, d: dict, blob: bytes, cls: str) -> dict:
     return eq
 
 
-def class_view(p: dict, cls: str, glass_pk=None, glass_modes=None, variant: str = "equivalent") -> dict:
+def class_view(p: dict, cls: str, glass_pk=None, glass_modes=None) -> dict:
     """Drive data for one target class. glass_pk: the panels.yaml packets (not re-derived)."""
     W, H = p["width"], p["height"]
-    d = derive(p, cls, variant)
+    d = derive(p, cls)
     v: dict = {"limits": {k: P.CLASSES[cls][k] for k in ("seq_max", "max_steps", "window")}}
     if glass_pk is not None:
         pk = glass_pk
@@ -259,15 +242,9 @@ def class_view(p: dict, cls: str, glass_pk=None, glass_modes=None, variant: str 
                              d["detail"].get("sleep", []) + d["detail"].get("lut_slots", [])))
         if not d["modes"] or d["modes"][0]["flow"] != "full":
             blocked = sorted(set(blocked + (["NO_FULL_FLOW"] if "full" not in d["detail"] else [])))
-        if variant != "equivalent":
-            eq = {"modes": {}, "sleep": None, "all_equal": False, "walks": all(
-                P.replay(blob, str(m["index"]), cls, [W, H])[0] == 0 for m in modes)}
-        else:
-            eq = equivalence(p, d, blob, cls)
+        eq = equivalence(p, d, blob, cls)
         if blocked:
             status = "blocked"
-        elif variant != "equivalent":
-            status = "alternative"
         elif eq["all_equal"]:
             status = "equivalent"
         else:
@@ -429,19 +406,6 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
         if any(m.get("window") for m in top["modes"]):
             diffs.append("D8")
         e["differences"] = sorted(set(diffs))
-        # BG22 alternative: drop the doubled init when the equivalent data cannot run there
-        if not glass and views["bg22"]["status"] == "blocked" and \
-                not (set(views["bg22"]["blocked_on"]) - {"SEQ_MAX", "MAX_STEPS"}):
-            alt = class_view(p, "bg22", variant="single_init")
-            if alt["status"] == "alternative" and alt["equivalence"]["walks"]:
-                alt.pop("equivalence")
-                alt.update({"variant": "single_init", "target_class": "bg22", "verified": "untested",
-                            "equivalent": False,
-                            "notes": alt["notes"] + [
-                                "NOT equivalent to 2.x: the init block bb_epaper re-sends after the "
-                                "frame (bbepRefresh) is dropped so the sequence fits BG22. Never seen "
-                                "on glass; offer only as an explicit opt-in."]})
-                e["alternatives"] = [alt]
         out[key] = e
 
     for key, e in out.items():
@@ -462,7 +426,7 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
             need = [m.get("fits_with") for m in b["modes_blocked"] if m["name"] == "full"]
             bg22_out[k] = {"name": e["name"], "blocked_on": b["blocked_on"],
                            "full_needs": need[0] if need and need[0] else None,
-                           "single_init_alternative": bool(e.get("alternatives"))}
+                           "single_init_alternative": False}
 
     presets = {
         "schema": "opendisplay.drive_presets", "schema_version": 1, "schema_minor": SCHEMA_MINOR,
@@ -494,9 +458,10 @@ def _why(e: dict, v: dict) -> str:
 def coverage_md(out: dict, drift: list[str], bg22_out: dict) -> str:
     lines = ["# Drive-data coverage", "",
              "Generated by `panels/tools/gen_all.py`; do not edit. `default` = od_epd defaults "
-             f"({P.CLASSES['default']['seq_max']} B / {P.CLASSES['default']['max_steps']} steps, WINDOW/FILL; "
-             f"ESP32, Nordic); `bg22` = {P.CLASSES['bg22']['seq_max']} B / "
-             f"{P.CLASSES['bg22']['max_steps']} steps, no WINDOW/FILL.", "",
+             f"({P.CLASSES['default']['max_steps']} steps, WINDOW/FILL; ESP32, Nordic); `bg22` = "
+             f"{P.CLASSES['bg22']['max_steps']} steps, no WINDOW/FILL. Sequences are streamed from the "
+             f"stored record, so neither class has a sequence-length cap; a sequence over "
+             f"{P.CLASSES['default']['seq_max']} B has register payloads packed into a LUT slot.", "",
              "| id | name | ctrl | legacy scheme | default | default modes | bytes | bg22 | bg22 modes | bytes | escapes | why / notes |",
              "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     counts: dict[str, dict[str, int]] = {c: {} for c in P.CLASSES}
@@ -513,7 +478,6 @@ def coverage_md(out: dict, drift: list[str], bg22_out: dict) -> str:
             cells += [v["status"], modes, str(v.get("drive_bytes", 0))]
         why = "; ".join(x for x in [_why(e, t["default"]) if t else "",
                                     ("bg22: " + _why(e, t["bg22"])) if t and t["bg22"]["status"] == "blocked" else "",
-                                    "bg22 single-init alternative" if e.get("alternatives") else "",
                                     f"alias of {e['alias_of']}" if e.get("alias_of") else ""] if x)
         lines.append(f"| {k} | {e['name']} | {e.get('controller', '-')} | {e['legacy']['color_scheme']} | "
                      + " | ".join(cells[:3]) + " | " + " | ".join(cells[3:]) +
@@ -524,13 +488,12 @@ def coverage_md(out: dict, drift: list[str], bg22_out: dict) -> str:
     lines += ["", "`+W`: the mode uses WINDOW/FILL (any partial rectangle). `(-x)`: 2.x flow x not shipped "
               "for that class (see `modes_blocked`).", "",
               "## Unavailable on BG22", "",
-              "| id | name | blocked on | full mode needs | single-init alternative (untested, non-equivalent) |",
-              "|---|---|---|---|---|"]
+              "| id | name | blocked on | full mode needs |",
+              "|---|---|---|---|"]
     for k, b in bg22_out.items():
         need = b["full_needs"]
         need_s = f"{need['seq_max']} B / {need['steps']} steps" if need else "-"
-        lines.append(f"| {k} | {b['name']} | {','.join(b['blocked_on'])} | {need_s} | "
-                     f"{'yes' if b['single_init_alternative'] else 'no'} |")
+        lines.append(f"| {k} | {b['name']} | {','.join(b['blocked_on'])} | {need_s} |")
     lines += ["", f"## bb_epaper drift {P.BBEP_REF_REV} vs vendored {P.BBEP_VENDORED_REV}", ""]
     lines += [f"- {x}" for x in drift] or ["- none"]
     return "\n".join(lines) + "\n"

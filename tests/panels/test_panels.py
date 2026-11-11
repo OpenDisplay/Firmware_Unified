@@ -55,7 +55,8 @@ def tok(t: list) -> tuple:
 
 
 def views(e: dict):
-    """(class, view) for every target class of an entry, plus its alternatives."""
+    """(class, view) for every target class of an entry, plus any alternatives (none are emitted
+    since schema_minor 2; the field stays in the schema)."""
     for cls, v in (e.get("targets") or {}).items():
         yield cls, v
     for a in e.get("alternatives") or []:
@@ -70,12 +71,14 @@ class Schema(unittest.TestCase):
     def test_top_level(self):
         self.assertEqual(PRESETS["schema"], "opendisplay.drive_presets")
         self.assertEqual(PRESETS["schema_version"], 1)
-        self.assertGreaterEqual(PRESETS["schema_minor"], 1)
-        self.assertEqual(CLASSES["bg22"]["seq_max"], 128)
-        self.assertEqual(CLASSES["bg22"]["max_steps"], 64)
+        self.assertGreaterEqual(PRESETS["schema_minor"], 2)
+        # od_epd streams sequences from storage: one step cap everywhere, BG22 only lacks WINDOW/FILL
+        self.assertEqual(CLASSES["bg22"]["seq_max"], 512)
+        self.assertEqual(CLASSES["bg22"]["max_steps"], 128)
         self.assertFalse(CLASSES["bg22"]["window"])
         self.assertEqual(CLASSES["default"]["seq_max"], 512)
-        self.assertEqual(CLASSES["default"]["max_steps"], 96)
+        self.assertEqual(CLASSES["default"]["max_steps"], 128)
+        self.assertTrue(CLASSES["default"]["window"])
         for k in ("bg22", "esp32", "nordic", "typical_base_config_bytes", "seq_max", "sleep_max", "lut_max"):
             self.assertIsInstance(PRESETS["caps"][k], int, k)
         self.assertEqual(PRESETS["caps"]["bg22"], 3120)
@@ -141,12 +144,8 @@ class Schema(unittest.TestCase):
                                  e["targets"]["bg22"]["packets"] == e["packets"] and e["status"] != "blocked")
                 bg = e["targets"]["bg22"]["status"] == "blocked"
                 self.assertEqual(key in PRESETS["bg22_unavailable"], bg)
-                for a in e.get("alternatives") or []:
-                    self.assertTrue(bg)
-                    self.assertEqual(a["status"], "alternative")
-                    self.assertEqual(a["verified"], "untested")
-                    self.assertFalse(a["equivalent"])
-                    self.assertEqual(a["target_class"], "bg22")
+                self.assertFalse(bg)
+                self.assertEqual(e.get("alternatives") or [], [])   # field kept, never emitted
 
     def test_glass_set(self):
         self.assertEqual({k for k, e in PRESETS["panels"].items()
@@ -296,14 +295,16 @@ class Equivalence(unittest.TestCase):
         rc, _ = P.replay(bytes.fromhex(e["framed_hex"]), str(m["index"]), "bg22", [e["width"], e["height"]])
         self.assertNotEqual(rc, 0)
 
-    def test_alternatives_walk_on_bg22(self):
-        for key, e in PRESETS["panels"].items():
-            for a in e.get("alternatives") or []:
-                blob = bytes.fromhex(a["framed_hex"])
-                for m in a["modes"]:
-                    with self.subTest(key=key, mode=m["name"]):
-                        rc, _ = P.replay(blob, str(m["index"]), "bg22", [e["width"], e["height"]])
-                        self.assertEqual(rc, 0)
+    def test_long_double_init_runs_on_bg22(self):
+        """Full flows longer than the old 128 B BG22 cap (the doubled bb_epaper init) now run there
+        unchanged: same full-mode packet as the default class, replayed by the BG22 build."""
+        e = PRESETS["panels"]["0x000C"]
+        self.assertEqual(e["targets"]["bg22"]["status"], "equivalent")
+        full = e["modes"][0]
+        self.assertEqual(full["name"], "full")
+        self.assertGreater(full["seq_bytes"], 128)
+        rc, _ = P.replay(bytes.fromhex(e["framed_hex"]), "0", "bg22", [e["width"], e["height"]])
+        self.assertEqual(rc, 0)
 
     def test_glass_entries_run(self):
         """The hand-written sequences must walk cleanly in od_epd, every pass."""

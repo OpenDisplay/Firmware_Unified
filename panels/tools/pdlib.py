@@ -23,9 +23,9 @@ BUILD = Path(os.environ.get("OD_PANELS_BUILD", str(REPO / "build" / "panels")))
 
 PKT_MODE, PKT_LUT, PKT_CAL, PKT_PANEL = 0xAE, 0xAF, 0xB0, 0xB1
 
-# od_epd executor bounds (shared/core/od_epd.h)
-SEQ_MAX = 128
-MAX_STEPS = 64
+# od_epd executor bounds (shared/core/od_epd.h). A sequence has no byte cap in the firmware: it
+# is streamed from the stored record, bounded by the record length and the step cap.
+MAX_STEPS = 128
 SLEEP_MAX = 16
 LUT_MAX = 535
 MAX_LUT_SLOTS = 8
@@ -35,12 +35,14 @@ MAX_LUT_SLOTS = 8
 # + 0x20 display 48 + 0x21 led 24 + 0x23 sensor 32 + 0x25 binary_inputs 32
 # + 0x27 security 66 + 0x2D findmy 130 (each body + 2-byte packet header)
 CAPS = {"bg22": 3120, "esp32": 4096, "nordic": 4096}
-# Interpreter limits per target class (shared/core/od_epd.h defaults; BG22 overrides them in
-# shared/profiles.cmake and builds without WINDOW/FILL). "config" is the config-size cap.
+# Per target class: "seq_max" is the generator's packing target (payloads above it move into a
+# LUT slot; the firmware itself has no sequence-length cap), "max_steps" is OD_EPD_MAX_SEQ_STEPS
+# (the same on every target), "window" says whether WINDOW/FILL are compiled in (BG22 builds
+# without them, shared/profiles.cmake) and "config" is the config-size cap.
 CLASSES = {
-    "default": {"seq_max": 512, "max_steps": 96, "window": True, "config": 4096,
+    "default": {"seq_max": 512, "max_steps": MAX_STEPS, "window": True, "config": 4096,
                 "targets": ["esp32", "nordic"]},
-    "bg22": {"seq_max": 128, "max_steps": 64, "window": False, "config": 3120, "targets": ["bg22"]},
+    "bg22": {"seq_max": 512, "max_steps": MAX_STEPS, "window": False, "config": 3120, "targets": ["bg22"]},
 }
 TYPICAL_BASE = 3 + 2 + 24 + 24 + 32 + 48 + 24 + 32 + 32 + 66 + 130
 
