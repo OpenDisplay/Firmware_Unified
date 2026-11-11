@@ -1,8 +1,16 @@
 # Factory reset, reset pin and reset screen — specification
 
-Status: **DRAFT revision 2, 2026-11-11, not implemented.** Values marked provisional need
+Status: **DRAFT revision 3, 2026-11-11, implemented on `v3/sec2` (host-tested, not
+hardware-verified).** Values marked provisional need
 adopting in the protocol repo. This is a companion to [SECURITY_V2.md](SECURITY_V2.md); the work
 breakdown is in [SECURITY_V2_IMPLEMENTATION_PLAN.md](SECURITY_V2_IMPLEMENTATION_PLAN.md).
+
+**Revision 3 changes:**
+- **five quick power-cycles are a second trigger** (§ 3.4), on every device, normative in
+  SECURITY_V2 § 7.10. Same erase as the pin; the pin stays. Physical access to the power supply
+  is therefore a factory reset: a DoS, never a data leak (SECURITY_V2 § 1.4 item 19);
+- the reset pin check also feeds the power-cycle count: a pin hold is an uncounted boot and
+  clears it.
 
 **Revision 2 changes:**
 - the reset pin is the one configured in 0x27, with a per-preset default. It is no longer the
@@ -13,13 +21,15 @@ breakdown is in [SECURITY_V2_IMPLEMENTATION_PLAN.md](SECURITY_V2_IMPLEMENTATION_
 - the reset screen is the RESET kind of the setup screen family, and its URL is `/s/?k=r`;
 - the reset pin is sticky on claimed devices (review A9);
 - the ESP32 WiFi NVS copy is erased (review A16);
-- the five-power-cycle alternative is an option only (SECURITY_V2 Appendix B.1).
+- the five-power-cycle alternative is an option only (SECURITY_V2 Appendix B.1; adopted in
+  revision 3).
 
 ## 1. What a factory reset is
 
 A factory reset is the **physical** recovery path for a device whose key is lost or that changes
 owner:
-1. the user holds the configured reset pin (a button) while the device boots;
+1. the user holds the configured reset pin (a button) while the device boots, **or switches the
+   power off and on five times, each on-period 2-10 s** (§ 3.4);
 2. the device draws the RESET screen with a setup QR;
 3. it scrubs the secrets, then erases its key, stored images, bonds and configuration
    (maintainer decision);
@@ -98,9 +108,10 @@ Every boot, on every target, in this order:
    power.
 2. Load the config (the reset pin is in it).
 3. **Reset-pin check** (this section). It runs before the boot screen, BLE advertising and the
-   display init, so that a stuck panel cannot prevent a factory reset.
-4. Resume an interrupted factory reset if a valid reset marker exists (§ 5.3). This runs even when
-   there is no config.
+   display init, so that a stuck panel cannot prevent a factory reset. Then the power-cycle
+   pattern (§ 3.4) is read from the boot history.
+4. Resume an interrupted factory reset if a valid reset marker exists (§ 5.3); otherwise start one
+   if the pin committed or the pattern completed. This runs even when there is no config.
 5. The SEC2 boot decision (SECURITY_V2 § 10.1), then claim-mode entry (SECURITY_V2 § 7.1).
 6. Only then start the radio and the display.
 
@@ -118,8 +129,9 @@ wake** the check costs one GPIO read (the pin is not asserted) and the boot cont
 delay. The pin is **not** sampled at runtime: a long press while running is an ordinary button
 event (0xB2 BUTTON_LONG actions).
 
-A reset-pin hold is not a power-cycle and does not count towards the claim gesture (SECURITY_V2
-§ 7.2). The software reset that ends the factory reset is not counted either.
+A reset-pin hold is not a power-cycle and does not count towards the claim gesture or the
+five-cycle pattern (SECURITY_V2 § 7.2). The software reset that ends the factory reset is not
+counted either.
 
 ### 3.2 Hold, debounce, release
 
@@ -157,6 +169,18 @@ After the reset there is no config, so the fresh claim mode that follows knows n
 (SECURITY_V2 § 7.7). A device with neither a LED nor a buzzer relies on the RESET screen. With no
 panel either, the reset is silent. Its only signs are the reboot, the changed advertisement (MSD
 bit 3 cleared, bit 2 set for claim mode) and READ_IDENT CLAIM_MODE.
+
+### 3.4 Five quick power-cycles
+
+The second trigger, normative in SECURITY_V2 § 7.10: a counted (power-on) boot whose boot history
+holds `short_boots ≥ 4`, i.e. four consecutive previous power-ons that each lived 2-10 s. It needs
+no pin and no config, so it is the reset for button-less boards and for LOCKED devices. It runs
+the same procedure (§ 5) and ends in the same fresh claim mode. A build disables it with
+`OD_FR_PATTERN_SHORT_BOOTS 0` (board profiles for energy-harvesting supplies SHOULD).
+
+Feedback: k + 1 short LED blinks at 2 s of each counted boot; no e-paper refresh during the
+pattern (the boot screen and the SETUP screen wait until 10 s); the RESET screen once, before the
+erase. False-trigger analysis and mitigations: SECURITY_V2 § 7.10.
 
 ## 4. The RESET screen
 
@@ -339,11 +363,12 @@ There is no physical factory reset through firmware. For a lost key, the recover
 - or, where the board data names a free **pad or jumper**, a preset default that uses it as the
   reset pin (§ 2.1).
 
-A firmware-level alternative for button-less boards, "power-cycle the device five times", was
-analysed as an option and **not adopted** (SECURITY_V2 Appendix B.1). A false trigger would erase
-the key, WiFi and FindMy settings and leave the device fresh and claimable by anyone nearby. Flaky
-supplies (supercap and solar boards, sagging batteries, nRF52's indistinguishable brown-outs)
-produce exactly the triggering pattern.
+Since revision 3 the firmware-level path is **five quick power-cycles** (§ 3.4, SECURITY_V2
+§ 7.10), adopted by maintainer decision. Its cost is stated there: a false trigger erases the
+key, WiFi and FindMy settings and leaves the device fresh and claimable by anyone nearby, and
+flaky supplies (supercap and solar boards, sagging batteries, nRF52's indistinguishable
+brown-outs) can produce the pattern. Boards with such supplies should build with
+`OD_FR_PATTERN_SHORT_BOOTS 0` and keep a pad or jumper reset pin.
 
 ## 8. Per-target notes
 

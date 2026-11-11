@@ -16,6 +16,42 @@ The words MUST, MUST NOT, SHOULD and MAY are used in the RFC 2119 sense.
 
 ## Changelog
 
+### Revision 3 (2026-11-11)
+
+Inputs: the maintainer's decision to adopt the five-power-cycle factory reset, the firmware
+implementation (`v3/sec2`), and py-opendisplay's independent implementation and its twelve
+reported ambiguities (each decided below, § 3.3, § 6, § 9.5, § 10.4).
+
+| What changed | Why |
+|---|---|
+| **Factory reset by five quick power-cycles** is normative (§ 7.10), on every device: unclaimed, claimed and LOCKED. It runs the same erase as the reset pin, which stays. Appendix B.1 is reduced to its history | maintainer decision |
+| The power-cycle count is one counter for both patterns. Claim mode no longer consumes it, so the reset passes through claim mode; claimed and LOCKED devices now maintain it (writes on their counted boots, § 7.2 wear) | needed by § 7.10; replaces "claimed devices write nothing" |
+| What an attacker can do: physical access to the power supply is a factory reset, a DoS, never a data leak (§ 1.4 item 19, § 1.5) | follows from § 7.10 |
+| After the claim, still in claim mode, the claiming session may write the config (0x0041/0x0042/0x0045), secrets included, whatever the session kind and `config_locked`. The § 6 CM column said FD; § 7.3 and § 13.1 step 9 said allow. Allow wins (§ 6 C/s note) | interop finding (py-opendisplay cross-harness) |
+| Three receive details are pinned: a sealed-looking frame of a plaintext-set opcode is parsed as plaintext (§ 6 rule 1 no longer says FE); the third bad tag gets its sealed F3, then the teardown; a crypto-engine fault on open answers sealed `[FF][cmd][00]`, counts no strike and commits no counter (§ 9.5) | the specs disagreed or were silent |
+| SEC_CLAIM BEGIN and SEC_AUTH HELLO answer **BUSY (0x0C)** at once while a display pass runs or is queued; the device's own blocking does not count against a peer's handshake timers (§ 17) | bounded handshake latency |
+| A config write that does not walk exactly to its CRC (a dangling byte, an unknown legacy id that abandons the walk) is refused 0x00; on an unclaimed device a written 0x27 `reserved[0]` is stored as 0 (§ 10.2, § 10.4) | an open writer must not plant claim evidence (§ 10.1 row 3) |
+| D->H fragment split: the LAST fragment always carries 1..`frag_max − 4` bytes (never an empty LAST after an exact multiple); `frag_max` counts the whole frame including its 4 header bytes (§ 3.3) | py-opendisplay ambiguities 1 and 3 |
+
+**The twelve py-opendisplay ambiguities, decided** (numbering as reported by py-opendisplay):
+
+| # | Question | Decision |
+|---|---|---|
+| 1 | LAST fragment after an exact multiple | LAST carries 1..`frag_max − 4` bytes, never empty (§ 3.3) |
+| 2 | H->D split | the device accepts any split within § 3.3 |
+| 3 | does `frag_max` include the header | yes, the whole frame (§ 3.3) |
+| 4 | config write after the claim, still in claim mode | allowed (§ 6); the firmware was wrong and is fixed |
+| 5 | SEC_KEY after the claim, still in claim mode | FD until the reboot (§ 6) |
+| 6 | the third bad tag | sealed F3, then the teardown (§ 9.5 rule 5) |
+| 7 | a sealed frame of a plaintext-set opcode | parsed as plaintext, never FE (§ 6 rule 1) |
+| 8 | LEGACY_SECRETS write with fewer secrets than stored | accepted, per-instance identity (§ 10.4) |
+| 9, 11 | (no spec question; client-internal) | no change |
+| 10 | client strictness on unexpected replies | strict is conforming |
+| 12 | 0x27 key field mismatch | the device answers 0x11; a client MAY raise before sending |
+
+The read view (§ 10.2) carries the stored CRC unchanged; no CRC is computed over the read image.
+py-opendisplay's vector V11 recomputes it and must change.
+
 ### Revision 2 (2026-11-11)
 
 Inputs: the independent review (`review_security_v2.md`), the maintainer's answers to Q5-Q13,
@@ -237,6 +273,14 @@ does. § 1.5 says the same in plain language.
     nRF52 device (where brown-out and power-on cannot be told apart, § 7.2) can put an
     *unclaimed* device into claim mode remotely and claim it. Such a device was open, and so
     reflashable, anyway.
+19. **Physical access to the power supply is a factory reset** (§ 7.10). Whoever can switch a
+    display's power five times in a row, or a supply that fails in exactly that rhythm, erases
+    its key, WiFi password, FindMy keys, images and config, and leaves it FRESH and claimable by
+    the first claimer nearby. This is a **denial of service, never a data leak**: the secrets are
+    scrubbed first (FACTORY_RESET.md R1b), and nothing is read out. The owner notices (the RESET
+    screen, a device that no longer answers to its key) and re-claims. An attacker who can only
+    reach the radio cannot trigger it, except on nRF52 by inducing the brown-outs of item 18,
+    five times with the right timing.
 
 ### 1.5 In plain words: what this does not protect
 
@@ -267,7 +311,10 @@ For release notes, the website and the HA documentation. Keep the wording simple
   exactly while you set up a brand-new display, can defeat the code check. For the strongest
   setup, configure the display first, then switch it off and on twice and claim it (§ 15 P4).
 - **Physical access wins.** Someone holding the display can reset it, re-flash it or read its
-  memory.
+  memory. **Switching the power off and on five times in a row resets the display to factory
+  state** (§ 7.10). Anyone who can reach the power switch, the battery or the USB plug can do
+  that: your settings and keys are erased (not revealed), and the display must be set up again.
+  A badly failing power supply can do it too.
 - **Bluetooth is visible.** People nearby can see that a display exists, roughly what it does
   and when, and when it is in claim mode. They cannot read protected content.
 
@@ -483,10 +530,14 @@ Rules (normative, A18.4):
   it. The client may use any chunk size up to its usable write size: 20 bytes at MTU 23, up to
   249 at the protocol's 253-byte frame ceiling. Each fragment is one write-with-response.
 - **D->H split: deterministic.** Every non-LAST fragment carries exactly `frag_max − 4` bytes,
-  and the LAST fragment carries the rest. A message with an empty body (ABORT reply, EXIT reply)
-  is one LAST fragment with no chunk. Vectors depend on this.
-- `frag_max` is declared by the client in byte 1 of BEGIN or HELLO, in the range 20..244. Clients
-  that do not know their MTU MUST send 20.
+  and the LAST fragment carries the rest, which is **1 .. `frag_max − 4` bytes**: a body that is
+  an exact multiple ends with a full LAST fragment, never an empty one. A message with an empty
+  body (ABORT reply, EXIT reply) is one LAST fragment with no chunk. Vectors depend on this, and
+  a client MAY reject any other split.
+- `frag_max` is declared by the client in byte 1 of BEGIN or HELLO, in the range 20..244. It is
+  the size of the **whole** fragment frame, the 4 header bytes included. Clients that do not know
+  their MTU MUST send 20. A client sends its own fragments with the same deterministic split; the
+  device accepts any split within the rules above.
 - **Validation point.** The device checks index order and the running length at every fragment:
   - an out-of-order index, a body that would exceed the fixed length, or a `sub` that differs
     from fragment 0's is MALFORMED at that fragment;
@@ -707,7 +758,9 @@ Columns:
 - **L**: LOCKED.
 
 After a successful claim the device is C/s while still in claim mode until the reboot. In that
-state the CM refusals still apply, and come back sealed.
+state the CM refusals still apply, and come back sealed, **except the config writes 0x0041,
+0x0042 and 0x0045: the claiming session may write the config, secrets included, whatever the
+session kind and `config_locked`** (§ 7.3, § 13.1 step 9). SEC_KEY stays FD until the reboot.
 
 Values:
 - "open" = plaintext, executed as today;
@@ -755,8 +808,10 @@ Rules:
 
 1. The **plaintext set** on a claimed device is exactly {0x0043, 0x0044, 0x0046, the 0x0050
    refusal, 0x0054, 0x0055 (refusal or EXIT), 0x0056}. These are always sent and answered in
-   plaintext, even inside a session. A client MUST NOT seal them, and the device MUST answer FE
-   to a sealed one; otherwise it would be a second encoding of the same command.
+   plaintext, even inside a session. A client MUST NOT seal them. The device parses a frame for
+   one of these opcodes as plaintext whatever it looks like (§ 9.5 rule 1): a sealed-looking
+   one is malformed plaintext and gets that opcode's own malformed answer, never FE and never an
+   open. So there is no second encoding of the same command.
 2. A device MUST NOT execute any part of a gated handler before the frame's tag has verified.
    That includes partial parsing with side effects, such as arming a flash PRELOAD.
 3. A claimed device answers FE, never a NACK or silence, to a plaintext gated command, so that a
@@ -853,23 +908,28 @@ flagged.
 ```
 constants  T_ARM = 2 000 ms uptime, T_CLEAR = 10 000 ms uptime
 
-at boot, state UNCLAIMED, not entering CONTINUE or FRESH:
+k = OS2S.short_boots: the consecutive previous counted boots that lived 2-10 s
+
+at boot, every state (UNCLAIMED, CLAIMED, LOCKED):
    if cause is counted:
-       if OS2S.short_boots >= 1:            # the previous counted boot lived 2-10 s
-           write short_boots = 0            # consume the gesture
-           enter claim mode, kind GESTURE
-       else:
-           at uptime T_ARM:   write short_boots = 1
-           at uptime T_CLEAR: write short_boots = 0
+       if k >= 4:                            # five quick power-cycles (§ 7.10)
+           factory reset
+       if k >= 1 and UNCLAIMED and not CONTINUE / FRESH:
+           enter claim mode, kind GESTURE    # the count is NOT consumed
+       at uptime T_ARM:   write short_boots = k + 1
+       at uptime T_CLEAR: write short_boots = 0
    else:
-       if OS2S.short_boots != 0: write short_boots = 0   # any other reset breaks the sequence
+       if k != 0: write short_boots = 0      # any other reset breaks the sequence
 
-before deep sleep / System OFF / EM4 / power-off / planned reboot, while short_boots = 1:
-   write short_boots = 0 first                           # the on-period ends here
-
-state CLAIMED or LOCKED: the counter is not maintained (no writes at all);
-   a non-zero value left from before the claim is cleared once
+before deep sleep / System OFF / EM4 / power-off / planned reboot, while armed:
+   write short_boots = 0 first               # the on-period ends here
 ```
+
+The gesture is unchanged for the user (k ≥ 1: two quick power-cycles). Not consuming it is what
+lets the five-cycle reset pass through claim mode; a claim-mode boot with k ≥ 2 is therefore a
+pattern in progress and draws its SETUP screen only after T_CLEAR (§ 7.10). The thresholds and
+windows are compile-time constants (`OD_CM_T_ARM_MS`, `OD_CM_T_CLEAR_MS`,
+`OD_CM_GESTURE_SHORT_BOOTS`, `OD_FR_PATTERN_SHORT_BOOTS` in `shared/core/od_claim_mode.h`).
 
 - A POR boot of an unclaimed device stays awake at least until T_ARM. Today's boot (boot screen,
   advertising) already does.
@@ -887,9 +947,12 @@ trigger happens anyway:
   redraws the normal boot screen as any reboot does today. No data changes.
 - on a **claimed or LOCKED** device: nothing happens.
 
-The worst case is therefore 10 minutes of no uploads and one lost picture on an open device.
+The worst case of the two-cycle pattern is therefore 10 minutes of no uploads and one lost
+picture on an open device. The five-cycle pattern's false trigger is far worse (§ 7.10).
 
-**Wear** (writes happen only on counted boots of unclaimed devices; claimed devices write nothing):
+**Wear** (every counted boot, on every device, since § 7.10; a boot that lives past T_CLEAR
+writes twice, one cut between T_ARM and T_CLEAR once, one cut before T_ARM not at all; uncounted
+boots write only to clear a non-zero count):
 
 | Target | Store | Cost per counted boot | Note |
 |---|---|---|---|
@@ -989,8 +1052,9 @@ flagged device are readable in normal mode anyway. Claim mode adds no exposure.
 
 ### 7.6 The gesture on a claimed or LOCKED device: ignored
 
-Decision: **ignored**. The counter is not maintained, nothing is drawn, nothing is written, and
-the LED does nothing.
+Decision: **ignored** for claiming. Nothing is drawn and the LED does nothing. The counter is
+maintained (two small writes per counted boot), because the same count is the five-cycle factory
+reset (§ 7.10), which works on claimed and LOCKED devices.
 
 - A claimed device must not open claiming. That is the point of the claim.
 - An info screen ("this display is claimed") would let flaky power wipe the owner's picture on
@@ -999,8 +1063,8 @@ the LED does nothing.
 - The ways to change ownership are SEC_KEY UNCLAIM (owner, remote; then the gesture on the now
   unclaimed device) and the factory reset (no key).
 - Clients explain this when a claimed device is selected: *"This display is claimed. Switching
-  it off and on does nothing. To hand it over, release it from the app that owns it, or
-  factory-reset it."*
+  it off and on twice does nothing. To hand it over, release it from the app that owns it, or
+  factory-reset it (switch it off and on five times, waiting about 5 seconds each time)."*
 
 ### 7.7 Signalling
 
@@ -1129,6 +1193,50 @@ Estimates, **not measured** (§ 19 H12):
 A false trigger costs one such session. Claim mode never starts WiFi.
 
 ---
+
+### 7.10 Factory reset by five quick power-cycles (normative since revision 3)
+
+**Trigger.** A counted boot (§ 7.2) with `short_boots ≥ 4`: the fifth power-on after four
+on-periods of 2-10 s each, with no other reset in between. It runs at boot step 3 of
+FACTORY_RESET.md § 3.1, before the boot decision, on **every** device: unclaimed, claimed and
+LOCKED. LOCKED is the case it exists for on boards without a reset pin. The reset pin (0x27)
+stays; both triggers run the **same** erase (FACTORY_RESET.md § 5, R1-R8), ending in FRESH claim
+mode.
+
+**Interaction with claim mode.** The gesture's count is not consumed (§ 7.2), so cycles 2-4 of
+the pattern may boot an unclaimed device into claim mode; they still count. A claim-mode boot
+with k ≥ 2 defers its SETUP screen until T_CLEAR, and every counted boot with k ≥ 1 defers the
+normal boot-screen refresh until T_CLEAR (`od_claim_mode_defer_boot_screen()`), so the pattern
+costs no e-paper refresh per quick boot. The feedback while counting is the first LED: k + 1
+short blinks at T_ARM (`OD_CLAIM_SIG_PATTERN_COUNT`); the RESET screen is drawn once, before the
+erase (R3).
+
+**Instruction** (every client and the website): *"Switch the display off and on five times. Each
+time, wait about 5 seconds before switching it off, and keep it off for at least 2 seconds. It
+then shows FACTORY RESET and starts fresh."*
+
+**False triggers from flaky power (honest analysis).** A false trigger needs five power-ons in
+a row whose first four on-periods each last 2-10 s, with no brown-out, watchdog, software or
+wake reset in between, and no on-period longer than 10 s.
+- A supply that bounces in under 2 s never arms the count and costs no writes.
+- A supply that browns out without losing power entirely is a BROWNOUT reset on esp32-idf and
+  efr32bg22-slc, which clears the count.
+- **The residual risk is a supply that collapses below power-on reset and recovers, in a 2-10 s
+  rhythm, five times**: a supercapacitor or solar board at its threshold that starts a refresh
+  and dies, a battery that sags below POR under the refresh current, a hub that power-cycles a
+  port. On nRF52 every brown-out also looks like a power-on (§ 7.2), so a brown-out loop counts
+  there. Such a device is erased and left FRESH: a DoS and, until its owner re-claims it, a
+  device anyone nearby can claim (first-claimer-wins, § 8.5). Its secrets are scrubbed before
+  the key is erased, so nothing leaks.
+- **Chosen mitigation:** the 2-10 s window, consecutive counted boots only, every uncounted reset
+  and every long boot clearing the count, and a per-build switch: `OD_FR_PATTERN_SHORT_BOOTS 0`
+  disables the pattern for a board profile (energy-harvesting boards SHOULD set it and rely on a
+  reset pin). Not adopted, as the maintainer asked for five cycles: a longer pattern, a battery
+  voltage gate, a confirmation power-on. See § 19 for the nRF52 brown-out canary that would
+  narrow the nRF52 case.
+
+**Wear.** At most two 16-byte OS2S writes per counted boot on every device (§ 7.2 table). A
+display that is switched on twice a day writes about 1 500 small records a year.
 
 ## 8. Claim protocol — `CMD_SEC_CLAIM` 0x0055
 
@@ -1519,8 +1627,12 @@ device never seals different content under a counter it has used. Clients tolera
    and does not count as a strike, per the lossy-link rule of `od_session.h`. The backward window
    exists because write-without-response frames can arrive out of order across retries.
 5. CCM decrypt-and-verify. On failure: the sealed NACK `[FF][cmd_lo][0xF3]` (INTEGRITY), and
-   strike + 1. At 3 strikes the session is torn down (§ 9.6). The plaintext of a failed frame is
-   never read.
+   strike + 1. At 3 strikes the session is torn down (§ 9.6): **the third failure's F3 is still
+   sealed and sent under the session, and the teardown follows it**; the next frame gets FE. The
+   plaintext of a failed frame is never read.
+5b. **A crypto-engine fault** (the HAL returns an error that is not a tag mismatch, or the
+   plaintext does not fit): the sealed `[FF][cmd_lo][0x00]`. It counts no strike, and the counter
+   is not committed, so the client may retry the identical frame. A no-ack frame stays silent.
 6. Only after the tag has verified: commit the counter to the window, then dispatch (and apply
    the claim-mode refusals, § 6).
 
@@ -1680,7 +1792,7 @@ Notes:
 | Device | `encryption_enabled` | `encryption_key` | `reserved[0]` | other fields |
 |---|---|---|---|---|
 | CLAIMED | 1 | **K_v1**: = K_dev while the origin is LEGACY and the key was never rotated; otherwise `KDF(K_dev, "OD2/v1-compat", uid)` | **0x02** (`OD_SEC27_AT_REST_SEC2`, provisional) | `session_timeout_seconds`, `flags`, `reset_pin` as stored (§ 10.6) |
-| UNCLAIMED | 0 | 16 x 0x00 | 0x00 | as written |
+| UNCLAIMED | 0 | 16 x 0x00 | 0x00 (a written non-zero value is stored as 0x00) | as written |
 
 Why, review A5: if 2.x firmware boots on this config (an owner rollback, or an attacker on the
 DFU path), it sees encryption on with K_v1 and fails closed. It does not hand out the WiFi password
@@ -1767,8 +1879,10 @@ gated anyway: an open device must not be turnable by anyone in range into a beac
 **One walk (A13).** The scan is a callback inside the **same TLV walk the loader uses to store
 and apply the config**, over the same assembled blob. It is not a second parser. If the walk does
 not end exactly at the end of the blob (a truncated packet, or a length that runs past the end),
-the write is refused with `OD_ERR_CONFIG_WRITE_FAILED` (0x00) on every device. A packet type the
-loader skips by its length is skipped identically by the scan. The host wire corpus must contain
+the write is refused with `OD_ERR_CONFIG_WRITE_FAILED` (0x00) on every device. That includes a
+dangling byte between the last packet and the CRC, and an unknown legacy id, which abandons the
+rest of the walk. A packet type the loader skips by its length is skipped identically by the
+scan. The host wire corpus must contain
 only clean blobs, which is checked when WP4 lands.
 
 **What the device answers.** The whole write is refused with `[FF][41][10][00]` (single frame),
@@ -1783,7 +1897,8 @@ telling the user why.
 
 **Exception for flagged 2.x devices.** On an unclaimed device with LEGACY_SECRETS (§ 10.5), a write
 whose secret fields are **byte-identical** to the stored ones is accepted, because it adds no
-secret. This is what lets a client read the config, add drive packets and write it back without
+secret. Per packet instance: every 0x26 / 0x2D instance in the write that carries a secret must
+equal (in its secret fields) one stored instance; a write with fewer of them is accepted. This is what lets a client read the config, add drive packets and write it back without
 the gesture. Different or additional secret bytes still get 0x10. A write without the secrets
 removes them, and the LEGACY_SECRETS flag is cleared at the next boot (§ 10.1 row 8).
 
@@ -2090,7 +2205,7 @@ Clients treat `SEC_V2 = 0` on firmware ≥ 3 as "this display cannot be claimed 
 | Re-claim | UNCLAIM + gesture, or factory reset (§ 13.5) |
 | Lost key | factory reset → FRESH claim mode |
 | Corrupt key record | LOCKED; gesture ignored; factory reset |
-| Factory reset on boards without a reset pin, by a gesture family (e.g. five power-cycles) | **option only, not adopted** (Appendix B.1) |
+| Factory reset by five quick power-cycles | **normative since revision 3** (§ 7.10), on every device; the reset pin stays |
 | Factory reset's end | FRESH claim mode. Its RESET screen doubles as the SETUP screen (§ 7.8) |
 | DFU | as today on claimed and open devices; refused in claim mode |
 | Old clients | § 13.6 |
@@ -2163,6 +2278,9 @@ or drop it without touching the protocol.
 | bad tags per session | 3 → teardown |
 | counters | 1 .. 0xFFFFFFFE per direction; then teardown and a new HELLO |
 | END reply flush before the reboot | ≤ 500 ms |
+| factory-reset pattern | the fifth counted power-on after four on-periods of 2 000-9 999 ms (§ 7.10) |
+| BEGIN / HELLO during a display pass | answered at once with BUSY (0x0C); nothing pending changes, no rate-limit event. The client retries after the pass (a few seconds) |
+| the device's own blocking (a refresh, a flash write) | a loop stall over 2 000 ms moves the pending handshake step's and the reassembly's clocks forward by the stall, so it never expires a peer's step |
 
 The rate limiter is per device, not per peer, since there is one connection. It is a DoS lever
 (§ 1.4 item 8).
@@ -2232,7 +2350,7 @@ the wire format is frozen. **H** items need hardware and are open rows in
 | H5 | ESP32 RNG quality during a claim (BT on) per board | open |
 | H6 | ATT MTU through ESPHome proxies (≥ 185?) | open (R9) |
 | H7 | BG22 effective connection count (`sl_bluetooth_config.h` (0) vs `sl_bluetooth_connection_config.h` (4)) | open; WP7 sets 1 |
-| H8 | Reset causes per board: unplug/replug, battery pull and latch button give POR (not brown-out); nRF54 POR/BOR reporting; RESETREAS clearing | **open, needed before the gesture ships** |
+| H8 | Reset causes per board: unplug/replug, battery pull and latch button give POR (not brown-out); nRF54 POR/BOR reporting; RESETREAS clearing | **open, needed before the gesture and the five-cycle reset (§ 7.10) ship** |
 | H9 | Gesture usability: the 2-10 s window on real boards with large supply capacitors | open |
 | H10 | Setup QR scanned from a 1.54in panel at 4 px/module, and from a 2.9in at 2 px/module | open |
 | H11 | nRF52840 / nRF54 `hwinfo_get_device_id` bytes vs FICR, recorded per board | **open, blocks vectors** |
@@ -2284,45 +2402,14 @@ reason given. "Disagree" means not applied, with reasons.
 
 ## Appendix B. Options considered and not adopted
 
-### B.1 Factory reset by a gesture family (e.g. five quick power-cycles) on boards without a reset pin
+### B.1 Factory reset by a gesture family (five quick power-cycles)
 
-The maintainer asked for this as an option with a risk analysis only. **It is not adopted.**
-
-**Mechanism.** The same OS2S counter as § 7.2. N = 4 consecutive short on-periods (the fifth
-power-on) would trigger the factory reset of FACTORY_RESET.md.
-
-**Risks:**
-1. **The false positive is catastrophic.** The key, the WiFi and FindMy settings (including a
-   FindMy registration that may be impossible to redo) and the images are erased. The device then
-   returns *fresh*, in claim mode, so **a power glitch would hand the device to anyone nearby**
-   (first-claimer-wins). For the claim gesture a false positive costs 10 minutes; here it costs
-   the device.
-2. **Flaky power produces exactly this pattern.**
-   - A supercapacitor or solar board near its threshold boots, starts a refresh, collapses and
-     reboots every few seconds.
-   - So does a weak battery whose voltage sags under the refresh current, or a USB hub that
-     power-cycles a port it considers faulty.
-   - On nRF52, brown-out and power-on look the same (§ 7.2), so such loops count, and five in a
-     minute would wipe the device. Excluding brown-out is impossible there.
-3. **Wear and cost on claimed devices.** The claim gesture writes nothing on claimed devices. A
-   reset gesture must count on claimed devices too: about 2 writes per counted boot on every
-   device in the fleet.
-4. **It is remote-inducible where brown-outs are.** It needs a load the attacker can force. On a
-   claimed device the attacker cannot force refreshes without a session, but the device's own
-   scheduled refreshes can loop on their own.
-
-**If it is ever reconsidered, the minimum mitigations:**
-- never on targets that cannot separate brown-out (so not on nRF52);
-- a longer pattern (≥ 7);
-- skipped when the measured battery voltage is low;
-- a final confirmation step: after the pattern the device draws "RESET? Switch off and on once
-  more", and a sixth power-on within 30 s, with a stable on-period of ≥ 30 s before the erase,
-  confirms it;
-- the RESET screen is drawn before anything is erased (as FACTORY_RESET.md already requires).
-
-**Recommended instead for button-less boards:**
-- presets may define a solder pad or jumper as the reset pin (FACTORY_RESET.md § 2.1);
-- otherwise, a full USB/SWD erase.
+Analysed in revision 2 as an option and not adopted. **Adopted in revision 3 by maintainer
+decision** and now normative in § 7.10, which carries the risk analysis and the chosen
+mitigations. Of revision 2's minimum mitigations, the 2-10 s window and "every other reset breaks
+the pattern" are adopted; "not on nRF52", a pattern of ≥ 7, a battery-voltage gate and a
+confirmation power-on are not (the per-build switch `OD_FR_PATTERN_SHORT_BOOTS 0` remains for
+boards that need it).
 
 ### B.2 Button press to accept a claim
 
