@@ -20,6 +20,7 @@
  * 2. A line-based console on the USB CDC port, which the release image never reads:
  *      od stat     uptime, image confirmed?, heap + thread stack headroom
  *      od confirm  boot_write_img_confirmed()
+ *      od blind    ignore GATT evidence in od_img_confirm_app (dead-GATT simulation)
  *      od reboot   software reset (SREQ)
  *      od dfu      GPREGRET1 = 0x4E + reset: Adafruit SERIAL DFU (BLE-independent recovery;
  *                  the Adafruit bootloader then writes at 0x1000, i.e. over MCUboot -- recover
@@ -174,6 +175,9 @@ static void run_line(const char *l)
 		print_stats();
 	} else if (strcmp(l, "confirm") == 0) {
 		do_confirm("console");
+	} else if (strcmp(l, "blind") == 0) {
+		extern void od_img_confirm_app_bench_blind(void);
+		od_img_confirm_app_bench_blind();
 	} else if (strcmp(l, "reboot") == 0) {
 		od_log_warn("[BENCH] software reset");
 		k_sleep(K_MSEC(300));

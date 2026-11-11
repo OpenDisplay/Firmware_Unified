@@ -80,14 +80,32 @@ void od_img_confirm_app_link_closed(void)
 	atomic_or(&s_ev, EV_CLOSE);
 }
 
+#if defined(OD_TEST_BENCH) && OD_TEST_BENCH
+/* Bench only ('od blind'): drop the ATT/served evidence, so ordinary links look like the BG22
+ * stranding and the REVERT arm can be exercised on hardware. */
+static volatile bool s_bench_blind;
+void od_img_confirm_app_bench_blind(void)
+{
+	s_bench_blind = true;
+	od_log_warn("[BENCH] image-confirm evidence ignored from now on (dead-GATT simulation)");
+}
+#define BENCH_BLIND() (s_bench_blind)
+#else
+#define BENCH_BLIND() (false)
+#endif
+
 void od_img_confirm_app_att_seen(void)
 {
-	atomic_or(&s_ev, EV_ATT);
+	if (!BENCH_BLIND()) {
+		atomic_or(&s_ev, EV_ATT);
+	}
 }
 
 void od_img_confirm_app_served(void)
 {
-	atomic_or(&s_ev, EV_ATT | EV_SERVED);
+	if (!BENCH_BLIND()) {
+		atomic_or(&s_ev, EV_ATT | EV_SERVED);
+	}
 }
 
 static void act(enum od_img_confirm_action a)
