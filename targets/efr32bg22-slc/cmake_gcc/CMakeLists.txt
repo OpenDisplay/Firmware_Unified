@@ -15,7 +15,7 @@ option(OD_TNB132M_WRITE_NDEF "With BOOT_PROBE: before the read, write OD_TNB132M
 set(OD_TNB132M_NDEF_TEXT "OpenDisplay" CACHE STRING "UTF-8 text (lang=en) written when OD_TNB132M_WRITE_NDEF=ON; max 25 chars")
 
 # Target printf diagnostics, see od_diag.h: 2 every line, 1 boot banner + fatals only, 0 none.
-set(OD_BG22_DIAG "2" CACHE STRING "BG22 printf diagnostics level (0 none, 1 fatal+banner, 2 all)")
+set(OD_BG22_DIAG "1" CACHE STRING "BG22 printf diagnostics level (0 none, 1 fatal+banner, 2 all)")
 set_property(CACHE OD_BG22_DIAG PROPERTY STRINGS 0 1 2)
 if(NOT OD_BG22_DIAG MATCHES "^[012]$")
   message(FATAL_ERROR "OD_BG22_DIAG must be 0, 1 or 2 (got '${OD_BG22_DIAG}')")
