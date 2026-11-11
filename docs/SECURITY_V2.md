@@ -1,6 +1,6 @@
 # OpenDisplay Secure Session v2 ("SEC2") — normative specification
 
-Status: **DRAFT revision 4 for maintainer and expert review, 2026-11-11.** Implemented on
+Status: **DRAFT revision 5 for maintainer and expert review, 2026-11-11.** Implemented on
 `v3/head` for all three targets and host-tested. Parts were run on two devices (one ESP32-S3
 reTerminal Sticky, one EFR32BG22 M3 Pro); § 19.1 says exactly which, and lists what has never run
 on hardware. Nordic has not run on hardware at all. Every opcode, status byte, error code, flag
@@ -17,6 +17,22 @@ The words MUST, MUST NOT, SHOULD and MAY are used in the RFC 2119 sense.
 ---
 
 ## Changelog
+
+### Revision 5 (2026-11-11)
+
+Inputs: the advertising investigation (`advert_claim_mode`), the accepted setup-flow proposals
+P1, P2, P6 and P7, and eight maintainer decisions of 2026-11-11 (A-G below). Implemented on
+`v3/round5` and host-tested; nothing of revision 5 has run on hardware.
+
+| What changed | Why |
+|---|---|
+| **A. MSD status bits stay the claim-mode signal**, renamed: bit 2 `CLAIM_MODE`, bit 3 `SESSION_REQUIRED`. "Waiting to be claimed" = bit 2 set and bit 3 clear; confirmed with a plaintext READ_IDENT / SEC_STATUS. `dynamic[11]` is **not** a claim sentinel. All three targets now take both bits, and the unconfigured rule, from one shared function (§ 5.3); BG22 never set bit 3 before | maintainer decision A; BG22 defect |
+| **B. "Unconfigured" = `dynamic[11]` all 0xFF** (protocol 2.2) on every target, from shared code, with "no display configured" defined for 3.0 as **no drivable display** (§ 5.3.2). It combines with claim mode on a virgin device | maintainer decision B; only ESP32 did it |
+| **C. Zephyr targets advertise the name in the advertising PDU** (flags 3 + MSD 18 + name 10 = 31 B); the scan response keeps the 16-bit service UUID and Channel Sounding's Ranging UUID (§ 5.3.3). The § 5.3 PDU facts are corrected per target | maintainer decision C; HA name-based discovery and passive scanners |
+| **D. Claim-mode advertising boost** implemented: the shared 20-30 ms boost window, re-armed for the first 60 s of every claim-mode ENTER, never while connected; at most 4 × 60 s per claim-mode session (§ 7.3, § 7.9) | maintainer decision D; § 7.3 was unimplemented |
+| **E. SHOW_KEY_ON_SCREEN (0x27 `flags` bit 1) is honoured again.** On a CLAIMED device with the bit set, the NORMAL boot screen shows K_dev as 2.x did (the key lines and the key bytes of the `/l/` QR payload), permanently while the bit is set. The bit is stored only by a config write on a claimed device; setup/CODE/RESET screens never show a key; rotation redraws the boot screen; default off (§ 10.3, § 10.7, § 1.4 item 20) | maintainer decision E; reverses revision 3/4 |
+| **F. One setup/recovery URL grammar on the existing `/l/` entry point**: `https://opendisplay.org/l/?f=1&k=<1\|2>&i=…&t=…&v=…[&b=][&d=][&p=]`, format version first, numbers only, append-only, ≤ 83 B worst case, QR v6-M. `/s/` (never shipped) is withdrawn (§ 7.8.1) | maintainer decision F (P2, P6) |
+| **G. The setup flow is normative where it concerns the device** (new § 15): device-side triggers per state for the one wizard (P1), the QR (P2), recovery is setup (P6), migration-assistant inputs (P7). P4, P5 and P8 are **dropped by decision** | maintainer decision G |
 
 ### Revision 4 (2026-11-11)
 
@@ -262,7 +278,9 @@ does. § 1.5 says the same in plain language.
    the owner while also writing the real device's drive configuration can draw any code (§ 13.2
    U3). Devices whose panel is driven by a built-in driver (`BUILTIN_DRIVER`, 0xB3) or by factory
    panel data are not exposed to the recipe part of this. Gesture claim mode refuses config
-   writes and is not affected. Mitigation: § 15 P4.
+   writes and is not affected. An "extra-secure setup" client option (former proposal P4) was
+   **dropped by maintainer decision** (revision 5); an owner who wants that property configures
+   the display in normal mode and claims it by the gesture (§ 13.3).
 6. **Claims without a working panel** have no code check. They rely on claim mode alone, and a
    MITM present during that claim wins silently (§ 8.6).
 7. **Users who type a code without looking at the panel.** The client asks the user to type
@@ -304,6 +322,16 @@ does. § 1.5 says the same in plain language.
     screen, a device that no longer answers to its key) and re-claims. An attacker who can only
     reach the radio cannot trigger it, except on nRF52 by inducing the brown-outs of item 18,
     five times with the right timing.
+20. **The key on the screen is an owner-chosen exposure** (revision 5, maintainer decision E).
+    With 0x27 `flags` bit 1 SHOW_KEY_ON_SCREEN set, a claimed device prints K_dev on its normal
+    boot screen and puts it in the boot screen's QR, permanently, until the bit is cleared or the
+    key is rotated. Anyone who can see the display, or a photo of it (including the QR), holds
+    the key and with it everything of item 12: gated commands, DFU, the WiFi password and the
+    FindMy keys. Only the owner can set the bit (a sealed config write on a claimed device,
+    § 10.3); it is off by default and cleared by a factory reset and by UNCLAIM's scrub. It
+    never appears on the SETUP, CODE or RESET screens (§ 7.8), so the claim's code check is
+    unaffected. What this does not change: a radio-only attacker without sight of the panel gains
+    nothing.
 
 ### 1.5 In plain words: what this does not protect
 
@@ -332,7 +360,7 @@ For release notes, the website and the HA documentation. Keep the wording simple
   does not protect you.
 - **First setup is the most exposed moment.** A determined attacker with two radios, present
   exactly while you set up a brand-new display, can defeat the code check. For the strongest
-  setup, configure the display first, then switch it off and on twice and claim it (§ 15 P4).
+  setup, configure the display first, then switch it off and on twice and claim it (§ 13.3).
 - **Physical access wins.** Someone holding the display can reset it, re-flash it or read its
   memory. **Switching the power off and on five times in a row resets the display to factory
   state** (§ 7.10). Anyone who can reach the power switch, the battery or the USB plug can do
@@ -737,31 +765,118 @@ the tail is unaffected.
 
 ### 5.3 Advertisement (MSD) and discovery without connecting
 
-The 16-byte MSD has no free status bit:
+Revision 5 (maintainer decision A, B, C). The 16-byte MSD has no free status bit:
 - bit0 is battery bit 8;
 - bit1 is REBOOT;
-- bit2 is CONNECTION_REQUESTED;
-- bit3 is ENCRYPTION_ENABLED;
 - bits 4-7 are the loop counter;
 - `dynamic[11]` is config-owned.
 
-The 31-byte advertising PDU is full, with flags, the 8-character name and the MSD. The scan
-response carries the 128-bit service UUID. A second MSD element with the same company id would
-replace the first in bleak/HA's per-company dictionary.
+So 3.0 **reuses** bits 2 and 3, whose old meanings are dead or agree with the new ones
+(`advert_claim_mode` § B):
 
-| Signal | Meaning on 3.0 |
-|---|---|
-| status bit 3 `ENCRYPTION_ENABLED` | **1 = CLAIMED or LOCKED** (a session is required). It is computed from the security state, never from the 0x27 bytes at rest (§ 10.2). Clients behave as on 2.x ("needs a key") |
-| status bit 2 `CONNECTION_REQUESTED` | **set continuously while in claim mode** (and still set by its existing triggers otherwise, which do not run in claim mode, § 7.4) |
-| **"waiting to be claimed"** | `bit 2 = 1 && bit 3 = 0`, on a device that a client has seen report firmware ≥ 3 or that it does not know yet. This is a candidate only. The client confirms it after connecting with READ_IDENT bit 5 / SEC_STATUS |
+```
+MSD status (byte 15 of the 16-byte MSD, i.e. after the company id 46 24 and dynamic[11]
+and the temperature and battery bytes):
+  bit2 CLAIM_MODE        1 continuously while in claim mode (any kind: FRESH, GESTURE,
+                         CONTINUE, and after a factory reset), else 0.
+                         (2.x name CONNECTION_REQUESTED; no shipped firmware ever set it.)
+  bit3 SESSION_REQUIRED  1 iff the security state is CLAIMED or LOCKED, from the security
+                         state, never from the 0x27 bytes at rest (§ 10.2).
+                         (2.x name ENCRYPTION_ENABLED; same client meaning: "needs a key".)
+  "waiting to be claimed" = bit2 == 1 && bit3 == 0.
+```
 
-Why bit 2: "the device wants a host to connect" is what claim mode means. No shipped client acts
-on the bit: py-opendisplay only parses it (`models/advertisement.py:563`), and HA does not read
-it. Changing the local name was rejected: it would overflow the 31-byte PDU, and HA matches on
-the `OD` prefix (`config_flow.py:82-87`).
+- The signal is **advisory and unauthenticated**. A client lists candidates from it, then
+  confirms after connecting with a plaintext READ_IDENT (tail flag bit 5 CLAIM_MODE, bit 4
+  CLAIMED) or SEC_STATUS. Every security decision is taken inside the authenticated transcript.
+- `dynamic[11]` is **not** a claim-mode sentinel. Claim mode does not change it (except through
+  the unconfigured rule below). A sentinel was rejected: it would make an old Home Assistant
+  decode phantom button presses on a configured device put into gesture claim mode.
+- bit 2 and bit 3 = 1 together happen only after the claim, while still in claim mode (§ 7.3,
+  "IN CLAIM MODE (device now claimed)"); clients treat it as "claimed".
+- An OD_SEC2=0 build (§ 13.7) sends bit 2 = bit 3 = 0.
 
-The signal is unauthenticated and spoofable. It only lists candidates; the code protects the
-claim. Privacy: it reveals "being set up now" for at most the claim-mode duration (§ 1.4 item 9).
+**Every target builds the status bits and the unconfigured rule through one shared function**
+(`od_advert_apply_device_state()`, `shared/core/od_advert.c`), fed from `od_claim_mode_active()`,
+`od_sec2_needs_session()` and the drivable-display predicate below. No target computes them.
+
+#### 5.3.1 Bytes in every state (normative; host-tested, `tests/host/advert_state_test.c`)
+
+`DD` = the config's dynamic bytes, `c` the loop-counter nibble (the status byte's high nibble), so
+`c4` means `(c << 4) | 0x04`; battery bit 8 and REBOOT = 0 in these examples.
+
+| State | bit3 | bit2 | `dynamic[11]` | status byte |
+|---|---|---|---|---|
+| unclaimed, normal mode, display drivable | 0 | 0 | DD | `c0` |
+| unclaimed, normal mode, no drivable display (§ 5.3.2) | 0 | 0 | FF × 11 | `c0` |
+| virgin device (FRESH claim mode, no config) | 0 | 1 | FF × 11 | `c4` |
+| FRESH claim mode after the drive config was written (CONTINUE boot) | 0 | 1 | DD | `c4` |
+| GESTURE claim mode | 0 | 1 | DD | `c4` |
+| claim mode after a factory reset (FRESH, config erased) | 0 | 1 | FF × 11 | `c4` |
+| claimed inside claim mode (between CONFIRM and the END reboot) | 1 | 1 | DD | `cC` |
+| CLAIMED, normal mode | 1 | 0 | DD | `c8` |
+| LOCKED | 1 | 0 | DD (or FF × 11 when no drivable display) | `c8` |
+| CLAIMED by migration of a 2.x v1 key (origin LEGACY) | 1 | 0 | DD (FF × 11 until drive packets are written) | `c8` |
+
+The REBOOT bit (bit 1) is independent of all rows (set after a reboot until the first connect).
+
+#### 5.3.2 "No display configured" in 3.0 (the 0xFF rule)
+
+Protocol 2.2: *`dynamic[11]` is all 0xFF when no display is configured.* 3.0 applies it on every
+target and defines the condition as **no drivable display**:
+
+> The config record is absent or not loaded, **or** it has no display packet (0x20), **or** no
+> display packet of the config is drivable. A display is drivable when its instance has drive
+> data (a 0xB1 panel packet and a mode-0 0xAE packet, `od_cfg_has_drive_data()`), or when the
+> firmware drives it with a built-in controller driver selected by 0xB3 (ESP32 only, READ_IDENT
+> BUILTIN_DRIVER).
+
+Equivalently: READ_IDENT reports `display_count = 0`, or every display record would report
+NEEDS_MIGRATION. The same predicate sets `dflags.HAS_PANEL` (§ 4.4) and decides whether the
+SETUP screen can be drawn (§ 7.8), so a client never sees "drivable" in one place and not in
+another.
+
+Consequences:
+- A **virgin** device (no config) is in FRESH claim mode and has no drivable display, so it
+  advertises bit 2 = 1, bit 3 = 0 **and** FF × 11. Both signals apply and do not conflict: a
+  client reads "waiting to be claimed, and needs a display configuration".
+- A 2.x device upgraded to 3.0 that has no drive packets yet advertises FF × 11 until its config
+  is migrated. Its button, touch and sensor slots are **not reported** in that state. Clients MUST
+  treat FF × 11 as "unconfigured" and MUST NOT decode the slots (a 0xFF button byte would decode
+  as button 7, 15 presses, pressed; SHT40 `FF FF FF` as a read failure).
+- 0xFF is the whole-area rule only. A slot that holds 0xFF on a configured device keeps its
+  slot meaning; a configured device whose eleven bytes all happen to be 0xFF is not possible with
+  today's slot encodings (it would need every slot in use with identical 0xFF values).
+
+#### 5.3.3 Advertising PDU and scan response, per target (31-byte legacy PDUs)
+
+AD structure size = 1 (length) + 1 (type) + payload: flags 3 B, name `OD`+6 hex 10 B, MSD
+2 + 16 = 18 B, UUID16 4 B, UUID128 18 B.
+
+| Target | ADV PDU | used | Scan response |
+|---|---|---|---|
+| esp32-idf (NimBLE) | flags + name (complete) + MSD | 31 / 31 | UUID128 OpenDisplay service (18 B) |
+| efr32bg22-slc | flags + MSD + name (complete) | 31 / 31 | UUID16 0x2446 (4 B) |
+| nordic-zephyr: nRF54L15, nRF54LM20A, XIAO nRF52840 (**revision 5**) | flags + MSD + name (complete) | 3 + 18 + 10 = **31 / 31** | UUID16 0x2446 (4 B) [+ UUID16 Ranging 0x185B with Channel Sounding (4 B)] = 4-8 / 31 |
+| Firmware 2.x ESP32 / nRF52840 (Bluefruit) | flags + name + MSD | 31 / 31 | none |
+| legacy Firmware_NRF | flags + full name + MSD | 31 / 31 | UUID128 |
+
+Revision 5 moved the Zephyr name from the scan response into the ADV PDU, so passive scanners,
+passive ESPHome proxies and HA's `name.startswith("OD")` discovery check see it on every target.
+The name is always exactly 8 characters (`"OD"` + 6 upper-case hex), so the PDU is exactly full;
+a build-time assert in `targets/nordic-zephyr/src/opendisplay_ble.c` and the shared constants in
+`od_advert.h` (`OD_ADVERT_AD_*`, host-tested) hold the arithmetic. Other advertising sets are
+unaffected: Zephyr runs one legacy advertiser and no FindMy/FMDN set; BG22's FindMy "A" and FMDN
+"G" sets (`od_hal_adv2.c`) are separate sets with their own payloads, and the ESP32 has no second
+set. A second MSD element with the same company id would replace the first in bleak/HA's
+per-company dictionary, so none is added anywhere.
+
+Changing the local name was rejected as a signal: on ESP32, BG22 and the 2.x fleet any longer
+name overflows the full PDU (ESP32 then drops the name, BG22 truncates it), and HA matches on the
+`OD` prefix (`config_flow.py:82-87`).
+
+Privacy: the signal reveals "being set up now" for at most the claim-mode duration (§ 1.4
+item 9). It is spoofable; it only lists candidates, and the code protects the claim.
 
 ### 5.4 One application connection (normative, A11)
 
@@ -1048,7 +1163,7 @@ ENTER(kind)
   deadline = now + 600 s
   draw the SETUP screen (§ 7.8) if HAS_PANEL, else start the LED/buzzer pattern (§ 7.7)
   start BLE; MSD status bit 2 = 1; do NOT start WiFi; action runner off; no deep sleep;
-  advertising: boost interval for the first 60 s, then the normal interval
+  advertising: boost interval for the first 60 s of this ENTER, then the normal interval
 
 IN CLAIM MODE (device unclaimed)
   SEC_CLAIM per § 8. Each NONCE processed: renders_used += 1, config_locked = 1, draw the CODE screen
@@ -1070,6 +1185,21 @@ END(reason)
   flush any queued reply (at most 500 ms)
   software reset WITHOUT OS2C -> normal-mode boot (the normal boot screen, if drawable)
 ```
+
+**The advertising boost (revision 5, decision D).** It uses the shared boost seam
+`od_adv_app_boost()` (`shared/core/od_adv_app.h`), the same 20-30 ms window a button press opens
+for 3 s on every target. `od_claim_mode_tick()` re-arms it every `OD_CM_BOOST_REARM_MS` (1 s) while
+all of these hold:
+- claim mode is active;
+- less than `OD_CM_BOOST_MS` (60 s) has passed since this boot's ENTER (FRESH, GESTURE or CONTINUE);
+- no application connection is open (`od_claim_app_connected()`; a connection stops the
+  advertiser anyway, and the boost must not outlive it).
+
+After the last re-arm the window closes within 3 s and the target's own reconcile restores its
+idle interval (ESP32 160-1000 ms, Nordic and BG22 1000 ms). Bound: one 60 s window per ENTER,
+and ENTERs are capped by the restart cap below, so at most 4 × 60 s = 240 s of fast advertising per
+claim-mode session, plus a 3 s tail each. A disconnect inside the 60 s re-arms it for the rest of
+the 60 s; nothing extends the window past 60 s from ENTER. Host-tested in `claim_mode_test.c`.
 
 The restart cap bounds what a peer can do with CMD_REBOOT in claim mode: at most 3 extra SETUP
 refreshes and 30 extra minutes. Each restart restarts the timer, as the maintainer specified
@@ -1147,7 +1277,8 @@ reset (§ 7.10), which works on claimed and LOCKED devices.
 
 | Channel | In claim mode | Notes |
 |---|---|---|
-| MSD status bit 2 | 1, continuously | with bit 3 = 0 while unclaimed (§ 5.3) |
+| MSD status bit 2 CLAIM_MODE | 1, continuously | with bit 3 SESSION_REQUIRED = 0 while unclaimed (§ 5.3) |
+| advertising interval | 20-30 ms for the first 60 s of each ENTER while not connected, then the normal interval | § 7.3 |
 | READ_IDENT tail flags | bit 5 CLAIM_MODE | plaintext |
 | SEC_STATUS | flags bit0, bit5 (FRESH), bit6 (config locked); `window_s`; `renders_left` | plaintext, advisory |
 | panel | SETUP screen, then CODE screen (§ 7.8) | only if HAS_PANEL |
@@ -1190,7 +1321,7 @@ SETUP (claim mode, no claim yet)
   "ID:  OD1A2B3C"                         QR: setup URL
   "Open the OpenDisplay app,"
   "or scan:"
-  QR: setup URL (k=s)
+  QR: setup URL (k=1)
   "Closes after 10 minutes"
 
 CODE (a claim is pending)
@@ -1208,53 +1339,116 @@ RESET (drawn before the erase, FACTORY_RESET.md § 4)
   "Settings and key erased"               QR: setup URL
   "ID:  OD1A2B3C"
   "Scan to set up again"
-  QR: setup URL (k=r)
+  QR: setup URL (k=2)
 ```
 
 When text and QR do not both fit, the QR wins on SETUP and RESET, and the code wins on CODE.
 E-paper keeps each screen until the next refresh. After a factory reset there is no config, so
 the RESET screen stays visible during the fresh claim mode that follows and does the job of the
-SETUP screen. That is why both carry the same URL and differ only in `k`.
+SETUP screen. That is why both carry the same URL and differ only in `k` (§ 7.8.1).
 
-**Setup URL (provisional; replaces revision 1's `/r/`, which never shipped).**
+**The key is never on these screens.** SETUP, CODE and RESET never show K_dev, whatever 0x27
+`flags` bit 1 says (§ 10.7): they are drawn while unclaimed or during a reset, and their only
+variable inputs are the ones listed above.
+
+#### 7.8.1 The setup/recovery URL (revision 5, normative; decision F)
+
+The QR on the SETUP and RESET screens is **frozen forever** in every device that is never
+updated. So its grammar is designed for longevity:
+
+- **One entry point** for every firmware-generated QR code: `https://opendisplay.org/l/`. The
+  path names no behaviour; the kind is a field.
+- An explicit **format version** `f` is the first field. It is the URL format's version, not the
+  firmware's.
+- **Append-only, named fields**, and a page ignores fields it does not know.
+- **Numbers only**: no config-supplied text ever enters the URL (review A1).
+- Short: worst case 83 bytes, QR version 6, ECC level M.
+
+**Why `/l/` and not a new path.** `/l/` is already a frozen contract: every 2.x and 3.0 normal boot
+screen links to `https://opendisplay.org/l/?<payload>`, where `<payload>` is the base64url (no
+padding) of a 23-byte record (`od_boot_payload_build()`: tag type 2 B BE, device id 3 B, key
+16 B, manufacturer id 2 B BE; 31 characters). The website must serve `/l/` for those devices for
+as long as they exist, so a second path would be a second contract to keep alive forever for the
+same job ("a firmware QR was scanned; identify the device and start the right flow"). The two
+grammars cannot be confused: a legacy query is one 31-character base64url token with no `=`;
+the setup grammar's first field is `f=<digits>`. `/s/` (revision 2) never shipped on any device
+and is withdrawn. The normal boot screen keeps the legacy payload byte for byte (it is what 2.x
+showed, and it carries the key when SHOW_KEY_ON_SCREEN is set, § 10.7, which the setup grammar
+never does).
+
+**Grammar (format 1)**
 
 ```
-https://opendisplay.org/s/?k=<kind>&i=<id>&t=<target>&v=<fw>[&b=<driver>][&d=<display>][&p=<power>]
-
-k   s = claim mode (SETUP screen), r = factory reset (RESET screen)
-i   6 upper-case hex digits: od_boot_app_device_id24(), the suffix of the advertised name "OD1A2B3C"
-t   READ_IDENT fw_target, decimal: 1 ESP32, 2 NRF54, 3 SILABS, 4 NRF52811, 5 NRF52840 (v3/decisions)
-v   firmware major.minor.patch, decimal
-b   ManufacturerData.simple_config_driver_index   decimal; omitted when 0 or when there is no 0x02 packet
-d   ManufacturerData.simple_config_display_index  omitted when 0
-p   ManufacturerData.simple_config_power_index    omitted when 0
+url      = "https://opendisplay.org/l/?" "f=1" "&k=" kind "&i=" id "&t=" target "&v=" fw
+           [ "&b=" index ] [ "&d=" index ] [ "&p=" index ]
+kind     = "1"        ; SETUP screen (claim mode)
+         / "2"        ; RESET screen (factory reset; the fresh claim mode follows)
+id       = 6 HEXUP    ; od_boot_app_device_id24(): the suffix of the advertised name "OD1A2B3C"
+target   = 1*2DIGIT   ; READ_IDENT fw_target, 1..99: 1 ESP32, 2 NRF54, 3 SILABS, 4 NRF52811,
+                      ;   5 NRF52840; the field is omitted for a value outside 1..99
+fw       = dec "." dec "." dec        ; firmware major.minor.patch, each 0..255
+index    = 1*4DIGIT   ; 1..9999, decimal, no leading zero
+b        = ManufacturerData.simple_config_driver_index   (no 0x02 packet, 0, or > 9999: omitted)
+d        = ManufacturerData.simple_config_display_index  (0 or > 9999: omitted)
+p        = ManufacturerData.simple_config_power_index    (0 or > 9999: omitted)
+dec      = "0" / %x31-39 *2DIGIT ; no leading zeros
+HEXUP    = DIGIT / %x41-46
 ```
 
-- Example: `https://opendisplay.org/s/?k=s&i=1A2B3C&t=3&v=3.0.0&b=16&d=10&p=2` (65 bytes).
-- Worst case: `t=255`, `v=255.255.255` and three `65535` indices give 83 bytes. That is inside
-  the byte capacity of QR version 6 ECC-M (106), which the renderer already hard-codes, so the
-  renderer needs no size change.
-- QR v6 + quiet zone = 49 modules. That is 4 px/module on a 200x200 1.54in (196 px), 3 px on
-  152x152 (147 px), and 2 px on a 128-px-wide 2.9in (98 px, about 22 mm). Host render tests
-  confirm all three (plan WP5).
-- The URL carries **no secret**: the id is advertised, and the indices and version are public.
-- Parameter order is fixed, so the string is deterministic (vectors V13).
+The firmware emits the fields in exactly this order, so the string is deterministic. Builder:
+`od_setup_url_build()` (`shared/core/od_boot_payload.c`), host vectors in
+`tests/host/boot_payload_test.c`.
 
-**Rules for the `/s/` page** (website, plan WP9; review § 5 phishing advice):
-1. Parse every parameter strictly: `k` ∈ {s, r}; `i` exactly 6 hex digits; `t`, `b`, `d`, `p`
-   decimal integers in range; `v` three decimal integers. Render values as text, never as HTML.
-   Ignore unknown parameters.
-2. **Never ask for a secret on this page.** WiFi passwords and FindMy keys are entered only in
+**Byte budget.** Prefix 27 + `f=1` 3 + `&k=2` 4 + `&i=FFFFFF` 9 + `&t=99` 5 + `&v=255.255.255` 14
++ 3 × `&b=9999` 21 = **83 bytes**, the revision 4 bound. QR version 6 at ECC M holds 106 bytes in
+byte mode; the renderer hard-codes version 6 / ECC M. Version 6 + a 4-module quiet zone is 49
+modules: 4 px/module on a 200 × 200 1.54in panel (196 px), 3 px on 152 × 152 (147 px), 2 px on a
+128-px-wide 2.9in (98 px). The smallest supported panel (1.54in, 152 × 152 or 200 × 200) is
+covered with 23 bytes of capacity to spare for appended fields.
+
+**Test vectors** (also in `tests/host/boot_payload_test.c`):
+
+| # | Inputs | URL | Bytes |
+|---|---|---|---|
+| U1 | SETUP, id 0x1A2B3C, t 3, 3.0.0, b 16, d 10, p 2 | `https://opendisplay.org/l/?f=1&k=1&i=1A2B3C&t=3&v=3.0.0&b=16&d=10&p=2` | 69 |
+| U2 | RESET, id 0x00ABCD, t 1, 3.0.0, no 0x02 packet | `https://opendisplay.org/l/?f=1&k=2&i=00ABCD&t=1&v=3.0.0` | 55 |
+| U3 | RESET, id 0xFFFFFF, t 99, 255.255.255, b = d = p = 9999 (worst case) | `https://opendisplay.org/l/?f=1&k=2&i=FFFFFF&t=99&v=255.255.255&b=9999&d=9999&p=9999` | 83 |
+| U4 | SETUP, id 0x000001, t 5, 3.1.12, b 10000, d 0, p 7 | `https://opendisplay.org/l/?f=1&k=1&i=000001&t=5&v=3.1.12&p=7` | 60 |
+
+**Evolution rules** (normative for firmware and website):
+1. `f`, `k` and `i` are the **core**: their names, position (`f` first) and meaning are the same
+   in every format version. A new kind gets the next number; a number is never reused.
+2. A new optional field is **appended** after the existing ones with a new letter. A letter is
+   never reused or redefined. Appending does not change `f`.
+3. `f` is incremented only for a change an old page would misread (a changed meaning of a
+   non-core field). Firmware never emits a URL above 83 bytes worst case without a QR version
+   change that every supported panel can draw.
+
+**Rules for the `/l/` page** (website; review § 5 phishing advice):
+1. **Dispatch.** The query's first field is `f=<1-3 digits>` → setup grammar. Otherwise the
+   legacy device link: today's 23-byte payload decoding, unchanged.
+2. **Known format (`f=1`).** Parse every field strictly: `k` ∈ {1, 2}; `i` exactly 6 hex digits;
+   `t`, `b`, `d`, `p` decimal in range; `v` three decimal integers 0..255. An optional field that
+   fails its check is ignored (as if absent); a bad `i` or `k` → rule 3's generic flow. Ignore
+   unknown fields; when a field repeats, the first occurrence wins. Render values as text, never
+   as HTML.
+3. **Unknown format (`f` ≥ 2, or not 1-3 digits).** Use only the core: `k` (an unknown kind is
+   treated as 1) and `i` (if it is 6 hex digits). Preselect nothing. Say: *"This display shows a
+   newer setup code than this page knows. You can still set it up."* and start the generic setup
+   wizard, filtered to the name `OD<i>` when `i` is valid.
+4. **Never ask for a secret on this page.** WiFi passwords and FindMy keys are entered only in
    the wizard, after a successful claim, inside the session (§ 13.1).
-3. Show the board, display and power option that will be preselected, by name, and ask the
-   user to confirm them before anything is written. A crafted link on the genuine domain could
-   otherwise preselect a wrong drive recipe.
-4. Say plainly that only `https://opendisplay.org/s/` is genuine, and that a display in claim
+5. Show the board, display and power option that will be preselected (`b`, `d`, `p`), by name,
+   and ask the user to confirm them before anything is written. A crafted link on the genuine
+   domain could otherwise preselect a wrong drive recipe.
+6. Say plainly that only `https://opendisplay.org/l/` is genuine, and that a display in claim
    mode or factory reset can be redrawn by anyone nearby *before* it enters that state. Claim
    mode itself cannot be redrawn.
-5. No analytics or third-party requests that would leak the id. The page works from the query
+7. No analytics or third-party requests that would leak the id. The page works from the query
    string alone.
-6. For `v` < 3: explain that 2.x firmware has no setup screen and link to the normal toolbox.
+8. `k=2` (RESET): say *"This display was reset to factory settings. Its settings and key were
+   erased."* and run the same wizard as `k=1` (§ 15, recovery is setup).
+9. For `v` < 3: explain that 2.x firmware has no setup screen and link to the normal toolbox.
 
 ### 7.9 Battery
 
@@ -1264,8 +1458,13 @@ Claim mode keeps the device awake and advertising:
   the end.
 
 Estimates, **not measured** (§ 19 H12):
-- ESP32 with BLE advertising at roughly 20-40 mA: about 3-7 mAh per 10 minutes;
-- nRF52840 / BG22 advertising at a 100 ms → normal interval: well under 1 mAh.
+- ESP32 with BLE advertising at roughly 20-40 mA: about 3-7 mAh per 10 minutes. The CPU stays
+  awake in claim mode anyway, so the boost adds little;
+- nRF52840 / BG22: the boost advertises every 20-30 ms instead of every 1000 ms for 60 s. One
+  legacy advertising event on three channels costs roughly 10-20 µC, so the boost averages about
+  0.4-1 mA over its 60 s, i.e. **at most about 0.02 mAh per ENTER and 0.07 mAh per claim-mode
+  session** (4 ENTERs). The rest of the 10 minutes at 1000 ms is well under 0.1 mAh. A
+  CR2032 (≈ 220 mAh) loses well under 0.1 % per claim-mode session.
 
 A false trigger costs one such session. Claim mode never starts WiFi.
 
@@ -1961,8 +2160,25 @@ read → edit → write round-trip exactly.
 To restore a backup onto a *different* (or re-claimed) device, the client must zero the 0x27 key
 and `encryption_enabled` before writing; otherwise it gets 0x10 or 0x11.
 
-`flags` bit 0 (REWRITE_ALLOWED) and bit 1 (SHOW_KEY_ON_SCREEN) are **reserved**. The device stores
-them as sent, returns them as sent, and gives them no effect. Clients write 0. The Nordic
+`flags` bit 0 (REWRITE_ALLOWED) is **reserved**: the device stores it as sent, returns it as sent,
+and gives it no effect. Clients write 0.
+
+`flags` bit 1 **SHOW_KEY_ON_SCREEN** is honoured again (revision 5, decision E; § 10.7):
+
+| Device | A written bit 1 | Stored | Effect |
+|---|---|---|---|
+| CLAIMED (the write is sealed, so it comes from a session) | 0 or 1 | as sent | 1: the normal boot screen shows K_dev (§ 10.7) |
+| CLAIMED, inside claim mode after the claim (the claiming session) | 0 or 1 | as sent | takes effect at the END reboot's normal boot screen |
+| UNCLAIMED (open write; also FRESH claim mode before the claim) | 1 | **0** | none: there is no key to show, and an open writer must not pre-arm a key display for the device's future owner |
+| a 0x27 that a claimed write omits (inserted at rest, above) | — | the stored value | unchanged |
+
+- The bit is part of 0x27 and is changed only by a config write. It is **not** sticky like the
+  reset pin (§ 10.6): CONFIG_CLEAR on a claimed device keeps the stored 0x27, and with it the bit.
+- The default is 0. Factory-embedded configs must not set it (a set bit is stored as 0 on the
+  unclaimed device they configure).
+- A 2.x device migrated with its v1 key (§ 10.5 b) keeps a stored bit 1 = 1 and goes on showing
+  its key, now as K_dev (which equals the v1 key until the first rotation) — as on 2.x.
+- The read view returns the stored bit. The Nordic
 "erase and replace without a session" path (`targets/nordic-zephyr/src/od_cmd_config.c`) is
 deleted.
 
@@ -2030,8 +2246,9 @@ removes them, and the LEGACY_SECRETS flag is cleared at the next boot (§ 10.1 r
 1. One **atomic** config rewrite that:
    - zeroes every 0x26 `password`;
    - zeroes every 0x2D `eik`, `net_a_adv_key` and `advertisement_key`;
-   - sets 0x27 to the UNCLAIMED form (`encryption_enabled` 0, key 0, `reserved[0]` 0), keeping
-     `session_timeout_seconds`, `flags` and `reset_pin`;
+   - sets 0x27 to the UNCLAIMED form (`encryption_enabled` 0, key 0, `reserved[0]` 0, `flags`
+     bit 1 SHOW_KEY_ON_SCREEN 0), keeping `session_timeout_seconds`, the other `flags` and
+     `reset_pin`;
    - keeps everything else.
 2. esp32-idf: erase the ESP-IDF WiFi namespace `nvs.net80211` (A16).
 3. efr32bg22-slc: delete any FMDN runtime NVM3 objects kept outside the config, if any exist.
@@ -2147,10 +2364,44 @@ CONFIG_CLEAR never touches OS2K, OS2S or the image store.
   3. sealed in a CONFIG_READ on a claimed device (§ 10.2), or over TLS LAN (§ 12).
 
   That is, only to a peer that already holds it or is becoming its holder.
-- The panel **never** renders the key, and no QR carries it. 3.0 deletes the `SHOW_KEY_ON_SCREEN`
-  rendering and the key bytes of the boot payload: `od_boot_payload.c` (`od_boot_payload_build` /
-  `od_boot_url_build`) and BG22 `opendisplay_display.cpp`. The payload's key field is sent as
-  zeros.
+- **The panel shows the key only when the owner asked for it** (revision 5, decision E,
+  reversing revisions 3-4): 0x27 `flags` bit 1 SHOW_KEY_ON_SCREEN set **and** the security state
+  CLAIMED. Then, and only on the NORMAL boot screen, permanently while the bit is set:
+  - the key lines show K_dev exactly as 2.x did: on the zone layout `KEY1: <hex of bytes 0-7>`
+    and `KEY2: <hex of bytes 8-15>` (upper-case hex); on the small layout two lines of 16 hex
+    digits;
+  - the `/l/` QR payload bytes 5..20 carry K_dev (2.x byte layout, § 7.8.1), so the website's
+    device link opens with the key.
+
+  The key shown is **K_dev**, from the OS2K key record (`od_sec2_k_dev()`), never the 0x27 key
+  field at rest (which holds K_v1, § 10.2).
+
+  | State | bit 1 | Key lines (zone / small) | QR key bytes |
+  |---|---|---|---|
+  | UNCLAIMED (incl. LEGACY_SECRETS) | any | `KEY: not set` / `----…` | zero |
+  | CLAIMED | 0 (default) | `KEY: hidden` / `XXXX…` | zero |
+  | CLAIMED | 1 | `KEY1: …` `KEY2: …` / two hex lines | K_dev |
+  | LOCKED | any | `KEY: hidden` / `XXXX…` (the key is unreadable) | zero |
+
+- **Never on the setup screen family.** SETUP, CODE and RESET never show a key (§ 7.8): they
+  belong to unclaimed or resetting devices, and their "no attacker-writable text next to the
+  code" property is unchanged.
+- **Rotation redraws the boot screen** when bit 1 is set: after ROTATE_CONFIRM persisted the new
+  key (§ 11), the device redraws the NORMAL boot screen with the new K_dev, replacing whatever the
+  panel shows (an uploaded image included), so the panel never shows a dead key. The redraw runs
+  from the loop after the reply has left and the session is torn down (`od_sec2_app_key_screen_changed()`);
+  a client re-authenticating meanwhile may get BUSY (§ 8.7) and retries.
+- **Changing bit 1 by a config write** on a claimed device redraws the boot screen the same way,
+  once the write is stored: setting it shows the key, clearing it removes the key from the panel
+  at once (not only at the next boot). A write that leaves the bit as it was redraws nothing
+  beyond what the target already does after a config write.
+- **Cleared** by a factory reset (the config is erased) and by UNCLAIM's scrub (the device is
+  unclaimed, so a later read shows the bit cleared, § 10.4 scrub step 1).
+- **Client follow-up (normative for every client that offers the option):** before enabling it,
+  warn *"Anyone who can see the display, or a photo of it, has the key: they can change the
+  display, update its firmware, and read your WiFi password and FindMy keys."* and require an
+  explicit confirmation; show the option as off by default; offer "rotate the key" after turning it
+  off (a photo taken meanwhile stays valid until a rotation). Threat model: § 1.4 item 20.
 - Clients MAY show a key to their own user so it can be moved to a second client (HA options flow
   "Show key", `opendisplay key export`). That is client UX and the user's responsibility.
 
@@ -2286,7 +2537,9 @@ user has just seen the device draw.
     *"The display does not show what we expected. Someone nearby may be interfering. Cancel
     and try again later, or somewhere else."*
   - *(c) A two-radio MITM.* The attacker impersonates the device to the owner and writes the real
-    device's drive config. This can defeat the code (§ 1.4 item 5). Mitigation: § 15 P4.
+    device's drive config. This can defeat the code (§ 1.4 item 5). There is no client option
+    against it (P4 was dropped, § 15.4); configuring in normal mode and claiming by the gesture
+    avoids it (§ 13.3).
 - **U4, power lost during fresh claim mode.** FRESH survives, so the next boot is a new FRESH
   session: 10 minutes and 3 codes. The wizard reconnects and resumes at the step it was on.
 - **U5, the CONFIRM reply is lost.** The client keeps the candidate (§ 8.8). The device is
@@ -2382,30 +2635,68 @@ Clients treat `SEC_V2 = 0` on firmware ≥ 3 as "this display cannot be claimed 
 
 ---
 
-## 15. A unified setup experience (proposal; separable)
+## 15. The setup flow (normative where it concerns the device; revision 5, decision G)
 
-The **decided** parts are above:
-- claim mode and the gesture;
-- the typed code;
-- default rotation with opt-out;
-- the no-panel warning;
-- the setup screen showing claim mode.
+The maintainer accepted proposals P1, P2, P6 and P7 and dropped P4, P5 and P8 (§ 15.4). This section states what the **device** guarantees so that every client can start
+and drive one flow. The client screens themselves are client design; the shared wording of P1
+lives with the clients.
 
-Everything in this section is **my proposal**. Each item stands alone, and the maintainer can take
-or drop it without touching the protocol.
+### 15.1 One wizard (P1): the device-side triggers
 
-| # | Proposal | What it gives |
+All clients (website, Home Assistant, py-opendisplay) run the same steps — Identify → Configure
+display → Verify panel → Claim → Secrets → Done (§ 13.1) — and enter them from whatever the
+device signals. The device MUST present exactly these signals in each state:
+
+| Entry | What the device shows / sends | Where a client learns it | Wizard entry point |
+|---|---|---|---|
+| **Just flashed or new** (virgin) | FRESH claim mode; MSD bit 2 = 1, bit 3 = 0, `dynamic` = FF × 11 (§ 5.3.1); nothing on the panel (no config); READ_IDENT `display_count` 0, flags CLAIM_MODE; SEC_STATUS FRESH, `window_s` | advertisement, without connecting | Configure display (step 3 of § 13.1) |
+| **Claim mode advertised** (FRESH after config, or GESTURE) | MSD bit 2 = 1, bit 3 = 0, `dynamic` = DD; SETUP screen with the QR (k=1) when a panel is drivable; LED/buzzer pattern otherwise (§ 7.7); 60 s fast advertising per ENTER | advertisement; SEC_STATUS `config_locked` tells FRESH-before-code from GESTURE | FRESH: Verify panel; GESTURE: Claim |
+| **QR scanned** (SETUP or RESET screen) | the § 7.8.1 URL: `f`, `k`, `i`, `t`, `v`, preset `b`/`d`/`p` | the `/l/` page | website wizard, filtered to `OD<i>`, preset preselected for confirmation |
+| **Open device in normal mode** (unclaimed) | MSD bit 2 = 0, bit 3 = 0; READ_IDENT CLAIMED = 0, NEEDS_MIGRATION as applicable; SEC_STATUS state UNCLAIMED (+ LEGACY_SECRETS) | connect + plaintext READ_IDENT / SEC_STATUS | "Use without a key" or "Claim" (gesture instruction, § 13.3); NEEDS_MIGRATION → migration assistant first (§ 15.3) |
+| **Claimed device** | MSD bit 3 = 1; READ_IDENT CLAIMED; SEC_STATUS CLAIMED (+ ROTATION_SUGGESTED when KEY_LEGACY) | advertisement; READ_IDENT | no wizard; normal session; legacy keys rotate by default (§ 10.5) |
+| **LOCKED** | MSD bit 3 = 1; SEC_STATUS state LOCKED | SEC_STATUS | recovery: factory reset (§ 15.2) |
+| **After a factory reset** | RESET screen with the QR (k=2) drawn before the erase, then FRESH claim mode: MSD bit 2 = 1, bit 3 = 0, FF × 11 | panel; advertisement | the same wizard as "just flashed" (§ 15.2) |
+
+Devices never send a state the table does not list. A client that sees an unlisted combination
+treats the advertisement as unknown and connects to read SEC_STATUS.
+
+### 15.2 The setup QR and recovery (P2, P6)
+
+- The SETUP and RESET screens carry the § 7.8.1 URL. The `/l/` page opens the wizard with the
+  device identity and the preset (`b`, `d`, `p`) preselected; the user confirms the preset before
+  anything is written (§ 7.8.1 rule 5).
+- **Recovery is setup.** A factory reset ends in FRESH claim mode, and its RESET QR (k=2) differs
+  from the SETUP QR only in `k`. The page and every client run the identical wizard for both; the
+  only difference is the text that says the display was reset. The preset in the RESET QR is the
+  one the erased config had (the firmware reads `b`/`d`/`p` before the erase, FACTORY_RESET.md
+  § 4), so the user does not have to find the board or panel again.
+
+### 15.3 Migration assistant inputs (P7)
+
+The assistant walks the 2.x → 3.0 cases of § 13.4, one step per screen: "Update drive data"
+(no gesture) → "Rotate key" (automatic for v1 keys) or "Claim (gesture)" for flagged devices →
+"Change your WiFi password" reminder. Its inputs are exactly these device facts, all readable in
+plaintext without a session:
+
+| Input | Source | Meaning for the assistant |
 |---|---|---|
-| P1 | **One wizard, same steps and words, in all three clients**: Identify → Configure display → Verify panel → Claim → Secrets → Done (§ 13.1). The user-facing strings of § 7-§ 13 live in one shared text file (py-opendisplay ships it; the website and HA copy it), so the gesture text, warnings and code prompt are identical everywhere | a user who switches app sees the same thing; translations are done once |
-| P2 | **The setup QR opens the website wizard** with the device identity and the preset preselected: `/s/?k=s&i=…&b=…&d=…&p=…`. The page filters Web Bluetooth by the name `OD<i>` and shows the preset for confirmation (§ 7.8 rule 3) | no searching for the board or panel after a factory reset; fewer wrong presets |
-| P3 | **HA discovers devices in claim mode.** A MSD candidate (bit 2 = 1, bit 3 = 0) creates a discovery card: *"OpenDisplay OD1A2B3C is waiting to be set up"*. The config flow then runs the wizard with py-opendisplay's vendored presets. Unclaimed devices in normal mode keep today's card, with two choices: "Claim (needs the power-cycle gesture)" and "Use without a key" | setup starts from where most users already are |
-| P4 | **"Extra-secure setup"**: configure the display (FRESH or normal mode), end setup mode, then claim it in **gesture** claim mode, where config writes are locked | closes the fresh-setup MITM residual (§ 1.4 item 5) at the cost of one gesture. Offer it as an option, not the default |
-| P5 | `opendisplay setup [--url 'https://opendisplay.org/s/?…']` in py-opendisplay runs the same wizard on the command line; the URL preselects the preset | scripted lab setups; the QR works on a PC too |
-| P6 | **Recovery is setup**: the RESET QR lands in the same wizard with the old preset known from `b/d/p`, and nothing else differs | one flow to maintain |
-| P7 | **Migration assistant** for 2.x devices, one screen per client: "Update drive data" (no gesture) → "Rotate key" (automatic for v1 keys) or "Claim (gesture)" for flagged devices → "Change your WiFi password" reminder | one place that walks the 2.x → 3.0 cases of § 13.4 |
-| P8 | **One key export format** for moving a key between clients: `OD2K:<uid 16 hex>:<key 32 hex>`, as text or as a QR shown on the *phone/PC screen* (never the e-paper). It is imported as a **candidate** until an authenticated success (§ 8.8) | website → HA handover without retyping; mistakes cannot overwrite a working key |
+| firmware ≥ 3 | READ_IDENT present / version | assistant applies |
+| NEEDS_MIGRATION | READ_IDENT tail bit 1 (or MSD FF × 11 with display packets present) | step "Update drive data" |
+| BUILTIN_DRIVER | READ_IDENT tail bit 2 | no drive packets needed; 0xB3 present |
+| CLAIMED / KEY_LEGACY | READ_IDENT bit 4; SEC_STATUS state, `dflags` bit 2, flags bit 4 ROTATION_SUGGESTED | step "Rotate key" (inside the session) |
+| LEGACY_SECRETS_OPEN | READ_IDENT bit 6; SEC_STATUS flags bit 3 | step "Claim (gesture)" + the WiFi-password reminder |
+| SHOW_KEY_ON_SCREEN | 0x27 `flags` bit 1 in a sealed CONFIG_READ | after a rotation: tell the user the boot screen now shows the new key |
 
----
+### 15.4 Dropped by decision (revision 5)
+
+- **P4 "extra-secure setup"** — dropped. The residual it addressed is stated in § 1.4 item 5; an
+  owner can still get the same property by configuring in normal mode and claiming by the gesture
+  (§ 13.3).
+- **P5 a CLI wizard** (`opendisplay setup --url …`) — dropped.
+- **P8 a key export format** (`OD2K:…`) — dropped. Moving a key between clients stays client UX
+  (§ 10.7, last bullet); the boot-screen key display (§ 10.7) is the on-device option.
+- **P3** (HA discovers devices in claim mode) is covered by § 15.1: HA reads the MSD bits like
+  every client.
 
 ## 16. Compatibility
 
@@ -2481,7 +2772,7 @@ CMAC/CCM). Two independent implementations must agree before firmware is tested 
 | V10 secret detection | config blobs: an empty WiFi password with an SSID; one non-zero password byte at offset 31; two 0x26 packets, only the second with a password; 0x2D with only `advertisement_key[19]` set; 0x27 enabled with a zero key; 0x27 key == K_dev on a claimed device; 0x27 with another key; a chunked write whose secret is in the last chunk; a truncated last packet; a LEGACY_SECRETS device with identical and with changed secrets | accept / NACK 0x10 / 0x11 / 0x00, with the exact NACK frame |
 | V11 config at rest and read | claimed device: a write with and without 0x27 (insertion position), with the reset pin disabled (sticky), CONFIG_CLEAR; unclaimed device | the stored config bytes (marker, K_v1) and the exact read image |
 | V12 claim mode (host traces) | reset-cause and uptime traces: counted/uncounted causes, on-periods of 1.9 s, 2.0 s, 9.9 s and 10.0 s, deep sleep after arming, a claimed device; claim-mode sessions with restarts, attempts and timeouts | the gesture verdict, OS2S writes (count and bytes), the END reason, FRESH clearing |
-| V13 setup URL | all fields, omitted fields, maxima (83 B), `k=s` and `k=r` | the exact strings and the QR version / ECC |
+| V13 setup URL | § 7.8.1 vectors U1-U4: all fields, omitted fields, the 83 B worst case, `k=1` and `k=2` (revision 5 grammar) | the exact strings and the QR version / ECC |
 
 Firmware host tests (`tests/host/`) drive `od_sec2` and `od_claim_mode` with the HAL crypto bound
 to a host implementation, and reproduce V1-V13 byte for byte. The device's random choices are
@@ -2563,6 +2854,11 @@ Each of these has host tests only, or nothing:
 - the NO_RESET_PATTERN flag (§ 7.10.1) on any target;
 - the sealed oversize refusal on air (GATT refuses an over-MTU write first);
 - the BG22 tag-only CCM decrypt through the fixed HAL (§ 9.5 rule 5b).
+- **everything of revision 5**: the MSD bytes on air in every § 5.3.1 state (BG22 bit 3 in
+  particular), FF × 11 on Nordic and BG22, the Zephyr name in the ADV PDU seen by a passive
+  scanner and by HA, the claim-mode boost interval and its 60 s end, the restored key lines and
+  `/l/` key bytes on a panel, the redraw after a rotation and after toggling the bit, and the
+  `/l/?f=1` QR scanned from a 1.54in panel.
 
 ### 19.3 Open questions for the maintainer (not decided here)
 
@@ -2615,7 +2911,7 @@ reason given. "Disagree" means not applied, with reasons.
 | R10 no panel | narrowed by A15 | § 8.6 |
 | C1-C10 | carried into § 19 as E1-E14 and H1-H13 (C2 → E1, C3 → E2, C4 → E3, C5 → H3, C6 → H4, C7 → H5, C8 → H6, C9 → H7, C10 → E13) | § 19 |
 | E10 option (derive K_dev) | **Disagree:** it keeps K_dev non-random, and W costs nothing extra (CCM is needed anyway) | § 8.2 |
-| Recovery-page phishing advice | **Agree,** as rules for the `/s/` page | § 7.8 |
+| Recovery-page phishing advice | **Agree,** as rules for the `/l/` setup page (revision 5) | § 7.8.1 |
 
 ---
 

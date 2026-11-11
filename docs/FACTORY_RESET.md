@@ -1,9 +1,18 @@
 # Factory reset, reset pin and reset screen — specification
 
-Status: **DRAFT revision 4, 2026-11-11, implemented on `v3/head` (host-tested; the five-cycle
+Status: **DRAFT revision 5, 2026-11-11, implemented on `v3/head` (host-tested; the five-cycle
 reset and the erase ordering were run on one ESP32-S3, nothing else on hardware, SECURITY_V2
 § 19).** Values marked provisional need adopting in the protocol repo. This is a companion to [SECURITY_V2.md](SECURITY_V2.md); the work
 breakdown is in [SECURITY_V2_IMPLEMENTATION_PLAN.md](SECURITY_V2_IMPLEMENTATION_PLAN.md).
+
+**Revision 5 changes:**
+- the RESET screen's QR uses the revision 5 setup URL grammar on the existing `/l/` entry point,
+  `https://opendisplay.org/l/?f=1&k=2&…` (SECURITY_V2 § 7.8.1); `/s/` is withdrawn (never
+  shipped);
+- the reset clears 0x27 `flags` bit 1 SHOW_KEY_ON_SCREEN with the config; the RESET screen never
+  shows a key (SECURITY_V2 § 10.7);
+- the page runs the same wizard for a reset as for a first setup (recovery is setup, SECURITY_V2
+  § 15.2).
 
 **Revision 4 changes:**
 - the five-cycle pattern stays **on by default** on every target, and a config can switch it off
@@ -28,7 +37,7 @@ breakdown is in [SECURITY_V2_IMPLEMENTATION_PLAN.md](SECURITY_V2_IMPLEMENTATION_
 - the secrets are scrubbed before the key is erased (new step R1b, review A4);
 - a key erase that keeps failing ends in LOCKED;
 - the reset ends in **fresh claim mode** (SECURITY_V2 § 7);
-- the reset screen is the RESET kind of the setup screen family, and its URL is `/s/?k=r`;
+- the reset screen is the RESET kind of the setup screen family, and its URL is `/s/?k=r` (revision 5: `/l/?f=1&k=2`);
 - the reset pin is sticky on claimed devices (review A9);
 - the ESP32 WiFi NVS copy is erased (review A16);
 - the five-power-cycle alternative is an option only (SECURITY_V2 Appendix B.1; adopted in
@@ -233,7 +242,7 @@ full layout (>= 400x300 logical)          reduced layout (small panels)
 "Settings and key erased"                 QR: setup URL
 "ID:  OD1A2B3C"
 "Scan to set up again"
-QR: setup URL (k=r)
+QR: setup URL (k=2)
 ```
 
 When text and QR do not both fit, the QR wins. The screen is drawn **before** the config is
@@ -246,10 +255,10 @@ draws its SETUP screen directly (ESP32 `tryProvisionFactoryEmbed`, Nordic `facto
 
 ### 4.2 The setup URL
 
-The URL is defined once, in SECURITY_V2 § 7.8:
+The URL is defined once, in SECURITY_V2 § 7.8.1 (grammar, byte budget, vectors, page rules):
 
 ```
-https://opendisplay.org/s/?k=r&i=<id>&t=<target>&v=<fw>[&b=<driver>][&d=<display>][&p=<power>]
+https://opendisplay.org/l/?f=1&k=2&i=<id>&t=<target>&v=<fw>[&b=<driver>][&d=<display>][&p=<power>]
 ```
 
 - The `b`, `d` and `p` indices come from the **old** config's 0x02 packet, read before the erase.
@@ -257,13 +266,13 @@ https://opendisplay.org/s/?k=r&i=<id>&t=<target>&v=<fw>[&b=<driver>][&d=<display
 - The worst case is 83 bytes, inside QR version 6 ECC-M (106).
 - It carries no secret.
 
-Revision 1's `/r/` URL never shipped and is replaced.
+Revision 1's `/r/` and revision 2's `/s/` never shipped and are replaced.
 
-### 4.3 What the opendisplay.org `/s/` page shows for `k=r`
+### 4.3 What the opendisplay.org `/l/` page shows for `k=2`
 
-The page follows SECURITY_V2 § 7.8 rules 1-6: strict parsing, no secrets on the page, the
-preselection shown and confirmed, the genuine-domain note, no third-party requests. For `k=r` it
-says:
+The page follows SECURITY_V2 § 7.8.1 page rules: strict parsing, no secrets on the page, the
+preselection shown and confirmed, the genuine-domain note, no third-party requests. For `k=2` it
+says (and then runs the same wizard as for `k=1`):
 
 1. The device name `OD<i>` and the firmware version. *"This display was factory reset. Its
    settings, its security key and its stored images were erased. It is now waiting to be set up."*
@@ -385,7 +394,7 @@ corrected preset.
 ### 7.2 No simple-config ids
 
 With no 0x02 packet, or indices of 0, the URL omits `b`, `d` and `p`, for example
-`https://opendisplay.org/s/?k=r&i=1A2B3C&t=1&v=3.0.0`. The page then offers the manual board
+`https://opendisplay.org/l/?f=1&k=2&i=1A2B3C&t=1&v=3.0.0`. The page then offers the manual board
 picker.
 
 ### 7.3 No reset pin (button-less boards, or a config without an enabled 0x27 pin)
