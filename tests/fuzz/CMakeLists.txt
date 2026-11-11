@@ -33,8 +33,11 @@ target_compile_options(od_fuzz_sec2_frames PRIVATE ${OD_FUZZ_FLAGS})
 target_link_options(od_fuzz_sec2_frames PRIVATE ${OD_FUZZ_FLAGS})
 # A very short run under ctest proves the target starts, authenticates and survives its seeds.
 # It is a smoke test, NOT the fuzzing -- that is tools/check.sh's fuzz step and manual soaks.
+# New units go to a build-tree directory (libFuzzer writes into the FIRST corpus dir).
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/sec2_frames_new)
 add_test(NAME fuzz_sec2_frames
          COMMAND od_fuzz_sec2_frames -runs=2000 -print_final_stats=0
+                 ${CMAKE_CURRENT_BINARY_DIR}/sec2_frames_new
                  ${CMAKE_CURRENT_LIST_DIR}/corpus/sec2_frames)
 set_tests_properties(fuzz_sec2_frames PROPERTIES
                      ENVIRONMENT "UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1")
