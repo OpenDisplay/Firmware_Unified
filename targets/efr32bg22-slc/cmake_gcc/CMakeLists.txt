@@ -23,6 +23,23 @@ set(OD_SL_APPLICATION_VERSION "" CACHE STRING "If set, overrides the derived SL_
 # which contains the content of the SLC project
 include(opendisplay-bg22.cmake)
 
+# Link-time optimisation (the SDK's toolchain_gcc_lto setting: -flto at compile and link; the
+# Bluetooth host archives ship LTO IR for it). These objects stay out of it:
+# - definitions referenced only from newlib members pulled in after the IR is resolved
+#   (syscalls, the --wrap'd allocator, _write, the printf family): the plugin would drop them;
+# - em_msc.c and em_emu.c, which hold the text_application_ram functions (Series 2 flash
+#   write/erase must execute from RAM): cross-TU inlining would copy their bodies into flash
+#   callers and lose the section.
+set_source_files_properties(
+    "${SDK_PATH}/platform_core/platform/emlib/src/em_msc.c"
+    "${SDK_PATH}/platform_core/platform/emlib/src/em_emu.c"
+    "${SDK_PATH}/platform_common/platform/common/src/sl_syscalls.c"
+    "${SDK_PATH}/platform_core/platform/service/memory_manager/src/sl_memory_manager_retarget.c"
+    "../od_rtt.c"
+    "../od_printf.c"
+    TARGET_DIRECTORY slc
+    PROPERTIES COMPILE_OPTIONS "-fno-lto")
+
 # main.c and other app sources live in target `slc`; they must see OD_ENABLE_RTT when compiled.
 target_compile_definitions(slc PUBLIC
 	OD_ENABLE_RTT=$<IF:$<BOOL:${OD_ENABLE_RTT}>,1,0>

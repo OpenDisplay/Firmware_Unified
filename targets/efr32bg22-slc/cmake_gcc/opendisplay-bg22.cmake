@@ -490,12 +490,13 @@ target_compile_options(slc PUBLIC
     $<$<COMPILE_LANGUAGE:C>:-Wall>
     $<$<COMPILE_LANGUAGE:C>:-Wextra>
     $<$<COMPILE_LANGUAGE:C>:-Oz>
+    $<$<COMPILE_LANGUAGE:C>:-fno-inline-functions-called-once>
     $<$<COMPILE_LANGUAGE:C>:-fdata-sections>
     $<$<COMPILE_LANGUAGE:C>:-ffunction-sections>
     $<$<COMPILE_LANGUAGE:C>:-fomit-frame-pointer>
     $<$<COMPILE_LANGUAGE:C>:-g0>
     $<$<COMPILE_LANGUAGE:C>:--specs=nano.specs>
-    $<$<COMPILE_LANGUAGE:C>:-fno-lto>
+    $<$<COMPILE_LANGUAGE:C>:-flto>
     $<$<COMPILE_LANGUAGE:CXX>:-mcpu=cortex-m33>
     $<$<COMPILE_LANGUAGE:CXX>:-mthumb>
     $<$<COMPILE_LANGUAGE:CXX>:-mfpu=fpv5-sp-d16>
@@ -507,12 +508,13 @@ target_compile_options(slc PUBLIC
     $<$<COMPILE_LANGUAGE:CXX>:-Wall>
     $<$<COMPILE_LANGUAGE:CXX>:-Wextra>
     $<$<COMPILE_LANGUAGE:CXX>:-Oz>
+    $<$<COMPILE_LANGUAGE:CXX>:-fno-inline-functions-called-once>
     $<$<COMPILE_LANGUAGE:CXX>:-fdata-sections>
     $<$<COMPILE_LANGUAGE:CXX>:-ffunction-sections>
     $<$<COMPILE_LANGUAGE:CXX>:-fomit-frame-pointer>
     $<$<COMPILE_LANGUAGE:CXX>:-g0>
     $<$<COMPILE_LANGUAGE:CXX>:--specs=nano.specs>
-    $<$<COMPILE_LANGUAGE:CXX>:-fno-lto>
+    $<$<COMPILE_LANGUAGE:CXX>:-flto>
     $<$<COMPILE_LANGUAGE:ASM>:-mcpu=cortex-m33>
     $<$<COMPILE_LANGUAGE:ASM>:-mthumb>
     $<$<COMPILE_LANGUAGE:ASM>:-mfpu=fpv5-sp-d16>
@@ -534,7 +536,7 @@ target_link_options(slc INTERFACE
     --specs=nano.specs
     "SHELL:-Xlinker -Map=$<TARGET_FILE_DIR:opendisplay-bg22>/opendisplay-bg22.map"
     "SHELL:-Wl,--wrap=_free_r -Wl,--wrap=_malloc_r -Wl,--wrap=_calloc_r -Wl,--wrap=_realloc_r"
-    -fno-lto
+    -flto
     -Wl,--gc-sections
 )
 

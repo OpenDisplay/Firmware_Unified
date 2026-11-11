@@ -102,6 +102,9 @@ component:
 - package: simplicity_sdk
   vendor: silabs
   id: sl_main
+- package: simplicity_sdk
+  vendor: silabs
+  id: toolchain_gcc_lto
 other_file:
 - path: image/readme_img0.png
 - path: image/readme_img1.png
