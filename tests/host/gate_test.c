@@ -81,7 +81,7 @@ void od_txq_app_dropped(const od_reply_t *rp, uint16_t len, od_radio_result_t wh
 /* ------------------------------------------------------------------------- od_sec2_app hooks --- */
 
 /* Claim mode is set per case; the other three claim-mode hooks are here only because defining
- * one of them means od_sec2_pending.c's copies must not be linked. */
+ * one of them means od_sec2_hooks.c's forwarders must not be linked. */
 static struct od_sec2_claim_mode g_cm;
 
 uint32_t od_sec2_app_now_ms(void) { return 1000u; }

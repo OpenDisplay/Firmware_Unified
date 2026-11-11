@@ -155,14 +155,17 @@ set(OD_SHARED_SOURCES_HAL_NVS
 
 # APP_SESSION needs MORE than a HAL: the target must supply the od_sec2_app seam and
 # od_hal_secret, take HAL_CRYPTO and HAL_NVS (key records use its CRC), and pair this tier with
-# APP_XFER. od_sec2_pending.c holds the claim-mode / config-policy hooks until WP3b/WP4 replace
-# them. Dispatch routes the mandatory direct/partial opcode family straight to
+# APP_XFER. Claim mode, the factory reset and the config policy (od_claim_mode / od_factory_reset /
+# od_cfg_policy) add two more seams: od_claim_app.h and od_hal_reset.h. Dispatch routes the mandatory direct/partial opcode family straight to
 # od_xfer, so a consumer taking APP_SESSION must also implement od_xfer_app. APP_XFER in turn
 # requires APP_INFLATE. These are source-list dependencies, not optional target policy.
 set(OD_SHARED_SOURCES_APP_SESSION
     "${CMAKE_CURRENT_LIST_DIR}/core/od_sec2.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_sec2_rec.c"
-    "${CMAKE_CURRENT_LIST_DIR}/core/od_sec2_pending.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_cfg_policy.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_claim_mode.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_factory_reset.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_sec2_hooks.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_reply.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_gate.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_config_read.c"

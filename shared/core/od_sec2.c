@@ -40,6 +40,7 @@ OD_STATIC_ASSERT(OD_HAL_CRYPTO_KEY_SLOTS >= 2u, "SEC2 needs one CCM slot per dir
 #define TA_PFX   8u
 OD_STATIC_ASSERT(TC_PFX + T_TAIL == OD_SEC2_TC_LEN, "Tc layout");
 OD_STATIC_ASSERT(TA_PFX + T_TAIL == OD_SEC2_TA_LEN, "Ta layout");
+OD_STATIC_ASSERT(OD_SEC2_CLAIM_BEGIN == OD_SEC2_AUTH_HELLO, "the BUSY check reads sub 0x01 as both");
 
 enum pstep {
     P_NONE = 0,
@@ -118,6 +119,8 @@ static struct {
     uint32_t ring[OD_SEC2_RATE_EVENTS];
     uint8_t  ring_n;
     uint8_t  ring_head;
+
+    uint32_t tick_ms;             /* last pump / handshake call, for the stall compensation */
 } s;
 
 /* ---------------------------------------------------------------------------- helpers --- */
@@ -233,6 +236,11 @@ static void rate_count(uint32_t now)
 
 enum od_sec2_state od_sec2_boot(const struct SecurityConfig *sec)
 {
+    return od_sec2_boot_ex(sec, false);
+}
+
+enum od_sec2_state od_sec2_boot_ex(const struct SecurityConfig *sec, bool has_secrets)
+{
     uint8_t rec[OD_SEC2_OS2K_LEN];
     struct od_sec2_key_rec k;
     bool key_valid;
@@ -273,12 +281,60 @@ enum od_sec2_state od_sec2_boot(const struct SecurityConfig *sec)
         (void)write_os2s();
         (void)write_os2k(OD_SEC2_ORIGIN_LEGACY, 1u, sec->encryption_key);
         set_key(OD_SEC2_ORIGIN_LEGACY, 1u, sec->encryption_key);
+    } else if (has_secrets && !s.os2s_valid) {
+        s.state = OD_SEC2_UNCLAIMED;                        /* row 5: first 3.0 boot of a 2.x */
+        s.os2s.flags = (uint8_t)(s.os2s.flags | OD_SEC2_OS2S_MIGRATED | OD_SEC2_OS2S_LEGACY_SECRETS);
+        (void)write_os2s();
+    } else if (has_secrets) {
+        /* Row 6 with the flag; row 7 without: 3.0 never stores secrets on an unclaimed device,
+         * so these come from a claim whose key is gone. */
+        s.state = ((s.os2s.flags & OD_SEC2_OS2S_LEGACY_SECRETS) != 0u) ? OD_SEC2_UNCLAIMED
+                                                                        : OD_SEC2_LOCKED;
     } else {
-        s.state = OD_SEC2_UNCLAIMED;                        /* row 8 (rows 5-7: WP4) */
+        s.state = OD_SEC2_UNCLAIMED;                        /* row 8 */
+        if (s.os2s_valid && (s.os2s.flags & OD_SEC2_OS2S_LEGACY_SECRETS) != 0u) {
+            /* the secrets were written away in normal mode: the flag goes with them */
+            s.os2s.flags = (uint8_t)(s.os2s.flags & ~OD_SEC2_OS2S_LEGACY_SECRETS);
+            (void)write_os2s();
+        }
     }
+    s.tick_ms = od_sec2_app_now_ms();
     wipe(rec, sizeof rec);
     wipe(&k, sizeof k);
     return s.state;
+}
+
+void od_sec2_force_locked(void)
+{
+    od_sec2_teardown();
+    wipe(s.k_dev, sizeof s.k_dev);
+    s.state = OD_SEC2_LOCKED;
+}
+
+void od_sec2_os2s_get(struct od_sec2_state_rec *out, bool *valid)
+{
+    *out = s.os2s;
+    if (valid != NULL) {
+        *valid = s.os2s_valid;
+    }
+}
+
+bool od_sec2_os2s_put(uint8_t flags, uint8_t short_boots)
+{
+    s.os2s.flags = flags;
+    s.os2s.short_boots = short_boots;
+    return write_os2s();
+}
+
+bool od_sec2_key_is(const uint8_t key[16])
+{
+    return s.state == OD_SEC2_CLAIMED && ct_equal(key, s.k_dev, 16u);
+}
+
+bool od_sec2_legacy_secrets(void)
+{
+    return s.state == OD_SEC2_UNCLAIMED && s.os2s_valid &&
+           (s.os2s.flags & OD_SEC2_OS2S_LEGACY_SECRETS) != 0u;
 }
 
 enum od_sec2_state od_sec2_state(void)
@@ -293,8 +349,7 @@ bool od_sec2_needs_session(void)
 
 static bool legacy_secrets_open(void)
 {
-    return s.state == OD_SEC2_UNCLAIMED && s.os2s_valid &&
-           (s.os2s.flags & OD_SEC2_OS2S_LEGACY_SECRETS) != 0u;
+    return od_sec2_legacy_secrets();
 }
 
 uint8_t od_sec2_ident_flags(void)
@@ -329,6 +384,15 @@ static bool derive_from_kdev(const char *label, uint8_t out[16])
 bool od_sec2_k_lan(uint8_t out[16])
 {
     return derive_from_kdev("OD2/k-lan", out);
+}
+
+bool od_sec2_k_dev(uint8_t out[16])
+{
+    if (s.state != OD_SEC2_CLAIMED) {
+        return false;
+    }
+    memcpy(out, s.k_dev, 16u);
+    return true;
 }
 
 bool od_sec2_k_v1(uint8_t out[16])
@@ -431,7 +495,26 @@ void od_sec2_disconnect(void)
     clear_pending(true);
     s.rx = false;
     s.tx = false;
+    s.tx_code = false;
     s.len = 0u;
+    od_sec2_app_claim_event(OD_SEC2_EV_DISCONNECTED, 0u);
+}
+
+/* The loop was blocked for `gap` ms (no pump, no handshake frame): the peer could not have
+ * answered sooner than the device let it, so move the pending step's clocks forward. */
+static void stall_check(uint32_t now)
+{
+    const uint32_t gap = (uint32_t)(now - s.tick_ms);
+
+    if (gap > OD_SEC2_STALL_MS) {
+        if (s.pstep != P_NONE) {
+            s.p_ms += gap;
+        }
+        if (s.rx) {
+            s.rx_ms += gap;
+        }
+    }
+    s.tick_ms = now;
 }
 
 /* ---------------------------------------------------------------------- record layer --- */
@@ -563,6 +646,7 @@ void od_sec2_pump(void)
     od_tx_reservation_t r;
     od_txq_status_t rc;
 
+    stall_check(od_sec2_app_now_ms());
     if (!s.tx || od_txq_reserve(1u, &r) != OD_TXQ_OK) {
         return;
     }
@@ -1056,12 +1140,19 @@ od_frame_outcome_t od_sec2_command(od_tx_reservation_t *r, const od_reply_t *rp,
         reply_status(r, rp);
         return OD_FRAME_DISCOVERY;
     }
+    stall_check(now);
     if (rp->origin != OD_ORIGIN_BLE) {
         err = OD_SEC_ERR_WRONG_TRANSPORT;
     } else if (body.n < 2u) {
         err = OD_SEC_ERR_MALFORMED;
     } else {
         err = state_check(cmd, sub);
+        if (err == 0u && (body.p[1] & FRAG_IDX) == 0u && sub == OD_SEC2_CLAIM_BEGIN &&
+            od_sec2_app_display_busy()) {
+            /* BEGIN (claim) and HELLO (auth) share sub 0x01. A pass is running or queued: say so
+             * now rather than answer after it. Nothing pending is touched and nothing counts. */
+            err = OD_SEC_ERR_BUSY;
+        }
         if (err == 0u) {
             err = reassemble(cmd, sub, body.p[1], od_span_drop(body, 2u), now);
             if (err == OD_SEC_ERR_MALFORMED) {

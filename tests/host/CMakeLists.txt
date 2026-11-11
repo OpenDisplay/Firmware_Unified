@@ -50,11 +50,11 @@ message(STATUS "od: C compiler is ${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERS
 include(${CMAKE_CURRENT_LIST_DIR}/../../shared/sources.cmake)
 
 if(OD_SHARED_SOURCES)
-    add_library(od_shared STATIC ${OD_SHARED_SOURCES})
+    add_library(od_shared STATIC ${OD_SHARED_SOURCES} ${CMAKE_CURRENT_LIST_DIR}/claim_app_weak.c)
     target_include_directories(od_shared PUBLIC ${OD_SHARED_INCLUDE_DIRS})
     # BG22 changes the ABI of cap-sensitive shared structs and the PIPE reservation table. Compile
     # a real second variant; executable-local definitions cannot retroactively change od_shared.
-    add_library(od_shared_silabs STATIC ${OD_SHARED_SOURCES})
+    add_library(od_shared_silabs STATIC ${OD_SHARED_SOURCES} ${CMAKE_CURRENT_LIST_DIR}/claim_app_weak.c)
     target_include_directories(od_shared_silabs PUBLIC ${OD_SHARED_INCLUDE_DIRS})
     # The profile comes from shared/profiles.cmake, the same list the firmware compiles with;
     # OD_BOOT_LOGO_SIZES is host-only, because BG22 declines APP_BOOT and never builds the logo.
@@ -65,7 +65,7 @@ if(OD_SHARED_SOURCES)
     # The classic ESP32 profile negotiates a 16-frame PIPE window. Compile the complete shared
     # archive under that geometry so the derived reorder storage and queue assertions are tested,
     # rather than changing only the test translation unit after the archive was built.
-    add_library(od_shared_pipe_w16 STATIC ${OD_SHARED_SOURCES})
+    add_library(od_shared_pipe_w16 STATIC ${OD_SHARED_SOURCES} ${CMAKE_CURRENT_LIST_DIR}/claim_app_weak.c)
     target_include_directories(od_shared_pipe_w16 PUBLIC ${OD_SHARED_INCLUDE_DIRS})
     target_compile_definitions(od_shared_pipe_w16 PUBLIC
         OD_PIPE_MAX_W=16u
@@ -117,6 +117,8 @@ if(OD_SHARED_SOURCES)
         ${OD_SHARED_SOURCES_APP_SESSION})
     # HAL_NVS for od_config_store_crc32 (the OS2K/OS2S records use it), over an empty medium.
     list(APPEND OD_SHARED_DISPATCH_FIXTURE_SOURCES ${CMAKE_CURRENT_LIST_DIR}/nvs_empty_test_stub.c)
+    # Weak, inert claim-mode / reset / display-busy seams (claim_app_weak.c); a test overrides.
+    list(APPEND OD_SHARED_DISPATCH_FIXTURE_SOURCES ${CMAKE_CURRENT_LIST_DIR}/claim_app_weak.c)
     list(FILTER OD_SHARED_DISPATCH_FIXTURE_SOURCES EXCLUDE REGEX "/core/od_core\\.c$")
     add_library(od_shared_dispatch_fixture STATIC ${OD_SHARED_DISPATCH_FIXTURE_SOURCES})
     target_include_directories(od_shared_dispatch_fixture PUBLIC ${OD_SHARED_INCLUDE_DIRS})

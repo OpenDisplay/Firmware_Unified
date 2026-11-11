@@ -130,6 +130,10 @@ void od_config_store_hold_writes(bool held);
  * done), else OD_ERR_CONFIG_WRITE_FAILED. */
 uint8_t od_config_store_save_error(void);
 
+/* Set the byte od_config_store_save_error() reports next: a refusal decided before the store was
+ * reached (the SEC2 config policy's 0x10 / 0x11, od_cfg_policy.h). */
+void od_config_store_set_save_error(uint8_t err);
+
 /* CRC-32 (reflected, polynomial 0xEDB88320) over the payload. Bit-serial deliberately: a table
  * costs 1 KB of flash on a part with 480 B of RAM headroom, and this runs once per config
  * write. Exposed because it is the record's checksum, not an implementation detail -- host

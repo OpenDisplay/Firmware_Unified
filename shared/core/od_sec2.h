@@ -11,9 +11,9 @@
  *
  * NO KEY IN THIS HEADER'S STRUCTS. Record keys live in od_hal_crypto slots 0 (h2d) and 1 (d2h).
  *
- * WHAT IS NOT HERE: claim-mode entry, the gesture and the setup screens (WP3b/WP5, reached
- * through od_sec2_app.h), the config-side rules (WP4: secrets, 0x27 at rest, the boot rows that
- * need the secret scan), factory reset (WP6).
+ * WHAT IS NOT HERE: claim-mode entry, the boot history and the setup screens (od_claim_mode.h),
+ * the config-side rules (od_cfg_policy.h: secrets, 0x27 at rest, the secret scan of rows 5-7),
+ * factory reset (od_factory_reset.h). All reached through od_sec2_app.h.
  *
  * CONTEXT: single loop/main task. No locks, no allocation.
  */
@@ -76,6 +76,11 @@ OD_STATIC_ASSERT(OD_SEC2_STATUS_LEN == 2u + 1u + 1u + 1u + 2u + 8u + 2u + 1u + 1
 #define OD_SEC2_RATE_EVENTS         10u
 #define OD_SEC2_STRIKES             3u
 #define OD_SEC2_DEFAULT_TIMEOUT_S   3600u
+/* A gap this long between two od_sec2_pump() / handshake calls means the loop itself was blocked
+ * (a blocking display pass on BG22, a synchronous refresh elsewhere); a pending handshake's
+ * timers are moved forward by the gap, so the device's own stall never expires a peer's step. A
+ * connected loop runs far more often than this (every connection event). */
+#define OD_SEC2_STALL_MS            2000u
 
 /* --------------------------------------------------------------------------- key records --- */
 
@@ -114,12 +119,32 @@ enum od_sec2_state {
     OD_SEC2_LOCKED
 };
 
-/* The boot decision, the rows that need no config scan (section 10.1 rows 1-4 and 8). Reads
- * OS2K and OS2S; `sec` is the 0x27 as stored (NULL when there is none). Row 4 (an unmigrated
- * 2.x key) migrates by writing OS2S and then OS2K. Rows 5-7 (secrets without a key) are WP4 and
- * evaluate as row 8 here. Resets all RAM state. Call once per boot before the radio starts, and
- * from tests to start a case clean. */
+/* The boot decision without the secret scan (section 10.1 rows 1-4 and 8; rows 5-7 evaluate as
+ * row 8). Reads OS2K and OS2S; `sec` is the 0x27 as stored (NULL when there is none). Row 4 (an
+ * unmigrated 2.x key) migrates by writing OS2S and then OS2K. Resets all RAM state. Targets call
+ * od_security_boot() (od_claim_mode.h), which uses od_sec2_boot_ex(); tests use either. */
 enum od_sec2_state od_sec2_boot(const struct SecurityConfig *sec);
+
+/* The full boot decision: as od_sec2_boot(), plus rows 5-7. `has_secrets` says the stored config
+ * carries a WiFi password or FindMy key material (od_cfg_policy_stored_has_secrets()). */
+enum od_sec2_state od_sec2_boot_ex(const struct SecurityConfig *sec, bool has_secrets);
+
+/* A factory reset that could not erase the key (FACTORY_RESET.md stage 4): LOCKED for this boot,
+ * whatever the records say. */
+void od_sec2_force_locked(void);
+
+/* OS2S as od_sec2 holds it (read at boot, kept current). *valid = the record was readable. */
+void od_sec2_os2s_get(struct od_sec2_state_rec *out, bool *valid);
+
+/* Replace the flags and short_boots of OS2S (key_gen is od_sec2's) and store it. false = the
+ * write failed (the RAM copy still changes: the next boot re-reads the medium). */
+bool od_sec2_os2s_put(uint8_t flags, uint8_t short_boots);
+
+/* Constant-time: is `key` the device key? false unless CLAIMED. */
+bool od_sec2_key_is(const uint8_t key[16]);
+
+/* UNCLAIMED with the LEGACY_SECRETS flag (section 10.5). */
+bool od_sec2_legacy_secrets(void);
 
 enum od_sec2_state od_sec2_state(void);
 
@@ -142,6 +167,9 @@ bool od_sec2_k_lan(uint8_t out[16]);
 
 /* K_v1 (section 10.2), the 0x27 key at rest. false unless CLAIMED. */
 bool od_sec2_k_v1(uint8_t out[16]);
+
+/* K_dev itself, for the claimed read view of 0x27 (section 10.2; a sealed read only). */
+bool od_sec2_k_dev(uint8_t out[16]);
 
 /* ---------------------------------------------------------------------------- commands --- */
 

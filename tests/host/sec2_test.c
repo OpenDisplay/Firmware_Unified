@@ -111,7 +111,8 @@ bool od_cmd_mutates_config(uint16_t cmd) { (void)cmd; return false; }
 static uint32_t g_now_ms = 1000u;
 static const struct SecurityConfig *g_app_sec;
 static struct od_sec2_claim_mode g_cm;
-static unsigned g_ev[5];
+static unsigned g_ev[6];
+static bool g_busy;
 static uint32_t g_ev_code;
 static bool g_scrub_ok = true;
 static unsigned g_rest_syncs;
@@ -134,7 +135,21 @@ void od_sec2_app_claim_event(enum od_sec2_claim_event ev, uint32_t arg)
 }
 
 bool od_sec2_app_scrub(void) { return g_scrub_ok; }
+bool od_sec2_app_display_busy(void) { return g_busy; }
 void od_sec2_app_rest_sync(void) { ++g_rest_syncs; }
+
+/* Time passing while the loop runs (pumped every 100 ms). A jump of g_now_ms without a pump is a
+ * stalled loop, which od_sec2 compensates (OD_SEC2_STALL_MS). */
+static void live_advance(uint32_t ms)
+{
+    while (ms > 0u) {
+        const uint32_t step = ms < 100u ? ms : 100u;
+
+        g_now_ms += step;
+        ms -= step;
+        od_sec2_pump();
+    }
+}
 
 /* --------------------------------------------------------------------------- the fake hooks --- */
 
@@ -599,7 +614,7 @@ static void test_auth_failures(void)
     setup(true);
     k = tp256_new(qc);
     CHECK(hello_with(qc, 2u, 20u) == 81);
-    g_now_ms += OD_SEC2_HELLO_TO_FINISH_MS + 1u;
+    live_advance(OD_SEC2_HELLO_TO_FINISH_MS + 1u);
     CHECK(sec2c_xchg(&C, &BLE, CMD_SEC_AUTH, OD_SEC2_AUTH_FINISH, tag, 16u, qc, 64u) ==
           -(int)OD_SEC_ERR_EXPIRED);
     CHECK(!fake_slot_loaded(0u));
@@ -713,7 +728,7 @@ static void test_fragments(void)
 
     CASE("a gap over 5 s discards silently");
     frag(OD_SEC2_AUTH_HELLO, 0x00u, z, 16u);
-    g_now_ms += OD_SEC2_FRAGMENT_GAP_MS + 1u;
+    live_advance(OD_SEC2_FRAGMENT_GAP_MS + 1u);
     frag(OD_SEC2_AUTH_HELLO, 0x01u, z, 16u);
     CHECK(plain_is(mal, 4u));                     /* index 1 with nothing open */
 
@@ -1018,7 +1033,7 @@ static void test_claim(void)
         b[0] = 2u;
         b[1] = 20u;
         CHECK(sec2c_xchg(&C, &BLE, CMD_SEC_CLAIM, OD_SEC2_CLAIM_BEGIN, b, 66u, r, 96u) == 81);
-        g_now_ms += OD_SEC2_BEGIN_TO_NONCE_MS + 1u;
+        live_advance(OD_SEC2_BEGIN_TO_NONCE_MS + 1u);
         CHECK(sec2c_xchg(&C, &BLE, CMD_SEC_CLAIM, OD_SEC2_CLAIM_NONCE, nc, 16u, r, 96u) ==
               -(int)OD_SEC_ERR_EXPIRED);
         CHECK(!g_ecdh_live);
@@ -1135,8 +1150,75 @@ static void test_ident_and_klan(void)
 }
 
 #ifndef SEC2_CTR_SUITE
+/* Bounded handshake latency: a handshake that meets a display pass is refused with BUSY at once,
+ * and the device's own stall never expires a peer's step. */
+static void test_busy_and_stall(void)
+{
+    uint8_t qc[64], tag[16], r[96], b[66];
+    void *k;
+
+    CASE("HELLO during a display pass: BUSY, nothing pending, no rate event");
+    setup(true);
+    k = tp256_new(qc);
+    g_busy = true;
+    CHECK(hello_with(qc, 2u, 20u) == -(int)OD_SEC_ERR_BUSY);
+    CHECK(!g_ecdh_live);
+    memset(tag, 0, sizeof tag);
+    CHECK(sec2c_xchg(&C, &BLE, CMD_SEC_AUTH, OD_SEC2_AUTH_FINISH, tag, 16u, qc, 64u) ==
+          -(int)OD_SEC_ERR_BAD_STATE);
+    g_busy = false;
+    tp256_free(k);
+    CHECK(sec2c_auth(&C, &BLE) == 0);
+    CHECK(od_sec2_session_live(NULL));
+
+    CASE("BUSY clears with the pass: the retry authenticates");
+    setup(true);
+    k = tp256_new(qc);
+    g_busy = true;
+    CHECK(hello_with(qc, 2u, 20u) == -(int)OD_SEC_ERR_BUSY);
+    tp256_free(k);
+    g_busy = false;
+    CHECK(sec2c_auth(&C, &BLE) == 0);
+
+    CASE("BEGIN during a display pass: BUSY");
+    setup(false);
+    g_cm.active = true;
+    g_cm.renders_left = 3u;
+    k = tp256_new(&b[2]);
+    b[0] = 2u;
+    b[1] = 20u;
+    g_busy = true;
+    CHECK(sec2c_xchg(&C, &BLE, CMD_SEC_CLAIM, OD_SEC2_CLAIM_BEGIN, b, 66u, r, 96u) ==
+          -(int)OD_SEC_ERR_BUSY);
+    CHECK(g_ev[OD_SEC2_EV_CODE] == 0u);
+    g_busy = false;
+    CHECK(sec2c_xchg(&C, &BLE, CMD_SEC_CLAIM, OD_SEC2_CLAIM_BEGIN, b, 66u, r, 96u) == 81);
+    tp256_free(k);
+
+    CASE("a stalled loop does not expire the peer's step");
+    setup(true);
+    k = tp256_new(qc);
+    CHECK(hello_with(qc, 2u, 20u) == 81);
+    g_now_ms += OD_SEC2_HELLO_TO_FINISH_MS + 5000u;   /* one blocking refresh, no pump */
+    CHECK(sec2c_xchg(&C, &BLE, CMD_SEC_AUTH, OD_SEC2_AUTH_FINISH, tag, 16u, qc, 64u) !=
+          -(int)OD_SEC_ERR_EXPIRED);
+    tp256_free(k);
+
+    CASE("a short gap is not a stall: the step still expires on time");
+    setup(true);
+    k = tp256_new(qc);
+    CHECK(hello_with(qc, 2u, 20u) == 81);
+    live_advance(OD_SEC2_HELLO_TO_FINISH_MS - 1000u);
+    g_now_ms += OD_SEC2_STALL_MS - 100u;   /* with the next 100 ms step: not over the threshold */
+    live_advance(1001u);
+    CHECK(sec2c_xchg(&C, &BLE, CMD_SEC_AUTH, OD_SEC2_AUTH_FINISH, tag, 16u, qc, 64u) ==
+          -(int)OD_SEC_ERR_EXPIRED);
+    tp256_free(k);
+}
+
 int main(void)
 {
+    test_busy_and_stall();
     test_primitives();
     test_point_validation();
     test_records();

@@ -67,6 +67,7 @@ uint32_t od_config_store_crc32(const uint8_t *data, uint32_t len)
 static uint32_t s_generation;
 static bool     s_writes_held;
 static bool     s_last_save_busy;
+static uint8_t  s_last_save_err = OD_ERR_CONFIG_WRITE_FAILED;
 
 uint32_t od_config_store_generation(void)
 {
@@ -83,9 +84,17 @@ void od_config_store_hold_writes(bool held)
 uint8_t od_config_store_save_error(void)
 {
     const bool busy = s_last_save_busy;
+    const uint8_t err = s_last_save_err;
 
     s_last_save_busy = false;
-    return busy ? OD_ERR_CONFIG_WRITE_BUSY : OD_ERR_CONFIG_WRITE_FAILED;
+    s_last_save_err = OD_ERR_CONFIG_WRITE_FAILED;
+    return busy ? OD_ERR_CONFIG_WRITE_BUSY : err;
+}
+
+void od_config_store_set_save_error(uint8_t err)
+{
+    s_last_save_busy = false;
+    s_last_save_err = err;
 }
 
 static enum od_config_store_result from_hal(int rc)
@@ -117,6 +126,7 @@ enum od_config_store_result od_config_store_save(void *workspace, uint32_t works
     uint32_t crc;
 
     s_last_save_busy = false;
+    s_last_save_err = OD_ERR_CONFIG_WRITE_FAILED;
     if (ws == NULL || payload == NULL) {
         od_log_error("Config save rejected: invalid arguments");
         return OD_CONFIG_STORE_IO;

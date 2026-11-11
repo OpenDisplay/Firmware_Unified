@@ -1,9 +1,8 @@
 /* od_sec2_app.h -- what od_sec2 needs from its surroundings, as link-time functions.
  *
  * Two groups. The first is the target's: identity, clock, panel facts, the parsed 0x27. The second
- * belongs to work packages that land after the SEC2 core (claim mode = WP3b, config policy = WP4);
- * shared/core/od_sec2_pending.c implements them as "claim mode never active, scrub not possible"
- * until those modules replace it. A host test defines them all itself.
+ * belongs to the claim-mode controller (od_claim_mode.c) and the config policy (od_cfg_policy.c).
+ * A host test may define them all itself.
  *
  * CONTEXT: main loop only. None of these may emit a frame or call back into od_sec2.
  */
@@ -34,7 +33,12 @@ uint8_t od_sec2_app_dflags(void);
 /* The parsed 0x27, or NULL. Only session_timeout_seconds is read after boot. */
 const struct SecurityConfig *od_sec2_app_security(void);
 
-/* ---- claim mode (WP3b) ---- */
+/* A display pass is running or about to run (a queued boot / post-write redraw), so a claim
+ * started now could not draw its code promptly. SEC_CLAIM BEGIN and SEC_AUTH HELLO are then
+ * answered OD_SEC_ERR_BUSY at once instead of waiting behind the pass (section 8.7, BUSY). */
+bool od_sec2_app_display_busy(void);
+
+/* ---- claim mode (od_claim_mode.c) ---- */
 
 struct od_sec2_claim_mode {
     bool     active;
@@ -51,12 +55,13 @@ enum od_sec2_claim_event {
     OD_SEC2_EV_DISCARDED,   /* a pending claim ended without success; arg = 1 if it had rendered */
     OD_SEC2_EV_EXHAUSTED,   /* ATTEMPTS_EXHAUSTED was answered: END(ATTEMPTS) */
     OD_SEC2_EV_EXIT,        /* SEC_CLAIM EXIT was answered: END(CANCEL) or END(CLAIMED) */
-    OD_SEC2_EV_CLAIMED      /* CONFIRM persisted the key */
+    OD_SEC2_EV_CLAIMED,     /* CONFIRM persisted the key */
+    OD_SEC2_EV_DISCONNECTED /* od_sec2_disconnect(): the application connection is gone */
 };
 
 void od_sec2_app_claim_event(enum od_sec2_claim_event ev, uint32_t arg);
 
-/* ---- config policy (WP4) ---- */
+/* ---- config policy (od_cfg_policy.c) ---- */
 
 /* SECURITY_V2 section 10.4 scrub, one atomic config rewrite. false = nothing changed. */
 bool od_sec2_app_scrub(void);
