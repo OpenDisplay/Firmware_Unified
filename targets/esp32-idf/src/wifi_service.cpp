@@ -970,6 +970,9 @@ static void odWifiEnsureStack(void) {
     s_staNetif = esp_netif_create_default_wifi_sta();
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     esp_wifi_init(&cfg);
+    // SECURITY_V2 10.4 (A16): ESP-IDF keeps no second copy of the password in nvs.net80211
+    // (CONFIG_ESP_WIFI_NVS_ENABLED=y would). Before any esp_wifi_set_config().
+    esp_wifi_set_storage(WIFI_STORAGE_RAM);
     esp_wifi_set_mode(WIFI_MODE_STA);
     s_wifiStackUp = true;
 }
