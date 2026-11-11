@@ -466,7 +466,7 @@ target_link_libraries(slc PUBLIC
     "${SDK_PATH}/bluetooth_common/lib/build/gcc/cortex-m33/bgcommon/release/libbgcommon.a"
     "${SDK_PATH}/bluetooth_le_controller/build/gcc/xg22/release/liblinklayer.a"
     "${SDK_PATH}/bluetooth_le_host/build/gcc/cortex-m33/bgstack/release/libbondingdb.a"
-    "${SDK_PATH}/bluetooth_le_host/build/gcc/cortex-m33/ble_bgapi/release/libble_bgapi_gatt_client.a"
+    "${SDK_PATH}/bluetooth_le_host/build/gcc/cortex-m33/ble_bgapi/release/libble_bgapi_stub_gatt_client.a"
     "${SDK_PATH}/bluetooth_le_host/build/gcc/cortex-m33/ble_bgapi/release/libble_bgapi_gatt_server.a"
     "${SDK_PATH}/bluetooth_le_host/build/gcc/cortex-m33/accept_list/release/libble_host_accept_list_stub.a"
     "${SDK_PATH}/bluetooth_le_host/build/gcc/cortex-m33/bgstack/release/libble_host.a"
