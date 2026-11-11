@@ -558,6 +558,20 @@ add_executable(od_xfer_split_test xfer_split_test.c
 target_link_libraries(od_xfer_split_test od_xfer_split od_shared)
 add_test(NAME xfer_split COMMAND od_xfer_split_test)
 
+# legacy_upload: what py-opendisplay 7.14.0 (no drive modes) sends for an upload -- 0x70/0x71/0x72
+# compressed and not, and PIPE -- for one panel of every colour class, replayed into od_display:
+# it must render through mode 0 exactly as mode 0 driven directly does
+# (tests/vectors/legacy_uploads.inc, from gen_legacy_uploads.py). Same composition as xfer_split.
+add_executable(od_legacy_upload_test legacy_upload_test.c
+    ../../shared/core/od_display.c
+    ../../shared/core/od_epd_cfg.c
+    ../../shared/core/od_epd.c
+    ../../shared/core/od_cfg_index.c
+    od_log_test_stub.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../third_party/qrcode/qrcode.c)
+target_link_libraries(od_legacy_upload_test od_xfer_split od_shared)
+add_test(NAME legacy_upload COMMAND od_legacy_upload_test)
+
 # config: the parsed aggregate -- instance caps, the Firmware zero-key rule, string termination,
 # and what a truncated blob leaves behind. Downstream of the pre-auth surface od_config_tlv
 # guards, so the cases are the ones where a hostile blob still reaches storage.

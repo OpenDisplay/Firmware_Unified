@@ -15,9 +15,13 @@
  * glue (od_xfer_app_*), which routes panel bytes here. Flash diverts (CMD_FLASH_PRELOAD) never
  * reach this module.
  *
- * Mode conventions (docs/CONFIG_DRIVEN_DISPLAY.md): mode 0 is the plain full refresh; a mode
- * named "fast" supplies the refresh tail when END asks for FAST; a mode named "partial" drives
- * partial updates and is what makes the panel report partial support.
+ * Mode conventions (docs/CONFIG_DRIVEN_DISPLAY.md): modes are identified by 0xAE mode_index.
+ * Mode 0 is the panel's default full refresh and the fallback for every client that knows
+ * nothing about modes: single pass, 0x20's scheme, its 2.x pixel format. A mode named "fast"
+ * supplies the refresh tail when END asks for FAST; a mode named "partial" drives partial
+ * updates and is what makes the panel report partial support. A named mode that is absent, or
+ * whose temperature window excludes the reading, falls back to mode 0 (partial: reported as
+ * unsupported, so the client sends a full upload).
  */
 #ifndef OD_DISPLAY_H
 #define OD_DISPLAY_H

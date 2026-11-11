@@ -74,8 +74,8 @@ static_assert(OD_EPD_ESC_SET_PIN == (unsigned)OD_SEQ_ESC_SET_PIN &&
 /* The adapter is a singleton in practice (one panel, one SPI bus), and the io
  * vtable takes plain function pointers, so the lookup state lives at file
  * scope rather than being smuggled through a context pointer. */
-/* mode_index -> od_cfg index. Sized by the config index, not by a mode cap:
- * how many update modes a display may have is now a config question. */
+/* This display's 0xAE entries, in packet order. A mode is identified by its packet's mode_index
+ * (od_cfg_entry_t.sub), never by position; the first packet with an index wins. */
 static uint8_t s_mode_entry_idx[OD_CFG_INDEX_MAX];
 static uint8_t s_mode_entry_count;
 static od_epd_io_t s_io;
@@ -89,12 +89,20 @@ static uint16_t rd16(const uint8_t *p)
 
 /* ------------------------------------------------- config-backed io reads */
 
+static const od_cfg_entry_t *mode_entry(uint8_t mode)
+{
+    for (uint8_t i = 0u; i < s_mode_entry_count; i++) {
+        const od_cfg_entry_t *e = od_cfg_index_entry((int)s_mode_entry_idx[i]);
+        if (e != NULL && e->sub == mode) {
+            return e;
+        }
+    }
+    return NULL;
+}
+
 static uint16_t io_seq_read(uint8_t mode, uint16_t off, uint8_t *dst, uint16_t len)
 {
-    if (mode >= s_mode_entry_count) {
-        return 0u;
-    }
-    const od_cfg_entry_t *e = od_cfg_index_entry((int)s_mode_entry_idx[mode]);
+    const od_cfg_entry_t *e = mode_entry(mode);
     if (e == NULL) {
         return 0u;
     }
@@ -106,10 +114,10 @@ static bool io_mode_read(uint8_t index, od_epd_mode_t *out)
 {
     uint8_t h[MODE_OFF_SEQ];
 
-    if (out == NULL || index >= s_mode_entry_count) {
+    if (out == NULL) {
         return false;
     }
-    const od_cfg_entry_t *e = od_cfg_index_entry((int)s_mode_entry_idx[index]);
+    const od_cfg_entry_t *e = mode_entry(index);
     if (e == NULL || e->len < MODE_OFF_SEQ ||
         od_cfg_read(e, 0u, h, sizeof(h)) != sizeof(h)) {
         return false;
@@ -348,10 +356,10 @@ extern "C" int od_epd_desc_from_config(od_panel_desc_t *out, uint8_t display_ins
     }
     memcpy(out->sleep_seq, &body[PANEL_OFF_SLEEPSEQ], OD_EPD_SLEEP_SEQ_MAX);
 
-    /* 0x2E: one per mode. Only INDEXED here -- the header of whichever mode is
+    /* 0xAE: one per mode. Only INDEXED here -- the header of whichever mode is
      * selected gets read later by io_mode_read, so a display may declare as
      * many modes as fit in the config rather than as many as an array held. */
-    for (int i = 0; i < od_cfg_index_count() && out->mode_count < OD_CFG_INDEX_MAX; i++) {
+    for (int i = 0; i < od_cfg_index_count() && s_mode_entry_count < OD_CFG_INDEX_MAX; i++) {
         const od_cfg_entry_t *e = od_cfg_index_entry(i);
         uint8_t inst;
         if (e == NULL || e->type != OD_PKT_DISPLAY_MODE) {
@@ -360,11 +368,13 @@ extern "C" int od_epd_desc_from_config(od_panel_desc_t *out, uint8_t display_ins
         if (od_cfg_read(e, 0u, &inst, 1u) != 1u || inst != display_instance) {
             continue;
         }
-        s_mode_entry_idx[out->mode_count] = (uint8_t)i;
-        out->mode_count++;
-        s_mode_entry_count = out->mode_count;
+        s_mode_entry_idx[s_mode_entry_count++] = (uint8_t)i;
+        /* od_epd bounds a mode number by mode_count: one past the highest index. */
+        if (e->sub >= out->mode_count) {
+            out->mode_count = (uint8_t)(e->sub == 0xFFu ? 0xFFu : e->sub + 1u);
+        }
     }
-    if (out->mode_count == 0u) {
+    if (s_mode_entry_count == 0u) {
         printf("[OD] desc: display %u has no usable 0x2E modes\r\n",
                (unsigned)display_instance);
         return desc_fail(-4);

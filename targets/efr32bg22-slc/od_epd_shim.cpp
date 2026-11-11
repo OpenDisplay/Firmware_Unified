@@ -20,11 +20,11 @@ static void set_in_pass(bool on)
     od_config_store_hold_writes(on);
 }
 
-bool od_epd_shim_available(uint8_t display_instance)
+bool od_epd_shim_available(const struct DisplayConfig *d)
 {
     /* Matched by the body's instance_number, first 0xB1 wins -- the same packet
-     * od_epd_desc_from_config() loads. */
-    return od_cfg_has_drive_data(display_instance);
+     * od_epd_desc_from_config() loads -- and mode 0 must serve a legacy upload. */
+    return d != NULL && od_cfg_has_drive_data(d->instance_number, d->color_scheme);
 }
 
 bool od_epd_shim_begin(uint8_t display_instance, uint8_t mode_index,
@@ -133,11 +133,6 @@ bool od_epd_shim_reselect(uint8_t mode_index, od_epd_shim_mode_t *mode_out)
     }
     mode_header_out(mode_out);
     return true;
-}
-
-uint8_t od_epd_shim_mode_count(void)
-{
-    return s_epd.modeCount();
 }
 
 bool od_epd_shim_begin_pass(uint8_t pass)

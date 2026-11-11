@@ -25,11 +25,11 @@
 extern "C" {
 #endif
 
-/* Does THIS DEVICE carry drive data for display `instance`?
- *
- * Per-device, not per-build: a unit provisioned before the drive packets existed has to keep
- * working on bb_epaper, which is why both backends stay linked. */
-bool od_epd_shim_available(uint8_t display_instance);
+struct DisplayConfig;
+
+/* Does the stored config carry drive data for display `d` that a legacy upload can use
+ * (od_cfg_has_drive_data)? False is the "needs migration" state. */
+bool od_epd_shim_available(const struct DisplayConfig *d);
 
 /* Power-up through to "ready for pixels": load the panel descriptor from config, apply pins
  * and rotation, select a drive mode and run the sequence up to its image marker. */
@@ -72,9 +72,6 @@ bool od_epd_shim_drive_begin(uint8_t display_instance, uint8_t mode_index,
 
 /* Select a different mode on an already-begun panel, for temp_policy SUBSTITUTE. */
 bool od_epd_shim_reselect(uint8_t mode_index, od_epd_shim_mode_t *mode_out);
-
-/* How many modes this device's config declares. Valid after od_epd_shim_drive_begin. */
-uint8_t od_epd_shim_mode_count(void);
 
 /* Power the glass and run the drive sequence up to pass `pass`'s image marker. */
 bool od_epd_shim_begin_pass(uint8_t pass);

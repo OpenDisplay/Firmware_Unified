@@ -83,9 +83,12 @@ bool od_cfg_index_current(void);
 /* Payload length of the stored config, for diagnostics. */
 uint32_t od_cfg_blob_len(void);
 
-/* Rebuilds the index, then: does display `instance` have a 0xB1 panel head and at least one
- * 0xAE mode with a sequence? False is the "needs migration" state of a 2.x config. */
-bool od_cfg_has_drive_data(uint8_t instance);
+/* Rebuilds the index, then: can display `instance` be driven by a client that knows nothing
+ * about modes? True when its first 0xB1 has a full head and its first 0xAE with mode_index 0
+ * has a sequence, is single-pass and renders `color_scheme` (DisplayConfig 0x20's, or 0xFF).
+ * False is the "needs migration" state: a 2.x config, or a 3.x config breaking the mode-0
+ * invariant (docs/CONFIG_DRIVEN_DISPLAY.md, "Mode conventions"). */
+bool od_cfg_has_drive_data(uint8_t instance, uint8_t color_scheme);
 
 #ifdef __cplusplus
 }

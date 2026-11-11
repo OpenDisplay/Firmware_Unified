@@ -623,7 +623,7 @@ extern "C" int opendisplay_display_spi_raw_open(bool run_panel_init)
   }
   /* NO PANEL TABLE: without drive packets there is no init sequence, no pin sense and no
    * colour map, so there is nothing to bring up. Same test the boot screen uses. */
-  if (!od_epd_shim_available(d->instance_number)) {
+  if (!od_epd_shim_available(d)) {
     return -OD_ERR_SPI_RAW_NO_CONFIG;
   }
   /* A raw session and a direct write share one panel object, so raw TAKES OWNERSHIP rather
@@ -888,7 +888,7 @@ extern "C" void opendisplay_display_boot_apply(void)
    * state straight after an OTA, so a failed attempt must NOT latch: the config-reload path
    * calls this again so that writing drive packets brings the boot screen up without a power
    * cycle. Say so, since an undriven panel looks exactly like one driven white. */
-  if (!od_epd_shim_available(d->instance_number)) {
+  if (!od_epd_shim_available(d)) {
     printf("[OD] boot screen: no drive packets; will retry after the next config write\r\n");
     return;
   }
@@ -946,7 +946,7 @@ extern "C" bool od_xfer_app_panel_info(od_xfer_panel_info_t *out)
   }
   memset(out, 0, sizeof(*out));
   /* No drive packets: every upload start NACKs needs-migration before the panel is touched. */
-  out->needs_migration = !od_epd_shim_available(d->instance_number);
+  out->needs_migration = !od_epd_shim_available(d);
   if (od_color_direct_geometry(d->color_scheme, d->pixel_width, d->pixel_height,
                                &out->geometry) != OD_COLOR_OK && !out->needs_migration) {
     return false;
@@ -968,7 +968,7 @@ extern "C" bool od_xfer_app_begin_full(const od_color_geometry_t *geometry)
   /* A device with no drive packets cannot be driven at all now -- there is no built-in panel
    * table left to fall back to. Refusing here is what makes that visible as a failed upload
    * rather than as a panel that stays blank after a successful one. */
-  if (!od_epd_shim_available(d->instance_number)) {
+  if (!od_epd_shim_available(d)) {
     return false;
   }
 

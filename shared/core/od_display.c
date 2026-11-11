@@ -170,7 +170,7 @@ bool od_display_partial_available(void)
     if (s_session != SESSION_IDLE || d == NULL || !od_epd_cfg_load(d, od_drive_app_bus())) {
         return false;
     }
-    return od_epd_cfg_find_mode("partial") >= 0;
+    return od_epd_cfg_find_usable_mode("partial", od_drive_app_temp_c()) >= 0;
 }
 
 od_display_rc_t od_display_begin_partial(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
@@ -193,7 +193,7 @@ od_display_rc_t od_display_begin_partial(uint16_t x, uint16_t y, uint16_t w, uin
     if (rc != OD_DISPLAY_OK) {
         return rc;
     }
-    m = od_epd_cfg_find_mode("partial");
+    m = od_epd_cfg_find_usable_mode("partial", od_drive_app_temp_c());
     if (m < 0) {
         return OD_DISPLAY_BAD_MODE;
     }
@@ -253,7 +253,8 @@ bool od_display_refresh(uint8_t refresh_mode)
     }
     phase(OD_DISPLAY_PHASE_REFRESH);
     if (s_session == SESSION_FULL && refresh_mode == REFRESH_FAST) {
-        const int fast = od_epd_cfg_find_mode("fast");
+        /* No "fast" mode, or one whose window excludes the reading: mode 0's own tail. */
+        const int fast = od_epd_cfg_find_usable_mode("fast", od_drive_app_temp_c());
 
         if (fast >= 0 && (uint8_t)fast != s_mode) {
             ok = od_epd_cfg_finish_with_tail((uint8_t)fast);

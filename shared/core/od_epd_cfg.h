@@ -84,13 +84,17 @@ bool    od_epd_cfg_code_map(uint8_t out[4]);
  * migration" state of a 2.x config on 3.x firmware. */
 bool    od_epd_cfg_has_drive_data(const struct DisplayConfig *d);
 
-/* Index of the loaded display's mode whose 0xAE mode_name equals `name` (case-insensitive,
- * NUL-padded), or -1. The firmware's only naming convention: "fast" answers a FAST refresh
- * byte, "partial" a partial update (docs/CONFIG_DRIVEN_DISPLAY.md). */
+/* mode_index of the loaded display's mode whose 0xAE mode_name equals `name` (case-insensitive,
+ * NUL-padded), or -1. Modes are identified by their packet's mode_index, never by packet order;
+ * the first packet carrying an index wins. Conventions (docs/CONFIG_DRIVEN_DISPLAY.md): index 0
+ * is the panel's default full refresh; the names "fast" and "partial" are reserved. */
 int     od_epd_cfg_find_mode(const char *name);
+/* As od_epd_cfg_find_mode, but -1 also when the mode's temperature window excludes `temp_c`
+ * under REJECT or SUBSTITUTE: the caller then falls back to mode 0. */
+int     od_epd_cfg_find_usable_mode(const char *name, int8_t temp_c);
 
 /* Select `*mode`, then apply its temp_policy against `temp_c` (OD_DRIVE_TEMP_UNKNOWN skips it):
- * REJECT refuses, SUBSTITUTE moves `*mode` to the lowest mode whose window covers temp_c.
+ * REJECT refuses, SUBSTITUTE moves `*mode` to mode 0 when mode 0's window covers temp_c.
  * Returns 0 or an OD_ERR_DRIVE_* code (BAD_MODE, TEMP_RANGE). */
 uint8_t od_epd_cfg_select_policy(uint8_t *mode, int8_t temp_c, od_epd_cfg_mode_t *out);
 

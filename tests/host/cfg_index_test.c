@@ -143,7 +143,7 @@ static void test_legacy_only_2x(void)
     CHECK(od_cfg_index_build() == 0);
     CHECK(od_cfg_find(0x20u, 0u) == NULL);
     CHECK(od_cfg_find(OD_PKT_DISPLAY_MODE, 0u) == NULL);
-    CHECK(!od_cfg_has_drive_data(0u));
+    CHECK(!od_cfg_has_drive_data(0u, 0u));
     CHECK(index_matches_walk(c.b, c.n));
 
     CASE("the walk starts after [reserved:2][version], whatever those bytes hold");
@@ -179,7 +179,7 @@ static void test_real_panel(void)
         fx_cfg_store(&c);
         CHECK(od_cfg_index_build() == (int)pan->count);
         CHECK(index_matches_walk(c.b, c.n));
-        CHECK(od_cfg_has_drive_data(0u) ==
+        CHECK(od_cfg_has_drive_data(0u, pan->scheme) ==
               (od_cfg_find(OD_PKT_DISPLAY_PANEL, 0u) != NULL &&
                od_cfg_find(OD_PKT_DISPLAY_MODE, 0u) != NULL));
         /* Every indexed body reads back byte-identical to what was written. */
@@ -374,8 +374,8 @@ static void test_duplicates(void)
     CHECK(od_cfg_index_build() > 0);
     CHECK(od_cfg_find(OD_PKT_DISPLAY_PANEL, 0u) != NULL);     /* instance 1's panel */
     CHECK(od_cfg_find(OD_PKT_DISPLAY_PANEL, 1u) == NULL);     /* asking for "instance 1" */
-    CHECK(od_cfg_has_drive_data(1u));
-    CHECK(!od_cfg_has_drive_data(0u));
+    CHECK(od_cfg_has_drive_data(1u, FX_PANELS[0].scheme));
+    CHECK(!od_cfg_has_drive_data(0u, FX_PANELS[0].scheme));
 }
 
 static void test_two_displays(void)
@@ -393,7 +393,8 @@ static void test_two_displays(void)
     fx_cfg_finish(&c);
     fx_cfg_store(&c);
     CHECK(od_cfg_index_build() == (int)(FX_PANELS[0].count + FX_PANELS[1].count));
-    CHECK(od_cfg_has_drive_data(0u) && od_cfg_has_drive_data(1u));
+    CHECK(od_cfg_has_drive_data(0u, FX_PANELS[0].scheme) &&
+          od_cfg_has_drive_data(1u, FX_PANELS[1].scheme));
     CHECK(index_matches_walk(c.b, c.n));
 }
 
@@ -419,7 +420,7 @@ static void test_caps(void)
     CHECK(c.n == cap);
     fx_cfg_store(&c);
     CHECK(od_cfg_index_build() == 2);
-    CHECK(od_cfg_has_drive_data(0u));
+    CHECK(od_cfg_has_drive_data(0u, FX_PANELS[0].scheme));
     CHECK(index_matches_walk(c.b, c.n));
 
     CASE("one byte over the cap is refused outright");

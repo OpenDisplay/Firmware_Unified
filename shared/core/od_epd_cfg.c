@@ -51,7 +51,10 @@ static const od_epd_cfg_bus_t *s_bus;
 static bool s_loaded;
 static bool s_in_pass;
 static int s_last_rc;
+/* This display's 0xAE entries in packet order. The packet's mode_index (od_cfg_entry_t.sub) is
+ * the mode's identity, not its position; the first packet with a given index wins. */
 static uint8_t s_mode_entry[OD_CFG_INDEX_MAX];
+static uint8_t s_mode_entries;
 static uint8_t s_desc_diag;
 
 /* Load-failure stage, for od_epd_desc_diag(). Same packing as BG22: stage in bits 7..5, indexed
@@ -124,7 +127,14 @@ static void io_delay_ms(uint32_t ms)
 
 static const od_cfg_entry_t *mode_entry(uint8_t mode)
 {
-    return mode < s_desc.mode_count ? od_cfg_index_entry((int)s_mode_entry[mode]) : NULL;
+    for (uint8_t i = 0u; i < s_mode_entries; i++) {
+        const od_cfg_entry_t *e = od_cfg_index_entry((int)s_mode_entry[i]);
+
+        if (e != NULL && e->sub == mode) {
+            return e;
+        }
+    }
+    return NULL;
 }
 
 static uint16_t io_seq_read(uint8_t mode, uint16_t off, uint8_t *dst, uint16_t len)
@@ -313,6 +323,7 @@ bool od_epd_cfg_load(const struct DisplayConfig *d, const od_epd_cfg_bus_t *bus)
     s_bus = bus;
     s_instance = d->instance_number;
     memset(&s_desc, 0, sizeof(s_desc));
+    s_mode_entries = 0u;
     s_desc.width = d->pixel_width;
     s_desc.height = d->pixel_height;
     s_desc.colour_scheme = d->color_scheme;
@@ -330,12 +341,17 @@ bool od_epd_cfg_load(const struct DisplayConfig *d, const od_epd_cfg_bus_t *bus)
             if (panel == NULL) {
                 panel = e;
             }
-        } else if (e->type == OD_PKT_DISPLAY_MODE && s_desc.mode_count < OD_CFG_INDEX_MAX &&
+        } else if (e->type == OD_PKT_DISPLAY_MODE && s_mode_entries < OD_CFG_INDEX_MAX &&
                    od_cfg_read(e, 0u, &instance, 1u) == 1u && instance == d->instance_number) {
-            s_mode_entry[s_desc.mode_count++] = (uint8_t)i;
+            s_mode_entry[s_mode_entries++] = (uint8_t)i;
+            /* od_epd bounds a mode number by mode_count: one past the highest index. Gaps
+             * read as absent (io_mode_read fails -> BAD_MODE). */
+            if (e->sub >= s_desc.mode_count) {
+                s_desc.mode_count = (uint8_t)(e->sub == 0xFFu ? 0xFFu : e->sub + 1u);
+            }
         }
     }
-    if (panel == NULL || panel->len < PANEL_OFF_SLEEPSEQ || s_desc.mode_count == 0u) {
+    if (panel == NULL || panel->len < PANEL_OFF_SLEEPSEQ || s_mode_entries == 0u) {
         return load_result(LOAD_NO_PANEL);
     }
     memset(body, 0, sizeof(body));
@@ -432,7 +448,7 @@ uint8_t od_epd_cfg_mode_count(void)
 
 bool od_epd_cfg_has_drive_data(const struct DisplayConfig *d)
 {
-    return d != NULL && od_cfg_has_drive_data(d->instance_number);
+    return d != NULL && od_cfg_has_drive_data(d->instance_number, d->color_scheme);
 }
 
 static char lower(char c)
@@ -445,12 +461,14 @@ int od_epd_cfg_find_mode(const char *name)
     if (!s_loaded || name == NULL) {
         return -1;
     }
-    for (uint8_t m = 0u; m < s_desc.mode_count; m++) {
-        const od_cfg_entry_t *e = mode_entry(m);
+    for (uint8_t i = 0u; i < s_mode_entries; i++) {
+        const od_cfg_entry_t *e = od_cfg_index_entry((int)s_mode_entry[i]);
         char n[12];
         size_t k;
 
-        if (e == NULL || od_cfg_read(e, MODE_OFF_NAME, (uint8_t *)n, sizeof n) != sizeof n) {
+        /* A packet shadowed by an earlier one with the same mode_index is not that mode. */
+        if (e == NULL || mode_entry(e->sub) != e ||
+            od_cfg_read(e, MODE_OFF_NAME, (uint8_t *)n, sizeof n) != sizeof n) {
             continue;
         }
         for (k = 0u; k < sizeof n; k++) {
@@ -458,11 +476,11 @@ int od_epd_cfg_find_mode(const char *name)
                 break;
             }
             if (name[k] == '\0') {
-                return (int)m;
+                return (int)e->sub;
             }
         }
         if (k == sizeof n && name[k] == '\0') {
-            return (int)m;
+            return (int)e->sub;
         }
     }
     return -1;
@@ -486,25 +504,35 @@ uint8_t od_epd_cfg_select_policy(uint8_t *mode, int8_t temp_c, od_epd_cfg_mode_t
         if (hdr.temp_policy == OD_DRIVE_TEMP_REJECT) {
             return OD_ERR_DRIVE_TEMP_RANGE;
         }
+        /* SUBSTITUTE falls back to mode 0, the panel's default full refresh, and only when
+         * mode 0's own window covers the reading. */
         if (hdr.temp_policy == OD_DRIVE_TEMP_SUBSTITUTE) {
-            const uint8_t count = od_epd_cfg_mode_count();
-            uint8_t i;
-
-            for (i = 0u; i < count; i++) {
-                if (od_epd_cfg_select(i, &hdr) && mode_temp_ok(&hdr, temp_c)) {
-                    break;
-                }
-            }
-            if (i >= count) {
+            if (*mode == 0u || !od_epd_cfg_select(0u, &hdr) || !mode_temp_ok(&hdr, temp_c)) {
                 return OD_ERR_DRIVE_TEMP_RANGE;
             }
-            *mode = i;
+            *mode = 0u;
         }
     }
     if (out != NULL) {
         *out = hdr;
     }
     return 0u;
+}
+
+int od_epd_cfg_find_usable_mode(const char *name, int8_t temp_c)
+{
+    const int m = od_epd_cfg_find_mode(name);
+    od_epd_mode_t h;
+
+    if (m < 0 || !io_mode_read((uint8_t)m, &h)) {
+        return -1;
+    }
+    if (temp_c != OD_EPD_CFG_TEMP_UNKNOWN && h.temp_policy != OD_DRIVE_TEMP_ADVISORY &&
+        !((h.temp_min_c == 0 && h.temp_max_c == 0) ||
+          (temp_c >= h.temp_min_c && temp_c <= h.temp_max_c))) {
+        return -1;
+    }
+    return m;
 }
 
 void od_epd_cfg_set_window(uint16_t x, uint16_t y, uint16_t w, uint16_t h)

@@ -68,7 +68,7 @@ extern "C" int od_display_drive_write_start(uint8_t mode, uint8_t refresh, uint8
     if ((flags & DRIVE_WRITE_FLAG_PIPELINED) != 0u) {
         return -OD_ERR_DRIVE_UNSUPPORTED;
     }
-    if (d == nullptr || !od_epd_shim_available(d->instance_number)) {
+    if (d == nullptr || !od_epd_shim_available(d)) {
         /* No drive packets means no init sequence, no pin sense and no colour map. There is
          * nothing to fall back to -- bb_epaper cannot run a config-declared mode. */
         return -OD_ERR_DRIVE_NO_CONFIG;
@@ -109,24 +109,17 @@ extern "C" int od_display_drive_write_start(uint8_t mode, uint8_t refresh, uint8
             opendisplay_display_power(false);
             return -OD_ERR_DRIVE_TEMP_RANGE;
         }
+        /* SUBSTITUTE falls back to mode 0, the panel's default full refresh, and only when
+         * mode 0's own window covers the reading. */
         if (hdr.temp_policy == OD_DRIVE_TEMP_SUBSTITUTE) {
-            const uint8_t count = od_epd_shim_mode_count();
-            uint8_t i;
-
-            /* Ties break to the LOWEST mode_index, which this ascending scan gives for free. */
-            for (i = 0u; i < count; i++) {
-                if (od_epd_shim_reselect(i, &hdr) && mode_temp_ok(hdr, temp_c)) {
-                    break;
-                }
-            }
-            if (i >= count) {
-                printf("[OD] drive: no declared mode covers %d C\r\n", (int)temp_c);
+            if (mode == 0u || !od_epd_shim_reselect(0u, &hdr) || !mode_temp_ok(hdr, temp_c)) {
+                printf("[OD] drive: mode 0 does not cover %d C\r\n", (int)temp_c);
                 opendisplay_display_power(false);
                 return -OD_ERR_DRIVE_TEMP_RANGE;
             }
-            printf("[OD] drive %d C: mode %u substituted for %u\r\n",
-                   (int)temp_c, (unsigned)i, (unsigned)mode);
-            mode = i;
+            printf("[OD] drive %d C: mode 0 substituted for %u\r\n", (int)temp_c,
+                   (unsigned)mode);
+            mode = 0u;
         }
         /* ADVISORY: run as asked. The window is documentation, not a gate. */
     }

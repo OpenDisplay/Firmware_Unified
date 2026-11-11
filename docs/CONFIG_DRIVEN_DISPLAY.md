@@ -24,18 +24,56 @@ layers. BG22 keeps its own adapter over od_epd for flash. ESP32 additionally kee
 the panels a built-in controller driver drives (IT8951, parallel); see "Built-in controller
 drivers" below.
 
-## Mode conventions (proposed; maintainer decision)
+## Mode conventions (decided 2026-11-11)
 
-Modes are matched by their 12-byte 0xAE name, case-insensitively.
+**Identity.** A mode is identified by its 0xAE `mode_index` (body byte 1), never by packet order:
+CMD_DRIVE_WRITE_START's mode byte, the 0xB0 palette and every name lookup resolve through it.
+Packets may be written in any order and indices may have gaps (a gap is `BAD_MODE`).
 
-- **mode 0** is the plain full refresh. Ordinary uploads and the boot screen use it, and it
-  must be single-pass and render the panel's own scheme (`color_scheme` 0xFF or equal to 0x20).
+**Duplicates.** The first packet wins, everywhere: the first 0xB1 per display, the first 0xAE per
+`(instance, mode_index)`, the first 0xAF per `(instance, lut_slot)`, the first 0xB2. A later
+duplicate is ignored, never merged; a short or broken first copy is not rescued by a later one.
+
+**Names.** Matched on the 12-byte 0xAE name, case-insensitively, NUL-padded. Two names are
+reserved: `fast` and `partial`. Every other name (e.g. `colour16`) is free and reached only
+through CMD_DRIVE_WRITE_START.
+
+- **mode 0 is always the panel's default full refresh**, and the fallback for every client that
+  knows nothing about modes. A 2.x client derives the pixel format from DisplayConfig 0x20
+  (`panel_ic_type` + `color_scheme`) and uploads with 0x70/0x71/0x72 (with or without
+  compression) or PIPE; firmware renders that through mode 0. Ordinary uploads and the boot
+  screen use it.
 - **"fast"**: when the 0x0072 refresh byte is FAST (1) on a full upload, mode 0's head and image
-  run, then the *tail* of "fast" (the steps after its last image marker). Without a "fast" mode
-  FAST falls back to mode 0's own tail. This mirrors bb_epaper's refresh-mode-specific init.
+  run, then the *tail* of "fast" (the steps after its last image marker).
 - **"partial"** drives 0x0076 / PIPE partial updates. Its existence is what makes
   `od_xfer_app_panel_info().partial_enabled` true; the 0x20 flag alone does not.
-- Any other mode (e.g. "colour16", multi-pass) is reached only through CMD_DRIVE_WRITE_START.
+
+**Fallback to mode 0.** A named mode that is absent, or whose temperature window excludes the
+current reading under `REJECT` or `SUBSTITUTE` (`ADVISORY` runs anyway), is not used:
+
+- FAST without a usable "fast" runs mode 0's own tail (a plain full refresh);
+- without a usable "partial" the panel reports no partial support, so a partial START is
+  refused `OD_ERR_PARTIAL_UNSUPPORTED` / `OD_ERR_PIPE_START_PARTIAL_UNSUPPORTED` and the client
+  sends a full upload (mode 0) -- the reaction every 2.x client already has;
+- CMD_DRIVE_WRITE_START under `SUBSTITUTE` substitutes **mode 0**, and only when mode 0's own
+  window covers the reading; otherwise `OD_ERR_DRIVE_TEMP_RANGE`. (Was "the lowest mode whose
+  window covers it", which could land on a windowless mode such as "fast" at 50 C.) The ACK's
+  mode byte reports the substitution; a NACK echoes the requested mode.
+
+**The mode-0 invariant.** For every display: an 0xAE with `mode_index` 0 exists, has a sequence,
+is single-pass, and its `color_scheme` is 0xFF or equal to 0x20's `color_scheme` -- so its frame
+is exactly the 2.x frame for that scheme (`od_color_direct_geometry(0x20.color_scheme)`, the
+geometry every upload path computes). The panel database guarantees it for every preset
+(`tests/panels/test_panels.py`, `Mode0Invariant`).
+
+*Enforcement: flag, not reject.* A stored config that breaks it is treated exactly like a config
+without drive packets: `od_cfg_has_drive_data()` is false, so READ_IDENT sets NEEDS_MIGRATION,
+every upload START NACKs `0x08`, and the boot screen is skipped. CMD_DRIVE_WRITE_START still
+loads it and may name any of its other modes. Rejecting it at CONFIG_WRITE was not chosen: the
+write path would have to parse drive packets on every target (BG22 has ~5 KB of flash left),
+a rejected write leaves the previous config in place with no reason a 2.x-style host can
+display, and the flag already gives a 3.x host the precise remedy (rewrite from the panel
+database) while keeping the device reachable.
 
 ## Image markers and plane order
 

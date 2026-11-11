@@ -382,7 +382,7 @@ static void test_duplicates_and_identity(void)
     CHECK(!od_epd_cfg_has_drive_data(&g_d0));
     CHECK(!load(&g_d0));
 
-    CASE("MODE-BY-POSITION: the START mode byte selects by packet order, not 0xAE.mode_index");
+    CASE("mode_index is normative: packet order does not number the modes");
     begin_cfg(&c, 1u);
     add_panel(&c, 0u);
     add_mode(&c, 0u, 1u, "colour16", 0, 0, 0, 0xFFu, SEQ_NOLUT, sizeof SEQ_NOLUT);
@@ -390,17 +390,112 @@ static void test_duplicates_and_identity(void)
     fx_cfg_finish(&c);
     fx_cfg_store(&c);
     CHECK(load(&g_d0));
-    CHECK(od_epd_cfg_find_mode("full") == 1);
-    /* DisplayModeHead.mode_index: "mode id named by CMD_DRIVE_WRITE_START's mode byte". A config
-     * whose packets are not written in index order runs the wrong mode for every START, and
-     * the 0xB0 palette (keyed by mode_index) describes a different mode than is driven. */
-    KNOWN_BUG("MODE-BY-POSITION", od_epd_cfg_find_mode("full") == 0);
+    CHECK(od_epd_cfg_find_mode("full") == 0);
+    CHECK(od_epd_cfg_find_mode("colour16") == 1);
+    {
+        od_epd_cfg_mode_t m;
+        uint8_t mode = 0u;
+        CHECK(od_epd_cfg_select_policy(&mode, OD_EPD_CFG_TEMP_UNKNOWN, &m) == 0u && mode == 0u);
+    }
 
     CASE("mode names: case-insensitive, NUL-padded, 12 bytes");
-    CHECK(od_epd_cfg_find_mode("FULL") == 1);
-    CHECK(od_epd_cfg_find_mode("COLOUR16") == 0);
+    CHECK(od_epd_cfg_find_mode("FULL") == 0);
+    CHECK(od_epd_cfg_find_mode("COLOUR16") == 1);
     CHECK(od_epd_cfg_find_mode("colour") == -1);
     CHECK(od_epd_cfg_find_mode("") == -1);
+
+    CASE("sparse mode indices: a gap is BAD_MODE, the index past it still selects");
+    begin_cfg(&c, 1u);
+    add_panel(&c, 0u);
+    add_mode(&c, 0u, 5u, "fast", 0, 0, 0, 0xFFu, SEQ_NOLUT, sizeof SEQ_NOLUT);
+    add_mode(&c, 0u, 0u, "full", 0, 0, 0, 0xFFu, SEQ_NOLUT, sizeof SEQ_NOLUT);
+    fx_cfg_finish(&c);
+    fx_cfg_store(&c);
+    CHECK(load(&g_d0));
+    CHECK(od_epd_cfg_select(5u, NULL));
+    CHECK(!od_epd_cfg_select(3u, NULL));
+    CHECK(!od_epd_cfg_select(6u, NULL));
+    CHECK(od_epd_cfg_find_mode("fast") == 5);
+
+    CASE("two 0xAE with one mode_index: the first wins, the shadowed one has no name");
+    begin_cfg(&c, 1u);
+    add_panel(&c, 0u);
+    add_mode(&c, 0u, 0u, "full", 0, 0, 0, 0xFFu, SEQ_NOLUT, sizeof SEQ_NOLUT);
+    add_mode(&c, 0u, 0u, "fast", 0, 0, 0, 0xFFu, SEQ_NOLUT, sizeof SEQ_NOLUT);
+    fx_cfg_finish(&c);
+    fx_cfg_store(&c);
+    CHECK(load(&g_d0));
+    CHECK(od_epd_cfg_find_mode("full") == 0);
+    CHECK(od_epd_cfg_find_mode("fast") == -1);
+}
+
+static void add_mode_fmt(fx_cfg_t *c, uint8_t index, uint8_t scheme, uint8_t passes)
+{
+    const uint32_t n = mode_body(g_b, 0u, index, "full", passes, 0, 0, 0, 0xFFu, SEQ_NOLUT,
+                                 sizeof SEQ_NOLUT);
+    g_b[14] = scheme;
+    fx_cfg_ext(c, OD_PKT_DISPLAY_MODE, g_b, n);
+}
+
+static void test_mode0_invariant(void)
+{
+    fx_cfg_t c;
+
+    CASE("mode 0 in the 0x20 scheme (or 0xFF), single pass: drivable by a legacy upload");
+    begin_cfg(&c, 1u);
+    add_panel(&c, 0u);
+    add_mode_fmt(&c, 0u, (uint8_t)g_d0.color_scheme, 1u);
+    fx_cfg_finish(&c);
+    fx_cfg_store(&c);
+    CHECK(od_epd_cfg_has_drive_data(&g_d0));
+    begin_cfg(&c, 1u);
+    add_panel(&c, 0u);
+    add_mode_fmt(&c, 0u, 0xFFu, 1u);
+    fx_cfg_finish(&c);
+    fx_cfg_store(&c);
+    CHECK(od_epd_cfg_has_drive_data(&g_d0));
+
+    CASE("mode 0 in another scheme: flagged as needing migration");
+    begin_cfg(&c, 1u);
+    add_panel(&c, 0u);
+    add_mode_fmt(&c, 0u, (uint8_t)(g_d0.color_scheme + 1u), 1u);
+    fx_cfg_finish(&c);
+    fx_cfg_store(&c);
+    CHECK(!od_epd_cfg_has_drive_data(&g_d0));
+    CHECK(load(&g_d0));     /* still loadable: 0x0085 may name it */
+
+    CASE("a multi-pass mode 0: flagged");
+    begin_cfg(&c, 1u);
+    add_panel(&c, 0u);
+    add_mode_fmt(&c, 0u, 0xFFu, 3u);
+    fx_cfg_finish(&c);
+    fx_cfg_store(&c);
+    CHECK(!od_epd_cfg_has_drive_data(&g_d0));
+
+    CASE("no mode 0 at all (only index 1): flagged");
+    begin_cfg(&c, 1u);
+    add_panel(&c, 0u);
+    add_mode(&c, 0u, 1u, "full", 0, 0, 0, 0xFFu, SEQ_NOLUT, sizeof SEQ_NOLUT);
+    fx_cfg_finish(&c);
+    fx_cfg_store(&c);
+    CHECK(!od_epd_cfg_has_drive_data(&g_d0));
+
+    CASE("named modes: absent, or out of their REJECT/SUBSTITUTE window, are not usable");
+    begin_cfg(&c, 1u);
+    add_panel(&c, 0u);
+    add_mode(&c, 0u, 0u, "full", 0, 0, 0, 0xFFu, SEQ_NOLUT, sizeof SEQ_NOLUT);
+    add_mode(&c, 0u, 1u, "fast", 10, 30, OD_DRIVE_TEMP_REJECT, 0xFFu, SEQ_NOLUT,
+             sizeof SEQ_NOLUT);
+    add_mode(&c, 0u, 2u, "partial", 10, 30, OD_DRIVE_TEMP_ADVISORY, 0xFFu, SEQ_NOLUT,
+             sizeof SEQ_NOLUT);
+    fx_cfg_finish(&c);
+    fx_cfg_store(&c);
+    CHECK(load(&g_d0));
+    CHECK(od_epd_cfg_find_usable_mode("fast", 20) == 1);
+    CHECK(od_epd_cfg_find_usable_mode("fast", 5) == -1);
+    CHECK(od_epd_cfg_find_usable_mode("fast", OD_EPD_CFG_TEMP_UNKNOWN) == 1);
+    CHECK(od_epd_cfg_find_usable_mode("partial", 5) == 2);      /* ADVISORY runs anyway */
+    CHECK(od_epd_cfg_find_usable_mode("colour16", 20) == -1);
 }
 
 static void test_lut_crc(void)
@@ -502,7 +597,7 @@ static void test_temperature(void)
     mode = 5u;
     CHECK(od_epd_cfg_select_policy(&mode, 20, NULL) == OD_ERR_DRIVE_BAD_MODE);
 
-    CASE("SUBSTITUTE: the lowest covering mode, reported back through *mode");
+    CASE("SUBSTITUTE: falls back to mode 0 when mode 0 covers, reported through *mode");
     begin_cfg(&c, 1u);
     add_panel(&c, 0u);
     add_mode(&c, 0u, 0u, "warm", 21, 40, OD_DRIVE_TEMP_REJECT, 0xFFu, SEQ_NOLUT,
@@ -520,8 +615,8 @@ static void test_temperature(void)
     CHECK(od_epd_cfg_select_policy(&mode, 21, NULL) == 0u && mode == 0u);
     mode = 1u;
     CHECK(od_epd_cfg_select_policy(&mode, 20, NULL) == 0u && mode == 1u);
-    mode = 1u;
-    CHECK(od_epd_cfg_select_policy(&mode, 45, NULL) == 0u && mode == 2u);
+    mode = 1u;   /* mode 2 covers 45 C but is not a substitute; mode 0 does not cover it */
+    CHECK(od_epd_cfg_select_policy(&mode, 45, NULL) == OD_ERR_DRIVE_TEMP_RANGE);
     mode = 1u;
     CHECK(od_epd_cfg_select_policy(&mode, 46, NULL) == OD_ERR_DRIVE_TEMP_RANGE);
     {
@@ -944,6 +1039,7 @@ int main(void)
     test_golden();
     test_two_displays();
     test_duplicates_and_identity();
+    test_mode0_invariant();
     test_lut_crc();
     test_temperature();
     test_malformed_sequences();

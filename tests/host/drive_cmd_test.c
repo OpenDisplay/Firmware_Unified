@@ -315,11 +315,11 @@ static void test_start_temperature(void)
     CHECK(start(b1, 5u) == OD_CMD_OK);
     CHECK(reply_is((const uint8_t[]){ RESP_ACK, RESP_DRIVE_WRITE_START, 1u, 1u, 0xFBu }, 5u));
     g_temp = 50;
-    /* No REJECT/SUBSTITUTE mode covers 50 C, but mode 2 declares no window ([0,0]) and so
-     * covers everything: SUBSTITUTE lands on it, and its sequence is the one refused. The NACK
-     * echoes the REQUESTED mode, so the host cannot tell which mode failed. */
+    /* SUBSTITUTE falls back to mode 0 only. Mode 2 declares no window ([0,0], covers
+     * everything) and is NOT a substitute; mode 0 does not cover 50 C, so TEMP_RANGE. A NACK
+     * echoes the requested mode; only an ACK reports a substitution. */
     CHECK(start(b1, 5u) == OD_CMD_NACK &&
-          reply_is(NACK(OD_ERR_DRIVE_SEQ_UNSUPPORTED, 1u)));
+          reply_is(NACK(OD_ERR_DRIVE_TEMP_RANGE, 1u)));
     CHECK(!g_up);
 
     CASE("no reading: policy skipped, ACK temp byte 0x7F");

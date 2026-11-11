@@ -182,10 +182,14 @@ uint32_t od_cfg_blob_len(void) { return s_blob_len; }
 
 bool od_cfg_index_current(void) { return s_gen == od_config_store_generation(); }
 
-bool od_cfg_has_drive_data(uint8_t instance)
+/* 0xAE body: [instance][mode_index][name:12][color_scheme][passes]... */
+#define MODE0_OFF_SCHEME 14u
+
+bool od_cfg_has_drive_data(uint8_t instance, uint8_t color_scheme)
 {
     const od_cfg_entry_t *panel = NULL;
-    bool mode = false;
+    const od_cfg_entry_t *mode0 = NULL;
+    uint8_t h[2];
 
     if (od_cfg_index_build() < 0) {
         return false;
@@ -196,11 +200,20 @@ bool od_cfg_has_drive_data(uint8_t instance)
         if (e->instance != instance) {
             continue;
         }
-        /* First 0xB1 wins, as everywhere else: a short first copy is not rescued by a later one. */
+        /* First match wins, as everywhere else: a short first copy is not rescued by a later
+         * one. */
         if (e->type == OD_PKT_DISPLAY_PANEL && panel == NULL) {
             panel = e;
+        } else if (e->type == OD_PKT_DISPLAY_MODE && e->sub == 0u && mode0 == NULL) {
+            mode0 = e;
         }
-        mode = mode || (e->type == OD_PKT_DISPLAY_MODE && e->len > sizeof(struct DisplayModeHead));
     }
-    return panel != NULL && panel->len >= sizeof(struct DisplayPanelHead) && mode;
+    if (panel == NULL || panel->len < sizeof(struct DisplayPanelHead) || mode0 == NULL ||
+        mode0->len <= sizeof(struct DisplayModeHead) ||
+        od_cfg_read(mode0, MODE0_OFF_SCHEME, h, sizeof h) != sizeof h) {
+        return false;
+    }
+    /* Mode 0 is what a client that knows nothing about modes gets: single pass, in the 0x20
+     * scheme's 2.x pixel format (0xFF = the panel's own). */
+    return h[1] == 1u && (h[0] == 0xFFu || h[0] == color_scheme);
 }

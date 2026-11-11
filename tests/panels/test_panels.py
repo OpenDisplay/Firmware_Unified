@@ -234,6 +234,35 @@ class Layout(unittest.TestCase):
                         self.assertEqual(b[3], (len(b) - 4) // 8)
 
 
+class Mode0Invariant(unittest.TestCase):
+    """Mode 0 is the fallback for clients that know nothing about modes (docs/
+    CONFIG_DRIVEN_DISPLAY.md, "Mode conventions"): every preset's first 0xAE with mode_index 0
+    exists, is single-pass, renders 0x20's color_scheme (or 0xFF), and that scheme is the one a
+    2.x client derives from the legacy entry, so the 2.x frame is what mode 0 consumes. The
+    names "fast" and "partial" are reserved for those refresh kinds."""
+
+    def test_every_preset(self):
+        for key, e in PRESETS["panels"].items():
+            for cls, v in views(e):
+                if not v["packets"]:
+                    continue
+                with self.subTest(key=key, cls=cls, variant=v.get("variant")):
+                    pk = packets(v)
+                    modes = [b for _, i, b in pk if i == P.PKT_MODE]
+                    mode0 = next((m for m in modes if m[1] == 0), None)
+                    self.assertIsNotNone(mode0, "no 0xAE with mode_index 0")
+                    self.assertEqual(mode0[15], 1, "mode 0 must be single-pass")
+                    self.assertIn(mode0[14], (0xFF, e["color_scheme"]))
+                    if e["legacy"].get("color_scheme") is not None:
+                        self.assertEqual(e["color_scheme"], e["legacy"]["color_scheme"])
+                    for m in modes:
+                        name = m[2:14].split(b"\0", 1)[0].decode().lower()
+                        if name in ("fast", "partial"):
+                            meta = next(x for x in v["modes"] if x["index"] == m[1])
+                            self.assertEqual(meta["refresh"], name)
+                    self.assertEqual(len({m[1] for m in modes}), len(modes), "duplicate mode_index")
+
+
 class Size(unittest.TestCase):
     def test_budget(self):
         base = PRESETS["caps"]["typical_base_config_bytes"]
