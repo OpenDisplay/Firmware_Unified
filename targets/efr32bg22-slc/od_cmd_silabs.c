@@ -1,5 +1,6 @@
 /* BG22 implementations of every shared command hook. */
 
+#include "od_claim_mode.h"
 #include "od_cmd_app.h"
 
 #include "od_config_read.h"
@@ -92,6 +93,7 @@ od_cmd_result_t od_cmd_app_read_msd(const od_cmd_ctx_t *ctx, od_span_t body)
 od_cmd_result_t od_cmd_app_reboot(const od_cmd_ctx_t *ctx, od_span_t body)
 {
   (void)ctx; (void)body;
+  (void)od_claim_mode_before_reboot();   /* OS2C, or END(CLAIMED); disarms the count */
   NVIC_SystemReset();
   return OD_CMD_OK;
 }

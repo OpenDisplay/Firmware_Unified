@@ -283,6 +283,7 @@ add_library(slc OBJECT
     "../od_hal_radio.c"
     "../od_hal_time.c"
     "../od_sec2_app.c"
+    "../od_claim_app_silabs.c"
     "../od_hal_secret.c"
     "../od_cmd_silabs.c"
     "../opendisplay_config_storage.c"

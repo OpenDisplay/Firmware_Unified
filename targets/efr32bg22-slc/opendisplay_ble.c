@@ -1,4 +1,5 @@
 #include "od_sec2.h"
+#include "od_claim_mode.h"
 #include "od_diag.h"
 #include "od_fmt.h"
 #include "opendisplay_ble.h"
@@ -190,6 +191,8 @@ static uint8_t msd_payload[MSD_PAYLOAD_LEN];
 static uint8_t msd_loop_counter;
 static uint8_t dynamic_return[OD_ADVERT_DYNAMIC_LEN];
 static uint8_t reboot_flag = 1u;
+static bool s_config_changed;        /* od_claim_app_config_changed(): reload from the loop */
+static bool s_boot_screen_deferred;  /* od_claim_mode_defer_boot_screen() held it back */
 static uint8_t connection_requested = 0u;
 
 static uint16_t g_od_pipe_char;
@@ -266,6 +269,47 @@ static uint8_t s_button_count;
 static volatile bool s_button_msd_dirty;
 
 static sl_status_t build_and_apply_adv(uint8_t adv_set, const char *name, bool quick);
+/* Mount the image store. Geometry-hashed so a board re-provisioned onto a different panel
+ * reformats rather than serving plane sets that would render as noise. */
+static void od_mount_imgstore(void)
+{
+  const struct DisplayConfig *d0 =
+      (s_od_global_config.display_count > 0u) ? &s_od_global_config.displays[0] : NULL;
+  const struct FlashConfig *fc = NULL;
+  for (uint8_t i = 0; i < s_od_global_config.flash_config_count; i++) {
+    if ((s_od_global_config.flash_configs[i].flags & OD_FLASH_FLAG_ENABLED) != 0u) {
+      fc = &s_od_global_config.flash_configs[i];
+      break;
+    }
+  }
+  if (d0 != NULL && fc != NULL) {
+    od_color_geometry_t g;
+    if (od_color_direct_geometry(d0->color_scheme, d0->pixel_width, d0->pixel_height, &g)
+        == OD_COLOR_OK) {
+      /* MISO is reserved[0]: canonical FlashConfig stops at `mode`, and the toolbox writes
+       * miso/wp/hold into the first three reserved bytes. */
+      const od_hal_spi_pins_t pins = {
+        .mosi = fc->mosi_pin, .miso = fc->reserved[0],
+        .sck = fc->sck_pin, .cs = fc->cs_pin,
+      };
+      const uint32_t ghash = ((uint32_t)d0->pixel_width << 16) ^
+                             ((uint32_t)d0->pixel_height << 4) ^
+                             (uint32_t)d0->color_scheme;
+      (void)od_imgstore_mount(&pins, ghash, g.total_bytes);
+    }
+  }
+}
+
+/* FACTORY_RESET.md R5a: every slot. A store that is not configured or does not mount has
+ * nothing to erase. */
+bool opendisplay_ble_erase_images(void)
+{
+  if (!od_imgstore_status()->mounted) {
+    od_mount_imgstore();
+  }
+  return !od_imgstore_status()->mounted || od_imgstore_erase_all();
+}
+
 static sl_status_t od_apply_advertising_timing(uint8_t adv_handle, uint32_t now_ms);
 
 #if defined(__GNUC__)
@@ -1528,7 +1572,14 @@ void opendisplay_ble_reload_config_from_nvm(void)
   od_buttons_init_from_config();
   opendisplay_display_park_pins();
   opendisplay_led_init();
-  opendisplay_display_boot_request();
+  if (!od_claim_mode_active()) {
+    opendisplay_display_boot_request();
+  }
+}
+
+void opendisplay_ble_config_changed(void)
+{
+  s_config_changed = true;
 }
 
 static sl_status_t od_apply_advertising_timing(uint8_t adv_handle, uint32_t now_ms)
@@ -1655,7 +1706,8 @@ static void update_msd_payload(bool quick)
   adv_in.chip_temperature_c = chip_temperature;
   adv_in.battery_10mv = od_advert_battery_10mv_from_mv(s_batt_voltage_mv_cache);
   adv_in.reboot_flag = (reboot_flag != 0u);
-  adv_in.connection_requested = (connection_requested != 0u);
+  /* SECURITY_V2 5.3: bit 2 is set continuously while in claim mode. */
+  adv_in.connection_requested = (connection_requested != 0u) || od_claim_mode_active();
   adv_in.loop_counter = msd_loop_counter;
   od_advert_build(&adv_in, msd_payload);
 
@@ -1824,9 +1876,20 @@ void opendisplay_ble_on_boot(uint8_t advertising_set_handle)
   }
   opendisplay_pipe_set_tx_report_available(true);
 
-  const bool config_loaded = loadGlobalConfig(&s_od_global_config);
-  /* SECURITY_V2 10.1: decided once per boot, before advertising starts. */
-  (void)od_sec2_boot(config_loaded ? od_get_parsed_security() : NULL);
+  bool config_loaded = loadGlobalConfig(&s_od_global_config);
+  /* SECURITY_V2 7.1 / 10.1, FACTORY_RESET.md 3.1: reset pin, boot history, a pending or
+   * triggered factory reset, the boot decision and claim-mode entry, before advertising. */
+  {
+    struct od_security_boot_report rep;
+
+    od_security_boot(config_loaded ? od_get_parsed_security() : NULL, config_loaded, false, &rep);
+    OD_DIAG("[OD] sec2: cause=0x%03lX k=%u state=%u claim=%u\r\n", (unsigned long)rep.cause,
+            (unsigned)rep.short_boots, (unsigned)rep.state, (unsigned)rep.kind);
+  }
+  if (s_config_changed) {
+    s_config_changed = false;
+    config_loaded = loadGlobalConfig(&s_od_global_config);
+  }
   if (config_loaded) {
     OD_DIAG("[OD] config: loaded displays=%u leds=%u buses=%u nfc=%u flash=%u ver=%u.%u\r\n",
            (unsigned)s_od_global_config.display_count,
@@ -1856,38 +1919,13 @@ void opendisplay_ble_on_boot(uint8_t advertising_set_handle)
   od_net_g_invalidate();
   od_net_g_sync(od_config_findmy(&s_od_global_config));
 
-  /* Mount the image store. Geometry-hashed so a board re-provisioned onto a different panel
-   * reformats rather than serving plane sets that would render as noise. */
-  {
-    const struct DisplayConfig *d0 =
-        (s_od_global_config.display_count > 0u) ? &s_od_global_config.displays[0] : NULL;
-    const struct FlashConfig *fc = NULL;
-    for (uint8_t i = 0; i < s_od_global_config.flash_config_count; i++) {
-      if ((s_od_global_config.flash_configs[i].flags & OD_FLASH_FLAG_ENABLED) != 0u) {
-        fc = &s_od_global_config.flash_configs[i];
-        break;
-      }
-    }
-    if (d0 != NULL && fc != NULL) {
-      od_color_geometry_t g;
-      if (od_color_direct_geometry(d0->color_scheme, d0->pixel_width, d0->pixel_height, &g)
-          == OD_COLOR_OK) {
-        /* MISO is reserved[0]: canonical FlashConfig stops at `mode`, and the toolbox writes
-         * miso/wp/hold into the first three reserved bytes. */
-        const od_hal_spi_pins_t pins = {
-          .mosi = fc->mosi_pin, .miso = fc->reserved[0],
-          .sck = fc->sck_pin, .cs = fc->cs_pin,
-        };
-        const uint32_t ghash = ((uint32_t)d0->pixel_width << 16) ^
-                               ((uint32_t)d0->pixel_height << 4) ^
-                               (uint32_t)d0->color_scheme;
-        (void)od_imgstore_mount(&pins, ghash, g.total_bytes);
-      }
-    }
-  }
+  od_mount_imgstore();
 
-  od_action_reload();
-  od_action_trigger(OD_TRIG_BOOT, 0u);
+  /* Claim mode runs none of the device's own content sources (SECURITY_V2 7.4). */
+  if (!od_claim_mode_active()) {
+    od_action_reload();
+    od_action_trigger(OD_TRIG_BOOT, 0u);
+  }
 
   chip_id_hex6(hex);
   _Static_assert(sizeof(s_dev_name) >= sizeof(OD_NAME_PREFIX) + 6u, "GAP name buffer");
@@ -1917,7 +1955,13 @@ void opendisplay_ble_on_boot(uint8_t advertising_set_handle)
   od_buttons_init_from_config();
   opendisplay_display_park_pins();
   opendisplay_led_init();
-  opendisplay_display_boot_apply();
+  /* Claim mode draws its own screen; a boot that may be one step of a power-cycle pattern
+   * waits until the pattern can no longer continue, so the pattern costs no refresh. */
+  if (od_claim_mode_defer_boot_screen()) {
+    s_boot_screen_deferred = !od_claim_mode_active();
+  } else if (!od_claim_mode_active()) {
+    opendisplay_display_boot_apply();
+  }
 
   if (!od_advertising_api_ok(build_and_apply_adv(advertising_set_handle, s_dev_name, false),
                              "boot advertising data setup")) {
@@ -2009,6 +2053,15 @@ void opendisplay_ble_process(void)
 {
   opendisplay_pipe_process();
   opendisplay_led_process();
+  od_claim_mode_tick();
+  if (s_config_changed) {
+    s_config_changed = false;
+    opendisplay_ble_reload_config_from_nvm();
+  }
+  if (s_boot_screen_deferred && !od_claim_mode_defer_boot_screen()) {
+    s_boot_screen_deferred = false;
+    opendisplay_display_boot_request();
+  }
   uint32_t now_ms = od_hal_uptime_ms();
   od_publish_button_msd(s_adv_handle, now_ms);
   if (s_adv_handle != 0xFFu) {
@@ -2050,11 +2103,15 @@ void opendisplay_ble_process(void)
     if (s_pending_dfu) {
       s_pending_dfu = false;
       OD_DIAG("[OD] DFU: entering bootloader\r\n");
+      (void)od_claim_mode_before_reboot();
       od_enter_gecko_bootloader();
       return;
     }
     if (s_pending_deep_sleep) {
       s_pending_deep_sleep = false;
+      if (!od_claim_mode_before_sleep()) {
+        return;                      /* claim mode stays awake (SECURITY_V2 7.3) */
+      }
       opendisplay_display_power_off();
       od_buttons_arm_em4_wakeup();
       od_nfc_field_detect_arm_em4_wakeup();

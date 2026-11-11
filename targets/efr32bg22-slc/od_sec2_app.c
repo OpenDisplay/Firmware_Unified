@@ -5,6 +5,7 @@
 
 #include "em_system.h"
 #include "od_hal_time.h"
+#include "od_xfer.h"
 #include "opendisplay_ble.h"
 #include "opendisplay_config_parser.h"
 
@@ -42,4 +43,11 @@ uint8_t od_sec2_app_dflags(void)
 const struct SecurityConfig *od_sec2_app_security(void)
 {
   return od_get_parsed_security();
+}
+
+/* A display pass runs or is queued. BG22's refresh blocks the loop, so a handshake frame is only
+ * seen between passes; this covers the queued transfer that is about to start one. */
+bool od_sec2_app_display_busy(void)
+{
+  return od_xfer_active();
 }

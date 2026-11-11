@@ -16,6 +16,13 @@ const struct GlobalConfig *opendisplay_get_global_config(void);
 
 void opendisplay_ble_reload_config_from_nvm(void);
 
+/* The stored config was rewritten by the SEC2 policy: reload it at the next loop pass (or, at
+ * boot, right after od_security_boot). */
+void opendisplay_ble_config_changed(void);
+
+/* Erase every image-store slot, mounting the store first if needed (factory reset R5a). */
+bool opendisplay_ble_erase_images(void);
+
 void opendisplay_ble_on_event(sl_bt_msg_t *evt);
 void opendisplay_ble_process(void);
 void opendisplay_ble_schedule_dfu(void);
