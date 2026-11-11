@@ -60,7 +60,8 @@
  *       and one fw_target per MCU family (0x05 nRF52840); upload START NACK
  *       data bytes 0x08 NEEDS_MIGRATION and 0x09 PANEL_BUSY (section 4h);
  *       OD_ERR_DRIVE_PANEL_BUSY 0x08 (4e); CONFIG_WRITE NACK byte (4g);
- *       CMD_ACTION_INFO reply 10 bytes.
+ *       CMD_ACTION_INFO reply 10 bytes; CMD_POWER_OFF also cuts the MOSFET
+ *       latch (no wire change).
  *
  *   2.4  (2026-11-06)  -- image store + action table (Firmware_Unified BG22)
  *     - MINOR: seven new opcodes in the free 0x0047..0x004F gap, landed from
@@ -755,16 +756,17 @@
  *              [0xFF][0x52][0x00][0x00]  no power latch on this target.
  *              [0xFE][0x52]              auth required (no live session).
  * @errors:   NACK data[0] scoped to opcode 0x52 (OD_ERR_POWER_OFF_*, see
- *            SECTION 4d): 0x00 UNSUPPORTED (no D-FF latch). A target that
+ *            SECTION 4d): 0x00 UNSUPPORTED (no power latch). A target that
  *            refuses 0x52 may still accept 0x53 deep sleep -- do not conflate
  *            "power-off unsupported" with "cannot sleep".
  * @state:    session required when security enabled. Cuts the power rail via
- *            the D-FF latch; the device wakes ONLY on a physical button press
- *            (fresh cold boot). No timer, no wake interval -- power-off is
- *            absolute.
+ *            the D-FF latch, or (3.0) the MOSFET latch by driving pwr_pin_2
+ *            low; the device wakes ONLY on a physical button press (fresh cold
+ *            boot). No timer, no wake interval -- power-off is absolute. On USB
+ *            a MOSFET-latch board stays powered and parks in deep sleep.
  * @limits:   trailing payload reserved/ignored.
- * @targets:  Firmware (ESP32, D-FF power-latch HW ONLY). All other targets
- *            (non-latch/mains ESP32, Silabs, nRF) NACK [0xFF][0x52][0x00].
+ * @targets:  Firmware (ESP32 with a D-FF or MOSFET power latch). All other
+ *            targets (non-latch/mains ESP32, Silabs, nRF) NACK [0xFF][0x52][0x00].
  * @since:    new in 2.1 -- splits the hard rail-cut out of CMD_DEEP_SLEEP so
  *            latch HW gets timed-wake sleep via 0x0053 and an explicit,
  *            capability-gated hard-off via 0x0052.

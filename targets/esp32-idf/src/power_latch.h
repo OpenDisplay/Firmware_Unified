@@ -20,7 +20,8 @@ void powerButtonPoll();
 // esp_deep_sleep_start().
 void powerLatchHoldForSleep();
 
-// Release 74AHC1G79 D-FF latch (pwr_latch_dff only). Used by command 0x0052.
+// Release 74AHC1G79 D-FF latch (pwr_latch_dff only). Command 0x0052 uses
+// powerLatchTriggerOff(), which also cuts the MOSFET latch.
 bool powerLatchDffConfigured(void);
 bool powerLatchMosfetConfigured(void);
 // RTC power-off sleep (MOSFET latch only): drive the hold pin LOW and keep it

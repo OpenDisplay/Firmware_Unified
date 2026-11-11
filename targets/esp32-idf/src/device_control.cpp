@@ -687,13 +687,15 @@ od_cmd_result_t handlePowerOffCommand(const od_cmd_ctx_t *ctx, const uint8_t* pa
     // and ignored (unlike CMD_DEEP_SLEEP 0x0053, this has no duration payload).
     (void)payload;
     (void)payloadLen;
-    // powerLatchDffConfigured() returns false on a board with no D-FF latch, which
-    // falls through to the NACK below. Callers need no guard of their own.
-    if (powerLatchDffConfigured()) {
-        // Fire-and-forget hard rail-cut: queue the ACK, then release the D-FF latch.
-        // On latch HW the rail usually drops before the ACK is actually transmitted.
+    // Both predicates return false on a board without that latch, which falls through to the
+    // NACK below. Callers need no guard of their own.
+    if (powerLatchDffConfigured() || powerLatchMosfetConfigured()) {
+        // Fire-and-forget hard rail-cut: queue the ACK, then release the latch (D-FF: clock D
+        // low; MOSFET: drive pwr_pin_2 low, e.g. the M5Paper's GPIO2). On latch HW the rail
+        // usually drops before the ACK is actually transmitted. On USB the MOSFET path parks in
+        // deep sleep until reset or the pwr_pin_3 button.
         /* THE FLUSH IS NOT OPTIONAL, and it is the only reply site where that is true. Every other
-         * queued response is drained by the loop; after powerLatchPowerOff() there is no next
+         * queued response is drained by the loop; after powerLatchTriggerOff() there is no next
          * pass. Without this the ack is queued and then the rail is cut under it -- which on LAN
          * is a regression from delivered to never sent, because the shipped sender wrote LAN
          * replies straight to the socket rather than through a queue.
@@ -709,7 +711,7 @@ od_cmd_result_t handlePowerOffCommand(const od_cmd_ctx_t *ctx, const uint8_t* pa
                 od_hal_delay_ms(5);
             }
         }
-        powerLatchPowerOff();
+        powerLatchTriggerOff();
         return OD_CMD_OK;
     }
     // ANCHOR(power-off-no-latch-fallback): FUTURE WORK for a later agent/implementer.

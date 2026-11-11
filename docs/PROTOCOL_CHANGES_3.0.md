@@ -41,6 +41,7 @@ Nothing below has been exercised on hardware.
 | 15 | **No mode-sequence length cap on any target; one step cap of 128** (was 512 B / 96 steps; BG22 128 B / 64 steps). Sequences are read from storage as they run. BG22 now takes the full doubled-init sequences, so `drive_presets.json` schema_minor 2 lists no `bg22_unavailable` panels and no `alternatives` | `shared/core/od_epd.h` `OD_EPD_MAX_SEQ_STEPS`, `OD_EPD_SEQ_WINDOW`; `shared/profiles.cmake`; `panels/README.md` § Changes in minor 2 | final | website `od-v3.js` and py-opendisplay: drop the per-class `seq_max` check, use `max_steps` 128 for every class, stop offering BG22 single-init alternatives |
 
 | 16 | **Display-mode conventions** (decided 2026-11-11): `DisplayModeHead.mode_index` is normative (packet order free, gaps allowed); first duplicate packet wins (0xB1, 0xAE per index, 0xAF per slot, 0xB2); mode 0 is always the default full refresh and the fallback for mode-unaware clients; names `fast` / `partial` reserved; a named mode that is absent or temperature-excluded falls back to mode 0; `temp_policy` SUBSTITUTE substitutes **mode 0 only** (was "lowest covering mode"); a NACK echoes the requested mode. **Mode-0 invariant**: mode 0 single-pass, `color_scheme` 0xFF or = 0x20's, i.e. the 2.x frame; a config violating it is flagged NEEDS_MIGRATION (#3/#4), not refused at write | `shared/core/od_epd_cfg.c` (`mode_entry`, `od_epd_cfg_find_usable_mode`, `od_epd_cfg_select_policy`), `shared/core/od_cfg_index.c` `od_cfg_has_drive_data`, `targets/efr32bg22-slc/od_epd_adapter.cpp`, `od_display_drive.cpp`; tests `tests/host/epd_cfg_test.c`, `legacy_upload_test.c`, `tests/panels/test_panels.py` `Mode0Invariant`; spec `docs/CONFIG_DRIVEN_DISPLAY.md` § Mode conventions | final | protocol repo: `OdDriveTempPolicy` SUBSTITUTE doc text (`opendisplay_structs.h:1312`), `DisplayModeHead` doc. Clients must write mode 0 per the invariant (the panel database already does) and read the ACK mode byte |
+| 17 | **CMD_POWER_OFF (0x0052) also cuts the MOSFET latch** (ESP32, upstream Firmware d80e28b): a board with `pwr_latch` on pwr_pin_2 (M5Paper GPIO2) ACKs and drives the hold pin low instead of NACKing. No wire bytes change | `targets/esp32-idf/src/device_control.cpp` `handlePowerOffCommand()`; header text `shared/protocol/opendisplay_protocol.h` CMD_POWER_OFF | final | py-opendisplay / website: offer power-off on MOSFET-latch boards too |
 
 ## What opendisplay-protocol must receive
 
@@ -65,6 +66,7 @@ canonical copies by exactly these edits (each also carries a changelog bullet un
   `OD_ERR_CONFIG_WRITE_BUSY 0x01`, and the CMD_CONFIG_WRITE @errors line.
 - CMD_ACTION_INFO: 10-byte reply with `tables`, `rejected` semantics, BUTTON_LONG inactive,
   temperature edge and 3 C re-arm.
+- CMD_POWER_OFF text: the MOSFET latch qualifies too (row 17).
 
 ## Not protocol changes (recorded so nobody looks for them)
 
