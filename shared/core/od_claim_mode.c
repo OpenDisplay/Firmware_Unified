@@ -405,7 +405,7 @@ bool od_claim_mode_defer_boot_screen(void)
     return c.counted && c.history && c.k != 0u && (c.arm_due || c.armed);
 }
 
-void od_claim_mode_tick(void)
+void od_claim_mode_tick_count(void)
 {
     const uint32_t t = now_ms();
 
@@ -421,6 +421,13 @@ void od_claim_mode_tick(void)
         c.armed = false;
         count_put(0u);
     }
+}
+
+void od_claim_mode_tick(void)
+{
+    const uint32_t t = now_ms();
+
+    od_claim_mode_tick_count();
     if (!c.active) {
         return;
     }
