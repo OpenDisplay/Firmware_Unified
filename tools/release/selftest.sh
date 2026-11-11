@@ -89,6 +89,19 @@ touch "${OUT}/stray.bin"
 if "$PY" "$COLLECT" check "${OUT}" >/dev/null 2>&1; then fail "unlisted file accepted"; fi
 rm "${OUT}/stray.bin"
 
+cp "${OUT}/opendisplay-c3-n4-app.bin" "${WORK}/app.keep"
+printf 'xx[SEC2-TEST] claim CODE' >> "${OUT}/opendisplay-c3-n4-app.bin"
+"$PY" - "${OUT}" <<'PY' || fail "re-sum for the trace case"
+import hashlib, json, pathlib, sys
+d = pathlib.Path(sys.argv[1]); m = json.loads((d / "manifest.json").read_text())
+for a in m["artefacts"]:
+    if a["file"] == "opendisplay-c3-n4-app.bin":
+        b = (d / a["file"]).read_bytes(); a["size"] = len(b); a["sha256"] = hashlib.sha256(b).hexdigest()
+(d / "manifest.json").write_text(json.dumps(m, indent=2) + "\n")
+PY
+if "$PY" "$COLLECT" check "${OUT}" >/dev/null 2>&1; then fail "SEC2 test-trace image accepted"; fi
+cp "${WORK}/app.keep" "${OUT}/opendisplay-c3-n4-app.bin"
+
 printf 'x' >> "${OUT}/opendisplay-c3-n4-app.bin"
 if "$PY" "$COLLECT" check "${OUT}" >/dev/null 2>&1; then fail "tampered artefact accepted"; fi
 

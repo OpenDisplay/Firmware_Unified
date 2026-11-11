@@ -1406,6 +1406,39 @@ fi
 # One version string for every target (tools/release/version.sh), and the asset collector that
 # enforces docs/RELEASE_ARTEFACTS.md -- including the refusal to ship a 2.x asset name, which is
 # what stops an old updater from pushing 3.x onto a 2.x device.
+# The SEC2 test trace prints the claim code on the serial console (shared/core/od_sec2_trace.h).
+# It is off unless one ESP32 configure flag names it, and that configure step refuses CI and
+# versioned (release) builds. This keeps every other way in shut: no board fragment, sdkconfig,
+# profile, build or release script, workflow or source file may set it, the header default stays
+# 0, and the CMake refusal and the boot banner stay in place. tools/release/collect.py refuses
+# any artefact that carries the trace tag, which covers a stale bench image in a build dir.
+sec2_trace_release_off() {
+    local rc=0 hits
+    hits=$(git grep --untracked -nE 'OD_SEC2_TEST_TRACE|OD_SEC2_TEST_CM_WINDOW_MS' -- . \
+        ':!shared/core/od_sec2_trace.h' ':!targets/esp32-idf/main/CMakeLists.txt' \
+        ':!tools/check.sh' ':!docs/*' ':!*.md')
+    if [ -n "$hits" ]; then
+        echo "$hits"; echo "the SEC2 test trace is named outside its two owners"; rc=1
+    fi
+    if [ "$(grep -cE '^#define OD_SEC2_TEST_TRACE 0$' shared/core/od_sec2_trace.h)" != 1 ] \
+        || grep -qE '^#define OD_SEC2_TEST_TRACE [^0]' shared/core/od_sec2_trace.h; then
+        echo "od_sec2_trace.h: the default must be '#define OD_SEC2_TEST_TRACE 0'"; rc=1
+    fi
+    if ! grep -q 'DEFINED ENV{OD_FW_VERSION} OR DEFINED ENV{CI}' targets/esp32-idf/main/CMakeLists.txt \
+        || ! grep -q 'STREQUAL "I_ACCEPT_CLAIM_CODE_ON_SERIAL"' targets/esp32-idf/main/CMakeLists.txt \
+        || ! grep -q 'unset(OD_SEC2_TEST_TRACE CACHE)' targets/esp32-idf/main/CMakeLists.txt; then
+        echo "esp32 CMakeLists: the trace's acknowledgement / release refusal / no-cache guard is gone"
+        rc=1
+    fi
+    if ! grep -q 'OD_SEC2_TRACE_BANNER();' targets/esp32-idf/src/main.cpp; then
+        echo "esp32 main.cpp: a trace build must print the NOT FOR RELEASE banner at boot"; rc=1
+    fi
+    if ! grep -q 'TEST_TRACE_TAG = b"\[SEC2-TEST\]"' tools/release/collect.py; then
+        echo "collect.py no longer refuses a trace image"; rc=1
+    fi
+    return $rc
+}
+check "release: SEC2 test trace off in every release configuration" sec2_trace_release_off
 check "release: in-source version defaults agree" tools/release/version.sh --check
 check "release: artefact collector selftest" bash tools/release/selftest.sh
 

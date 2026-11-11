@@ -105,6 +105,21 @@ def _sha256(p: Path) -> str:
     return h.hexdigest()
 
 
+# shared/core/od_sec2_trace.h: every line of the TEST-ONLY SEC2 trace build carries this tag, and
+# that build prints the claim code on the serial console. No released file may contain it.
+TEST_TRACE_TAG = b"[SEC2-TEST]"
+
+
+def _has_test_trace(p: Path) -> bool:
+    tail = b""
+    with p.open("rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            if TEST_TRACE_TAG in tail + block:
+                return True
+            tail = block[-(len(TEST_TRACE_TAG) - 1):]
+    return False
+
+
 def _artefact(d: Path, name: str, board: str, typ: str, **extra) -> dict:
     a = {"file": name, "board": board, "type": typ, "offset": None}
     a.update(extra)
@@ -332,6 +347,8 @@ def _validate(d: Path, manifest: dict) -> None:
             _fail(f"{a['file']}: size/sha256 differ from manifest.json")
         if not a["file"].startswith(f"opendisplay-{a['board']}-"):
             _fail(f"{a['file']}: name does not follow opendisplay-<board>-<kind>")
+        if _has_test_trace(p):
+            _fail(f"{a['file']}: a SEC2 TEST-TRACE build (prints the claim code) in a release")
     for b in manifest["boards"]:
         for flow, spec in b["flows"].items():
             for f in spec["files"] + ([spec["web_manifest"]] if "web_manifest" in spec else []):
