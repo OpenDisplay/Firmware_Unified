@@ -22,36 +22,25 @@ int main(void)
     };
     uint8_t zero[16] = {0};
     uint8_t payload[OD_BOOT_PAYLOAD_SIZE];
-    char display[OD_BOOT_KEY_HEX_SIZE];
     char line[32];
     char url[OD_BOOT_URL_SIZE];
 
-    od_boot_payload_build(0x1234u, 0xabcdefu, key, true, 0x7856u, payload);
+    /* The 2.x key field is always zero: no QR carries the key (SECURITY_V2 10.7). */
+    od_boot_payload_build(0x1234u, 0xabcdefu, 0x7856u, payload);
     CHECK(payload[0] == 0x12u && payload[1] == 0x34u);
     CHECK(payload[2] == 0xabu && payload[3] == 0xcdu && payload[4] == 0xefu);
-    CHECK(memcmp(&payload[5], key, sizeof(key)) == 0);
+    CHECK(memcmp(&payload[5], zero, sizeof(zero)) == 0);
     CHECK(payload[21] == 0x78u && payload[22] == 0x56u);
 
-    od_boot_payload_build(0x1234u, 0xabcdefu, key, false, 0x7856u, payload);
-    CHECK(memcmp(&payload[5], zero, sizeof(zero)) == 0);
+    od_boot_format_key_line("KEY:", true, line, sizeof(line));
+    CHECK(strcmp(line, "KEY: hidden") == 0);
+    od_boot_format_key_line("KEY:", false, line, sizeof(line));
+    CHECK(strcmp(line, "KEY: not set") == 0);
+    od_boot_format_key_line("KEY:", false, line, 6u);
+    CHECK(line[0] == '\0');
 
-    od_boot_format_key_display(zero, true, display);
-    CHECK(strcmp(display, "--------------------------------") == 0);
-    od_boot_format_key_display(key, false, display);
-    CHECK(strcmp(display, "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX") == 0);
-    od_boot_format_key_display(key, true, display);
-    CHECK(strcmp(display, "00112233445566778899AABBCCDDEEFF") == 0);
-
-    od_boot_format_key_line("KEY1:", key, 8u, false, true, line, sizeof(line));
-    CHECK(strcmp(line, "KEY1: 0011223344556677") == 0);
-    od_boot_format_key_line("KEY1:", key, 8u, false, false, line, sizeof(line));
-    CHECK(strcmp(line, "KEY1: hidden") == 0);
-    od_boot_format_key_line("KEY1:", key, 8u, true, true, line, sizeof(line));
-    CHECK(strcmp(line, "KEY1: not set") == 0);
-
-    /* The key-state tree, every input combination, no gaps. Two inputs decide whether a key is
-     * in force and the third only chooses between HIDDEN and SHOWN, so the show flag must not
-     * reach the answer while encryption is off or the key is absent. */
+    /* The key-state tree, every input combination. SHOW_KEY_ON_SCREEN is reserved: it never
+     * changes the answer. */
     {
         static const struct {
             uint8_t enabled;
@@ -66,7 +55,7 @@ int main(void)
             {1u, false, 0u,                                   OD_BOOT_KEY_NOT_SET},
             {1u, false, OD_SECURITY_FLAG_SHOW_KEY_ON_SCREEN,   OD_BOOT_KEY_NOT_SET},
             {1u, true,  0u,                                   OD_BOOT_KEY_HIDDEN},
-            {1u, true,  OD_SECURITY_FLAG_SHOW_KEY_ON_SCREEN,   OD_BOOT_KEY_SHOWN},
+            {1u, true,  OD_SECURITY_FLAG_SHOW_KEY_ON_SCREEN,   OD_BOOT_KEY_HIDDEN},
         };
         for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
             struct SecurityConfig sec;
@@ -94,9 +83,64 @@ int main(void)
         }
     }
 
-    CHECK(od_boot_url_build(0x1234u, 0xabcdefu, key, true, 0x7856u, url, sizeof(url)));
-    CHECK(strcmp(url, "https://opendisplay.org/l/?EjSrze8AESIzRFVmd4iZqrvM3e7_eFY") == 0);
-    CHECK(!od_boot_url_build(0x1234u, 0xabcdefu, key, true, 0x7856u, line, 8u));
+    CHECK(od_boot_url_build(0x1234u, 0xabcdefu, 0x7856u, url, sizeof(url)));
+    CHECK(strcmp(url, "https://opendisplay.org/l/?EjSrze8AAAAAAAAAAAAAAAAAAAAAeFY") == 0);
+    CHECK(!od_boot_url_build(0x1234u, 0xabcdefu, 0x7856u, line, 8u));
+
+    /* The setup URL (SECURITY_V2 7.8): fixed parameter order, b/d/p omitted when 0. */
+    {
+        char su[OD_SETUP_URL_SIZE];
+
+        CHECK(od_setup_url_build('s', 0x1A2B3Cu, 3u, 3u, 0u, 0u, 16u, 10u, 2u, su, sizeof su));
+        CHECK(strcmp(su, "https://opendisplay.org/s/?k=s&i=1A2B3C&t=3&v=3.0.0&b=16&d=10&p=2") == 0);
+        CHECK(strlen(su) == 65u);
+        CHECK(od_setup_url_build('r', 0x1A2B3Cu, 1u, 3u, 0u, 0u, 0u, 0u, 0u, su, sizeof su));
+        CHECK(strcmp(su, "https://opendisplay.org/s/?k=r&i=1A2B3C&t=1&v=3.0.0") == 0);
+        CHECK(od_setup_url_build('s', 0x0000ABu, 2u, 1u, 2u, 3u, 0u, 7u, 0u, su, sizeof su));
+        CHECK(strcmp(su, "https://opendisplay.org/s/?k=s&i=0000AB&t=2&v=1.2.3&d=7") == 0);
+        /* the worst case is 83 bytes and fits; the id is masked to 24 bits */
+        CHECK(od_setup_url_build('r', 0xFFFFFFFFu, 255u, 255u, 255u, 255u, 65535u, 65535u, 65535u,
+                                 su, sizeof su));
+        CHECK(strlen(su) == 83u);
+        CHECK(strstr(su, "i=FFFFFF&") != NULL);
+        CHECK(!od_setup_url_build('r', 1u, 255u, 255u, 255u, 255u, 65535u, 65535u, 65535u, su, 83u));
+        CHECK(su[0] == '\0');
+        CHECK(od_setup_url_build('r', 1u, 255u, 255u, 255u, 255u, 65535u, 65535u, 65535u, su, 84u));
+        CHECK(!od_setup_url_build('x', 1u, 1u, 1u, 1u, 1u, 0u, 0u, 0u, su, sizeof su));
+    }
+
+    /* The screen content: fixed firmware text, the id, the code. */
+    {
+        struct od_setup_content c;
+
+        CHECK(od_setup_content_build(OD_SETUP_SCREEN_CODE, true, 123456u, 0x1A2B3Cu, 3u, 3u, 0u, 0u,
+                                     0u, 0u, 0u, &c));
+        CHECK(c.n == 6u && c.big == 2u && !c.qr);
+        CHECK(strcmp(c.line[0], "OpenDisplay") == 0 && strcmp(c.line[1], "CLAIM CODE") == 0);
+        CHECK(strcmp(c.line[2], "123 456") == 0 && strcmp(c.line[3], "ID:  OD1A2B3C") == 0);
+        CHECK(od_setup_content_build(OD_SETUP_SCREEN_CODE, false, 7u, 0x1A2B3Cu, 3u, 3u, 0u, 0u,
+                                     0u, 0u, 0u, &c));
+        CHECK(c.n == 3u && c.big == 1u && strcmp(c.line[1], "000 007") == 0);
+        CHECK(strcmp(c.line[0], "CODE") == 0 && strcmp(c.line[2], "OD1A2B3C") == 0);
+        CHECK(od_setup_content_build(OD_SETUP_SCREEN_CODE, false, 1999999u, 1u, 3u, 3u, 0u, 0u,
+                                     0u, 0u, 0u, &c));
+        CHECK(strcmp(c.line[1], "999 999") == 0);
+
+        CHECK(od_setup_content_build(OD_SETUP_SCREEN_SETUP, true, 0u, 0x1A2B3Cu, 3u, 3u, 0u, 0u,
+                                     16u, 10u, 2u, &c));
+        CHECK(c.qr && c.big == OD_SETUP_NO_BIG && c.n == 6u);
+        CHECK(strcmp(c.line[1], "SETUP MODE") == 0);
+        CHECK(strcmp(c.url, "https://opendisplay.org/s/?k=s&i=1A2B3C&t=3&v=3.0.0&b=16&d=10&p=2") == 0);
+        CHECK(od_setup_content_build(OD_SETUP_SCREEN_RESET, false, 0u, 0x1A2B3Cu, 3u, 3u, 0u, 0u,
+                                     0u, 0u, 0u, &c));
+        CHECK(c.qr && c.n == 2u && strcmp(c.line[0], "RESET") == 0);
+        CHECK(strncmp(c.url, "https://opendisplay.org/s/?k=r&", 31u) == 0);
+        CHECK(od_setup_content_build(OD_SETUP_SCREEN_RESET, true, 0u, 1u, 3u, 3u, 0u, 0u,
+                                     0u, 0u, 0u, &c));
+        CHECK(c.n == 5u && strcmp(c.line[1], "FACTORY RESET") == 0);
+        CHECK(!od_setup_content_build(OD_SETUP_SCREEN_NORMAL, true, 0u, 1u, 3u, 3u, 0u, 0u,
+                                      0u, 0u, 0u, &c));
+    }
 
     if (failures != 0) {
         return 1;

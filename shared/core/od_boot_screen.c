@@ -440,13 +440,8 @@ static void bootGray4FillSwatchCodes(uint16_t panelIc, bool direct2bpp, uint8_t 
 bool od_boot_screen_render(const struct od_config *cfg,
                            const struct SecurityConfig *security,
                            const struct od_boot_bufs *bufs) {
-    static const uint8_t zeroKey[OD_BOOT_KEY_SIZE] = {0};
-    /* od_boot_key_state() is the whole policy; this renderer only spends it. NOT_SET passes
-     * zeroKey on, so the key lines, the small-screen hex and the QR payload all agree that a key
-     * which is not in force is absent. */
-    const enum od_boot_key_state keyState = od_boot_key_state(security);
-    const uint8_t *key = keyState == OD_BOOT_KEY_NOT_SET ? zeroKey : security->encryption_key;
-    const bool showKey = keyState == OD_BOOT_KEY_SHOWN;
+    /* The key is never rendered (SECURITY_V2 10.7): only whether one is in force. */
+    const bool keySet = od_boot_key_state(security) != OD_BOOT_KEY_NOT_SET;
     if (cfg == NULL || cfg->display_count == 0u || bufs == NULL ||
         bufs->row == NULL || bufs->qr == NULL) {
       return false;
@@ -546,7 +541,7 @@ bool od_boot_screen_render(const struct od_config *cfg,
     snprintf(last6, sizeof(last6), "%06lX", (unsigned long)last3);
 
     char url[OD_BOOT_URL_SIZE];
-    if (!od_boot_url_build(cfg->displays[0].legacy_tag_type, last3, key, showKey,
+    if (!od_boot_url_build(cfg->displays[0].legacy_tag_type, last3,
                            cfg->manufacturer_data.manufacturer_id, url, sizeof(url))) return false;
 
     QRCode qr;
@@ -586,20 +581,9 @@ bool od_boot_screen_render(const struct od_config *cfg,
         snprintf(fwLine, sizeof(fwLine), "FW:O %u.%u.%u",
                  (unsigned)fwMajor, (unsigned)fwMinor, (unsigned)fwPatch);
     }
-    char k1[24], k2[24];
-    if (useZoneLayout) {
-        od_boot_format_key_line("KEY1:", key, 8, od_boot_key_is_zero(key), showKey,
-                                k1, sizeof(k1));
-        od_boot_format_key_line("KEY2:", key + 8, 8, od_boot_key_is_zero(key), showKey,
-                                k2, sizeof(k2));
-    } else {
-        char keyHex[33];
-        od_boot_format_key_display(key, showKey, keyHex);
-        memcpy(k1, keyHex, 16);
-        k1[16] = '\0';
-        memcpy(k2, keyHex + 16, 16);
-        k2[16] = '\0';
-    }
+    char k1[24];
+    const char *k2 = "";
+    od_boot_format_key_line("KEY:", keySet, k1, sizeof(k1));
 
     char vStr[8] = "";
     char tStr[8] = "";
@@ -889,6 +873,310 @@ bool od_boot_screen_render(const struct od_config *cfg,
                 if (od_boot_app_write_row(y, segment,
                         row + segment * (pitch / segments),
                         (uint16_t)(pitch / segments)) != 0) outputOk = false;
+            }
+            if (od_boot_app_end_plane(OD_BOOT_PLANE_SECOND) != 0) outputOk = false;
+        }
+    }
+    if (od_boot_app_end_frame() != 0) outputOk = false;
+    return outputOk;
+}
+
+/* ------------------------------------------------- the setup screen family (7.8) --- */
+
+#ifdef OD_IDENT_TARGET
+#include "opendisplay_protocol.h"
+#define OD_BOOT_SETUP_TARGET ((uint8_t)(OD_IDENT_TARGET))
+#else
+#define OD_BOOT_SETUP_TARGET 0u
+#endif
+
+struct setup_layout {
+    int scale[OD_SETUP_LINES_MAX];
+    int x[OD_SETUP_LINES_MAX];
+    int y[OD_SETUP_LINES_MAX];
+    bool show[OD_SETUP_LINES_MAX];
+    bool qr;
+    int qrX, qrY, qrPx, modulePx;
+};
+
+static int setupScaleOf(const struct od_setup_content *c, unsigned i, int s, int bigS)
+{
+    return (c->big != OD_SETUP_NO_BIG && i == c->big) ? bigS : s;
+}
+
+/* Height of the shown lines, and the widest of them. */
+static void setupBlock(const struct od_setup_content *c, const bool *show, int s, int bigS,
+                       int *hOut, uint16_t *wOut)
+{
+    int h = 0;
+    int lastS = 0;
+    uint16_t w = 0;
+
+    for (unsigned i = 0; i < c->n; i++) {
+        if (!show[i]) continue;
+        const int si = setupScaleOf(c, i, s, bigS);
+        const uint16_t tw = bootTextWidth(c->line[i], (uint8_t)si);
+        h += bootLineStep(si);
+        lastS = si;
+        if (tw > w) w = tw;
+    }
+    if (lastS > 0) h -= 3 * lastS;   /* no gap under the last line */
+    *hOut = h;
+    *wOut = w;
+}
+
+static bool setupLayout(const struct od_setup_content *c, uint16_t w, uint16_t h, bool full,
+                        uint16_t qrModules, struct setup_layout *L)
+{
+    const int hi = full ? bootMiddleScaleHi(w, h, w >= 600 && h >= 400) : 1;
+    bool show[OD_SETUP_LINES_MAX];
+    int s;
+
+    memset(L, 0, sizeof *L);
+    for (unsigned i = 0; i < OD_SETUP_LINES_MAX; i++) show[i] = i < c->n;
+
+    if (!full && c->qr) {
+        /* Reduced layout: the QR at the largest module the panel allows, the text beside or
+         * above it only where it still fits -- the QR wins. */
+        const int minDim = (int)(w < h ? w : h);
+        const int pad = 6;
+        int modulePx = minDim / (int)qrModules;
+        int blockH;
+        uint16_t maxW;
+
+        if (modulePx > bootQrModuleMax(w, h)) modulePx = bootQrModuleMax(w, h);
+        if (modulePx < 1) return false;
+        L->qr = true;
+        L->modulePx = modulePx;
+        L->qrPx = modulePx * (int)qrModules;
+        setupBlock(c, show, 1, 1, &blockH, &maxW);
+        if ((int)w - L->qrPx >= (int)maxW + 2 * pad && (int)h >= blockH + 2 * pad) {
+            const int textW = (int)w - L->qrPx;
+            int y = ((int)h - blockH) / 2;
+            L->qrX = (int)w - L->qrPx;
+            L->qrY = ((int)h - L->qrPx) / 2;
+            for (unsigned i = 0; i < c->n; i++) {
+                L->scale[i] = 1;
+                L->x[i] = (textW - (int)bootTextWidth(c->line[i], 1)) / 2;
+                L->y[i] = y;
+                L->show[i] = true;
+                y += bootLineStep(1);
+            }
+        } else if ((int)h - L->qrPx >= blockH + 2 * pad && (int)w >= (int)maxW + 2 * pad) {
+            const int textH = (int)h - L->qrPx;
+            int y = (textH - blockH) / 2;
+            L->qrX = ((int)w - L->qrPx) / 2;
+            L->qrY = (int)h - L->qrPx;
+            for (unsigned i = 0; i < c->n; i++) {
+                L->scale[i] = 1;
+                L->x[i] = ((int)w - (int)bootTextWidth(c->line[i], 1)) / 2;
+                L->y[i] = y;
+                L->show[i] = true;
+                y += bootLineStep(1);
+            }
+        } else {
+            L->qrX = ((int)w - L->qrPx) / 2;
+            L->qrY = ((int)h - L->qrPx) / 2;
+        }
+        return true;
+    }
+
+    for (int attempt = 0; attempt < 2; attempt++) {
+        for (s = hi; s >= 1; s--) {
+            const int pad = 6 * s;
+            int bigS = s;
+            int blockH;
+            uint16_t maxW;
+
+            if (c->big != OD_SETUP_NO_BIG) {
+                /* the code digits at the largest scale the width and a third of the height allow */
+                const int byW = ((int)w - 2 * pad) / (int)(6u * strlen(c->line[c->big]));
+                const int byH = (int)h / 30;
+                bigS = byW < byH ? byW : byH;
+                if (bigS > 4 * s) bigS = 4 * s;
+                if (bigS < s) bigS = s;
+            }
+            setupBlock(c, show, s, bigS, &blockH, &maxW);
+            if (c->qr) {
+                int modulePx, qrPx, qrX, qrY, availW, textY;
+                bool qrRight;
+
+                if (!bootLayoutFit(w, h, h, blockH, pad, (int)qrModules, &modulePx, &qrPx, &qrRight,
+                                   &qrX, &qrY, &availW, &textY, maxW)) {
+                    continue;
+                }
+                L->qr = true;
+                L->qrX = qrX;
+                L->qrY = qrY;
+                L->qrPx = qrPx;
+                L->modulePx = modulePx;
+                {
+                    const int originX = qrRight ? pad : ((int)w - availW) / 2;
+                    int y = textY;
+                    for (unsigned i = 0; i < c->n; i++) {
+                        if (!show[i]) continue;
+                        const int si = setupScaleOf(c, i, s, bigS);
+                        int x = originX + (availW - (int)bootTextWidth(c->line[i], (uint8_t)si)) / 2;
+                        if (x < pad) x = pad;
+                        L->scale[i] = si;
+                        L->x[i] = x;
+                        L->y[i] = y;
+                        L->show[i] = true;
+                        y += bootLineStep(si);
+                    }
+                }
+                return true;
+            }
+            if ((int)maxW <= (int)w - 2 * pad && blockH <= (int)h - 2 * pad) {
+                int y = ((int)h - blockH) / 2;
+                for (unsigned i = 0; i < c->n; i++) {
+                    if (!show[i]) continue;
+                    const int si = setupScaleOf(c, i, s, bigS);
+                    L->scale[i] = si;
+                    L->x[i] = ((int)w - (int)bootTextWidth(c->line[i], (uint8_t)si)) / 2;
+                    L->y[i] = y;
+                    L->show[i] = true;
+                    y += bootLineStep(si);
+                }
+                return true;
+            }
+        }
+        /* Nothing fits: the QR wins on SETUP / RESET, the code on CODE. */
+        for (unsigned i = 0; i < c->n; i++) {
+            show[i] = (c->big != OD_SETUP_NO_BIG && i == c->big);
+        }
+        if (c->qr) {
+            const int minDim = (int)(w < h ? w : h);
+            int modulePx = minDim / (int)qrModules;
+            if (modulePx < 1) return false;
+            if (modulePx > bootQrModuleMax(w, h)) modulePx = bootQrModuleMax(w, h);
+            L->qr = true;
+            L->modulePx = modulePx;
+            L->qrPx = modulePx * (int)qrModules;
+            L->qrX = ((int)w - L->qrPx) / 2;
+            L->qrY = ((int)h - L->qrPx) / 2;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool od_boot_screen_render_setup(const struct od_config *cfg, enum od_setup_screen kind,
+                                 uint32_t code, const struct od_boot_bufs *bufs)
+{
+    struct od_setup_content content;
+    struct setup_layout L;
+    QRCode qr;
+    uint8_t fwMajor = 0, fwMinor = 0, fwPatch = 0;
+    const uint8_t quiet = 4;
+
+    if (cfg == NULL || cfg->display_count == 0u || bufs == NULL ||
+        bufs->row == NULL || bufs->qr == NULL) {
+        return false;
+    }
+    const uint16_t w = cfg->displays[0].pixel_width;
+    const uint16_t h = cfg->displays[0].pixel_height;
+    const uint8_t rotation = cfg->displays[0].rotation;
+    const bool is90or270 = (rotation == 1 || rotation == 3);
+    const uint16_t w_log = is90or270 ? h : w;
+    const uint16_t h_log = is90or270 ? w : h;
+    const bool full = (w_log >= 400 && h_log >= 300);
+    const uint8_t colorScheme = cfg->displays[0].color_scheme;
+    if (colorScheme == OD_COLOR_SCHEME_GRAY8 || w == 0u || h == 0u) {
+        return false;
+    }
+    const bool useBitplanes = (colorScheme == OD_COLOR_SCHEME_BWR || colorScheme == OD_COLOR_SCHEME_BWY);
+    const bool direct2bpp = od_boot_app_direct_2bpp();
+    const int bitsPerPixel = od_boot_app_bits_per_pixel(colorScheme);
+    if (bitsPerPixel != 1 && bitsPerPixel != 2 && bitsPerPixel != 4) {
+        return false;
+    }
+    const int pitch = bitsPerPixel == 4 ? (w + 1) / 2 : bitsPerPixel == 2 ? (w + 3) / 4 : (w + 7) / 8;
+    uint8_t whiteValue = (colorScheme < sizeof(kSchemeWhiteValue)) ? kSchemeWhiteValue[colorScheme] : 0xFF;
+    if (colorScheme == OD_COLOR_SCHEME_SEVEN_COLOR && bitsPerPixel == 4) whiteValue = 0x11;
+
+    od_boot_app_firmware_version(&fwMajor, &fwMinor, &fwPatch);
+    if (!od_setup_content_build(kind, full, code, od_boot_app_device_id24() & 0xFFFFFFu,
+                                OD_BOOT_SETUP_TARGET, fwMajor, fwMinor, fwPatch,
+                                cfg->manufacturer_data.simple_config_driver_index,
+                                cfg->manufacturer_data.simple_config_display_index,
+                                cfg->manufacturer_data.simple_config_power_index, &content)) {
+        return false;
+    }
+    uint16_t qrModules = 0;
+    uint8_t qrSize = 0;
+    if (content.qr) {
+        const uint16_t qrBufSize = qrcode_getBufferSize(6);
+        if (qrBufSize == 0 || qrBufSize > bufs->qr_len) return false;
+        if (qrcode_initText(&qr, bufs->qr, 6, ECC_MEDIUM, content.url) != 0) return false;
+        qrSize = qr.size;
+        qrModules = (uint16_t)(qrSize + 2 * quiet);
+    }
+    if (!setupLayout(&content, w_log, h_log, full, qrModules, &L)) {
+        return false;
+    }
+
+    uint8_t *row = bufs->row;
+    const bool gray4Split = (colorScheme == OD_COLOR_SCHEME_GRAY4) && !direct2bpp;
+    const int planePitch = (w + 7) / 8;
+    const int planePasses = gray4Split ? 2 : 1;
+    const uint8_t segments = od_boot_app_segments();
+    const size_t rowRequired = (size_t)pitch + (gray4Split ? (size_t)planePitch : 0u);
+    bool outputOk = true;
+    if ((segments != 1u && segments != 2u) || (pitch % segments) != 0 ||
+        (gray4Split && (planePitch % segments) != 0) || rowRequired > bufs->row_len) {
+        return false;
+    }
+    if (od_boot_app_begin_frame(w, h, segments) != 0) return false;
+    for (uint8_t segment = 0; segment < segments && outputOk; segment++) {
+        for (int pass = 0; pass < planePasses && outputOk; pass++) {
+            const int targetPlane = gray4Split
+                ? (pass == 0 ? OD_BOOT_PLANE_PRIMARY : OD_BOOT_PLANE_SECOND)
+                : (useBitplanes ? OD_BOOT_PLANE_PRIMARY : od_boot_app_default_plane(colorScheme));
+            if (od_boot_app_begin_plane(targetPlane) != 0) {
+                outputOk = false;
+                break;
+            }
+            for (uint16_t y_native = 0; y_native < h && outputOk; y_native++) {
+                memset(row, whiteValue, pitch);
+                for (uint16_t x_native = 0; x_native < w; x_native++) {
+                    uint16_t lx, ly;
+                    switch (rotation) {
+                        case 1:  lx = y_native; ly = (uint16_t)(h_log - 1u - x_native); break;
+                        case 2:  lx = (uint16_t)(w_log - 1u - x_native); ly = (uint16_t)(h_log - 1u - y_native); break;
+                        case 3:  lx = (uint16_t)(w_log - 1u - y_native); ly = x_native; break;
+                        default: lx = x_native; ly = y_native; break;
+                    }
+                    bool black = L.qr && bootQrPixelBlack(lx, ly, L.qrX, L.qrY, L.qrPx, L.modulePx,
+                                                          quiet, qrSize, &qr);
+                    for (unsigned i = 0; i < content.n && !black; i++) {
+                        black = L.show[i] &&
+                                bootTextPixelBlack(lx, ly, (uint16_t)L.x[i], (uint16_t)L.y[i],
+                                                   content.line[i], (uint8_t)L.scale[i], w_log, -1);
+                    }
+                    if (black) {
+                        setBootPixelBlack(row, x_native, pitch, bitsPerPixel, colorScheme);
+                    }
+                }
+                const uint8_t *out = row;
+                int outPitch = pitch;
+                if (gray4Split) {
+                    uint8_t *planeRow = row + pitch;
+                    makeGray4PlaneRow(planeRow, row, planePitch, w, pass);
+                    out = planeRow;
+                    outPitch = planePitch;
+                }
+                if (od_boot_app_write_row(y_native, segment, out + segment * (outPitch / segments),
+                                          (uint16_t)(outPitch / segments)) != 0) outputOk = false;
+            }
+            if (od_boot_app_end_plane(targetPlane) != 0) outputOk = false;
+        }
+        if (useBitplanes && outputOk) {
+            memset(row, 0x00, pitch);
+            if (od_boot_app_begin_plane(OD_BOOT_PLANE_SECOND) != 0) outputOk = false;
+            for (uint16_t y = 0; y < h && outputOk; y++) {
+                if (od_boot_app_write_row(y, segment, row + segment * (pitch / segments),
+                                          (uint16_t)(pitch / segments)) != 0) outputOk = false;
             }
             if (od_boot_app_end_plane(OD_BOOT_PLANE_SECOND) != 0) outputOk = false;
         }

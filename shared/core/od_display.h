@@ -28,6 +28,7 @@
 
 #include "od_color.h"
 #include "od_span.h"
+#include "od_claim_app.h"   /* enum od_setup_screen */
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -83,6 +84,12 @@ bool od_display_active(void);
  * unreadable boot screen beats none), rendered row by row by od_boot_screen_render(). */
 od_display_rc_t od_display_boot(const struct od_config *cfg, const struct SecurityConfig *sec,
                                 const struct od_boot_bufs *bufs);
+
+/* A setup-family screen (SECURITY_V2 7.8; kind SETUP / CODE / RESET) through the same mode-0 pass,
+ * rendered by od_boot_screen_render_setup(). Same return codes as od_display_boot(). Blocks for
+ * the refresh. */
+od_display_rc_t od_display_setup_screen(const struct od_config *cfg, enum od_setup_screen kind,
+                                        uint32_t code, const struct od_boot_bufs *bufs);
 
 /* 1 (default): od_display.c implements the panel half of od_boot_app.h itself. 0: it is exported
  * under the names below instead, for a target whose od_boot_app_* also feeds a panel od_display

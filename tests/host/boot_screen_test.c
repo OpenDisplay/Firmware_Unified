@@ -4,6 +4,7 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static uint8_t g_segments;
@@ -30,6 +31,19 @@ static uint8_t g_bwr_secondary_color;
 static uint8_t g_gray4_plane[2][4];
 static uint8_t g_gray4_direct[4];
 
+/* The primary plane of a 1-segment frame, kept so a test can look at the picture itself. */
+#define CAP_MAX (800u * 480u / 8u)
+static uint8_t g_cap[CAP_MAX];
+static uint16_t g_cap_pitch;
+static uint16_t g_cap_rows;
+
+/* Golden hashes. OD_PIN=1 prints the actual values instead of asserting them (re-pinning after
+ * a deliberate layout change). */
+#define PIN(v) do { \
+    if (getenv("OD_PIN") != NULL) printf("boot_screen_test.c:%d hash 0x%08X\n", __LINE__, (unsigned)g_hash); \
+    else assert(g_hash == (v)); \
+  } while (0)
+
 static void reset_fake(void)
 {
   g_segments = 1;
@@ -48,6 +62,61 @@ static void reset_fake(void)
   g_bwr_secondary_color = 0u;
   memset(g_gray4_plane, 0xff, sizeof(g_gray4_plane));
   memset(g_gray4_direct, 0xff, sizeof(g_gray4_direct));
+  memset(g_cap, 0xff, sizeof(g_cap));
+  g_cap_pitch = 0;
+  g_cap_rows = 0;
+}
+
+/* 1bpp mono capture: bit 0 = black. */
+static bool cap_black(unsigned x, unsigned y)
+{
+  return ((g_cap[(size_t)y * g_cap_pitch + x / 8u] >> (7u - (x % 8u))) & 1u) == 0u;
+}
+
+static unsigned cap_black_count(void)
+{
+  unsigned n = 0;
+  for (unsigned y = 0; y < g_cap_rows; y++)
+    for (unsigned x = 0; x < (unsigned)g_cap_pitch * 8u; x++) n += cap_black(x, y) ? 1u : 0u;
+  return n;
+}
+
+/* Finder patterns at module size m: a 7x7-module block (black ring, white ring, black 3x3) with a
+ * white one-module separator, matched pixel for pixel. A QR has exactly three. */
+static bool finder_at(unsigned x0, unsigned y0, unsigned m)
+{
+  const unsigned W = (unsigned)g_cap_pitch * 8u;
+  if (x0 < m || y0 < m || x0 + 8u * m > W || y0 + 8u * m > g_cap_rows) return false;
+  for (unsigned my = 0; my < 9u; my++) {
+    for (unsigned mx = 0; mx < 9u; mx++) {
+      /* module coords -1..7 relative to the pattern */
+      const int ix = (int)mx - 1, iy = (int)my - 1;
+      bool want;
+      if (ix < 0 || iy < 0 || ix > 6 || iy > 6) want = false;
+      else if (ix == 0 || iy == 0 || ix == 6 || iy == 6) want = true;
+      else if (ix == 1 || iy == 1 || ix == 5 || iy == 5) want = false;
+      else want = true;
+      for (unsigned py = 0; py < m; py++)
+        for (unsigned px = 0; px < m; px++)
+          if (cap_black(x0 + (unsigned)(ix * (int)m) + px, y0 + (unsigned)(iy * (int)m) + py) != want)
+            return false;
+    }
+  }
+  return true;
+}
+
+static unsigned cap_qr_module(void)
+{
+  const unsigned W = (unsigned)g_cap_pitch * 8u;
+  for (unsigned m = 1; m <= 8u; m++) {
+    unsigned found = 0;
+    for (unsigned y = 1; y < g_cap_rows; y++)
+      for (unsigned x = 1; x < W; x++)
+        if (cap_black(x, y) && !cap_black(x - 1u, y) && !cap_black(x, y - 1u) && finder_at(x, y, m))
+          found++;
+    if (found == 3u) return m;
+  }
+  return 0;
 }
 
 static void hash_byte(uint8_t value)
@@ -84,6 +153,12 @@ int od_boot_app_write_row(uint16_t y, uint8_t segment, const uint8_t *row, uint1
   hash_byte(segment); hash_byte((uint8_t)y); hash_byte((uint8_t)(y >> 8));
   hash_byte((uint8_t)len); hash_byte((uint8_t)(len >> 8));
   for (uint16_t i = 0; i < len; i++) hash_byte(row[i]);
+  if (segment == 0u && g_current_plane == OD_BOOT_PLANE_PRIMARY &&
+      (size_t)(y + 1u) * len <= sizeof g_cap) {
+    memcpy(&g_cap[(size_t)y * len], row, len);
+    g_cap_pitch = len;
+    if (y + 1u > g_cap_rows) g_cap_rows = (uint16_t)(y + 1u);
+  }
   if (y == 280u && len > 41u) {
     if (g_current_plane == OD_BOOT_PLANE_PRIMARY) {
       g_bwr_primary_black = (uint8_t)((row[6] >> 5) & 1u);   /* x=50, black swatch */
@@ -196,7 +271,7 @@ int main(void)
   assert(render(&cfg, &sec, row, sizeof(row), qr, sizeof(qr)));
   assert(g_begin_frames == 1 && g_begin_planes == 1 && g_writes == 128);
   assert(g_end_planes == 1 && g_end_frames == 1);
-  assert(g_hash == 0xBA916E4Cu);
+  PIN(0x3040D050u);
 
   /* A stored key with encryption_enabled == 0 is not in force, so the key lines and the QR
    * payload render it as absent -- byte for byte what a device carrying no key at all renders.
@@ -286,7 +361,7 @@ int main(void)
   /* Zone layout composition, not just its write count: this is the only case that renders the
    * QR right-placement B3 corrects and the swatch band B2 changes. Without it both can be
    * reverted silently -- the 296x128 case is below useZoneLayout and never reaches either. */
-  assert(g_hash == 0xDDA0775Fu);
+  PIN(0x16867395u);
 
   /* EP368 0x0048 uses the V2 LUT. The packed swatches are converted back to the
    * controller's stored codes 3,2,1,0 across the two 1bpp planes. */
@@ -323,7 +398,7 @@ int main(void)
   make_case(&cfg, &sec, 800, 480, OD_COLOR_SCHEME_BWR);
   assert(render(&cfg, &sec, row, sizeof(row), qr, sizeof(qr)));
   assert(g_begin_planes == 2 && g_writes == 960);
-  assert(g_hash == 0x3347F980u);
+  PIN(0x089FE8A5u);
 
   /* BWGBRY_SPLIT is scheme 8 and was the one scheme with no case. It needs its own: the local
    * scheme enum this renderer replaced had no entry for it, so it fell past the end of
@@ -339,7 +414,7 @@ int main(void)
   cfg.displays[0].rotation = 1;   /* landscape: w_log 1600, h_log 1200 */
   assert(render(&cfg, &sec, row_wide, sizeof(row_wide), qr, sizeof(qr)));
   assert(g_begin_planes == 2 && g_writes == 3200 && g_end_frames == 1);
-  assert(g_hash == 0x3ABB8622u);
+  PIN(0xE212C6C2u);
   /* One byte short of the full pitch is refused, not silently half-rendered. */
   reset_fake();
   g_segments = 2;
@@ -347,6 +422,146 @@ int main(void)
   cfg.displays[0].rotation = 1;
   assert(!render(&cfg, &sec, row_wide, 599, qr, sizeof(qr)));
   assert(g_begin_frames == 0 && g_writes == 0);
+
+  /* ---- the setup screen family (SECURITY_V2 7.8) ---- */
+  {
+    const struct od_boot_bufs bufs = {row, sizeof(row), qr, sizeof(qr)};
+    static const enum od_setup_screen kinds[3] = {
+      OD_SETUP_SCREEN_SETUP, OD_SETUP_SCREEN_CODE, OD_SETUP_SCREEN_RESET};
+    uint32_t h296[3], h400[3], h800[3];
+
+    /* NORMAL is not a setup screen: refused before any output. */
+    reset_fake();
+    make_case(&cfg, &sec, 296, 128, OD_COLOR_SCHEME_MONO);
+    assert(!od_boot_screen_render_setup(&cfg, OD_SETUP_SCREEN_NORMAL, 0u, &bufs));
+    assert(g_begin_frames == 0);
+
+    for (unsigned k = 0; k < 3u; k++) {
+      reset_fake();
+      make_case(&cfg, &sec, 296, 128, OD_COLOR_SCHEME_MONO);
+      assert(od_boot_screen_render_setup(&cfg, kinds[k], 123456u, &bufs));
+      assert(g_begin_frames == 1 && g_begin_planes == 1 && g_writes == 128 && g_end_frames == 1);
+      assert(cap_black_count() > 0u);
+      h296[k] = g_hash;
+
+      reset_fake();
+      make_case(&cfg, &sec, 400, 300, OD_COLOR_SCHEME_BWR);
+      assert(od_boot_screen_render_setup(&cfg, kinds[k], 123456u, &bufs));
+      /* BWR: the black plane, then the spot plane sent blank */
+      assert(g_begin_planes == 2 && g_writes == 600);
+      assert(g_bwr_secondary_color == 0u);
+      h400[k] = g_hash;
+
+      reset_fake();
+      make_case(&cfg, &sec, 800, 480, OD_COLOR_SCHEME_MONO);
+      assert(od_boot_screen_render_setup(&cfg, kinds[k], 123456u, &bufs));
+      assert(g_writes == 480);
+      h800[k] = g_hash;
+    }
+    /* Three different screens at every size. */
+    assert(h296[0] != h296[1] && h296[1] != h296[2] && h296[0] != h296[2]);
+    assert(h400[0] != h400[1] && h400[1] != h400[2] && h400[0] != h400[2]);
+    assert(h800[0] != h800[1] && h800[1] != h800[2] && h800[0] != h800[2]);
+    g_hash = h296[0]; PIN(0xE4A6088Bu);
+    g_hash = h296[1]; PIN(0x7121A3E9u);
+    g_hash = h296[2]; PIN(0x2B5071EAu);
+    g_hash = h400[0]; PIN(0xE6728E27u);
+    g_hash = h400[1]; PIN(0x32338461u);
+    g_hash = h400[2]; PIN(0x195C898Bu);
+    g_hash = h800[0]; PIN(0xC06ECB0Bu);
+    g_hash = h800[1]; PIN(0x642C4AD3u);
+    g_hash = h800[2]; PIN(0xD4FEFD45u);
+
+    /* The code is the variable input of CODE, and only of CODE. */
+    reset_fake();
+    make_case(&cfg, &sec, 800, 480, OD_COLOR_SCHEME_MONO);
+    assert(od_boot_screen_render_setup(&cfg, OD_SETUP_SCREEN_CODE, 654321u, &bufs));
+    assert(g_hash != h800[1]);
+    reset_fake();
+    make_case(&cfg, &sec, 800, 480, OD_COLOR_SCHEME_MONO);
+    assert(od_boot_screen_render_setup(&cfg, OD_SETUP_SCREEN_SETUP, 654321u, &bufs));
+    assert(g_hash == h800[0]);
+
+    /* No config text reaches these screens (review A1): a 0x2C header and the key change
+     * nothing. */
+#if OD_CONFIG_WITH_DATA_EXTENDED
+    for (unsigned k = 0; k < 3u; k++) {
+      reset_fake();
+      make_case(&cfg, &sec, 800, 480, OD_COLOR_SCHEME_MONO);
+      cfg.data_extended_loaded = true;
+      memcpy(cfg.data_extended.manufacturer_name, "EVIL 000 000", 13);
+      memcpy(cfg.data_extended.model_name, "TYPE 999 999", 13);
+      cfg.security.encryption_enabled = 1u;
+      memset(cfg.security.encryption_key, 0x5A, 16);
+      assert(od_boot_screen_render_setup(&cfg, kinds[k], 123456u, &bufs));
+      assert(g_hash == h800[k]);
+    }
+#endif
+
+    /* The QR inputs are the simple-config indices: SETUP / RESET change with them, CODE not. */
+    reset_fake();
+    make_case(&cfg, &sec, 800, 480, OD_COLOR_SCHEME_MONO);
+    cfg.manufacturer_data.simple_config_driver_index = 16u;
+    assert(od_boot_screen_render_setup(&cfg, OD_SETUP_SCREEN_SETUP, 0u, &bufs));
+    assert(g_hash != h800[0]);
+    reset_fake();
+    make_case(&cfg, &sec, 800, 480, OD_COLOR_SCHEME_MONO);
+    cfg.manufacturer_data.simple_config_driver_index = 16u;
+    assert(od_boot_screen_render_setup(&cfg, OD_SETUP_SCREEN_CODE, 123456u, &bufs));
+    assert(g_hash == h800[1]);
+
+    /* QR v6 + quiet zone = 49 modules: 4 px/module on 200x200, 3 on 152x152, 2 on a 128-px-wide
+     * 2.9in (SECURITY_V2 7.8), measured on the picture through the finder patterns. */
+    {
+      static const struct { uint16_t w, h; uint8_t rot; unsigned module; } q[] = {
+        {200, 200, 0, 4}, {152, 152, 0, 3}, {128, 296, 0, 2}, {128, 296, 1, 2},
+      };
+      for (unsigned i = 0; i < sizeof q / sizeof q[0]; i++) {
+        for (unsigned k = 0; k < 3u; k += 2u) {
+          reset_fake();
+          make_case(&cfg, &sec, q[i].w, q[i].h, OD_COLOR_SCHEME_MONO);
+          cfg.displays[0].rotation = q[i].rot;
+          assert(od_boot_screen_render_setup(&cfg, kinds[k], 0u, &bufs));
+          if (cap_qr_module() != q[i].module) {
+            fprintf(stderr, "QR module: %ux%u rot %u kind %u: %u px, want %u\n",
+                    q[i].w, q[i].h, q[i].rot, (unsigned)kinds[k], cap_qr_module(), q[i].module);
+            assert(0);
+          }
+        }
+      }
+    }
+
+    /* CODE on the smallest panels still shows the digits: the code wins. */
+    {
+      static const uint16_t sz[][2] = {{200, 200}, {152, 152}, {128, 296}, {296, 128}, {96, 48}};
+      for (unsigned i = 0; i < sizeof sz / sizeof sz[0]; i++) {
+        reset_fake();
+        make_case(&cfg, &sec, sz[i][0], sz[i][1], OD_COLOR_SCHEME_MONO);
+        assert(od_boot_screen_render_setup(&cfg, OD_SETUP_SCREEN_CODE, 123456u, &bufs));
+        assert(cap_black_count() > 0u);
+      }
+    }
+
+    /* Every packing the normal screen supports renders the family too. */
+    {
+      static const uint8_t schemes[] = {OD_COLOR_SCHEME_BWY, OD_COLOR_SCHEME_BWRY, OD_COLOR_SCHEME_BWGBRY,
+                                        OD_COLOR_SCHEME_GRAY4, OD_COLOR_SCHEME_GRAY16};
+      for (unsigned i = 0; i < sizeof schemes; i++) {
+        reset_fake();
+        make_case(&cfg, &sec, 400, 300, schemes[i]);
+        assert(od_boot_screen_render_setup(&cfg, OD_SETUP_SCREEN_SETUP, 0u, &bufs));
+        assert(g_end_frames == 1);
+      }
+      reset_fake();
+      make_case(&cfg, &sec, 296, 128, OD_COLOR_SCHEME_GRAY8);
+      assert(!od_boot_screen_render_setup(&cfg, OD_SETUP_SCREEN_SETUP, 0u, &bufs));
+      reset_fake();
+      make_case(&cfg, &sec, 296, 128, OD_COLOR_SCHEME_MONO);
+      assert(!od_boot_screen_render_setup(&cfg, OD_SETUP_SCREEN_SETUP, 0u,
+                                          &(const struct od_boot_bufs){row, sizeof(row), qr, 1}));
+      assert(g_begin_frames == 0);
+    }
+  }
 
   puts("boot_screen_test: ok");
   return 0;

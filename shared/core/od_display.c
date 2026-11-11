@@ -275,8 +275,9 @@ bool od_display_refresh(uint8_t refresh_mode)
 
 /* --- boot screen ---------------------------------------------------------------------------- */
 
-od_display_rc_t od_display_boot(const struct od_config *cfg, const struct SecurityConfig *sec,
-                                const struct od_boot_bufs *bufs)
+static od_display_rc_t boot_pass(const struct od_config *cfg, const struct SecurityConfig *sec,
+                                 enum od_setup_screen kind, uint32_t code,
+                                 const struct od_boot_bufs *bufs)
 {
     const struct DisplayConfig *d = od_drive_app_display();
     od_color_geometry_t g;
@@ -303,7 +304,8 @@ od_display_rc_t od_display_boot(const struct od_config *cfg, const struct Securi
         return rc;
     }
     s_boot_offset = 0u;
-    ok = od_boot_screen_render(cfg, sec, bufs);
+    ok = kind == OD_SETUP_SCREEN_NORMAL ? od_boot_screen_render(cfg, sec, bufs)
+                                        : od_boot_screen_render_setup(cfg, kind, code, bufs);
     /* A short frame would refresh whatever the controller RAM held in the rest. */
     if (!ok || s_boot_offset != g.total_bytes) {
         od_log_error("display: boot render %s (%u of %u B)", ok ? "short" : "failed",
@@ -315,6 +317,21 @@ od_display_rc_t od_display_boot(const struct od_config *cfg, const struct Securi
     ok = od_epd_cfg_finish();
     end_session();
     return ok ? OD_DISPLAY_OK : OD_DISPLAY_PANEL;
+}
+
+od_display_rc_t od_display_boot(const struct od_config *cfg, const struct SecurityConfig *sec,
+                                const struct od_boot_bufs *bufs)
+{
+    return boot_pass(cfg, sec, OD_SETUP_SCREEN_NORMAL, 0u, bufs);
+}
+
+od_display_rc_t od_display_setup_screen(const struct od_config *cfg, enum od_setup_screen kind,
+                                        uint32_t code, const struct od_boot_bufs *bufs)
+{
+    if (kind == OD_SETUP_SCREEN_NORMAL) {
+        return OD_DISPLAY_BAD_MODE;
+    }
+    return boot_pass(cfg, NULL, kind, code, bufs);
 }
 
 /* The renderer's panel half of od_boot_app.h. The target still supplies the identity half

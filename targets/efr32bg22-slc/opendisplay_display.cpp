@@ -11,6 +11,7 @@
 #include "od_cmd_flash.h"
 #include "od_imgstore.h"
 #include "od_boot_payload.h"
+#include "od_claim_app.h"
 #include "od_caps.h"
 #include "od_txq.h"
 #include "od_xfer.h"
@@ -174,11 +175,19 @@ static const Glyph5x7 s_font5x7[] = {
   { 'P', { 0x7F, 0x09, 0x09, 0x09, 0x06 } }, { 'R', { 0x7F, 0x09, 0x19, 0x29, 0x46 } },
   { 'S', { 0x26, 0x49, 0x49, 0x49, 0x32 } }, { 'W', { 0x3F, 0x40, 0x38, 0x40, 0x3F } },
   { 'Y', { 0x07, 0x08, 0x70, 0x08, 0x07 } },
+  /* the setup screen family's words (SECURITY_V2 7.8), upper case only */
+  { 'H', { 0x7F, 0x08, 0x08, 0x08, 0x7F } }, { 'K', { 0x7F, 0x08, 0x14, 0x22, 0x41 } },
+  { 'M', { 0x7F, 0x02, 0x04, 0x02, 0x7F } }, { 'T', { 0x01, 0x01, 0x7F, 0x01, 0x01 } },
+  { 'U', { 0x3F, 0x40, 0x40, 0x40, 0x3F } }, { ',', { 0x00, 0x50, 0x30, 0x00, 0x00 } },
+  { '?', { 0x02, 0x01, 0x51, 0x09, 0x06 } },
 };
 
 static const uint8_t *glyph5x7(char c)
 {
   unsigned i;
+  if (c >= 'a' && c <= 'z') {
+    c = (char)(c - 'a' + 'A');   /* the font is upper case: "Open" draws as "OPEN" */
+  }
   for (i = 0; i < (sizeof(s_font5x7) / sizeof(s_font5x7[0])); i++) {
     if (s_font5x7[i].c == c) {
       return s_font5x7[i].col;
@@ -279,337 +288,330 @@ static int boot_line_step(int scale)
   return scale * 10;
 }
 
-static int boot_block_h(int scale)
+/* One screen: up to 6 text lines (the `big` one at a larger scale) and an optional QR. Shared by
+ * the normal boot screen and the setup family (SECURITY_V2 7.8), whose content comes from
+ * od_setup_content_build(); only the layout is target-local. */
+#define BOOT_LINES_MAX 6u
+#define BOOT_NO_BIG    0xFFu
+
+struct boot_layout {
+  int scale[BOOT_LINES_MAX];
+  int x[BOOT_LINES_MAX];
+  int y[BOOT_LINES_MAX];
+  bool show[BOOT_LINES_MAX];
+  int module_px, qr_px, qr_x, qr_y;   /* module_px 0: no QR */
+};
+
+static int line_scale(unsigned i, unsigned big, int s, int big_s)
 {
-  return 4 * boot_line_step(scale) + 7 * scale;
+  return i == big ? big_s : s;
 }
 
-static uint16_t boot_max_text_width(const char *const *lines, unsigned n, int scale)
+/* Height (no gap under the last line) and widest width of the shown lines. */
+static void boot_block(const char *const *lines, unsigned n, const bool *show, unsigned big, int s,
+                       int big_s, int *h_out, int *w_out)
 {
-  uint16_t max_w = 0u;
-  unsigned i;
-  for (i = 0u; i < n; i++) {
-    uint16_t tw = text_width_px(lines[i], scale);
-    if (tw > max_w) {
-      max_w = tw;
-    }
-  }
-  return max_w;
-}
-
-static bool boot_layout_fit(uint16_t w, uint16_t h, int scale, int pad, int qr_modules, int *module_px_out,
-                            int *qr_px_out, bool *qr_right_out, int *qr_x_out, int *qr_y_out, int *avail_w_out,
-                            int *text_y_out, uint16_t max_text_w)
-{
-  int block_h = boot_block_h(scale);
-  int text_gap = pad;
-  int side_gap = pad;
-  int module_px;
-  int qr_px;
-  int min_dim = (int)((w < h) ? w : h);
-  int module_ideal = (min_dim - pad * 2) / (int)qr_modules;
-  if (module_ideal < 1) {
-    module_ideal = 1;
-  }
-  if (module_ideal > 6) {
-    module_ideal = 6;
-  }
-
-  for (module_px = module_ideal; module_px >= 1; module_px--) {
-    qr_px = module_px * (int)qr_modules;
-    if (qr_px > (int)w - pad * 2) {
+  int h = 0, w = 0, last = 0;
+  for (unsigned i = 0; i < n; i++) {
+    if (!show[i]) {
       continue;
     }
-    if ((int)w >= pad * 2 + (int)max_text_w + side_gap + qr_px
-        && (int)h >= pad * 2 + (block_h > qr_px ? block_h : qr_px)) {
-      int avail_w = (int)w - pad * 2 - qr_px - side_gap;
-      if ((int)max_text_w <= avail_w) {
-        int qr_x = (int)w - pad - qr_px;
-        int qr_y = pad;
-        int text_y = pad;
-        if (block_h < qr_px) {
-          text_y = pad + (qr_px - block_h) / 2;
-        }
-        *module_px_out = module_px;
-        *qr_px_out = qr_px;
-        *qr_right_out = true;
-        *qr_x_out = qr_x;
-        *qr_y_out = qr_y;
-        *avail_w_out = avail_w;
-        *text_y_out = text_y;
-        return true;
-      }
-    }
-    if ((int)w >= pad * 2 + (int)max_text_w && (int)h >= pad * 2 + block_h + text_gap + qr_px) {
-      *module_px_out = module_px;
-      *qr_px_out = qr_px;
-      *qr_right_out = false;
-      *qr_x_out = ((int)w - qr_px) / 2;
-      *qr_y_out = (int)h - pad - qr_px;
-      *avail_w_out = (int)w - pad * 2;
-      *text_y_out = pad;
-      return true;
+    int si = line_scale(i, big, s, big_s);
+    int tw = (int)text_width_px(lines[i], si);
+    h += boot_line_step(si);
+    last = si;
+    if (tw > w) {
+      w = tw;
     }
   }
-  return false;
+  *h_out = h - 3 * last;
+  *w_out = w;
 }
 
+/* Place the shown lines centred in [x0, x0 + area_w), from y0 down. */
+static void boot_place(struct boot_layout *L, const char *const *lines, unsigned n, const bool *show,
+                       unsigned big, int s, int big_s, int x0, int area_w, int y0)
+{
+  int y = y0;
+  for (unsigned i = 0; i < n; i++) {
+    if (!show[i]) {
+      continue;
+    }
+    int si = line_scale(i, big, s, big_s);
+    int x = x0 + (area_w - (int)text_width_px(lines[i], si)) / 2;
+    L->scale[i] = si;
+    L->x[i] = x < 0 ? 0 : x;
+    L->y[i] = y;
+    L->show[i] = true;
+    y += boot_line_step(si);
+  }
+}
+
+/* qr_first: the reduced setup layout -- the QR at its largest module, text only where it still
+ * fits. Otherwise the text scale is tried from 2 down with the QR beside or below it. */
+static bool boot_layout(uint16_t w, uint16_t h, const char *const *lines, unsigned n, unsigned big,
+                        int qr_modules, bool qr_first, struct boot_layout *L)
+{
+  bool show[BOOT_LINES_MAX];
+  int min_dim = (int)(w < h ? w : h);
+
+  memset(L, 0, sizeof *L);
+  for (unsigned i = 0; i < BOOT_LINES_MAX; i++) {
+    show[i] = i < n;
+  }
+  for (int s = (w >= 400u && h >= 300u && !qr_first) ? 2 : 1; s >= 1; s--) {
+    int pad = 6 * s;
+    int big_s = s;
+    int block_h, max_w;
+    if (big != BOOT_NO_BIG) {
+      int by_w = ((int)w - 2 * pad) / (int)(6u * strlen(lines[big]));
+      int by_h = (int)h / 30;
+      big_s = by_w < by_h ? by_w : by_h;
+      if (big_s > 4 * s) {
+        big_s = 4 * s;
+      }
+      if (big_s < s) {
+        big_s = s;
+      }
+    }
+    boot_block(lines, n, show, big, s, big_s, &block_h, &max_w);
+    if (qr_modules == 0) {
+      if (max_w <= (int)w - 2 * pad && block_h <= (int)h - 2 * pad) {
+        boot_place(L, lines, n, show, big, s, big_s, 0, (int)w, ((int)h - block_h) / 2);
+        return true;
+      }
+      continue;
+    }
+    int module_px = (qr_first ? min_dim : min_dim - 2 * pad) / qr_modules;
+    if (module_px > 6) {
+      module_px = 6;
+    }
+    for (; module_px >= 1; module_px--) {
+      int qr_px = module_px * qr_modules;
+      int side = qr_first ? 0 : pad;
+      L->module_px = module_px;
+      L->qr_px = qr_px;
+      if ((int)w - qr_px - side >= max_w + 2 * pad && (int)h >= block_h + 2 * pad &&
+          (int)h >= qr_px + 2 * side) {
+        /* text left, QR right */
+        L->qr_x = (int)w - side - qr_px;
+        L->qr_y = ((int)h - qr_px) / 2;
+        boot_place(L, lines, n, show, big, s, big_s, 0, L->qr_x, ((int)h - block_h) / 2);
+        return true;
+      }
+      if ((int)h - qr_px - side >= block_h + 2 * pad && (int)w >= max_w + 2 * pad &&
+          (int)w >= qr_px + 2 * side) {
+        /* text above, QR below */
+        L->qr_x = ((int)w - qr_px) / 2;
+        L->qr_y = (int)h - side - qr_px;
+        boot_place(L, lines, n, show, big, s, big_s, 0, (int)w, (L->qr_y - block_h) / 2);
+        return true;
+      }
+      if (qr_first) {
+        break;      /* the module is fixed: the text goes instead */
+      }
+    }
+  }
+  if (qr_modules != 0) {
+    /* Nothing fits beside it: the QR alone. */
+    int module_px = min_dim / qr_modules;
+    if (module_px > 6) {
+      module_px = 6;
+    }
+    if (module_px < 1) {
+      return false;
+    }
+    memset(L, 0, sizeof *L);
+    L->module_px = module_px;
+    L->qr_px = module_px * qr_modules;
+    L->qr_x = ((int)w - L->qr_px) / 2;
+    L->qr_y = ((int)h - L->qr_px) / 2;
+    return true;
+  }
+  if (big == BOOT_NO_BIG) {
+    return false;
+  }
+  /* The code wins: the digits alone, at the largest scale that fits. */
+  int big_s = ((int)w - 12) / (int)(6u * strlen(lines[big]));
+  if (big_s < 1) {
+    return false;
+  }
+  if (big_s > (int)h / 10) {
+    big_s = (int)h / 10 > 0 ? (int)h / 10 : 1;
+  }
+  L->scale[big] = big_s;
+  L->x[big] = ((int)w - (int)text_width_px(lines[big], big_s)) / 2;
+  L->y[big] = ((int)h - 7 * big_s) / 2;
+  L->show[big] = true;
+  return true;
+}
+
+static bool render_screen(const struct DisplayConfig *dc, const char *const *lines, unsigned n,
+                          unsigned big, const char *url, bool qr_first)
+{
+  static uint8_t qr_buf[256];
+  static uint8_t s_boot_row[256];
+  struct boot_layout L;
+  QRCode qr;
+  uint8_t qr_size = 0u;
+  int qr_modules = 0;
+  const uint16_t w = dc->pixel_width;
+  const uint16_t h = dc->pixel_height;
+  int y;
+
+  if (url != nullptr) {
+    uint16_t qr_buf_size = qrcode_getBufferSize(6u);
+    if (qr_buf_size == 0u || qr_buf_size > sizeof(qr_buf) ||
+        qrcode_initText(&qr, qr_buf, 6u, ECC_MEDIUM, url) != 0) {
+      return false;
+    }
+    qr_size = qr.size;
+    qr_modules = (int)qr_size + 8;
+  }
+  if (!boot_layout(w, h, lines, n, big, qr_modules, qr_first, &L)) {
+    return false;
+  }
+
+  /* Two image planes, from the colour scheme rather than a vendored panel flag: a
+   * spot-colour panel takes a second plane even when the boot screen leaves it blank. */
+  bool is3clr = dc->color_scheme == OD_COLOR_SCHEME_BWR
+             || dc->color_scheme == OD_COLOR_SCHEME_BWY
+             || dc->color_scheme == OD_COLOR_SCHEME_BWRY;
+  bool is_gray4 = dc->color_scheme == OD_COLOR_SCHEME_GRAY4;
+  int bits_per_pixel = boot_bits_per_pixel(dc->color_scheme);
+  if (bits_per_pixel == 0) {
+    return false;
+  }
+  int pitch = ((int)w * bits_per_pixel + 7) / 8;
+  int plane_pitch = ((int)w + 7) / 8;
+  size_t workspace = (size_t)pitch;
+  uint8_t white_byte = 0xFFu;
+
+  if (is_gray4) {
+    workspace += (size_t)plane_pitch;
+  }
+  if (workspace > sizeof(s_boot_row)) {
+    return false;
+  }
+  if (dc->color_scheme == OD_COLOR_SCHEME_BWRY) {
+    white_byte = 0x55u;
+  } else if (dc->color_scheme == OD_COLOR_SCHEME_BWGBRY) {
+    white_byte = 0x11u;
+  }
+
+  const int render_passes = is_gray4 ? 2 : 1;
+  for (int pass = 0; pass < render_passes; pass++) {
+    /* Pass 0's image marker was already reached by od_epd_shim_begin(). There is no
+     * address window to set: the drive sequence from config says where the frame goes. */
+    if (pass > 0 && !od_epd_shim_next_plane()) {
+      return false;
+    }
+
+    for (y = 0; y < (int)h; y++) {
+      memset(s_boot_row, white_byte, (size_t)pitch);
+
+      for (unsigned i = 0; i < n; i++) {
+        if (L.show[i]) {
+          draw_text_row(s_boot_row, y, L.x[i], L.y[i], lines[i], L.scale[i], bits_per_pixel, (int)w);
+        }
+      }
+
+      if (L.module_px > 0 && y >= L.qr_y && y < L.qr_y + L.qr_px) {
+        int my = (y - L.qr_y) / L.module_px;
+        int qy_qr = my - 4;
+        for (int mx = 0; mx < qr_modules; mx++) {
+          int qx_qr = mx - 4;
+          if (qx_qr < 0 || qy_qr < 0 || qx_qr >= (int)qr_size || qy_qr >= (int)qr_size ||
+              !qrcode_getModule(&qr, (uint8_t)qx_qr, (uint8_t)qy_qr)) {
+            continue;
+          }
+          for (int sx = 0; sx < L.module_px; sx++) {
+            int px = L.qr_x + mx * L.module_px + sx;
+            if (px >= 0 && px < (int)w) {
+              set_pixel_row(s_boot_row, px, bits_per_pixel);
+            }
+          }
+        }
+      }
+
+      if (is_gray4) {
+        uint8_t *plane_row = s_boot_row + pitch;
+        make_gray4_plane_row(plane_row, s_boot_row, plane_pitch, w, pass);
+        if (!od_epd_shim_write(plane_row, (uint32_t)plane_pitch)) {
+          return false;
+        }
+      } else if (!od_epd_shim_write(s_boot_row, (uint32_t)pitch)) {
+        return false;
+      }
+    }
+  }
+  if (is3clr) {
+    /* The second plane of a 3-colour panel, left blank: these screens are black on white
+     * and have nothing to say in the spot colour. It still has to be SENT -- a panel whose
+     * sequence declares two planes and receives one refreshes from whatever the controller
+     * held. */
+    if (!od_epd_shim_next_plane()) {
+      return false;
+    }
+    for (y = 0; y < (int)h; y++) {
+      memset(s_boot_row, 0x00u, (size_t)pitch);
+      if (!od_epd_shim_write(s_boot_row, (uint32_t)pitch)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+static void fw_version(uint8_t *major, uint8_t *minor, uint8_t *patch)
+{
+  uint16_t ver = opendisplay_ble_get_app_version();
+  *major = (uint8_t)((ver >> 8) & 0xFFu);
+  *minor = (uint8_t)(ver & 0xFFu);
+  *patch = (uint8_t)opendisplay_ble_get_app_version_patch();
+}
 
 static bool render_boot_screen(const struct GlobalConfig *cfg)
 {
-  static const uint8_t zero_key[OD_BOOT_KEY_SIZE] = { 0 };
-  const struct SecurityConfig *sec = od_get_parsed_security();
   const struct DisplayConfig *dc;
-  uint16_t w, h;
   uint32_t last3;
-  const uint8_t *key;
-  enum od_boot_key_state key_state;
-  bool show_key;
   char url[OD_BOOT_URL_SIZE];
-  QRCode qr;
-  static uint8_t qr_buf[256];
-  uint16_t qr_buf_size;
-  uint8_t qr_size;
-  uint16_t qr_modules;
-  int scale_text;
-  int pad;
-  int module_px;
-  int qr_px;
-  bool qr_right;
-  int qr_x, qr_y, avail_w, text_y;
   char name_line[16];
   char fw_line[20];
-  const char *domain_line = "OPENDISPLAY.ORG";
-  char key_hex[33];
-  char k1[17], k2[17];
-  uint16_t dW, nW, fwW, k1W, k2W;
+  char key_line[16];
+  uint8_t major, minor, patch;
 
   if (cfg == nullptr || cfg->display_count == 0u) {
     return false;
   }
   dc = &cfg->displays[0];
-  /* From config, the same source od_xfer_app_panel_info() uses for the upload geometry.
-   * bb_epaper reported its own post-rotation width/height here; taking both from one place
-   * is what keeps the boot screen and an uploaded image from disagreeing about the frame. */
-  w = dc->pixel_width;
-  h = dc->pixel_height;
-
   last3 = (uint32_t)(SYSTEM_GetUnique() & 0xFFFFFFu);
-  /* The same policy the other two targets get through od_boot_screen_render(); this panel only
-   * differs in how it lays the answer out. */
-  key_state = od_boot_key_state(sec);
-  key = key_state == OD_BOOT_KEY_NOT_SET ? zero_key : sec->encryption_key;
-  show_key = key_state == OD_BOOT_KEY_SHOWN;
-  if (!od_boot_url_build(dc->legacy_tag_type, last3, key, show_key,
-                         cfg->manufacturer_data.manufacturer_id, url, sizeof(url))) {
+  if (!od_boot_url_build(dc->legacy_tag_type, last3, cfg->manufacturer_data.manufacturer_id,
+                         url, sizeof(url))) {
     return false;
   }
-
-  qr_buf_size = qrcode_getBufferSize(6u);
-  if (qr_buf_size == 0u || qr_buf_size > sizeof(qr_buf)) {
-    return false;
-  }
-  if (qrcode_initText(&qr, qr_buf, 6u, ECC_MEDIUM, url) != 0) {
-    return false;
-  }
-  qr_size = qr.size;
-  qr_modules = (uint16_t)(qr_size + 8u);
-
   name_line[0] = 'O';
   name_line[1] = 'D';
   *od_fmt_hex(&name_line[2], last3, 6u) = '\0';
   {
     /* "FW:S M.m.p": 5 + 3 * 3 + 2 dots + NUL = 17 <= sizeof(fw_line). */
-    uint16_t ver = opendisplay_ble_get_app_version();
     char *p = fw_line;
+    fw_version(&major, &minor, &patch);
     memcpy(p, "FW:S ", 5u);
-    p = od_fmt_u8(p + 5, (unsigned)((ver >> 8) & 0xFFu));
+    p = od_fmt_u8(p + 5, major);
     *p++ = '.';
-    p = od_fmt_u8(p, (unsigned)(ver & 0xFFu));
+    p = od_fmt_u8(p, minor);
     *p++ = '.';
-    p = od_fmt_u8(p, (unsigned)opendisplay_ble_get_app_version_patch());
+    p = od_fmt_u8(p, patch);
     *p = '\0';
   }
-  od_boot_format_key_display(key, show_key, key_hex);
-  memcpy(k1, key_hex, 16);
-  k1[16] = '\0';
-  memcpy(k2, key_hex + 16, 16);
-  k2[16] = '\0';
-
+  /* The key is never rendered (SECURITY_V2 10.7): only whether one is in force. */
+  od_boot_format_key_line("KEY:", od_boot_key_state(od_get_parsed_security()) != OD_BOOT_KEY_NOT_SET,
+                          key_line, sizeof(key_line));
   {
-    static const char *boot_lines[] = {
-      domain_line, name_line, fw_line, k1, k2,
-    };
-    uint16_t max_text_w;
-    bool layout_ok = false;
-    int try_scale;
-
-    for (try_scale = (w >= 400u && h >= 300u) ? 2 : 1; try_scale >= 1 && !layout_ok; try_scale--) {
-      scale_text = try_scale;
-      pad = 6 * scale_text;
-      max_text_w = boot_max_text_width(boot_lines, 5u, scale_text);
-      layout_ok = boot_layout_fit(w, h, scale_text, pad, (int)qr_modules, &module_px, &qr_px, &qr_right, &qr_x,
-                                  &qr_y, &avail_w, &text_y, max_text_w);
-    }
-    if (!layout_ok) {
-      scale_text = 1;
-      pad = 6;
-      max_text_w = boot_max_text_width(boot_lines, 5u, scale_text);
-      module_px = 1;
-      qr_px = module_px * (int)qr_modules;
-      qr_right = false;
-      qr_x = ((int)w - qr_px) / 2;
-      qr_y = (int)h - pad - qr_px;
-      if (qr_y < pad) {
-        qr_y = pad;
-      }
-      avail_w = (int)w - pad * 2;
-      text_y = pad;
-    }
+    const char *lines[4] = { "OPENDISPLAY.ORG", name_line, fw_line, key_line };
+    return render_screen(dc, lines, 4u, BOOT_NO_BIG, url, false);
   }
-
-  {
-    static uint8_t s_boot_row[256];
-    /* Two image planes, from the colour scheme rather than a vendored panel flag: a
-     * spot-colour panel takes a second plane even when the boot screen leaves it blank. */
-    bool is3clr = dc->color_scheme == OD_COLOR_SCHEME_BWR
-               || dc->color_scheme == OD_COLOR_SCHEME_BWY
-               || dc->color_scheme == OD_COLOR_SCHEME_BWRY;
-    bool is_gray4 = dc->color_scheme == OD_COLOR_SCHEME_GRAY4;
-    int bits_per_pixel = boot_bits_per_pixel(dc->color_scheme);
-    if (bits_per_pixel == 0) {
-      return false;
-    }
-    int pitch = ((int)w * bits_per_pixel + 7) / 8;
-    int plane_pitch = ((int)w + 7) / 8;
-    size_t workspace = (size_t)pitch;
-    uint8_t white_byte = 0xFFu;
-    int domX, nameX, fwX, k1X, k2X, y;
-    int text_max_x;
-    int text_origin_x;
-
-    if (is_gray4) {
-      workspace += (size_t)plane_pitch;
-    }
-    if (workspace > sizeof(s_boot_row)) {
-      return false;
-    }
-    if (dc->color_scheme == OD_COLOR_SCHEME_BWRY) {
-      white_byte = 0x55u;
-    } else if (dc->color_scheme == OD_COLOR_SCHEME_BWGBRY) {
-      white_byte = 0x11u;
-    }
-
-    dW  = text_width_px(domain_line, scale_text);
-    nW  = text_width_px(name_line, scale_text);
-    fwW = text_width_px(fw_line, scale_text);
-    k1W = text_width_px(k1, scale_text);
-    k2W = text_width_px(k2, scale_text);
-    text_origin_x = qr_right ? pad : ((int)w - (int)avail_w) / 2;
-    if (text_origin_x < pad) {
-      text_origin_x = pad;
-    }
-    text_max_x = qr_right ? (qr_x - pad) : (int)w;
-    domX  = text_origin_x + ((avail_w - (int)dW)  / 2);
-    nameX = text_origin_x + ((avail_w - (int)nW)  / 2);
-    fwX   = text_origin_x + ((avail_w - (int)fwW) / 2);
-    k1X   = text_origin_x + ((avail_w - (int)k1W) / 2);
-    k2X   = text_origin_x + ((avail_w - (int)k2W) / 2);
-    if (domX < pad) {
-      domX = pad;
-    }
-    if (nameX < pad) {
-      nameX = pad;
-    }
-    if (fwX < pad) {
-      fwX = pad;
-    }
-    if (k1X < pad) {
-      k1X = pad;
-    }
-    if (k2X < pad) {
-      k2X = pad;
-    }
-
-    const int render_passes = is_gray4 ? 2 : 1;
-    for (int pass = 0; pass < render_passes; pass++) {
-      /* Pass 0's image marker was already reached by od_epd_shim_begin(). There is no
-       * address window to set: the drive sequence from config says where the frame goes. */
-      if (pass > 0 && !od_epd_shim_next_plane()) {
-        return false;
-      }
-
-      for (y = 0; y < (int)h; y++) {
-        memset(s_boot_row, white_byte, (size_t)pitch);
-
-        draw_text_row(s_boot_row, y, domX,  text_y,                      domain_line, scale_text, bits_per_pixel,
-                      text_max_x);
-        draw_text_row(s_boot_row, y, nameX, text_y + boot_line_step(scale_text), name_line, scale_text, bits_per_pixel,
-                      text_max_x);
-        draw_text_row(s_boot_row, y, fwX,   text_y + boot_line_step(scale_text) * 2, fw_line, scale_text, bits_per_pixel,
-                      text_max_x);
-        draw_text_row(s_boot_row, y, k1X,   text_y + boot_line_step(scale_text) * 3, k1, scale_text, bits_per_pixel,
-                      text_max_x);
-        draw_text_row(s_boot_row, y, k2X,   text_y + boot_line_step(scale_text) * 4, k2, scale_text, bits_per_pixel,
-                      text_max_x);
-
-        if (y >= qr_y && y < qr_y + qr_px) {
-          int local_y = y - qr_y;
-          int my = local_y / module_px;
-          if (my < (int)qr_modules) {
-            int qy_qr = my - 4;
-            int mx;
-            for (mx = 0; mx < (int)qr_modules; mx++) {
-              int qx_qr = mx - 4;
-              bool on = false;
-              if (qx_qr >= 0 && qy_qr >= 0 && qx_qr < (int)qr_size && qy_qr < (int)qr_size) {
-                on = qrcode_getModule(&qr, (uint8_t)qx_qr, (uint8_t)qy_qr);
-              }
-              if (!on) {
-                continue;
-              }
-              {
-                int px0 = qr_x + mx * module_px;
-                int sx;
-                for (sx = 0; sx < module_px; sx++) {
-                  int px = px0 + sx;
-                  if (px >= 0 && px < (int)w) {
-                    set_pixel_row(s_boot_row, px, bits_per_pixel);
-                  }
-                }
-              }
-            }
-          }
-        }
-
-        if (is_gray4) {
-          uint8_t *plane_row = s_boot_row + pitch;
-          make_gray4_plane_row(plane_row, s_boot_row, plane_pitch, w, pass);
-          if (!od_epd_shim_write(plane_row, (uint32_t)plane_pitch)) {
-            return false;
-          }
-        } else if (!od_epd_shim_write(s_boot_row, (uint32_t)pitch)) {
-          return false;
-        }
-      }
-    }
-    if (is3clr) {
-      /* The second plane of a 3-colour panel, left blank: the boot screen is black on white
-       * and has nothing to say in the spot colour. It still has to be SENT -- a panel whose
-       * sequence declares two planes and receives one refreshes from whatever the controller
-       * held. */
-      if (!od_epd_shim_next_plane()) {
-        return false;
-      }
-      for (y = 0; y < (int)h; y++) {
-        memset(s_boot_row, 0x00u, (size_t)pitch);
-        if (!od_epd_shim_write(s_boot_row, (uint32_t)pitch)) {
-          return false;
-        }
-      }
-    }
-  }
-  return true;
 }
 
 /* --- CMD_SPI_RAW session ---------------------------------------------------------------------
@@ -888,12 +890,36 @@ bool opendisplay_display_drive_stream_info(od_color_geometry_t *geometry_out,
   return true;
 }
 
-extern "C" void opendisplay_display_boot_apply(void)
+static bool render_setup_screen(const struct GlobalConfig *cfg, enum od_setup_screen kind,
+                                uint32_t code)
 {
-  const struct DisplayConfig *d = display_cfg();
-  if (s_boot_applied || d == nullptr) {
-    return;
+  static struct od_setup_content c;   /* static: ~150 B off a 2.7 kB stack */
+  const struct DisplayConfig *dc;
+  uint8_t major, minor, patch;
+  bool full;
+
+  if (cfg == nullptr || cfg->display_count == 0u) {
+    return false;
   }
+  dc = &cfg->displays[0];
+  full = dc->pixel_width >= 400u && dc->pixel_height >= 300u;
+  fw_version(&major, &minor, &patch);
+  if (!od_setup_content_build(kind, full, code, (uint32_t)(SYSTEM_GetUnique() & 0xFFFFFFu),
+                              OD_IDENT_TARGET_SILABS, major, minor, patch,
+                              cfg->manufacturer_data.simple_config_driver_index,
+                              cfg->manufacturer_data.simple_config_display_index,
+                              cfg->manufacturer_data.simple_config_power_index, &c)) {
+    return false;
+  }
+  return render_screen(dc, c.line, c.n, c.big == OD_SETUP_NO_BIG ? BOOT_NO_BIG : c.big,
+                       c.qr ? c.url : nullptr, !full);
+}
+
+/* One mode-0 pass: NORMAL is the boot screen, anything else a setup-family screen. Blocks for
+ * the refresh. false = nothing was refreshed (no drive packets, mode 0 unavailable, no fit). */
+static bool boot_pass(const struct DisplayConfig *d, enum od_setup_screen kind, uint32_t code)
+{
+  bool ok;
 
   /* NO PANEL TABLE, so a device with no drive packets has no boot screen. That is the normal
    * state straight after an OTA, so a failed attempt must NOT latch: the config-reload path
@@ -901,7 +927,7 @@ extern "C" void opendisplay_display_boot_apply(void)
    * cycle. Say so, since an undriven panel looks exactly like one driven white. */
   if (!od_epd_shim_available(d)) {
     OD_DIAG("[OD] boot screen: no drive packets; will retry after the next config write\r\n");
-    return;
+    return false;
   }
   display_power_set(true);
   /* Mode 0 by convention is the plain full refresh. */
@@ -910,22 +936,48 @@ extern "C" void opendisplay_display_boot_apply(void)
                          d->data_pin, d->clk_pin)) {
     OD_DIAG("[OD] boot screen: mode 0 unavailable; will retry after the next config write\r\n");
     display_power_set(false);
-    return;
+    return false;
   }
-  if (!render_boot_screen(opendisplay_get_global_config())) {
+  ok = kind == OD_SETUP_SCREEN_NORMAL ? render_boot_screen(opendisplay_get_global_config())
+                                      : render_setup_screen(opendisplay_get_global_config(), kind, code);
+  if (!ok) {
     OD_DIAG("[OD] boot screen did not fit; skipping refresh\r\n");
     od_epd_shim_sleep();
     display_power_set(false);
-    return;
+    return false;
   }
   /* finishPass runs the sequence tail: power-on, refresh, BUSY wait. The wait is inside it,
    * so boot cannot proceed while the panel is still refreshing. */
   (void)od_epd_shim_finish();
-  /* Latch only once the panel has really been driven, so a later config write cannot redraw
-   * the boot screen over a user's image. */
-  s_boot_applied = true;
   od_epd_shim_sleep();
   display_power_set(false);
+  return true;
+}
+
+extern "C" void opendisplay_display_boot_apply(void)
+{
+  const struct DisplayConfig *d = display_cfg();
+  if (s_boot_applied || d == nullptr) {
+    return;
+  }
+  /* Latch only once the panel has really been driven, so a later config write cannot redraw
+   * the boot screen over a user's image. */
+  if (boot_pass(d, OD_SETUP_SCREEN_NORMAL, 0u)) {
+    s_boot_applied = true;
+  }
+}
+
+/* SECURITY_V2 7.8 / FACTORY_RESET.md 4 (od_claim_app.h). A drawn setup screen also latches the
+ * boot screen, so a config write in claim mode does not paint the normal screen over it. */
+extern "C" bool od_claim_app_draw(enum od_setup_screen kind, uint32_t code)
+{
+  const struct DisplayConfig *d = display_cfg();
+
+  if (d == nullptr || kind == OD_SETUP_SCREEN_NORMAL || !boot_pass(d, kind, code)) {
+    return false;
+  }
+  s_boot_applied = true;
+  return true;
 }
 
 /* A config write is ACKed before its redraw: the ACK is only QUEUED when the handler returns,
