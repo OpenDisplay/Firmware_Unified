@@ -332,27 +332,23 @@ that way: configuration belongs in `sdkconfig.defaults`, not in edits here.
 
 | | |
 |---|---|
-| Upstream | https://github.com/ricmoo/QRCode (Richard Moore) |
-| Licence | **MIT** (stated in `qrcode.h`: "Minimal QR header (MIT) derived from ricmoo/QRCode") |
+| Upstream | https://github.com/ricmoo/QRCode (Richard Moore), itself derived from Project Nayuki's QR Code generator library |
+| Licence | **MIT**. Text and copyright lines in `third_party/qrcode/LICENSE` (Copyright (c) 2017 Richard Moore; Copyright (c) 2017 Project Nayuki). Written from upstream's licence as recalled, not copied from a checkout: confirm both lines against upstream's `LICENSE.txt` and `qrcode.c` header at the same time as the revision |
+| Revision | The ricmoo/QRCode commit it was trimmed from is not recorded anywhere in the source repos. The trimmed form came into this tree byte-identical to `../Firmware_Silabs` `qr/` (`0de8d80`, 2026-04-19) and `../Firmware_NRF54` `src/qr/` (`8af2290`, 2026-07-08); `../Firmware`'s `src/qr/` (`fd0d73a`, 2026-03-24) is an earlier, different trim of the same code. So the exact upstream commit is unknown (maintainer question, checked offline only); diff against ricmoo/QRCode master when someone has network access, and record the closest commit here |
 | Form | A trimmed encoder: byte mode, ECC level M, versions 1-10 only (`qrcode.c` lookup tables) |
 | Arrived | `1f30d36` ("feat: unify boot screen rendering", 2026-08-18) |
 | Used by | the shared boot screen's QR code (`shared/core/od_boot_screen.c`), on every target |
-
-**Open item: the MIT licence text and copyright line are not in the tree.** MIT requires both
-to accompany copies. Neither `qrcode.c` nor `qrcode.h` carries them, and no upstream revision
-is recorded. Before a release: add upstream's `LICENSE.txt` (Copyright (c) 2017 Richard Moore)
-as `third_party/qrcode/LICENSE` and record the revision here. Not done here because the
-revision this was derived from is not known; see docs/RELEASE_CHECKLIST_3.0.md.
 
 ## boot_logo
 
 | | |
 |---|---|
 | Content | `od_logo.svg` (the OpenDisplay logo), `convert_logo.py` (SVG to packed 1-bit C header), `logo_bitmap.h` (its generated output) |
-| Origin | OpenDisplay project artwork and tooling, not third-party code |
-| Licence | **Not stated in the tree.** The code is presumably GPL-3.0 with the rest of the repo. The logo is a project mark, and its terms of use are the maintainer's to state (maintainer question) |
+| Origin | OpenDisplay's own artwork and tooling, not third-party code |
+| Licence | The repository licence, **GPL-3.0** (`LICENSE`), for the logo, the script and the generated header alike |
 | Arrived | `1f30d36`, 2026-08-18 |
 
+It sits under `third_party/` only because the boot screen's other input, the QR encoder, does.
 `logo_bitmap.h` is generated and must not be hand-edited. Regenerate it with
 `convert_logo.py` (needs Pillow plus cairosvg or ImageMagick).
 

@@ -57,7 +57,7 @@ checklist cites build SHAs.
 | C3 | The nRF52840 ships dual-slot MCUboot (now the `build.sh` default). Adafruit-only remains an unreleased opt-in. Confirm. | needs maintainer | [ ] |
 | C4 | ESP32 2.x → 3.0 erases config and key, by decision. Confirm it is acceptable with the backup/migrate CLI as the mitigation. | needs maintainer | [ ] |
 | C5 | Action system and image store: supported, or "experimental" in the notes. CHANGELOG says experimental. | needs maintainer | [ ] |
-| C6 | `third_party/boot_logo`: state its licence, or replace it. `third_party/qrcode` and uzlib: add the upstream licence text and copyright lines (`third_party/NOTICE.md` open items). | needs maintainer | [ ] |
+| C6 | `third_party/boot_logo` is OpenDisplay artwork under the repository GPL-3.0; `third_party/qrcode` carries its MIT `LICENSE` (decided 2026-11-11, `third_party/NOTICE.md`). Still open: uzlib/tinf notice in `od_zlib_inflate.c` | agent-done (qrcode, boot_logo); uzlib open | [~] |
 
 ## D. Hardware pass at the release SHA
 
