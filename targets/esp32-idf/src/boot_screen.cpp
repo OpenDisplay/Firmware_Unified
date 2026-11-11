@@ -10,6 +10,9 @@
 #include "encryption_state.h"
 #include "od_boot_app.h"
 #include "od_boot_screen.h"
+#include "od_claim_app.h"
+#include "od_watchdog_app.h"
+#include "touch_input.h"
 #include "od_color.h"
 #include "od_display.h"
 #include "od_display_esp.h"
@@ -126,4 +129,43 @@ const struct od_boot_bufs *bootScreenBufs(void)
 bool writeBootScreenWithQr()
 {
   return od_boot_screen_render(&globalConfig, &securityConfig, &s_bufs);
+}
+
+/* SECURITY_V2 7.8 / FACTORY_RESET.md 4 (od_claim_app.h): a setup-family screen through the same
+ * two sinks as the boot screen. Blocks for the refresh; the caller has flushed its replies. */
+extern "C" bool od_claim_app_draw(enum od_setup_screen kind, uint32_t code)
+{
+  bool ok = false;
+
+  if (kind == OD_SETUP_SCREEN_NORMAL || globalConfig.display_count == 0u) {
+    return false;
+  }
+  od_watchdog_app_phase(OD_WDT_PHASE_BOOT_REFRESH);
+#if defined(OPENDISPLAY_FASTEPD)
+  if (NATIVE()) {
+    if (displayBootBitsPerPixel(globalConfig.displays[0].color_scheme) != 0) {
+      displayRailAcquire();
+      fastepd_epaper_begin();
+      if (fastepd_init_failed()) {
+        fastepd_mark_hw_deinitialized();
+      } else if (od_boot_screen_render_setup(&globalConfig, kind, code, &s_bufs)) {
+        touchSuspendForEpdRefresh();
+        fastepd_full_update();
+        ok = fastepd_wait_refresh(60);
+        touchResumeAfterEpdRefresh();
+      }
+      epdSessionForceOff();
+    }
+    od_watchdog_app_phase(OD_WDT_PHASE_IDLE);
+    return ok;
+  }
+#endif
+  if (!od_display_needs_migration()) {
+    touchSuspendForEpdRefresh();
+    ok = od_display_setup_screen(&globalConfig, kind, code, &s_bufs) == OD_DISPLAY_OK;
+    epdSessionForceOff();   /* ends with the rail off, like the boot screen */
+    touchResumeAfterEpdRefresh();
+  }
+  od_watchdog_app_phase(OD_WDT_PHASE_IDLE);
+  return ok;
 }

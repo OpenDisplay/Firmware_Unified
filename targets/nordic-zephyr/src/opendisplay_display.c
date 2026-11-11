@@ -12,6 +12,7 @@
 #include "od_boot_screen.h"
 #include "od_cmd_reply.h"
 #include "od_display.h"
+#include "od_claim_app.h"
 #include "od_display_app.h"
 #include "od_drive_app.h"
 #include "od_epd_cfg.h"
@@ -368,6 +369,30 @@ bool opendisplay_display_boot_apply(void)
     }
   }
   return false;
+}
+
+/* SECURITY_V2 7.8 / FACTORY_RESET.md 4 (od_claim_app.h): a setup-family screen through the
+ * mode-0 boot pass. Blocks for the refresh. A drawn screen also latches the boot screen, so a
+ * config write in claim mode does not paint the normal screen over it. */
+bool od_claim_app_draw(enum od_setup_screen kind, uint32_t code)
+{
+	const struct od_boot_bufs bufs = { s_boot_row, sizeof(s_boot_row),
+					   s_boot_qr, sizeof(s_boot_qr) };
+	od_display_rc_t rc;
+
+	if (kind == OD_SETUP_SCREEN_NORMAL || display_cfg() == NULL ||
+	    od_watchdog_app_safe_mode() || od_display_needs_migration()) {
+		return false;
+	}
+	rc = od_display_setup_screen(opendisplay_get_global_config(), kind, code, &bufs);
+	od_epd_spi_deinit();
+	(void)od_epd_spi_fault_reset();
+	if (rc != OD_DISPLAY_OK) {
+		od_log_warn("setup screen %d: rc=%d", (int)kind, (int)rc);
+		return false;
+	}
+	s_boot_applied = true;
+	return true;
 }
 
 void opendisplay_display_request_boot(void)
