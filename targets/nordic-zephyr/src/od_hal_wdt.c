@@ -10,6 +10,7 @@
 #include "od_hal_reset.h"
 #include "od_log.h"
 #include "od_sec2_trace.h"
+#include "od_test_bench.h"
 
 #include <string.h>
 
@@ -52,6 +53,9 @@ static bool raw_cause(uint32_t *out)
 				      (unsigned)cause, (unsigned)NRF_POWER->RESETREAS);
 #endif
 			(void)hwinfo_clear_reset_cause();
+			if (od_test_bench_take_fake_cause(&cause)) {
+				OD_SEC2_TRACE("reset cause: BENCH FAKE -> hwinfo=0x%08x", (unsigned)cause);
+			}
 			cached = cause;
 			state = 1;
 		}

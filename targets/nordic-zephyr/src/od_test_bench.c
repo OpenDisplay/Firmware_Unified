@@ -22,6 +22,7 @@
  *      od confirm  boot_write_img_confirmed()
  *      od blind    ignore GATT evidence in od_img_confirm_app (dead-GATT simulation)
  *      od reboot   software reset (SREQ)
+ *      od por|pin  software reset that the next boot reads as power-on / pin reset
  *      od dfu      GPREGRET1 = 0x4E + reset: Adafruit SERIAL DFU (BLE-independent recovery;
  *                  the Adafruit bootloader then writes at 0x1000, i.e. over MCUboot -- recover
  *                  with the usb-2-install package)
@@ -39,6 +40,7 @@
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/retained_mem.h>
 #include <zephyr/drivers/uart.h>
+#include <zephyr/drivers/hwinfo.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/sys_heap.h>
 #if defined(CONFIG_THREAD_ANALYZER)
@@ -53,6 +55,38 @@
 #endif
 
 static volatile bool s_hold_feed;
+
+/* 'od por' / 'od pin': the NEXT boot reads its reset cause as a power-on (hwinfo 0, which is what a
+ * real nRF52 power-on latches) or a pin reset, so the boot history (claim gesture, five-cycle
+ * factory reset) can be driven with software resets. __noinit: survives the software reset if
+ * MCUboot leaves this RAM alone; a clobbered word simply reads as "no fake" (cause SREQ). */
+#define OD_BENCH_FAKE_POR 0x504F5221u
+#define OD_BENCH_FAKE_PIN 0x50494E21u
+static __noinit uint32_t s_fake_cause[2];
+
+bool od_test_bench_take_fake_cause(uint32_t *cause)
+{
+	const uint32_t m = s_fake_cause[0];
+	const bool ok = (s_fake_cause[1] == ~m) && (m == OD_BENCH_FAKE_POR || m == OD_BENCH_FAKE_PIN);
+
+	s_fake_cause[0] = 0u;
+	s_fake_cause[1] = 0u;
+	if (!ok) {
+		return false;
+	}
+	*cause = (m == OD_BENCH_FAKE_PIN) ? RESET_PIN : 0u;
+	return true;
+}
+
+static void fake_reset(uint32_t magic, const char *what)
+{
+	s_fake_cause[0] = magic;
+	s_fake_cause[1] = ~magic;
+	od_log_warn("[BENCH] software reset dressed as a %s at uptime %u ms", what,
+		    (unsigned)k_uptime_get_32());
+	k_busy_wait(20000);
+	NVIC_SystemReset();
+}
 static int64_t s_feed_deadline_ms;
 static bool s_revert_armed;
 
@@ -184,6 +218,10 @@ static void run_line(const char *l)
 		print_stats();
 	} else if (strcmp(l, "confirm") == 0) {
 		do_confirm("console");
+	} else if (strcmp(l, "por") == 0) {
+		fake_reset(OD_BENCH_FAKE_POR, "POWER-ON");
+	} else if (strcmp(l, "pin") == 0) {
+		fake_reset(OD_BENCH_FAKE_PIN, "PIN RESET");
 	} else if (strcmp(l, "blind") == 0) {
 		extern void od_img_confirm_app_bench_blind(void);
 		od_img_confirm_app_bench_blind();

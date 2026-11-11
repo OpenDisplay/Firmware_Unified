@@ -4,6 +4,7 @@
 #define OD_TEST_BENCH_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #if defined(OD_TEST_BENCH) && OD_TEST_BENCH
 /* Replaces main()'s boot_write_img_confirmed(): confirms (no revert switch) or arms the
@@ -13,7 +14,10 @@ void od_test_bench_image_boot(void);
 void od_test_bench_tick(void);
 /* True once an unconfirmed image has outlived its timer: the watchdog feed is withheld. */
 bool od_test_bench_hold_feed(void);
+/* Bench only: a faked reset cause for this boot ('od por' / 'od pin'); false if none. */
+bool od_test_bench_take_fake_cause(uint32_t *cause);
 #else
+static inline bool od_test_bench_take_fake_cause(uint32_t *cause) { (void)cause; return false; }
 static inline void od_test_bench_tick(void) {}
 static inline bool od_test_bench_hold_feed(void) { return false; }
 #endif
