@@ -87,8 +87,7 @@ void od_test_bench_image_boot(void)
 {
 #if defined(CONFIG_MCUBOOT_IMG_MANAGER)
 	if (OD_TEST_REVERT_S == 0u) {
-		(void)boot_write_img_confirmed();
-		return;
+		return;   /* od_img_confirm_app decides alone */
 	}
 	if (image_confirmed()) {
 		od_log_warn("[BENCH] image already confirmed; no revert timer");
@@ -208,6 +207,14 @@ static void console_thread(void *a, void *b, void *c)
 	if (con == NULL) {
 		return;
 	}
+	/* The CDC ACM class only queues OUT transfers once RX is enabled through the interrupt
+	 * API (usbd_cdc_acm.c: rx_fifo_work is submitted by irq_rx_enable or a consumed poll_in).
+	 * Without this the host's first write blocks forever. No callback is installed: the bytes
+	 * are read with poll_in below. */
+	while (!device_is_ready(con)) {
+		k_msleep(100);
+	}
+	uart_irq_rx_enable(con);
 	for (;;) {
 		unsigned char ch;
 
