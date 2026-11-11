@@ -1162,8 +1162,15 @@ od_frame_outcome_t od_sec2_command(od_tx_reservation_t *r, const od_reply_t *rp,
         if (err == 0u && (body.p[1] & FRAG_IDX) == 0u && sub == OD_SEC2_CLAIM_BEGIN &&
             od_sec2_app_display_busy()) {
             /* BEGIN (claim) and HELLO (auth) share sub 0x01. A pass is running or queued: say so
-             * now rather than answer after it. Nothing pending is touched and nothing counts. */
-            err = OD_SEC_ERR_BUSY;
+             * now rather than answer after it. Nothing pending is touched, but the start counts
+             * in the rate limiter (section 8.7): a BUSY answer is still a handshake start a peer
+             * can repeat, and a full ring answers RATE_LIMITED here as it would after the pass. */
+            if (!rate_allows(now)) {
+                err = OD_SEC_ERR_RATE_LIMITED;
+            } else {
+                rate_count(now);
+                err = OD_SEC_ERR_BUSY;
+            }
         }
         if (err == 0u) {
             err = reassemble(cmd, sub, body.p[1], od_span_drop(body, 2u), now);

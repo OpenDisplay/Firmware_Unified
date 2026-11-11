@@ -1162,7 +1162,7 @@ static void test_busy_and_stall(void)
     uint8_t qc[64], tag[16], r[96], b[66];
     void *k;
 
-    CASE("HELLO during a display pass: BUSY, nothing pending, no rate event");
+    CASE("HELLO during a display pass: BUSY, nothing pending");
     setup(true);
     k = tp256_new(qc);
     g_busy = true;
@@ -1184,6 +1184,24 @@ static void test_busy_and_stall(void)
     tp256_free(k);
     g_busy = false;
     CHECK(sec2c_auth(&C, &BLE) == 0);
+
+    CASE("BUSY starts count in the rate limiter (section 8.7)");
+    setup(true);
+    k = tp256_new(qc);
+    g_busy = true;
+    for (unsigned i = 0; i < OD_SEC2_RATE_EVENTS - 1u; ++i) {
+        CHECK(hello_with(qc, 2u, 20u) == -(int)OD_SEC_ERR_BUSY);
+        g_now_ms += 100u;
+    }
+    g_busy = false;
+    CHECK(sec2c_auth(&C, &BLE) == 0);                         /* the 10th start */
+    CHECK(sec2c_auth(&C, &BLE) == OD_SEC_ERR_RATE_LIMITED);   /* 9 BUSY + 1 HELLO filled it */
+    g_busy = true;
+    CHECK(hello_with(qc, 2u, 20u) == -(int)OD_SEC_ERR_RATE_LIMITED);   /* full ring beats BUSY */
+    g_busy = false;
+    g_now_ms += OD_SEC2_RATE_WINDOW_MS;
+    CHECK(sec2c_auth(&C, &BLE) == 0);
+    tp256_free(k);
 
     CASE("BEGIN during a display pass: BUSY");
     setup(false);
