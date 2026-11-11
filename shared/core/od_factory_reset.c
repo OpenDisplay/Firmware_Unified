@@ -11,6 +11,7 @@
 #include "od_log.h"
 #include "od_sec2.h"
 #include "od_sec2_app.h"
+#include "od_sec2_trace.h"
 
 /* ------------------------------------------------------------------ the pin check --- */
 
@@ -232,6 +233,10 @@ static enum od_fr_result run(struct od_fr_marker m)
 {
     struct od_sec2_state_rec st;
 
+    OD_SEC2_TRACE("factory reset: run from stage %u (1 SCRUB 2 DRAW 3 ERASE_REST 4 KEY_FAILED) "
+                  "draws=%u erase_fails=%u", (unsigned)m.stage, (unsigned)m.draw_attempts,
+                  (unsigned)m.erase_attempts);
+
     od_claim_app_signal(OD_CLAIM_SIG_FR_ERASING, 0u);
     if (m.stage == OD_FR_STAGE_KEY_FAILED) {
         od_claim_app_signal(OD_CLAIM_SIG_FR_LOCKED, 0u);
@@ -247,6 +252,7 @@ static enum od_fr_result run(struct od_fr_marker m)
             (void)marker_put(&m);
             return m.stage == OD_FR_STAGE_KEY_FAILED ? OD_FR_LOCKED : OD_FR_REBOOT;
         }
+        OD_SEC2_TRACE("factory reset R1b: secrets scrubbed");
         /* R2 */
         if (!erase_key()) {
             ++m.erase_attempts;
@@ -260,6 +266,7 @@ static enum od_fr_result run(struct od_fr_marker m)
             (void)marker_put(&m);
             return OD_FR_REBOOT;
         }
+        OD_SEC2_TRACE("factory reset R2: key record erased");
         m.stage = OD_FR_STAGE_DRAW;
     }
     if (m.stage == OD_FR_STAGE_DRAW) {
@@ -270,8 +277,12 @@ static enum od_fr_result run(struct od_fr_marker m)
         if (!marker_put(&m)) {
             return OD_FR_REBOOT;
         }
+        OD_SEC2_TRACE("factory reset R3: marker stage 2, draw attempt %u", (unsigned)m.draw_attempts);
         if (m.draw_attempts <= OD_FR_MAX_DRAWS) {
-            (void)od_claim_app_draw(OD_SETUP_SCREEN_RESET, 0u);
+            const bool drawn = od_claim_app_draw(OD_SETUP_SCREEN_RESET, 0u);
+
+            OD_SEC2_TRACE("factory reset R3: draw RESET screen -> %s", drawn ? "drawn" : "not drawn");
+            (void)drawn;
         }
         /* R4 */
         m.stage = OD_FR_STAGE_ERASE_REST;
@@ -281,8 +292,11 @@ static enum od_fr_result run(struct od_fr_marker m)
     }
     /* R5a-c: each idempotent. Only the config erase can hold the reset up: the device is already
      * keyless and secret-free, so after 3 failures it goes on to R6 rather than loop. */
+    OD_SEC2_TRACE("factory reset R4: marker stage 3");
     (void)od_claim_app_erase_images();
+    OD_SEC2_TRACE("factory reset R5a: image store erased");
     (void)od_claim_app_erase_bonds();
+    OD_SEC2_TRACE("factory reset R5b: bonds and extras erased");
     if (od_config_store_clear() != OD_CONFIG_STORE_OK) {
         ++m.erase_attempts;
         if (m.erase_attempts < OD_FR_MAX_ERASE_FAILS) {
@@ -291,6 +305,7 @@ static enum od_fr_result run(struct od_fr_marker m)
         }
         od_log_error("factory reset: config erase failed, continuing");
     }
+    OD_SEC2_TRACE("factory reset R5c: config record erased");
     /* R6 */
     (void)os2s_read(&st);
     st.flags = (uint8_t)(OD_SEC2_OS2S_FRESH | OD_SEC2_OS2S_MIGRATED);
@@ -299,8 +314,10 @@ static enum od_fr_result run(struct od_fr_marker m)
     if (!os2s_write(&st)) {
         return OD_FR_REBOOT;
     }
+    OD_SEC2_TRACE("factory reset R6: OS2S FRESH, key_gen %u", (unsigned)st.key_gen);
     /* R7, R8 */
     (void)od_hal_secret_erase(OD_HAL_SECRET_MARKER);
+    OD_SEC2_TRACE("factory reset R7: marker deleted; R8: reboot into fresh claim mode");
     od_claim_app_signal(OD_CLAIM_SIG_FR_DONE, 0u);
     return OD_FR_REBOOT;
 }
@@ -314,6 +331,7 @@ enum od_fr_result od_fr_start(void)
         od_log_error("factory reset: marker write failed");
         return OD_FR_NONE;
     }
+    OD_SEC2_TRACE("factory reset R1: marker written (stage 1)");
     return run(m);
 }
 

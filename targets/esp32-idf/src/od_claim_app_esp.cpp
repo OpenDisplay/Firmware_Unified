@@ -14,6 +14,7 @@
 #include "config_parser.h"
 #include "od_hal_gpio.h"
 #include "od_log.h"
+#include "od_sec2_trace.h"
 #include "od_watchdog_app.h"
 #include "wifi_service.h"
 
@@ -82,6 +83,8 @@ extern "C" void od_hal_reset_reboot(void)
  * (od_claim_app.h allows a no-op). */
 extern "C" void od_claim_app_signal(enum od_claim_signal sig, uint8_t arg)
 {
+    OD_SEC2_TRACE("signal %u arg %u (LED/buzzer pattern; no-op on this target)", (unsigned)sig,
+                  (unsigned)arg);
     (void)sig;
     (void)arg;
 }

@@ -1,4 +1,5 @@
 #include "od_claim_mode.h"
+#include "od_sec2_trace.h"
 #include "config_parser.h"
 #include "od_smp.h"
 #include "main.h"
@@ -129,6 +130,7 @@ void setup() {
     od_hal_log_open();
     od_log_init();
     #endif
+    OD_SEC2_TRACE_BANNER();
     od_log_info("=== FIRMWARE INFO ===");
     uint8_t fwMajor = getFirmwareMajor();
     uint8_t fwMinor = getFirmwareMinor();
@@ -159,6 +161,8 @@ void setup() {
     esp_reset_reason_t reset_reason = esp_reset_reason();
     const char* resetReasonStr = resetReasonName(reset_reason);
     od_log_info("Reset reason: %s (%d)", resetReasonStr, (int)reset_reason);
+    OD_SEC2_TRACE("esp_reset_reason()=%d (%s) esp_sleep_get_wakeup_cause()=%d",
+                  (int)reset_reason, resetReasonStr, (int)esp_sleep_get_wakeup_cause());
     esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
     is_deep_sleep_wake = (wakeup_reason != ESP_SLEEP_WAKEUP_UNDEFINED);
     if (is_deep_sleep_wake) {
@@ -232,6 +236,7 @@ void setup() {
         if (od_claim_mode_defer_boot_screen()) {
             s_bootScreenDeferred = !od_claim_mode_active();
         } else if (!od_claim_mode_active()) {
+            OD_SEC2_TRACE("draw NORMAL boot screen (initDisplay)");
             initDisplay();
             od_log_info("Display initialized");
         }
@@ -915,6 +920,7 @@ void loop() {
     od_claim_mode_tick();
     serviceSecurityPolicyReload();
     if (s_bootScreenDeferred && !od_claim_mode_defer_boot_screen()) {
+        OD_SEC2_TRACE("deferred NORMAL boot screen now due");
         s_bootScreenDeferred = false;
         initDisplay();
     }
