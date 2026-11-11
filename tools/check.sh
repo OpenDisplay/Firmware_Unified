@@ -1364,7 +1364,7 @@ fi
 #
 # A crash writes its input to ./crash-<sha1>. Commit it to the corpus AND pin it as a numbered
 # case in the corresponding ordinary host test, so the regression fails without fuzzing too.
-FUZZ_TARGETS=(sec2_frames pipe_start pipe_data config_drive)
+FUZZ_TARGETS=(sec2_frames pipe_start pipe_data config_drive cfg_policy)
 
 fuzz_all() {
     local dir="$BUILD_ROOT/fuzz" t

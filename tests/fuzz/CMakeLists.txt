@@ -87,3 +87,21 @@ add_executable(od_fuzz_seed_config_drive seed_config_drive.c
     ${OD_FUZZ_CORE}/od_cfg_index.c ../host/od_log_test_stub.c)
 target_link_libraries(od_fuzz_seed_config_drive od_shared)
 target_include_directories(od_fuzz_seed_config_drive PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../host)
+
+# The SEC2 config policy (od_cfg_policy.c) and the OS2R marker decoder over arbitrary blobs, with
+# od_sec2 stubbed so the selector byte picks the device state. Same seeds as the vectors.
+add_executable(od_fuzz_cfg_policy fuzz_cfg_policy.c ../host/od_log_test_stub.c
+    ../host/nvs_empty_test_stub.c
+    ${OD_FUZZ_CORE}/od_cfg_policy.c
+    ${OD_FUZZ_CORE}/od_factory_reset.c)
+target_link_libraries(od_fuzz_cfg_policy od_shared)
+target_include_directories(od_fuzz_cfg_policy PRIVATE ${CMAKE_CURRENT_LIST_DIR})
+target_compile_options(od_fuzz_cfg_policy PRIVATE ${OD_FUZZ_FLAGS})
+target_link_options(od_fuzz_cfg_policy PRIVATE ${OD_FUZZ_FLAGS})
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/cfg_policy_new)
+add_test(NAME fuzz_cfg_policy
+         COMMAND od_fuzz_cfg_policy -runs=2000 -print_final_stats=0
+                 ${CMAKE_CURRENT_BINARY_DIR}/cfg_policy_new
+                 ${CMAKE_CURRENT_LIST_DIR}/corpus/cfg_policy)
+set_tests_properties(fuzz_cfg_policy PROPERTIES
+                     ENVIRONMENT "UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1")
