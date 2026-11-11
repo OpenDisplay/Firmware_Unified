@@ -12,6 +12,7 @@
 #include "od_epd.h"
 #include "od_ident_app.h"
 #include "od_reply.h"
+#include "od_sec2.h"
 #include "opendisplay_protocol.h"
 
 #include <stddef.h>
@@ -71,6 +72,7 @@ od_cmd_result_t od_cmd_app_read_ident(const od_cmd_ctx_t *ctx, od_span_t body)
         }
     }
     rsp[4] = count;
+    flags |= od_sec2_ident_flags();   /* SECURITY_V2 5.2: SEC_V2, CLAIMED, CLAIM_MODE, LEGACY_SECRETS */
     rsp[n++] = flags;
     rsp[n++] = (uint8_t)(IDENT_MAX_CONFIG & 0xFFu);
     rsp[n++] = (uint8_t)(IDENT_MAX_CONFIG >> 8);

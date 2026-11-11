@@ -10,12 +10,18 @@
 #include "od_config.h"
 #include "od_ident_app.h"
 #include "od_reply.h"
+#include "od_sec2.h"
+#include "od_sec2_wire.h"
 #include "opendisplay_protocol.h"
 
 static uint8_t g_rsp[64];
 static uint16_t g_rsp_n;
 static struct od_config g_cfg;
 static bool g_native;
+static uint8_t g_sec_flags;
+
+/* The SEC2 bits come from the security state (SECURITY_V2 5.2); od_sec2.c is not linked here. */
+uint8_t od_sec2_ident_flags(void) { return g_sec_flags; }
 
 od_txq_status_t od_reply_plain(od_tx_reservation_t *r, const od_reply_t *rp,
                                const uint8_t *frame, uint16_t len)
@@ -97,5 +103,15 @@ int main(void)
     g_native = true;
     ident();
     CHECK(g_rsp[12] == (OD_IDENT_FLAG_CONFIG_DRIVEN | OD_IDENT_FLAG_BUILTIN_DRIVER));
+
+    CASE("the SEC2 bits 3-6 are ORed into the tail flags");
+    g_sec_flags = (uint8_t)(OD_IDENT_FLAG_SEC_V2 | OD_IDENT_FLAG_CLAIM_MODE);
+    ident();
+    CHECK(g_rsp[12] == (OD_IDENT_FLAG_CONFIG_DRIVEN | OD_IDENT_FLAG_BUILTIN_DRIVER |
+                        OD_IDENT_FLAG_SEC_V2 | OD_IDENT_FLAG_CLAIM_MODE));
+    memset(&g_cfg, 0, sizeof g_cfg);
+    g_sec_flags = (uint8_t)(OD_IDENT_FLAG_SEC_V2 | OD_IDENT_FLAG_CLAIMED);
+    ident();
+    CHECK(g_rsp[5] == (OD_IDENT_FLAG_CONFIG_DRIVEN | OD_IDENT_FLAG_SEC_V2 | OD_IDENT_FLAG_CLAIMED));
     return OD_CHECK_REPORT("ident");
 }
