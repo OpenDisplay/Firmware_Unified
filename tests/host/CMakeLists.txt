@@ -741,15 +741,16 @@ target_link_libraries(od_sec2_test od_session_fake_dispatch)
 add_test(NAME sec2 COMMAND od_sec2_test)
 
 # cfg_policy: the SEC2 config policy over real od_sec2 + od_config_store, checked against
-# py-opendisplay's independent vectors (tests/vectors/sec2_vectors.json, copied verbatim from
+# py-opendisplay's independent vectors (tests/host/fixtures/sec2_vectors.json -- not tests/vectors/, which holds only wire-corpus
+# files -- copied verbatim from
 # py-opendisplay v3/py f02e380 tests/fixtures) and the branches they do not reach.
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 set(OD_SEC2_VEC_INC ${CMAKE_CURRENT_BINARY_DIR}/sec2_vectors.inc)
 add_custom_command(
     OUTPUT ${OD_SEC2_VEC_INC}
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/gen_sec2_vectors.py
-            ${CMAKE_CURRENT_LIST_DIR}/../vectors/sec2_vectors.json ${OD_SEC2_VEC_INC}
-    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/gen_sec2_vectors.py ${CMAKE_CURRENT_LIST_DIR}/../vectors/sec2_vectors.json
+            ${CMAKE_CURRENT_LIST_DIR}/fixtures/sec2_vectors.json ${OD_SEC2_VEC_INC}
+    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/gen_sec2_vectors.py ${CMAKE_CURRENT_LIST_DIR}/fixtures/sec2_vectors.json
     VERBATIM)
 add_executable(od_cfg_policy_test cfg_policy_test.c od_log_test_stub.c ${OD_SEC2_VEC_INC})
 target_include_directories(od_cfg_policy_test PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
@@ -762,6 +763,13 @@ add_executable(od_cfg_policy_core_test cfg_policy_core_test.c od_log_test_stub.c
 target_compile_definitions(od_cfg_policy_core_test PRIVATE OD_SEC2=0)
 target_link_libraries(od_cfg_policy_core_test od_shared)
 add_test(NAME cfg_policy_core COMMAND od_cfg_policy_core_test)
+
+# claim_mode: od_security_boot, the boot history (gesture + five-cycle factory reset), the claim
+# session and the factory reset with a power cut at every storage mutation, over the real od_sec2,
+# od_cfg_policy and od_config_store. Its own secret store, medium and inert crypto.
+add_executable(od_claim_mode_test claim_mode_test.c od_log_test_stub.c)
+target_link_libraries(od_claim_mode_test od_shared)
+add_test(NAME claim_mode COMMAND od_claim_mode_test)
 
 # The same suite with the counter ceiling at 5, so exhaustion is reachable: od_sec2.c is compiled
 # into the executable with the override, ahead of the archive copy.

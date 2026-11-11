@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Emit tests/vectors/sec2_vectors.json (py-opendisplay's independent reference, scripts/
+"""Emit tests/host/fixtures/sec2_vectors.json (py-opendisplay's independent reference, scripts/
 gen_sec2_vectors.py) as a C include for the firmware host tests.
 
 Only the groups the firmware can check without a client stack are emitted: V1 KDF, V8 code,
@@ -18,7 +18,7 @@ def main():
     src, out = sys.argv[1], sys.argv[2]
     with open(src, encoding="utf-8") as f:
         d = json.load(f)
-    lines = ["/* GENERATED from tests/vectors/sec2_vectors.json by gen_sec2_vectors.py. */"]
+    lines = ["/* GENERATED from tests/host/fixtures/sec2_vectors.json by gen_sec2_vectors.py. */"]
 
     lines.append("static const struct v1 V1[] = {")
     for v in d["V1_kdf"]:

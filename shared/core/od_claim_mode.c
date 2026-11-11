@@ -300,6 +300,9 @@ void od_security_boot(const struct SecurityConfig *sec, bool config_present,
         fr = od_fr_start();
     }
     if (fr == OD_FR_REBOOT) {
+        if (out != NULL) {
+            *out = rep;
+        }
         od_hal_reset_reboot();
         return;   /* host tests only: the reboot returns */
     }

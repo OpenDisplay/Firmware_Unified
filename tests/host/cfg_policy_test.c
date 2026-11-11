@@ -1,7 +1,7 @@
 /* cfg_policy_test.c -- the SEC2 config policy (od_cfg_policy.c) over the real od_sec2 state, the
  * real od_config_store and an in-memory medium.
  *
- * Two halves: py-opendisplay's independent vectors (tests/vectors/sec2_vectors.json, V1 V10 V11
+ * Two halves: py-opendisplay's independent vectors (tests/host/fixtures/sec2_vectors.json, V1 V10 V11
  * V13; any disagreement is a spec question, not a test to adjust), and the branches the vectors do
  * not reach (LOCKED, the scrub, the stale-key zeroing, unwalkable blobs, the marker an open writer
  * must not plant). */

@@ -60,7 +60,8 @@ enum od_fr_pin_verdict od_fr_pin_step(struct od_fr_pin *p, bool asserted, uint32
             p->threshold = true;
         }
     }
-    if ((uint32_t)(now_ms - p->t_start) >= OD_FR_STUCK_MS) {
+    /* Not while a release is being confirmed: a release that began before 30 s commits. */
+    if (p->run == 0u && (uint32_t)(now_ms - p->t_start) >= OD_FR_STUCK_MS) {
         return OD_FR_PIN_STUCK;
     }
     return OD_FR_PIN_RUNNING;
