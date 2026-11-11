@@ -423,6 +423,10 @@ static void test_boot(void)
     fake_reset();
     CHECK(od_sec2_boot(NULL) == OD_SEC2_UNCLAIMED);
     CHECK(!od_sec2_needs_session());
+    CHECK(!od_sec2_dfu_needs_unlock());            /* unclaimed, normal mode: DFU open (6.1) */
+    g_cm.active = true;
+    CHECK(od_sec2_dfu_needs_unlock());             /* claim mode: SMP refused (6.1) */
+    g_cm.active = false;
 
     CASE("boot row 4: a 2.x key migrates, OS2S first");
     fake_reset();
@@ -461,6 +465,7 @@ static void test_boot(void)
     put_os2s(3u);
     CHECK(od_sec2_boot(NULL) == OD_SEC2_LOCKED);
     CHECK(od_sec2_needs_session());
+    CHECK(od_sec2_dfu_needs_unlock());             /* LOCKED: SMP shut whatever 0x27 says */
 
     CASE("boot row 3: storage corruption with claim evidence -> LOCKED");
     fake_reset();

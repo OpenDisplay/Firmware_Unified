@@ -348,6 +348,17 @@ bool od_sec2_needs_session(void)
     return s.state != OD_SEC2_UNCLAIMED;
 }
 
+bool od_sec2_dfu_needs_unlock(void)
+{
+    struct od_sec2_claim_mode cm;
+
+    if (s.state != OD_SEC2_UNCLAIMED) {
+        return true;
+    }
+    od_sec2_app_claim_mode(&cm);
+    return cm.active;
+}
+
 static bool legacy_secrets_open(void)
 {
     return od_sec2_legacy_secrets();

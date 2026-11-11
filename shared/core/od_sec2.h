@@ -154,6 +154,12 @@ uint8_t od_sec2_ident_flags(void);
 /* MSD status bit 3 on 3.x: CLAIMED or LOCKED. */
 bool od_sec2_needs_session(void);
 
+/* Section 6.1: DFU transports (ESP32 / Nordic SMP) refuse requests until a sealed ENTER_DFU
+ * unlocks them. True when CLAIMED or LOCKED (LOCKED never opens a session, so it stays shut)
+ * and in claim mode. From the security state only, never from the 0x27 bytes at rest: a
+ * LOCKED device whose config has encryption_enabled = 0 (boot row 7) must not serve SMP. */
+bool od_sec2_dfu_needs_unlock(void);
+
 /* A session exists, is within its lifetime (an expired one is torn down here) and belongs to
  * this reply target. */
 bool od_sec2_session_live(const od_reply_t *rp);
