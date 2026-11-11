@@ -183,26 +183,33 @@ damaged record (bad CRC, magic or length) never blocks its own replacement.
 ## READ_IDENT (0x0046)
 
 Shared handler `shared/core/od_cmd_ident.c` on every target that sets `OD_CAP_READ_IDENT`
-(BG22, Nordic, ESP32). Plaintext, pre-gate:
-`[ACK][0x46][proto_minor][fw_target][count][7 B per display: ic_type LE, w LE, h LE, scheme]`.
-`fw_target` on Nordic: nRF52840 answers 0x01 (FIRMWARE), nRF54 answers 0x02 (NRF54); ESP32
-answers 0x01 (FIRMWARE). This is a maintainer question.
+(BG22, Nordic, ESP32). Plaintext, pre-gate. Exact layout (decided 2026-11-11):
 
-On ESP32 (`OD_IDENT_NATIVE_PANELS=1`) a display on a built-in controller driver (IT8951,
-parallel) never sets NEEDS_MIGRATION: it draws without drive packets. CONFIG_DRIVEN is still
-set, because every SPI panel is driven from drive packets; whether a host needs a separate
-"built-in driver" bit is a maintainer question.
+| offset | size | field |
+|---|---|---|
+| 0 | 1 | `0x00` ACK |
+| 1 | 1 | `0x46` |
+| 2 | 1 | `proto_minor` (OD_PROTOCOL_VERSION_MINOR) |
+| 3 | 1 | `fw_target`, one per MCU family: `0x01` ESP32, `0x02` nRF54, `0x03` EFR32BG22, `0x04` nRF52811 (legacy, reserved), `0x05` nRF52840 |
+| 4 | 1 | `count` (0..4) |
+| 5 | 7 x count | per display: `panel_ic_type` LE16, `pixel_width` LE16, `pixel_height` LE16, `color_scheme` |
+| 5+7n | 1 | `flags` (below) |
+| 6+7n | 2 | `max_config` LE16: largest config a CONFIG_WRITE accepts = min(stored-config cap, MAX_CONFIG_CHUNKS x CONFIG_CHUNK_SIZE). 4000 on ESP32/Nordic, 3120 on BG22 |
+| 8+7n | 2 | `max_seq_steps` LE16: most steps one drive sequence may have (128 everywhere) |
+| 10+7n | 1 | `escapes`: bit0 WINDOW (0x0C), bit1 FILL (0x0D) compiled in; 0 on BG22, 0x03 elsewhere; bits 2-7 reserved 0 |
 
-**Trailing flags byte (provisional)**, after the records:
+`flags`:
 
 | bit | name | meaning |
 |---|---|---|
-| 0 | CONFIG_DRIVEN | this firmware drives panels only from drive packets (`OD_IDENT_CONFIG_DRIVEN`, default 1) |
-| 1 | NEEDS_MIGRATION | a configured display has no 0xB1 + 0xAE for its instance: write a config with drive packets |
-| 2-7 | reserved, 0 | |
+| 0 | CONFIG_DRIVEN | this firmware drives panels from drive packets (`OD_IDENT_CONFIG_DRIVEN`, default 1) |
+| 1 | NEEDS_MIGRATION | a configured display cannot be drawn: no 0xB1 + mode 0 for its instance, or mode 0 breaks the mode-0 rule (§ Mode conventions). Write a config from the panel database |
+| 2 | BUILTIN_DRIVER | a display is driven by a native controller driver selected by config packet 0xB3 (ESP32: IT8951, FastEPD parallel); such a display never sets NEEDS_MIGRATION |
+| 3-7 | reserved, 0 | |
 
-A host that reads `count * 7` bytes after the header never sees it, and a 2.x firmware simply
-does not send it, so "no flags byte" means "not config-driven / unknown".
+Compatibility: a 2.x reader stops after `count * 7` record bytes and never sees the tail; a 2.x
+firmware ends there, so "no tail" means "2.x / unknown". The tail may grow: read it by length.
+The 2.x nRF52840 builds answered `fw_target` 0x01; 3.0 nRF52840 answers 0x05 (0x01 is ESP32 only).
 
 ## code_map
 

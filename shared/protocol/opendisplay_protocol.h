@@ -454,17 +454,41 @@
  *            provisioning (e.g. Solum tags, UICR CUSTOMER data on nRF) answer
  *            from factory data, which is the actual point -- those devices
  *            know their panel before any config is ever written.
- * @limits:   max 4 displays -> response <= 5 + 4*7 = 33 bytes; fits one frame.
- * @targets:  Silabs      (Firmware/NRF54/NRF52811: pending adoption)
- * @since:    2.3 (DRIVER_MIGRATION.md Rev 2, review point R8)
+ *            3.0 TAIL (after the records; a reader that stops at
+ *            5 + count*7 ignores it, and a 2.x device simply ends there):
+ *              [flags:1][max_config:2 LE][max_seq_steps:2 LE][escapes:1]
+ *            flags   = OD_IDENT_FLAG_* below;
+ *            max_config    = largest config CONFIG_WRITE accepts, in bytes
+ *                            (min of the stored-config cap and the chunked
+ *                            transfer ceiling MAX_CONFIG_CHUNKS*CONFIG_CHUNK_SIZE);
+ *            max_seq_steps = most steps one drive sequence may have;
+ *            escapes = OD_IDENT_ESC_* drive-sequence escapes compiled in
+ *                      beyond the base set.
+ *            Further bytes may follow in later versions: read by length.
+ * @limits:   max 4 displays -> response <= 5 + 4*7 + 6 = 39 bytes; fits one frame.
+ * @targets:  every 3.0 target (Firmware_Unified); Silabs 2.3+
+ * @since:    2.3 (DRIVER_MIGRATION.md Rev 2, review point R8); tail 3.0
  * -------------------------------------------------------------------------- */
 #define CMD_READ_IDENT                 0x0046u
 
-/* CMD_READ_IDENT fw_target values (response byte 3). */
-#define OD_IDENT_TARGET_FIRMWARE       0x01u   /* nRF52840+ESP32 "Firmware" */
+/* CMD_READ_IDENT fw_target values (response byte 3): one per MCU family. */
+#define OD_IDENT_TARGET_ESP32          0x01u
+#define OD_IDENT_TARGET_FIRMWARE       OD_IDENT_TARGET_ESP32   /* 2.x name ("Firmware" repo) */
 #define OD_IDENT_TARGET_NRF54          0x02u
-#define OD_IDENT_TARGET_SILABS         0x03u
+#define OD_IDENT_TARGET_SILABS         0x03u   /* EFR32BG22 */
 #define OD_IDENT_TARGET_NRF52811       0x04u
+#define OD_IDENT_TARGET_NRF52840       0x05u   /* @since 3.0; 2.x nRF52840 builds answered 0x01 */
+
+/* CMD_READ_IDENT tail: flags byte. */
+#define OD_IDENT_FLAG_CONFIG_DRIVEN    0x01u   /* panels are driven from drive packets 0xAE-0xB1 */
+#define OD_IDENT_FLAG_NEEDS_MIGRATION  0x02u   /* a configured display cannot be drawn: no drive
+                                                * packets, or mode 0 breaks the mode-0 rule */
+#define OD_IDENT_FLAG_BUILTIN_DRIVER   0x04u   /* a display is driven by a native controller
+                                                * driver selected by config packet 0xB3 */
+
+/* CMD_READ_IDENT tail: escapes byte. */
+#define OD_IDENT_ESC_WINDOW            0x01u   /* drive-sequence escape 0x0C WINDOW */
+#define OD_IDENT_ESC_FILL              0x02u   /* drive-sequence escape 0x0D FILL */
 
 /* --------------------------------------------------------------------------
  * IMAGE STORE + ACTION FAMILY  (0x0047 .. 0x004D)            @since 2.4

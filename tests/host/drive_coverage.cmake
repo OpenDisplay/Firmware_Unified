@@ -65,3 +65,12 @@ add_executable(od_drive_cmd_test drive_cmd_test.c od_log_test_stub.c
     ${OD_SHARED_CORE}/od_epd_cfg.c ${OD_SHARED_CORE}/od_epd.c ${OD_SHARED_CORE}/od_cfg_index.c)
 target_link_libraries(od_drive_cmd_test od_shared_silabs)
 add_test(NAME drive_cmd COMMAND od_drive_cmd_test)
+
+# CMD_READ_IDENT on the default profile: the 3.0 tail, fw_target, NEEDS_MIGRATION from the mode-0
+# rule, BUILTIN_DRIVER. od_shared is built without the cap, so the handler is compiled here with it.
+add_executable(od_ident_test ident_test.c od_log_test_stub.c
+    ${OD_SHARED_CORE}/od_cmd_ident.c ${OD_SHARED_CORE}/od_cfg_index.c)
+target_link_libraries(od_ident_test od_shared)
+target_compile_definitions(od_ident_test PRIVATE
+    OD_CAP_READ_IDENT=1 OD_IDENT_NATIVE_PANELS=1 OD_IDENT_TARGET=OD_IDENT_TARGET_NRF52840)
+add_test(NAME ident COMMAND od_ident_test)

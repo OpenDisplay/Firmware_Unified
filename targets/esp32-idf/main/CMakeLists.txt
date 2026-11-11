@@ -270,7 +270,7 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     OD_CAP_DRIVE_WRITE=1
     OD_CAP_SPI_RAW=1
     OD_CAP_READ_IDENT=1
-    OD_IDENT_TARGET=OD_IDENT_TARGET_FIRMWARE
+    OD_IDENT_TARGET=OD_IDENT_TARGET_ESP32
     # IT8951 / FastEPD-parallel panels are driven by a built-in driver: no NEEDS_MIGRATION.
     OD_IDENT_NATIVE_PANELS=1
     # boot_screen.cpp picks the od_display sink or the FastEPD framebuffer per frame.
