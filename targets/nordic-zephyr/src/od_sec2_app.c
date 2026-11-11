@@ -3,6 +3,8 @@
 #include "od_sec2_app.h"
 #include "od_sec2_wire.h"
 
+#include "od_display.h"
+#include "od_xfer.h"
 #include "opendisplay_ble.h"
 #include "opendisplay_config_parser.h"
 
@@ -44,4 +46,10 @@ uint8_t od_sec2_app_dflags(void)
 const struct SecurityConfig *od_sec2_app_security(void)
 {
 	return od_get_parsed_security();
+}
+
+/* A display pass runs (on the display work queue) or a transfer that ends in one is open. */
+bool od_sec2_app_display_busy(void)
+{
+	return od_xfer_active() || od_display_active();
 }

@@ -16,6 +16,8 @@
 #include "opendisplay_touch.h"
 #include "opendisplay_buzzer.h"
 #include "opendisplay_pipe.h"
+#include "od_claim_mode.h"
+#include "od_sec2.h"
 #include "factory_config.h"
 #include "opendisplay_battery.h"
 #include "od_sensor_sht40.h"
@@ -209,6 +211,9 @@ static uint8_t s_reboot_flag = 1; /* set after boot, cleared on first BLE connec
  * written. Kept as the field's placeholder rather than hardcoding false at the read. There is no
  * setter: wire one up on every target together, not here alone. */
 static uint8_t s_connection_requested;
+static bool s_config_changed;        /* od_claim_app_config_changed(): reload from the loop */
+static bool s_unpair_pending;        /* factory reset R5b, before bt_enable() */
+static bool s_boot_screen_deferred;  /* od_claim_mode_defer_boot_screen() held it back */
 static struct bt_le_adv_param s_adv_param = BT_LE_ADV_PARAM_INIT(
 	BT_LE_ADV_OPT_CONN,
 	OD_ADV_INTERVAL_MIN, OD_ADV_INTERVAL_MAX, NULL);
@@ -289,19 +294,14 @@ static void request_fast_link(struct bt_conn *conn)
 	}
 }
 
-static bool od_encryption_on(void)
-{
-	const struct SecurityConfig *sec = od_get_parsed_security();
-
-	return (sec != NULL) && (sec->encryption_enabled != 0u);
-}
-
 static void od_smp_sync(void)
 {
 #if defined(CONFIG_MCUMGR_TRANSPORT_BT_DYNAMIC_SVC_REGISTRATION)
 	/* smp_bt_setup() already registers the SVC at boot when dynamic reg is on. */
 	static bool s_smp_visible = true;
-	const bool want = s_ota_unlocked || !od_encryption_on();
+	/* SECURITY_V2 6.1 / 7.4: hidden on a claimed or LOCKED device until ENTER_DFU, and always
+	 * in claim mode. From the security state, never from the 0x27 bytes at rest (10.2). */
+	const bool want = s_ota_unlocked || (!od_sec2_needs_session() && !od_claim_mode_active());
 	int err;
 
 	if (want == s_smp_visible) {
@@ -383,6 +383,7 @@ static void dfu_work_handler(struct k_work *work)
 	}
 #if !defined(CONFIG_BOOTLOADER_MCUBOOT)
 	/* After the disconnect, so the host sees the link drop rather than a silent stall. */
+	(void)od_claim_mode_before_reboot();
 	enter_adafruit_dfu();
 #endif
 }
@@ -508,8 +509,9 @@ static void update_msd_payload(void)
 	adv.chip_temperature_c = s_chip_temperature;
 	adv.battery_10mv = battery_voltage_10mv;
 	adv.reboot_flag = (s_reboot_flag != 0u);
-	adv.connection_requested = (s_connection_requested != 0u);
-	adv.encryption_enabled = od_security_enabled_snapshot();
+	/* SECURITY_V2 5.3: bit 2 continuously in claim mode; bit 3 = CLAIMED or LOCKED. */
+	adv.connection_requested = (s_connection_requested != 0u) || od_claim_mode_active();
+	adv.encryption_enabled = od_sec2_needs_session();
 	adv.loop_counter = s_msd_loop_counter;
 	od_advert_build(&adv, msd_payload);
 
@@ -1010,7 +1012,9 @@ void opendisplay_ble_reload_config_from_nvm(void)
 	 * to re-read the device, and the MSD picks up the new encryption state. */
 	s_reboot_flag = 1;
 	opendisplay_ble_update_msd(true);
-	opendisplay_display_request_boot();
+	if (!od_claim_mode_active()) {       /* claim mode owns the panel (SECURITY_V2 7.3) */
+		opendisplay_display_request_boot();
+	}
 	/* Apply advertising TX power once the advertiser is active again. */
 	__atomic_store_n(&s_adv_txp_pending, (uint8_t)1, __ATOMIC_RELEASE);
 	/* Called from od_cmd_config.c's handlers, which run on the loop thread -- safe to request
@@ -1054,9 +1058,11 @@ void opendisplay_ble_init(void)
 	(void)clearStoredConfig();
 #endif
 	bool config_loaded = loadGlobalConfig(&s_od_global_config);
+	bool factory_provisioned = false;
 	if (!config_loaded && tryProvisionFactoryEmbed()) {
 		/* No valid stored config, but a factory embed was just provisioned. */
 		config_loaded = loadGlobalConfig(&s_od_global_config);
+		factory_provisioned = config_loaded;
 	}
 #if OD_CAP_IMGSTORE
 	if (config_loaded) {
@@ -1069,8 +1075,20 @@ void opendisplay_ble_init(void)
 	} else {
 		od_log_info("config: defaults");
 	}
-	/* SECURITY_V2 10.1: decided once per boot, before advertising starts. */
-	(void)od_sec2_boot(config_loaded ? &s_od_global_config.security : NULL);
+	/* SECURITY_V2 7.1 / 10.1, FACTORY_RESET.md 3.1: reset pin, boot history, a pending or
+	 * triggered factory reset, the boot decision and claim-mode entry, before the radio. */
+	{
+		struct od_security_boot_report rep;
+
+		od_security_boot(config_loaded ? od_get_parsed_security() : NULL, config_loaded,
+				 factory_provisioned, &rep);
+		od_log_info("sec2: cause=0x%03x k=%u state=%u claim=%u", (unsigned)rep.cause,
+			    (unsigned)rep.short_boots, (unsigned)rep.state, (unsigned)rep.kind);
+	}
+	if (s_config_changed) {
+		s_config_changed = false;
+		config_loaded = loadGlobalConfig(&s_od_global_config);
+	}
 	flash_powerdown_from_config();
 
 	od_sensor_bq27220_init(opendisplay_get_global_config());
@@ -1092,6 +1110,11 @@ void opendisplay_ble_init(void)
 	}
 	if (IS_ENABLED(CONFIG_SETTINGS)) {
 		(void)settings_load();
+	}
+	if (s_unpair_pending) {
+		/* FACTORY_RESET.md R5b, requested before bt_enable() by od_claim_app_erase_bonds(). */
+		s_unpair_pending = false;
+		(void)bt_unpair(BT_ID_DEFAULT, BT_ADDR_LE_ANY);
 	}
 	/* bt_enable(NULL) BLOCKS until ready -- unlike NimBLE's async on_sync, there's no later
 	 * "ready" event to poll for, so this is asserted once here. */
@@ -1115,10 +1138,16 @@ void opendisplay_ble_init(void)
 	 * boot screen with no way to tell why. The timeout keeps a genuinely stuck render from
 	 * also taking BLE reachability down with it -- staying reachable over BLE/DFU even with a
 	 * bad panel is the same trade-off od_watchdog_app_safe_mode() makes elsewhere. */
-	schedule_boot_display_apply();
-	if (k_sem_take(&s_boot_display_done, K_MSEC(OD_BOOT_DISPLAY_WAIT_MS)) != 0) {
-		od_log_error("boot display: still running after %u ms - advertising anyway",
-			     (unsigned)OD_BOOT_DISPLAY_WAIT_MS);
+	/* Claim mode draws its own screen. A boot that may be one step of a power-cycle pattern
+	 * defers the refresh until the pattern can no longer continue (od_claim_mode.h). */
+	if (od_claim_mode_defer_boot_screen()) {
+		s_boot_screen_deferred = !od_claim_mode_active();
+	} else if (!od_claim_mode_active()) {
+		schedule_boot_display_apply();
+		if (k_sem_take(&s_boot_display_done, K_MSEC(OD_BOOT_DISPLAY_WAIT_MS)) != 0) {
+			od_log_error("boot display: still running after %u ms - advertising anyway",
+				     (unsigned)OD_BOOT_DISPLAY_WAIT_MS);
+		}
 	}
 
 	od_adv_set_payload(&s_adv, msd_payload);
@@ -1127,6 +1156,31 @@ void opendisplay_ble_init(void)
 	 * opendisplay_ble_process() pass (called from main.c immediately after this function
 	 * returns), not synchronously here -- so s_dev_name is not yet valid at this log line. */
 	od_log_info("BLE init complete, advertising requested");
+}
+
+void opendisplay_ble_config_changed(void)
+{
+	s_config_changed = true;
+}
+
+void opendisplay_ble_request_unpair_all(void)
+{
+	s_unpair_pending = true;
+}
+
+/* Claim mode, the boot-history writes, a deferred boot screen and a policy reload. Called from
+ * every main-loop pass, connected or not. */
+void opendisplay_ble_security_tick(void)
+{
+	od_claim_mode_tick();
+	if (s_config_changed) {
+		s_config_changed = false;
+		opendisplay_ble_reload_config_from_nvm();
+	}
+	if (s_boot_screen_deferred && !od_claim_mode_defer_boot_screen()) {
+		s_boot_screen_deferred = false;
+		opendisplay_display_request_boot();
+	}
 }
 
 void opendisplay_ble_process(void)
@@ -1170,6 +1224,9 @@ void opendisplay_ble_schedule_dfu(void)
 
 void opendisplay_ble_schedule_deep_sleep(void)
 {
+	if (!od_claim_mode_before_sleep()) {
+		return;                      /* claim mode stays awake (SECURITY_V2 7.3) */
+	}
 	od_log_info("deep sleep: nPM1300 hibernate if available");
 	opendisplay_sensor_npm1300_enter_hibernate();
 }

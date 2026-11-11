@@ -7,13 +7,18 @@
  */
 
 #include "od_hal_wdt.h"
+#include "od_hal_reset.h"
 #include "od_log.h"
+
+#include <string.h>
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/hwinfo.h>
 #include <zephyr/drivers/retained_mem.h>
 #include <zephyr/drivers/watchdog.h>
+#include <zephyr/kernel.h>          /* CMSIS NVIC_SystemReset */
+#include <zephyr/linker/section_tags.h>
 
 #include <hal/nrf_wdt.h>
 
@@ -25,30 +30,40 @@
 
 /* --------------------------------------------------------------------------- reset cause --- */
 
-uint32_t od_hal_wdt_reset_reason(void)
+/* The hwinfo cause word, read ONCE per boot and then cleared, serving both od_hal_wdt and
+ * od_hal_reset. nRF latches causes cumulatively; reading it twice would see 0 the second time. */
+static bool raw_cause(uint32_t *out)
 {
 	static uint32_t cached;
-	static bool     have_cached;
+	static int      state;    /* 0 unread, 1 ok, -1 no backend */
 
+	if (state == 0) {
+		uint32_t cause = 0;
+
+		if (hwinfo_get_reset_cause(&cause) != 0) {
+			state = -1;
+		} else {
+			/* CLEAR IT: leaving the register alone makes one watchdog reset visible on every
+			 * later boot, and a pin reset from days ago count as a power-cycle (SECURITY_V2
+			 * 7.2). */
+			(void)hwinfo_clear_reset_cause();
+			cached = cause;
+			state = 1;
+		}
+	}
+	*out = cached;
+	return state == 1;
+}
+
+uint32_t od_hal_wdt_reset_reason(void)
+{
 	uint32_t cause = 0;
 	uint32_t out   = 0;
 
-	if (have_cached) {
-		return cached;
-	}
-
-	if (hwinfo_get_reset_cause(&cause) != 0) {
+	if (!raw_cause(&cause)) {
 		/* No hwinfo backend, or the SoC could not answer. Distinct from "nothing latched". */
-		cached      = OD_HAL_WDT_RESET_UNKNOWN;
-		have_cached = true;
-		return cached;
+		return OD_HAL_WDT_RESET_UNKNOWN;
 	}
-
-	/* CLEAR IT. nRF latches causes cumulatively and nothing else in this firmware clears them,
-	 * so leaving the register alone makes one watchdog reset visible on every subsequent boot --
-	 * which would drive the strike counter to safe mode on a device that recovered. */
-	(void)hwinfo_clear_reset_cause();
-
 	if ((cause & RESET_POR) != 0u) {
 		out |= OD_HAL_WDT_RESET_POWER_ON;
 	}
@@ -78,10 +93,80 @@ uint32_t od_hal_wdt_reset_reason(void)
 	if (cause == 0u) {
 		out = OD_HAL_WDT_RESET_POWER_ON;
 	}
+	return out;
+}
 
-	cached      = out;
-	have_cached = true;
-	return cached;
+/* od_hal_reset.h, from the same word (SECURITY_V2 7.2 table). Nothing latched is a cold start
+ * OR a brown-out on nRF52 (RESETREAS cannot separate them): POWER_ON_OR_BROWNOUT. A SoC whose
+ * driver reports RESET_POR / RESET_BROWNOUT separately (nRF54L, H8) gets the exact answer. */
+uint32_t od_hal_reset_cause(void)
+{
+	uint32_t cause = 0;
+	uint32_t out = 0;
+
+	if (!raw_cause(&cause)) {
+		return OD_HAL_RESET_OTHER;
+	}
+	if (cause == 0u) {
+		return OD_HAL_RESET_POWER_ON_OR_BROWNOUT;
+	}
+	if ((cause & RESET_POR) != 0u) {
+		out |= OD_HAL_RESET_POWER_ON;
+	}
+	if ((cause & RESET_PIN) != 0u) {
+		out |= OD_HAL_RESET_PIN;
+	}
+	if ((cause & RESET_BROWNOUT) != 0u) {
+		out |= OD_HAL_RESET_BROWNOUT;
+	}
+	if ((cause & RESET_SOFTWARE) != 0u) {
+		out |= OD_HAL_RESET_SOFTWARE;
+	}
+	if ((cause & RESET_WATCHDOG) != 0u) {
+		out |= OD_HAL_RESET_WATCHDOG;
+	}
+	if ((cause & RESET_CPU_LOCKUP) != 0u) {
+		out |= OD_HAL_RESET_LOCKUP;
+	}
+	if ((cause & RESET_LOW_POWER_WAKE) != 0u) {
+		out |= OD_HAL_RESET_SLEEP_WAKE;
+	}
+	if ((cause & RESET_DEBUG) != 0u) {
+		out |= OD_HAL_RESET_DEBUG;
+	}
+	if ((cause & ~(uint32_t)(RESET_POR | RESET_PIN | RESET_BROWNOUT | RESET_SOFTWARE |
+				 RESET_WATCHDOG | RESET_CPU_LOCKUP | RESET_LOW_POWER_WAKE |
+				 RESET_DEBUG)) != 0u || out == 0u) {
+		out |= OD_HAL_RESET_OTHER;
+	}
+	return out;
+}
+
+/* OS2C. __noinit RAM: kept across a software reset, garbage after power loss (the record's own
+ * magic and CRC reject that). MCUboot or the Adafruit bootloader may overwrite it on the way
+ * through; then a planned reboot simply ends the claim-mode session instead of continuing it. */
+static __noinit uint8_t s_retained[OD_HAL_RETAINED_LEN];
+
+bool od_hal_retained_read(uint8_t buf[OD_HAL_RETAINED_LEN])
+{
+	memcpy(buf, s_retained, OD_HAL_RETAINED_LEN);
+	return true;
+}
+
+bool od_hal_retained_write(const uint8_t buf[OD_HAL_RETAINED_LEN])
+{
+	memcpy(s_retained, buf, OD_HAL_RETAINED_LEN);
+	return true;
+}
+
+void od_hal_retained_clear(void)
+{
+	memset(s_retained, 0, OD_HAL_RETAINED_LEN);
+}
+
+void od_hal_reset_reboot(void)
+{
+	NVIC_SystemReset();
 }
 
 /* ----------------------------------------------------------------------- retained storage --- */

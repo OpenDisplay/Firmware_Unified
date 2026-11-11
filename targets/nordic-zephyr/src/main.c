@@ -1,3 +1,4 @@
+#include "od_claim_mode.h"
 #include "od_board.h"
 #include "od_hal_log.h"
 #include "od_log.h"
@@ -102,6 +103,7 @@ int main(void)
 		int64_t now_ms;
 
 		od_watchdog_app_service();
+		opendisplay_ble_security_tick();
 		cfg = opendisplay_get_global_config();
 		configured_msd_interval_ms =
 			(cfg != NULL && cfg->loaded) ? cfg->power_option.sleep_timeout_ms : 0u;
@@ -127,7 +129,11 @@ int main(void)
 			msd_deadline_ms = now_ms + (int64_t)msd_interval_ms;
 		}
 
-		if (!opendisplay_ble_advertising_active()) {
+		if (od_claim_mode_active() || now_ms < (int64_t)OD_CM_T_CLEAR_MS + 1000) {
+			/* Claim mode's deadline and screens, and the boot-history writes at T_ARM and
+			 * T_CLEAR, are driven from this loop: keep the pass rate up while they are due. */
+			(void)idle_wait_ms(100u);
+		} else if (!opendisplay_ble_advertising_active()) {
 			/* Advertising not yet confirmed running -- e.g. a RETRY right after a
 			 * disconnect (shared/core/od_adv_control.c). Poll promptly instead of the
 			 * full idle chunk below, so a delayed restart attempt doesn't stall

@@ -5,6 +5,7 @@
  * here is stateful, so there is no reset for disconnect cleanup to call.
  */
 
+#include "od_claim_mode.h"
 #include "od_cmd_app.h"
 
 #include "od_cmd_reply.h"
@@ -104,6 +105,7 @@ od_cmd_result_t od_cmd_app_reboot(const od_cmd_ctx_t *ctx, od_span_t body)
   (void)ctx;
   (void)body;
   od_log_info("reboot");
+  (void)od_claim_mode_before_reboot();   /* OS2C, or END(CLAIMED); disarms the count */
   for (volatile uint32_t i = 0; i < 800000u; i++) {
   }
   NVIC_SystemReset();
