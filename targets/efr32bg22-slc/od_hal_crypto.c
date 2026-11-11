@@ -92,7 +92,7 @@ enum od_hal_crypto_status od_hal_crypto_ccm_encrypt(od_hal_crypto_slot_t slot,
 
   if (!init_once() || !valid_slot(slot) || !s_ready[slot] || nonce == NULL ||
       nonce_len < 7u || nonce_len > 13u || (aad == NULL && aad_len != 0u) ||
-      (plain == NULL && plain_len != 0u) || ct == NULL || ct_len == NULL ||
+      plain == NULL || ct == NULL || ct_len == NULL ||
       (uint32_t)plain_len + OD_HAL_CRYPTO_TAG_LEN > ct_cap) {
     return OD_HAL_CRYPTO_ERROR;
   }
@@ -118,7 +118,7 @@ enum od_hal_crypto_status od_hal_crypto_ccm_decrypt(od_hal_crypto_slot_t slot,
   if (!init_once() || !valid_slot(slot) || !s_ready[slot] || nonce == NULL ||
       nonce_len < 7u || nonce_len > 13u || (aad == NULL && aad_len != 0u) ||
       ct == NULL || ct_len < OD_HAL_CRYPTO_TAG_LEN ||
-      (plain == NULL && ct_len != OD_HAL_CRYPTO_TAG_LEN) || plain_len == NULL) {
+      plain == NULL || plain_len == NULL) {
     return OD_HAL_CRYPTO_ERROR;
   }
   expected = (uint16_t)(ct_len - OD_HAL_CRYPTO_TAG_LEN);

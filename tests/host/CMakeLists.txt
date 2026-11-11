@@ -684,6 +684,11 @@ target_link_libraries(od_session_fake_dispatch_silabs PUBLIC od_shared_dispatch_
     OpenSSL::Crypto)
 target_include_directories(od_session_fake_dispatch_silabs PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 
+# The session fake honours the same buffer rule as the production HALs (crypto_hal_contract).
+add_executable(od_crypto_contract_fake crypto_hal_contract_test.c)
+target_link_libraries(od_crypto_contract_fake od_session_fake_dispatch)
+add_test(NAME crypto_hal_contract_fake COMMAND od_crypto_contract_fake)
+
 add_executable(od_dispatch_test dispatch_test.c)
 target_compile_definitions(od_dispatch_test PRIVATE OD_LOG_LEVEL=OD_LOG_DEBUG)
 target_link_libraries(od_dispatch_test od_dispatch_log_debug od_session_fake_dispatch)
@@ -836,6 +841,21 @@ target_include_directories(od_nordic_crypto_slot_test PRIVATE
     ../../targets/nordic-zephyr/src)
 target_link_libraries(od_nordic_crypto_slot_test od_shared od_fake_psa)
 add_test(NAME nordic_crypto_slot COMMAND od_nordic_crypto_slot_test)
+
+# crypto_hal_contract: the od_hal_crypto.h buffer rule (never NULL, even for an empty plaintext)
+# against the Nordic and BG22 production PSA HALs and against the session fake.
+add_executable(od_crypto_contract_nordic crypto_hal_contract_test.c
+    ../../targets/nordic-zephyr/src/od_hal_crypto.c)
+target_include_directories(od_crypto_contract_nordic PRIVATE ../../targets/nordic-zephyr/src)
+target_compile_definitions(od_crypto_contract_nordic PRIVATE OD_CONTRACT_STUB_LOG=1)
+target_link_libraries(od_crypto_contract_nordic od_shared od_fake_psa)
+add_test(NAME crypto_hal_contract_nordic COMMAND od_crypto_contract_nordic)
+add_executable(od_crypto_contract_bg22 crypto_hal_contract_test.c
+    ../../targets/efr32bg22-slc/od_hal_crypto.c)
+target_include_directories(od_crypto_contract_bg22 PRIVATE ../../targets/efr32bg22-slc)
+target_compile_definitions(od_crypto_contract_bg22 PRIVATE OD_BG22_DIAG=0)
+target_link_libraries(od_crypto_contract_bg22 od_shared od_fake_psa)
+add_test(NAME crypto_hal_contract_bg22 COMMAND od_crypto_contract_bg22)
 
 # esp_crypto_random: the ESP32 RNG arm, which feeds the SEC2 handshake nonces. od_sec2's rule is
 # that a device never sends a nonce from a failed draw, and that rule is unenforceable while the

@@ -314,6 +314,7 @@ enum od_hal_crypto_status od_hal_crypto_ccm_encrypt(od_hal_crypto_slot_t slot,
 
     if (f != OD_HAL_CRYPTO_OK) { return f; }
     if (slot >= OD_HAL_CRYPTO_KEY_SLOTS || !g_slot_loaded[slot] || nonce_len != 13u ||
+        plain == NULL || ct == NULL || ct_len == NULL ||
         ct_cap < (uint16_t)(plain_len + OD_HAL_CRYPTO_TAG_LEN)) {
         return OD_HAL_CRYPTO_ERROR;
     }
@@ -332,7 +333,9 @@ enum od_hal_crypto_status od_hal_crypto_ccm_decrypt(od_hal_crypto_slot_t slot,
     uint16_t body;
 
     if (f != OD_HAL_CRYPTO_OK) { return f; }
+    /* The HAL contract: plain is never NULL, even for an empty plaintext (od_hal_crypto.h). */
     if (slot >= OD_HAL_CRYPTO_KEY_SLOTS || !g_slot_loaded[slot] || nonce_len != 13u ||
+        plain == NULL || plain_len == NULL ||
         ct_len < OD_HAL_CRYPTO_TAG_LEN || ct_len - OD_HAL_CRYPTO_TAG_LEN > sizeof tmp) {
         return OD_HAL_CRYPTO_ERROR;
     }

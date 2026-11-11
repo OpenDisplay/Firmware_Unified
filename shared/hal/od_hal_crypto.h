@@ -58,15 +58,20 @@ enum od_hal_crypto_status od_hal_crypto_key_set(od_hal_crypto_slot_t slot,
 void od_hal_crypto_key_clear(od_hal_crypto_slot_t slot);
 
 /* ct receives ciphertext || tag and must have room for
- * plain_len + OD_HAL_CRYPTO_TAG_LEN bytes. ct_len is set to that exact size on success. */
+ * plain_len + OD_HAL_CRYPTO_TAG_LEN bytes. ct_len is set to that exact size on success.
+ *
+ * BUFFERS ARE NEVER NULL, on encrypt or decrypt, even for an empty plaintext: pass a real
+ * buffer with plain_len / plain_cap 0. PSA backends differ on a NULL zero-length buffer (BG22's
+ * psa_aead_decrypt refuses it on hardware), so every target refuses NULL itself, before the
+ * backend, and the answer is the same everywhere: ERROR. Shared code always has a buffer. */
 enum od_hal_crypto_status od_hal_crypto_ccm_encrypt(od_hal_crypto_slot_t slot,
         const uint8_t *nonce, uint8_t nonce_len,
         const uint8_t *aad, uint8_t aad_len,
         const uint8_t *plain, uint16_t plain_len,
         uint8_t *ct, uint16_t ct_cap, uint16_t *ct_len);
 
-/* ct is ciphertext || tag; ct_len == OD_HAL_CRYPTO_TAG_LEN (an empty plaintext) is legal, and so
- * is plain_len == 0 on encrypt. AUTH_FAILED means only
+/* ct is ciphertext || tag; ct_len == OD_HAL_CRYPTO_TAG_LEN (an empty plaintext, plain_cap may be
+ * 0) is legal, and so is plain_len == 0 on encrypt. AUTH_FAILED means only
  * that the tag mismatched. ON ANY NON-OK RETURN plain IS UNDEFINED AND MUST NOT BE READ: CCM is
  * decrypt-then-verify. plain_len is set to ct_len - OD_HAL_CRYPTO_TAG_LEN only on success. */
 enum od_hal_crypto_status od_hal_crypto_ccm_decrypt(od_hal_crypto_slot_t slot,

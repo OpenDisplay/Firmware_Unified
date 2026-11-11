@@ -112,7 +112,7 @@ enum od_hal_crypto_status od_hal_crypto_ccm_encrypt(od_hal_crypto_slot_t slot,
 
     if (crypto_init_once() != OD_HAL_CRYPTO_OK || !slot_valid(slot) ||
         !s_slot_ready[slot] || nonce == NULL || nonce_len < 7u || nonce_len > 13u ||
-        (aad == NULL && aad_len != 0u) || (plain == NULL && plain_len != 0u) ||
+        (aad == NULL && aad_len != 0u) || plain == NULL ||
         ct == NULL || ct_len == NULL || required > ct_cap) {
         return OD_HAL_CRYPTO_ERROR;
     }
@@ -140,7 +140,7 @@ enum od_hal_crypto_status od_hal_crypto_ccm_decrypt(od_hal_crypto_slot_t slot,
     if (crypto_init_once() != OD_HAL_CRYPTO_OK || !slot_valid(slot) ||
         !s_slot_ready[slot] || nonce == NULL || nonce_len < 7u || nonce_len > 13u ||
         (aad == NULL && aad_len != 0u) || ct == NULL ||
-        ct_len < OD_HAL_CRYPTO_TAG_LEN || (plain == NULL && ct_len != OD_HAL_CRYPTO_TAG_LEN) ||
+        ct_len < OD_HAL_CRYPTO_TAG_LEN || plain == NULL ||
         plain_len == NULL) {
         return OD_HAL_CRYPTO_ERROR;
     }

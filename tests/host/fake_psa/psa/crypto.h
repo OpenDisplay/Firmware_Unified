@@ -28,6 +28,7 @@ typedef uint32_t psa_key_usage_t;
 #define PSA_ERROR_NOT_PERMITTED        ((psa_status_t)-133)
 #define PSA_ERROR_INVALID_SIGNATURE    ((psa_status_t)-149)
 #define PSA_ERROR_INVALID_ARGUMENT     ((psa_status_t)-135)
+#define PSA_ERROR_INVALID_HANDLE       ((psa_status_t)-136)
 #define PSA_ERROR_INSUFFICIENT_MEMORY  ((psa_status_t)-141)
 
 #define PSA_KEY_TYPE_AES               ((psa_key_type_t)0x2400)
