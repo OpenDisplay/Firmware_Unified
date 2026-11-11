@@ -280,13 +280,26 @@ static void test_v11_at_rest(void)
     for (size_t i = 0; i < N(V11); ++i) {
         uint8_t before[OD_CONFIG_MAX_SIZE], w[OD_CONFIG_MAX_SIZE], after[OD_CONFIG_MAX_SIZE];
         uint8_t got[OD_CONFIG_MAX_SIZE];
-        const uint32_t bn = (uint32_t)unhex(V11[i].before, before, sizeof before);
+        const uint32_t bn = V11[i].before != NULL ?
+                            (uint32_t)unhex(V11[i].before, before, sizeof before) : 0u;
         uint32_t an = 0u, gn;
 
         CASE(V11[i].name);
+        /* A client-side verdict (no stored, written or read bytes) has nothing for the device. */
+        if (V11[i].before == NULL && V11[i].written == NULL && V11[i].read == NULL) {
+            continue;
+        }
         reset_all();
-        store_blob(before, bn);
-        if (V11[i].k_dev != NULL || V11[i].clear) {
+        /* A before/after pair with no write and no CONFIG_CLEAR is an UNCLAIM scrub: the device
+         * then holds the after image, unclaimed, and its read view is what the vector pins. */
+        if (V11[i].after != NULL && V11[i].written == NULL && !V11[i].clear) {
+            const uint32_t sn = (uint32_t)unhex(V11[i].after, before, sizeof before);
+            store_blob(before, sn);
+        } else if (bn != 0u) {
+            store_blob(before, bn);
+        }
+        /* "claimed:" vectors that name no K_dev use the generator's default key. */
+        if (V11[i].k_dev != NULL || V11[i].clear || strncmp(V11[i].name, "claimed:", 8u) == 0) {
             uint8_t k[16] = {0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
                              0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f};
             if (V11[i].k_dev != NULL) { (void)unhex(V11[i].k_dev, k, sizeof k); }
@@ -307,7 +320,7 @@ static void test_v11_at_rest(void)
         }
         if (V11[i].written != NULL) {
             const uint32_t wn = (uint32_t)unhex(V11[i].written, w, sizeof w);
-            CHECK(od_sec2_state() == OD_SEC2_CLAIMED);
+            CHECK(od_sec2_state() == (V11[i].k_dev != NULL ? OD_SEC2_CLAIMED : OD_SEC2_UNCLAIMED));
             CHECK(save(w, wn) == OD_CFG_POLICY_OK);
             gn = stored(got);
             CHECK(gn == an && memcmp(got, after, an) == 0);
@@ -321,30 +334,16 @@ static void test_v11_at_rest(void)
 
 static void test_v13_url(void)
 {
-    size_t stale = 0u;
-
     CASE("V13: setup URL");
     for (size_t i = 0; i < N(V13); ++i) {
         char url[128];
 
-        /* py-opendisplay's fixture predates revision 5 (7.8.1 replaced /s/?k=s|r with
-         * /l/?f=1&k=1|2): its V13 strings cannot match until py regenerates them. Counted and
-         * reported, not failed; U1-U4 in boot_payload_test.c pin the new grammar meanwhile. */
-        if (strncmp(V13[i].url, "https://opendisplay.org/s/", 26u) == 0) {
-            ++stale;
-            continue;
-        }
         CHECK(od_setup_url_build(V13[i].k, V13[i].i, (uint8_t)V13[i].t, (uint8_t)V13[i].ma,
                                  (uint8_t)V13[i].mi, (uint8_t)V13[i].pa, (uint16_t)V13[i].b,
                                  (uint16_t)V13[i].d, (uint16_t)V13[i].p, url, sizeof url));
         CHECK(strcmp(url, V13[i].url) == 0);
     }
-    if (stale != 0u) {
-        printf("cfg_policy: V13 %u of %u vectors are pre-revision-5 (/s/) and were NOT checked: "
-               "py-opendisplay must regenerate V13 for SECURITY_V2 7.8.1\n",
-               (unsigned)stale, (unsigned)N(V13));
-    }
-    CHECK(stale == 0u || stale == N(V13));   /* a half-regenerated fixture is a real mismatch */
+    CHECK(N(V13) >= 4u);   /* U1-U4 of 7.8.1 */
 }
 
 /* ------------------------------------------------------- branches beyond the vectors --- */

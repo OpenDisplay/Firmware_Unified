@@ -52,8 +52,11 @@ def main():
     lines.append("static const struct v13 V13[] = {")
     for v in d["V13_setup_url"]:
         p = v["params"]
+        # revision 5 (SECURITY_V2 7.8.1): k is "1" SETUP / "2" RESET on the wire; the builder's
+        # kind argument is still 's' / 'r'.
+        kind = {"1": "s", "2": "r"}[str(p["k"])]
         lines.append("    { '%s', 0x%sU, %d, %d, %d, %d, %d, %d, %d, %s }," % (
-            p["k"], p["i"], p["t"], p["v"][0], p["v"][1], p["v"][2], p["b"] or 0, p["d"] or 0,
+            kind, p["i"], p["t"], p["v"][0], p["v"][1], p["v"][2], p["b"] or 0, p["d"] or 0,
             p["p"] or 0, c_str(v["url"])))
     lines.append("};")
 
