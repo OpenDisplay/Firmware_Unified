@@ -300,8 +300,9 @@ static void od_smp_sync(void)
 	/* smp_bt_setup() already registers the SVC at boot when dynamic reg is on. */
 	static bool s_smp_visible = true;
 	/* SECURITY_V2 6.1 / 7.4: hidden on a claimed or LOCKED device until ENTER_DFU, and always
-	 * in claim mode. From the security state, never from the 0x27 bytes at rest (10.2). */
-	const bool want = s_ota_unlocked || (!od_sec2_needs_session() && !od_claim_mode_active());
+	 * in claim mode. From the security state, never from the 0x27 bytes at rest (10.2); the
+	 * same predicate as the ESP32 SMP lock (od_sec2_dfu_needs_unlock). */
+	const bool want = s_ota_unlocked || !od_sec2_dfu_needs_unlock();
 	int err;
 
 	if (want == s_smp_visible) {
