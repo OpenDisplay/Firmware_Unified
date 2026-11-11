@@ -1132,8 +1132,76 @@ static void test_msd_states(void)
     check_msd_dyn(OD_MSD_STATUS_CLAIM_MODE, FF11);
 }
 
+/* ------------------------------------------------- the claim-mode advertising boost --- */
+
+static unsigned g_boosts;
+static uint32_t g_boost_first, g_boost_last;
+
+void od_adv_app_boost(void)
+{
+    if (g_boosts++ == 0u) {
+        g_boost_first = g_now;
+    }
+    g_boost_last = g_now;
+}
+
+static void boost_reset(void) { g_boosts = 0u; g_boost_first = g_boost_last = 0u; }
+
+static void test_boost(void)
+{
+    CASE("boost: FRESH claim mode re-arms the 3 s window every second for 60 s, then never");
+    wipe_device();
+    boot(OD_HAL_RESET_POWER_ON);
+    CHECK(od_claim_mode_active());
+    boost_reset();
+    run_until(120000u);
+    CHECK(g_boosts >= 59u && g_boosts <= 61u);
+    CHECK(g_boost_first <= 100u);
+    CHECK(g_boost_last < 5u + OD_CM_BOOST_MS);
+    CHECK(g_boost_last + 3000u >= 5u + OD_CM_BOOST_MS - OD_CM_BOOST_REARM_MS);  /* no gap */
+
+    CASE("boost: none before the first loop tick (the radio is not up during the boot)");
+    wipe_device();
+    boost_reset();
+    boot(OD_HAL_RESET_POWER_ON);
+    CHECK(g_boosts == 0u);
+
+    CASE("boost: GESTURE claim mode boosts too");
+    wipe_device();
+    provision(false, false, 0u, 0xFFu);
+    cycle(3000u);
+    boot(OD_HAL_RESET_POWER_ON);
+    CHECK(g_rep.kind == OD_CLAIM_KIND_GESTURE);
+    boost_reset();
+    run_until(90000u);
+    CHECK(g_boosts >= 59u && g_boosts <= 61u && g_boost_last < 5u + OD_CM_BOOST_MS);
+
+    CASE("boost: a CONTINUE boot (planned reboot) gets its own 60 s");
+    (void)od_claim_mode_before_reboot();
+    boot(OD_HAL_RESET_SOFTWARE);
+    CHECK(od_claim_mode_active() && g_rep.continued);
+    boost_reset();
+    run_until(70000u);
+    CHECK(g_boosts >= 59u && g_boosts <= 61u);
+
+    CASE("boost: normal mode (unclaimed or claimed) never boosts");
+    wipe_device();
+    provision(false, false, 0u, 0xFFu);
+    boot(OD_HAL_RESET_POWER_ON);
+    boost_reset();
+    run_until(70000u);
+    CHECK(!od_claim_mode_active() && g_boosts == 0u);
+    wipe_device();
+    provision(true, true, 0u, 0xFFu);
+    boot(OD_HAL_RESET_POWER_ON);
+    boost_reset();
+    run_until(70000u);
+    CHECK(g_boosts == 0u);
+}
+
 int main(void)
 {
+    test_boost();
     test_msd_states();
     test_causes();
     test_history_edges();

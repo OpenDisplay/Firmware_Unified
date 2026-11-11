@@ -29,7 +29,7 @@ P1, P2, P6 and P7, and eight maintainer decisions of 2026-11-11 (A-G below). Imp
 | **A. MSD status bits stay the claim-mode signal**, renamed: bit 2 `CLAIM_MODE`, bit 3 `SESSION_REQUIRED`. "Waiting to be claimed" = bit 2 set and bit 3 clear; confirmed with a plaintext READ_IDENT / SEC_STATUS. `dynamic[11]` is **not** a claim sentinel. All three targets now take both bits, and the unconfigured rule, from one shared function (§ 5.3); BG22 never set bit 3 before | maintainer decision A; BG22 defect |
 | **B. "Unconfigured" = `dynamic[11]` all 0xFF** (protocol 2.2) on every target, from shared code, with "no display configured" defined for 3.0 as **no drivable display** (§ 5.3.2). It combines with claim mode on a virgin device | maintainer decision B; only ESP32 did it |
 | **C. Zephyr targets advertise the name in the advertising PDU** (flags 3 + MSD 18 + name 10 = 31 B); the scan response keeps the 16-bit service UUID and Channel Sounding's Ranging UUID (§ 5.3.3). The § 5.3 PDU facts are corrected per target | maintainer decision C; HA name-based discovery and passive scanners |
-| **D. Claim-mode advertising boost** implemented: the shared 20-30 ms boost window, re-armed for the first 60 s of every claim-mode ENTER, never while connected; at most 4 × 60 s per claim-mode session (§ 7.3, § 7.9) | maintainer decision D; § 7.3 was unimplemented |
+| **D. Claim-mode advertising boost** implemented: the shared 20-30 ms boost window, re-armed for the first 60 s of every claim-mode ENTER (the advertiser is off while connected); at most 4 × 60 s per claim-mode session (§ 7.3, § 7.9) | maintainer decision D; § 7.3 was unimplemented |
 | **E. SHOW_KEY_ON_SCREEN (0x27 `flags` bit 1) is honoured again.** On a CLAIMED device with the bit set, the NORMAL boot screen shows K_dev as 2.x did (the key lines and the key bytes of the `/l/` QR payload), permanently while the bit is set. The bit is stored only by a config write on a claimed device; setup/CODE/RESET screens never show a key; rotation redraws the boot screen; default off (§ 10.3, § 10.7, § 1.4 item 20) | maintainer decision E; reverses revision 3/4 |
 | **F. One setup/recovery URL grammar on the existing `/l/` entry point**: `https://opendisplay.org/l/?f=1&k=<1\|2>&i=…&t=…&v=…[&b=][&d=][&p=]`, format version first, numbers only, append-only, ≤ 83 B worst case, QR v6-M. `/s/` (never shipped) is withdrawn (§ 7.8.1) | maintainer decision F (P2, P6) |
 | **G. The setup flow is normative where it concerns the device** (new § 15): device-side triggers per state for the one wizard (P1), the QR (P2), recovery is setup (P6), migration-assistant inputs (P7). P4, P5 and P8 are **dropped by decision** | maintainer decision G |
@@ -1192,10 +1192,12 @@ for 3 s on every target. `od_claim_mode_tick()` re-arms it every `OD_CM_BOOST_RE
 all of these hold:
 - claim mode is active;
 - less than `OD_CM_BOOST_MS` (60 s) has passed since this boot's ENTER (FRESH, GESTURE or CONTINUE);
-- no application connection is open (`od_claim_app_connected()`; a connection stops the
-  advertiser anyway, and the boost must not outlive it).
+- the loop has ticked at least once (the radio is up).
 
-After the last re-arm the window closes within 3 s and the target's own reconcile restores its
+While a connection is open the advertiser is off (one connection, § 5.4) and every target ends a
+boost on connect, so a re-arm then only matters after a disconnect inside the 60 s, when fast
+advertising resumes. BG22 now applies a boost that arrives without an MSD publish (its reconcile
+handles both edges, like Nordic's). After the last re-arm the window closes within 3 s and the target's own reconcile restores its
 idle interval (ESP32 160-1000 ms, Nordic and BG22 1000 ms). Bound: one 60 s window per ENTER,
 and ENTERs are capped by the restart cap below, so at most 4 × 60 s = 240 s of fast advertising per
 claim-mode session, plus a 3 s tail each. A disconnect inside the 60 s re-arms it for the rest of
@@ -1278,7 +1280,7 @@ reset (§ 7.10), which works on claimed and LOCKED devices.
 | Channel | In claim mode | Notes |
 |---|---|---|
 | MSD status bit 2 CLAIM_MODE | 1, continuously | with bit 3 SESSION_REQUIRED = 0 while unclaimed (§ 5.3) |
-| advertising interval | 20-30 ms for the first 60 s of each ENTER while not connected, then the normal interval | § 7.3 |
+| advertising interval | 20-30 ms for the first 60 s of each ENTER, then the normal interval | § 7.3 |
 | READ_IDENT tail flags | bit 5 CLAIM_MODE | plaintext |
 | SEC_STATUS | flags bit0, bit5 (FRESH), bit6 (config locked); `window_s`; `renders_left` | plaintext, advisory |
 | panel | SETUP screen, then CODE screen (§ 7.8) | only if HAS_PANEL |

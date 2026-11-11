@@ -313,6 +313,8 @@ bool opendisplay_ble_erase_images(void)
 }
 
 static sl_status_t od_apply_advertising_timing(uint8_t adv_handle, uint32_t now_ms);
+/* The interval last programmed is the boost one (od_apply_advertising_timing). */
+static bool s_adv_timing_boosted;
 
 #if defined(__GNUC__)
 extern uint32_t __ResetReasonStart__;
@@ -1595,7 +1597,8 @@ static sl_status_t od_apply_advertising_timing(uint8_t adv_handle, uint32_t now_
   if (adv_handle == 0xFFu) {
     return SL_STATUS_OK;
   }
-  if (s_adv_boost_until_ms != 0u && now_ms < s_adv_boost_until_ms) {
+  s_adv_timing_boosted = (s_adv_boost_until_ms != 0u && now_ms < s_adv_boost_until_ms);
+  if (s_adv_timing_boosted) {
     min_slots = OD_ADV_INTERVAL_BOOST_MIN;
     max_slots = OD_ADV_INTERVAL_BOOST_MAX;
   } else {
@@ -1626,18 +1629,13 @@ void od_adv_app_boost(void)
  * entry points, which a loop reconciler is not. */
 static void od_advertising_interval_tick(uint8_t adv_handle, uint32_t now_ms)
 {
-  static bool was_boosted = false;
   bool boosting = (s_adv_boost_until_ms != 0u && now_ms < s_adv_boost_until_ms);
 
-  if (boosting) {
-    was_boosted = true;
+  /* Both edges: a boost requested without a publish (claim mode, SECURITY_V2 7.3) engages here,
+   * and an expired one drops back to the idle interval. */
+  if (boosting == s_adv_timing_boosted) {
     return;
   }
-  if (!was_boosted) {
-    return;
-  }
-  was_boosted = false;
-  s_adv_boost_until_ms = 0u;
   if (!od_advertising_api_ok(od_apply_advertising_timing(adv_handle, now_ms),
                              "advertising boost timing")) {
     return;

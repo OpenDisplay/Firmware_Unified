@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "od_adv_app.h"
 #include "od_claim_app.h"
 #include "od_config_store.h"
 #include "od_hal_reset.h"
@@ -35,3 +36,4 @@ WEAK void od_hal_retained_clear(void) { }
 WEAK void od_hal_reset_reboot(void) { }
 
 WEAK bool od_sec2_app_display_busy(void) { return false; }
+WEAK void od_adv_app_boost(void) { }

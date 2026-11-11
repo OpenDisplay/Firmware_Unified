@@ -4,6 +4,7 @@
 
 #include <string.h>
 
+#include "od_adv_app.h"
 #include "od_cfg_policy.h"
 #include "od_claim_app.h"
 #include "od_config_store.h"
@@ -44,6 +45,8 @@ static struct {
     uint32_t deadline;
     uint32_t code_at;
     uint32_t end_at;
+    uint32_t boost_until;    /* ENTER + OD_CM_BOOST_MS */
+    uint32_t boost_next;     /* next re-arm */
 } c;
 
 static uint32_t now_ms(void)
@@ -179,6 +182,8 @@ static void enter(enum od_claim_kind kind, bool resumed)
         c.config_locked = kind == OD_CLAIM_KIND_GESTURE;
     }
     c.deadline = now_ms() + OD_CM_WINDOW_MS;
+    c.boost_until = now_ms() + OD_CM_BOOST_MS;
+    c.boost_next = now_ms();
     c.setup_due = true;
     od_claim_app_signal(OD_CLAIM_SIG_CM_WAITING, 0u);
     od_log_info("claim mode: kind %u%s", (unsigned)kind, resumed ? " (continued)" : "");
@@ -489,6 +494,10 @@ void od_claim_mode_tick(void)
     if (!before(t, c.deadline)) {
         end_session(c.claimed ? OD_CLAIM_END_CLAIMED : OD_CLAIM_END_TIMEOUT);
         return;
+    }
+    if (before(t, c.boost_until) && !before(t, c.boost_next)) {
+        c.boost_next = t + OD_CM_BOOST_REARM_MS;
+        od_adv_app_boost();
     }
     if (c.code_due && !before(t, c.code_at)) {
         c.code_due = false;

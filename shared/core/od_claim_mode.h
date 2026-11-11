@@ -67,6 +67,12 @@ extern "C" {
 #ifndef OD_FR_PATTERN_SHORT_BOOTS
 #define OD_FR_PATTERN_SHORT_BOOTS  4u       /* five quick power-cycles; 0 disables the pattern */
 #endif
+#ifndef OD_CM_BOOST_MS
+#define OD_CM_BOOST_MS             60000u   /* fast advertising for this long after each ENTER */
+#endif
+#ifndef OD_CM_BOOST_REARM_MS
+#define OD_CM_BOOST_REARM_MS       1000u    /* re-arm period of the 3 s od_adv_app_boost() window */
+#endif
 #ifndef OD_CM_END_FLUSH_MS
 #define OD_CM_END_FLUSH_MS         500u     /* the END reply flush before the reboot */
 #endif
@@ -138,7 +144,11 @@ bool od_claim_mode_active(void);
 bool od_claim_mode_defer_boot_screen(void);
 
 /* Call every loop pass: T_ARM / T_CLEAR writes, the deadline, deferred screen draws, the END
- * flush and reboot. Draws (which may block) happen here, never inside a frame handler. */
+ * flush and reboot, and the claim-mode advertising boost (SECURITY_V2 7.3): for the first
+ * OD_CM_BOOST_MS of each ENTER it re-arms od_adv_app_boost() every OD_CM_BOOST_REARM_MS, so the
+ * targets' 20-30 ms window stays open; the targets end it themselves on a connection and fall
+ * back to their idle interval at most 3 s after the last re-arm. Never before the first tick,
+ * so the radio is up. Draws (which may block) happen here, never inside a frame handler. */
 void od_claim_mode_tick(void);
 
 /* Only the T_ARM / T_CLEAR writes of od_claim_mode_tick(): no draw, no reboot, no session work,
