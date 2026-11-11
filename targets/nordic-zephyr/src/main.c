@@ -8,6 +8,8 @@
 #include "opendisplay_idle_wake.h"
 #include "od_runtime_types.h"
 #include "od_watchdog_app.h"
+#include "od_test_bench.h"
+#include "od_sec2_trace.h"
 
 #include <stdio.h>
 #include <zephyr/kernel.h>
@@ -73,6 +75,8 @@ int main(void)
 
 	od_hal_log_open();
 	od_log_init();
+	/* A test-trace image says so first, on every boot (tools/check.sh requires this line). */
+	OD_SEC2_TRACE_BANNER();
 #if defined(OD_DEBUG_BUILD)
 	od_log_info("OpenDisplay %s DEBUG starting", od_board_name());
 #else
@@ -95,7 +99,13 @@ int main(void)
 	 * slot -- so no image manager, and this became an undefined reference at link time.
 	 * Nothing is lost by skipping it there: with one slot there is no copy to revert to.
 	 */
+#if defined(OD_TEST_BENCH) && OD_TEST_BENCH
+	/* Bench image: confirm, or (bench revert switch) stay unconfirmed and arm the no-touch
+	 * revert -- src/od_test_bench.c. */
+	od_test_bench_image_boot();
+#else
 	(void)boot_write_img_confirmed();
+#endif
 #endif
 
 	while (1) {
@@ -103,6 +113,7 @@ int main(void)
 		int64_t now_ms;
 
 		od_watchdog_app_service();
+		od_test_bench_tick();
 		opendisplay_ble_security_tick();
 		cfg = opendisplay_get_global_config();
 		configured_msd_interval_ms =

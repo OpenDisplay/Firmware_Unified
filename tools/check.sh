@@ -1416,6 +1416,7 @@ sec2_trace_release_off() {
     local rc=0 hits
     hits=$(git grep --untracked -nE 'OD_SEC2_TEST_TRACE|OD_SEC2_TEST_CM_WINDOW_MS' -- . \
         ':!shared/core/od_sec2_trace.h' ':!targets/esp32-idf/main/CMakeLists.txt' \
+        ':!targets/nordic-zephyr/zephyr/CMakeLists.txt' \
         ':!tools/check.sh' ':!docs/*' ':!*.md')
     if [ -n "$hits" ]; then
         echo "$hits"; echo "the SEC2 test trace is named outside its two owners"; rc=1
@@ -1432,6 +1433,20 @@ sec2_trace_release_off() {
     fi
     if ! grep -q 'OD_SEC2_TRACE_BANNER();' targets/esp32-idf/src/main.cpp; then
         echo "esp32 main.cpp: a trace build must print the NOT FOR RELEASE banner at boot"; rc=1
+    fi
+    # Nordic: the third owner, environment-only (never cached), same refusal; the bench revert
+    # switch OD_TEST_REVERT_S rides the same gate and is named only there and in the bench file.
+    if ! grep -q 'DEFINED ENV{OD_FW_VERSION} OR DEFINED ENV{CI}' targets/nordic-zephyr/zephyr/CMakeLists.txt \
+        || ! grep -q 'STREQUAL "I_ACCEPT_CLAIM_CODE_ON_SERIAL"' targets/nordic-zephyr/zephyr/CMakeLists.txt; then
+        echo "nordic CMakeLists: the trace's acknowledgement / release refusal is gone"; rc=1
+    fi
+    if ! grep -q 'OD_SEC2_TRACE_BANNER();' targets/nordic-zephyr/src/main.c; then
+        echo "nordic main.c: a trace build must print the NOT FOR RELEASE banner at boot"; rc=1
+    fi
+    hits=$(git grep --untracked -n 'OD_TEST_REVERT_S' -- . ':!targets/nordic-zephyr/zephyr/CMakeLists.txt' \
+        ':!targets/nordic-zephyr/src/od_test_bench.c' ':!tools/check.sh' ':!docs/*' ':!*.md')
+    if [ -n "$hits" ]; then
+        echo "$hits"; echo "the Nordic bench revert switch is named outside its owners"; rc=1
     fi
     if ! grep -q 'TEST_TRACE_TAG = b"\[SEC2-TEST\]"' tools/release/collect.py; then
         echo "collect.py no longer refuses a trace image"; rc=1
