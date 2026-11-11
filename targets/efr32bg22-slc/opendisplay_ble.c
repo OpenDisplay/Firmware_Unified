@@ -1618,7 +1618,10 @@ static void update_msd_payload(bool quick)
   if (measure_batt) {
     CMU_ClockEnable(cmuClock_IADC0, true);
     IADC_reset(IADC0);
-    CMU_ClockSelectSet(cmuClock_IADCCLK, cmuSelect_FSRCO);
+    /* What CMU_ClockSelectSet(cmuClock_IADCCLK, cmuSelect_FSRCO) does, without linking its
+     * every-clock switch (~800 B) for this one call. */
+    CMU->IADCCLKCTRL = (CMU->IADCCLKCTRL & ~_CMU_IADCCLKCTRL_CLKSEL_MASK)
+                       | CMU_IADCCLKCTRL_CLKSEL_FSRCO;
     init.warmup = iadcWarmupNormal;
     init.srcClkPrescale = IADC_calcSrcClkPrescale(IADC0, 20000000, 0);
     initAllConfigs.configs[0].reference = iadcCfgReferenceInt1V2;
