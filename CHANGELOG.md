@@ -74,7 +74,10 @@ no way to drive its panel, so old updaters must not see 3.0 at all. See
   - nRF54: MCUboot SMP, the same partition map as `Firmware_NRF54` 1.1.1.
   - BG22: `.gbl` through AppLoader, as before.
 - **Image store** on external SPI NOR (BG22, nRF52840/XIAO).
-- **BG22 action system** (button, NFC and temperature triggers) and Find My network support.
+- **Action system** (button, NFC and temperature triggers) on BG22, and on ESP32 without the
+  display-slot effect. BG22 also advertises Find My: network A, and network G (FMDN) at 2.3.0
+  parity -- the static SECP160R1 frame from `advertisement_key`, hashed-flags byte 0x00. A
+  SECP256R1 config (`fmdn_curve` 1) advertises nothing; there are no on-device rotating EIDs.
   Treat both as experimental; see Known limitations.
 - **Release contract:** `manifest.json` (schema `opendisplay-release/1`) and `SHA256SUMS`
   describe every asset, its board, its flash offset and the flows that use it. The ESP32 web

@@ -70,10 +70,24 @@ canonical copies by exactly these edits (each also carries a changelog bullet un
   temperature edge and 3 C re-arm.
 - CMD_POWER_OFF text: the MOSFET latch qualifies too (row 17).
 
+Not yet edited here, and needed in the canonical repo (doc text only, no layout change):
+- `opendisplay_structs.h` `FindMyCurve` / `FindMyConfig` (0x2D): no firmware computes or rotates
+  an EID on-device. `OD_FINDMY_CURVE_SECP256R1` should read "reserved: no firmware advertises
+  it"; the FindMyConfig @doc sentence "SECP256R1 rotates from eik+time_base on-device" should be
+  dropped, and `time_base_unix` / `fmdn_k` marked unused. Network G is the static SECP160R1
+  frame from `advertisement_key` with hashed-flags 0x00 (2.3.0 parity).
+- `opendisplay_protocol.h` CMD_ACTION_INFO / CMD_ACTION_FIRE `@targets`: add esp32-idf
+  (`OD_CAP_ACTION`, row 19).
+
 ## Not protocol changes (recorded so nobody looks for them)
 
 - MSD status bit 3 (encryption enabled) is already canonical (`opendisplay_structs.h:1707`); 3.0
   only makes every target set it.
-- BG22 FMDN (network G) reuses packet 0x2D unchanged and is byte-identical on air to 2.3.0.
+- BG22 FMDN (network G) reuses packet 0x2D unchanged and is byte-identical on air to 2.3.0: the
+  static SECP160R1 frame built from `advertisement_key` (the host computes `generate_eid(eik, 0)`),
+  with the hashed-flags byte 0x00, which is what 2.3.0 sends. `fmdn_curve` 1 (SECP256R1) advertises
+  nothing, as on 2.3.0; the firmware computes no EIDs and does not rotate them. The
+  `FindMyCurve` / `FindMyConfig` text in `opendisplay_structs.h` still describes an on-device
+  SECP256R1 rotation; see "What opendisplay-protocol must receive".
 - The BG22 `SL_APPLICATION_VERSION` encoding changed to `(major<<16)|(minor<<8)|patch`; it is in
   the GBL/app properties, not on the BLE wire.
