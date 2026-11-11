@@ -35,6 +35,10 @@
 #include "od_hal_sleep.h"
 
 #include "esp_heap_caps.h"
+#include "sdkconfig.h"
+#if CONFIG_PM_ENABLE
+#include "esp_pm.h"
+#endif
 
 // Distinguishes a hidden mid-cycle reset (PANIC/WDT/BROWNOUT/SW) from a real
 // power-on or deep-sleep wake; any reset here clears the wake cause, so the
@@ -1387,8 +1391,10 @@ void nm420HoldForSleep() {
 // alarm. With RTC power-off configured it leaves that to rtcConsumeWake(),
 // which needs the flags to recognise an RTC wake.
 //
-// Upstream also drops the CPU to 80 MHz here. The IDF target has no public
-// frequency API without CONFIG_PM_ENABLE, so the clock stays at the default.
+// The CPU is clamped to 80 MHz once the hold is up: BLE needs no more, and the
+// wake window is mostly idle polling. The clamp goes through esp_pm_configure()
+// (max = min = 80, no light sleep), so it needs CONFIG_PM_ENABLE in the board's
+// sdkconfig; a build without it keeps the default clock.
 #if defined(CONFIG_IDF_TARGET_ESP32)
 static void m5paperRtcQuiesce() {
     static const uint8_t kCtrl2[] = {0x01, 0x00};                    // AIE/TIE off, AF/TF cleared
@@ -1418,6 +1424,16 @@ void m5paper_init(){
     gpio_hold_dis(GPIO_NUM_5);
     od_hal_gpio_config_output(5, false);
     od_log_info("M5Paper init: main-power hold HIGH, Grove boost off");
+#if CONFIG_PM_ENABLE
+    // After the GPIO2 hold, so the power-button hold time does not grow.
+    const esp_pm_config_t pm = {.max_freq_mhz = 80, .min_freq_mhz = 80, .light_sleep_enable = false};
+    const esp_err_t pm_err = esp_pm_configure(&pm);
+    if (pm_err == ESP_OK) {
+        od_log_info("M5Paper init: CPU clamped to 80 MHz");
+    } else {
+        od_log_warn("M5Paper init: CPU clamp failed (%d), clock left as is", (int)pm_err);
+    }
+#endif
     if (!rtcWakeConfigured()) m5paperRtcQuiesce();
 #endif
 }

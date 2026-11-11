@@ -13,3 +13,8 @@ CONFIG_SPIRAM=y
 CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_SPIRAM_CACHE_WORKAROUND=y
 CONFIG_SPIRAM_CACHE_WORKAROUND_STRATEGY_MEMW=y
+
+# Power management on, for the M5Paper's 80 MHz clamp (m5paper_init, esp_pm_configure with
+# max = min = 80 MHz). Without a configure call the clock stays at the default and light sleep
+# stays off, so other boards on this module see no behaviour change.
+CONFIG_PM_ENABLE=y

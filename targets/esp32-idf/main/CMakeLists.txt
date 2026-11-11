@@ -199,6 +199,8 @@ idf_component_register(
         app_update bt nvs_flash esp_timer driver esp_wifi esp_event mbedtls spiffs vfs esp_adc
         # esp_lcd: FastEPD drives the S3 LCD peripheral for parallel e-paper
         esp_lcd esp_psram
+        # esp_pm: the M5Paper CPU clamp (only with CONFIG_PM_ENABLE)
+        esp_pm
         # mdns: vendored under ../components/mdns (ESP-IDF dropped it from core in v5.0).
         # Listed UNCONDITIONALLY even though only OPENDISPLAY_ENABLE_WIFI boards call it.
         # Gating it on the board would make the component list board-dependent, and IDF
