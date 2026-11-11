@@ -264,17 +264,27 @@ void od_claim_mode_event(enum od_sec2_claim_event ev, uint32_t arg)
 
 /* --------------------------------------------------------------------- the boot --- */
 
-static enum od_boot_pattern pattern_of(uint8_t k, bool counted)
+static enum od_boot_pattern pattern_of(uint8_t k, bool counted, bool reset_pattern_on)
 {
     if (!counted || k == 0u) {
         return OD_PATTERN_NONE;
     }
 #if OD_FR_PATTERN_SHORT_BOOTS != 0
-    if (k >= OD_FR_PATTERN_SHORT_BOOTS) {
+    if (reset_pattern_on && k >= OD_FR_PATTERN_SHORT_BOOTS) {
         return OD_PATTERN_FACTORY_RESET;
     }
+#else
+    (void)reset_pattern_on;
 #endif
     return k >= OD_CM_GESTURE_SHORT_BOOTS ? OD_PATTERN_CLAIM : OD_PATTERN_COUNTING;
+}
+
+/* 0x27 flags bit 6 (od_sec2_wire.h): the owner, or anyone on an unclaimed device, switched the
+ * five-cycle reset off in the stored config. Only what was loaded counts; no config, no flag. */
+static bool reset_pattern_off_by_config(const struct SecurityConfig *sec, bool config_present)
+{
+    return config_present && sec != NULL &&
+           (sec->flags & OD_SECURITY_FLAG_NO_RESET_PATTERN) != 0u;
 }
 
 static uint8_t read_k(void)
@@ -298,6 +308,7 @@ void od_security_boot(const struct SecurityConfig *sec, bool config_present,
     struct od_sec2_state_rec st;
     bool st_valid;
     bool has_secrets;
+    const bool pattern_off = reset_pattern_off_by_config(sec, config_present);
 
     memset(&rep, 0, sizeof rep);
     memset(&c, 0, sizeof c);
@@ -310,7 +321,7 @@ void od_security_boot(const struct SecurityConfig *sec, bool config_present,
     c.counted = od_claim_cause_counted(rep.cause);
     c.k = read_k();
     rep.short_boots = c.k;
-    rep.pattern = pattern_of(c.k, c.counted);
+    rep.pattern = pattern_of(c.k, c.counted, !pattern_off);
     OD_SEC2_TRACE("boot: cause=0x%03x counted=%u short_boots(k)=%u pattern=%u "
                   "(0 NONE 1 COUNTING 2 CLAIM 3 FACTORY_RESET) reset_pin=%u",
                   (unsigned)rep.cause, (unsigned)c.counted, (unsigned)c.k, (unsigned)rep.pattern,
@@ -346,6 +357,27 @@ void od_security_boot(const struct SecurityConfig *sec, bool config_present,
     }
     rep.state = od_sec2_state();
 
+    /* 3b. A LOCKED device ignores the config's NO_RESET_PATTERN: its stored config may be what
+     * locked it, and the pattern is its one way out without a reset pin. Known only now. */
+    if (pattern_off && rep.state == OD_SEC2_LOCKED && !rep.reset_locked) {
+        rep.pattern = pattern_of(c.k, c.counted, true);
+        if (rep.pattern == OD_PATTERN_FACTORY_RESET) {
+            od_log_warn("factory reset: power-cycle pattern (LOCKED overrides the config)");
+            fr = od_fr_start();
+            if (fr == OD_FR_REBOOT) {
+                if (out != NULL) {
+                    *out = rep;
+                }
+                od_hal_reset_reboot();
+                return;   /* host tests only */
+            }
+            if (fr == OD_FR_LOCKED) {
+                od_sec2_force_locked();
+                rep.reset_locked = true;
+            }
+        }
+    }
+
     /* 4a. SECURITY_V2 10.4a: an UNCLAIM or a factory reset left superseded secrets in the raw
      * medium. Purged before the radio; the flag stays until a purge succeeds. */
     od_sec2_os2s_get(&st, &st_valid);
@@ -359,7 +391,10 @@ void od_security_boot(const struct SecurityConfig *sec, bool config_present,
     }
 
     /* the count: every device keeps it (the reset pattern works on claimed and LOCKED ones) */
-    c.history = OD_FR_PATTERN_SHORT_BOOTS != 0u || rep.state == OD_SEC2_UNCLAIMED;
+    /* With the reset pattern off by config, a claimed device has no pattern to count for; an
+     * unclaimed one still counts for the claim gesture, a LOCKED one for the reset. */
+    c.history = (OD_FR_PATTERN_SHORT_BOOTS != 0u && (!pattern_off || rep.state == OD_SEC2_LOCKED)) ||
+                rep.state == OD_SEC2_UNCLAIMED;
     if (!c.counted || !c.history) {
         if (c.k != 0u) {
             count_put(0u);

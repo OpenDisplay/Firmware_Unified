@@ -803,6 +803,73 @@ static void settle(uint32_t first_cause)
     }
 }
 
+/* 0x27 flags bit 6, NO_RESET_PATTERN (SECURITY_V2 7.10, FACTORY_RESET.md 3.4). */
+static void test_reset_pattern_flag(void)
+{
+    const uint8_t off = (uint8_t)OD_SECURITY_FLAG_NO_RESET_PATTERN;
+    unsigned i;
+
+    CASE("pattern off, CLAIMED: five and more quick cycles reset nothing and count nothing");
+    wipe_device();
+    provision(true, true, off, 0xFFu);
+    g_os2s_writes = 0u;
+    for (i = 0; i < 6u; ++i) {
+        cycle(3000u);
+        CHECK(g_rep.pattern == OD_PATTERN_NONE && g_rep.state == OD_SEC2_CLAIMED && g_reboots == 0u);
+    }
+    CHECK(short_boots() == 0u && g_os2s_writes == 0u);   /* no history: no wear either */
+    CHECK(g_st.sec[OD_HAL_SECRET_KEY].present && g_st.rec_present);
+
+    CASE("pattern off, CLAIMED: the reset pin still resets");
+    wipe_device();
+    provision(true, true, (uint8_t)(off | OD_SECURITY_FLAG_RESET_PIN_ENABLED), 3u);
+    {
+        static uint8_t lv[700];
+        memset(lv, 0, 600u);
+        memset(lv + 600u, 1, 100u);
+        g_pin_trace = lv; g_pin_n = 700u; g_pin_i = 0u;
+        boot(OD_HAL_RESET_POWER_ON);
+        g_pin_trace = NULL;
+    }
+    CHECK(g_reboots == 1u && !g_st.sec[OD_HAL_SECRET_KEY].present && !g_st.rec_present);
+
+    CASE("pattern off, UNCLAIMED: the claim gesture still works; k >= 4 stays claim mode");
+    wipe_device();
+    provision(false, false, off, 0xFFu);
+    cycle(3000u);
+    cycle(3000u);
+    CHECK(g_rep.kind == OD_CLAIM_KIND_GESTURE);
+    for (i = 0; i < 3u; ++i) { cycle(3000u); }
+    CHECK(short_boots() >= 4u);
+    boot(OD_HAL_RESET_POWER_ON);
+    CHECK(g_rep.pattern == OD_PATTERN_CLAIM && g_reboots == 0u && g_rep.kind == OD_CLAIM_KIND_GESTURE);
+    CHECK(g_st.rec_present);
+
+    CASE("pattern off, LOCKED: the stored flag is ignored, five cycles reset it");
+    wipe_device();
+    provision(true, true, off, 0xFFu);
+    memset(&g_st.sec[OD_HAL_SECRET_KEY], 0, sizeof g_st.sec[0]);
+    boot(OD_HAL_RESET_SOFTWARE);
+    CHECK(g_rep.state == OD_SEC2_LOCKED);
+    for (i = 0; i < 4u; ++i) {
+        cycle(3000u);
+        CHECK(g_reboots == 0u);
+    }
+    CHECK(short_boots() == 4u);
+    boot(OD_HAL_RESET_POWER_ON);
+    CHECK(g_rep.pattern == OD_PATTERN_FACTORY_RESET && g_reboots == 1u);
+    CHECK(!g_st.rec_present && !g_st.sec[OD_HAL_SECRET_MARKER].present);
+    boot(OD_HAL_RESET_SOFTWARE);
+    CHECK(g_rep.state == OD_SEC2_UNCLAIMED && g_rep.kind == OD_CLAIM_KIND_FRESH);
+
+    CASE("pattern on again: a config without bit 6 restores the default");
+    wipe_device();
+    provision(true, true, 0u, 0xFFu);
+    for (i = 0; i < 4u; ++i) { cycle(3000u); }
+    boot(OD_HAL_RESET_POWER_ON);
+    CHECK(g_rep.pattern == OD_PATTERN_FACTORY_RESET && g_reboots == 1u);
+}
+
 static void test_power_cut_everywhere(void)
 {
     int cut;
@@ -920,6 +987,7 @@ int main(void)
     test_history_edges();
     test_gesture_claimed();
     test_five_cycles();
+    test_reset_pattern_flag();
     test_session();
     test_pin();
     test_power_cut_everywhere();

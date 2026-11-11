@@ -72,6 +72,15 @@
 #define OD_IDENT_FLAG_CLAIM_MODE       0x20u
 #define OD_IDENT_FLAG_LEGACY_SECRETS   0x40u
 
+/* 0x27 SecurityConfig.flags bit 6 (section 7.10, FACTORY_RESET.md 3.4; PROVISIONAL, bits 6-7
+ * are reserved in the canonical header): the five-power-cycle factory reset is OFF on this
+ * device. Clear = on, the default, so every existing config keeps the pattern. A LOCKED device
+ * ignores it (the pattern is its only way out). The two-cycle claim gesture is unaffected, and
+ * OD_FR_PATTERN_SHORT_BOOTS 0 still removes the pattern from a whole build. */
+#ifndef OD_SECURITY_FLAG_NO_RESET_PATTERN
+#define OD_SECURITY_FLAG_NO_RESET_PATTERN (1u << 6)
+#endif
+
 /* 0x27 reserved[0] on a claimed device at rest (section 10.2). */
 #define OD_SEC27_AT_REST_SEC2          0x02u
 
