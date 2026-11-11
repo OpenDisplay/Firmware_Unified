@@ -1,6 +1,7 @@
 /* BG22 transport binding for shared dispatch/session/egress. */
 
 #include "opendisplay_pipe.h"
+#include "od_diag.h"
 
 #include "od_cmd.h"
 #include "od_config_read.h"
@@ -66,7 +67,7 @@ static bool wait_tx_idle(uint32_t tag, uint32_t deadline_ms)
      * "on air", and refreshing on it is exactly the D5 defect this barrier exists to close. */
     if (!s_tx_report_warned) {
       s_tx_report_warned = true;
-      printf("[OD] TX completion reporting unavailable; direct-write END refuses\r\n");
+      OD_DIAG("[OD] TX completion reporting unavailable; direct-write END refuses\r\n");
     }
     return false;
   }
@@ -83,7 +84,7 @@ static bool wait_tx_idle(uint32_t tag, uint32_t deadline_ms)
     if (sc != SL_STATUS_OK ||
         (flags & (SL_BT_RESOURCE_CONNECTION_TX_FLAGS_ERROR_PACKET_OVERFLOW |
                   SL_BT_RESOURCE_CONNECTION_TX_FLAGS_ERROR_CORRUPT)) != 0u) {
-      printf("[OD] TX completion report failed sc=0x%04lX flags=0x%04X packets=%u bytes=%lu\r\n",
+      OD_DIAG("[OD] TX completion report failed sc=0x%04lX flags=0x%04X packets=%u bytes=%lu\r\n",
              (unsigned long)sc, (unsigned)flags, (unsigned)packets, (unsigned long)bytes);
       return false;
     }
@@ -91,7 +92,7 @@ static bool wait_tx_idle(uint32_t tag, uint32_t deadline_ms)
       return true;
     }
     if ((int32_t)(now_ms() - deadline_ms) >= 0) {
-      printf("[OD] TX completion timeout packets=%u bytes=%lu\r\n",
+      OD_DIAG("[OD] TX completion timeout packets=%u bytes=%lu\r\n",
              (unsigned)packets, (unsigned long)bytes);
       return false;
     }
@@ -187,7 +188,7 @@ void od_core_frame_done(const od_reply_t *rp, od_frame_outcome_t outcome)
   }
   if (!policy.consume_rx) {
     /* can_process_event() should make this unreachable; swallowing it would lose a command. */
-    printf("[OD] invariant: shared dispatch deferred an admitted BGAPI frame\r\n");
+    OD_DIAG("[OD] invariant: shared dispatch deferred an admitted BGAPI frame\r\n");
     return;
   }
   if (policy.reset_abuse) {
@@ -196,7 +197,7 @@ void od_core_frame_done(const od_reply_t *rp, od_frame_outcome_t outcome)
   if (policy.increment_abuse && s_auth_abuse < 0xFFu) {
     s_auth_abuse++;
     if (s_auth_abuse >= OD_AUTH_ABUSE_LIMIT) {
-      printf("[OD] auth-abuse limit: closing connection epoch=%lu\r\n",
+      OD_DIAG("[OD] auth-abuse limit: closing connection epoch=%lu\r\n",
              (unsigned long)s_connection_epoch);
       (void)sl_bt_connection_close(s_connection);
     }
@@ -232,7 +233,7 @@ void opendisplay_pipe_handle_gatt_event(sl_bt_msg_t *evt)
     /* Diagnostic only. The stack enforces the bound on every send; recording the negotiated value
      * is what lets a field log distinguish "peer negotiated small" from "device refused". */
     if (evt->data.evt_gatt_mtu_exchanged.connection == s_connection) {
-      printf("[OD] ATT MTU negotiated=%u (value max=%u)\r\n",
+      OD_DIAG("[OD] ATT MTU negotiated=%u (value max=%u)\r\n",
              (unsigned)evt->data.evt_gatt_mtu_exchanged.mtu,
              (unsigned)(evt->data.evt_gatt_mtu_exchanged.mtu - 3u));
     }
@@ -255,7 +256,7 @@ void opendisplay_pipe_handle_gatt_event(sl_bt_msg_t *evt)
     if (e->characteristic == s_attr &&
         e->status_flags == (uint8_t)sl_bt_gatt_server_client_config) {
       s_notify = (e->client_config_flags & (uint16_t)sl_bt_gatt_server_notification) != 0u;
-      printf("[OD] pipe notifications %s\r\n", s_notify ? "on" : "off");
+      OD_DIAG("[OD] pipe notifications %s\r\n", s_notify ? "on" : "off");
     }
     break;
   }
@@ -277,7 +278,7 @@ void opendisplay_pipe_process(void)
       s_read_active = true;
       s_read_started_ms = now;
     } else if ((uint32_t)(now - s_read_started_ms) >= OD_CONFIG_READ_MAX_MS) {
-      printf("[OD] config-read producer deadline expired epoch=%lu\r\n",
+      OD_DIAG("[OD] config-read producer deadline expired epoch=%lu\r\n",
              (unsigned long)s_connection_epoch);
       opendisplay_pipe_reset_transport();
       return;
@@ -293,7 +294,7 @@ void opendisplay_pipe_process(void)
     s_hold_started_ms = now;
     s_hold_active = true;
   } else if ((uint32_t)(now - s_hold_started_ms) >= OD_EVENT_HOLD_MAX_MS) {
-    printf("[OD] command transport hold expired epoch=%lu depth=%u; resetting\r\n",
+    OD_DIAG("[OD] command transport hold expired epoch=%lu depth=%u; resetting\r\n",
            (unsigned long)s_connection_epoch, (unsigned)od_txq_depth());
     opendisplay_pipe_reset_transport();
   }

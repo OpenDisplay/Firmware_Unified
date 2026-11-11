@@ -28,6 +28,7 @@
  *
  ******************************************************************************/
 #include "sl_component_catalog.h"
+#include "od_diag.h"
 #include "sl_main_init.h"
 #include <stdio.h>
 #if OD_ENABLE_RTT
@@ -46,9 +47,9 @@ int main(void)
 {
 #if OD_ENABLE_RTT
   od_rtt_init();
-  printf("\r\n=== OpenDisplay BG22 (RTT) ===\r\n");
+  OD_DIAG_BANNER("\r\n=== OpenDisplay BG22 (RTT) ===\r\n");
 #else
-  printf("\r\n=== OpenDisplay BG22 ===\r\n");
+  OD_DIAG_BANNER("\r\n=== OpenDisplay BG22 ===\r\n");
 #endif
 
   // Initialize Silicon Labs device, system, service(s) and protocol stack(s).

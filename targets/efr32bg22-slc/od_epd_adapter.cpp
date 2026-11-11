@@ -5,6 +5,7 @@
  * panels. The io callbacks below are the only place the two meet.
  */
 #include "od_epd_adapter.h"
+#include "od_diag.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -136,7 +137,7 @@ static bool io_mode_read(uint8_t index, od_epd_mode_t *out)
     /* The packet bounds the sequence; od_epd streams it, so there is no RAM cap to apply. */
     if (out->passes == 0u || out->passes > OD_EPD_MAX_PASSES ||
         out->seq_len == 0u || (uint32_t)MODE_OFF_SEQ + out->seq_len > e->len) {
-        printf("[OD] mode %u rejected (passes=%u seq=%u body=%u)\r\n",
+        OD_DIAG("[OD] mode %u rejected (passes=%u seq=%u body=%u)\r\n",
                (unsigned)index, (unsigned)out->passes, (unsigned)out->seq_len,
                (unsigned)e->len);
         return false;
@@ -215,7 +216,7 @@ static bool io_lut_info(uint8_t slot, uint16_t *len_out)
         off += chunk;
     }
     if (crc != want_crc) {
-        printf("[OD] lut slot %u CRC %04X != %04X -- treating as absent\r\n",
+        OD_DIAG("[OD] lut slot %u CRC %04X != %04X -- treating as absent\r\n",
                (unsigned)slot, (unsigned)crc, (unsigned)want_crc);
         return false;
     }
@@ -258,7 +259,7 @@ static bool io_set_pin(uint8_t pin_ref, uint8_t level)
     const uint8_t raw = resolve_pin_ref(pin_ref);
 
     if (raw == 0xFFu) {
-        printf("[OD] SET_PIN ref 0x%02X unwired on this board\r\n",
+        OD_DIAG("[OD] SET_PIN ref 0x%02X unwired on this board\r\n",
                (unsigned)pin_ref);
         return false;
     }
@@ -270,7 +271,7 @@ static bool io_read_bytes(uint8_t pin_ref, uint8_t *dst, uint8_t n)
     const uint8_t raw = resolve_pin_ref(pin_ref);
 
     if (raw == 0xFFu) {
-        printf("[OD] READ_SCRATCH ref 0x%02X unwired on this board\r\n",
+        OD_DIAG("[OD] READ_SCRATCH ref 0x%02X unwired on this board\r\n",
                (unsigned)pin_ref);
         return false;
     }
@@ -280,7 +281,7 @@ static bool io_read_bytes(uint8_t pin_ref, uint8_t *dst, uint8_t n)
 static bool io_cs_select(uint8_t which)
 {
     if (!od_epd_io_silabs_cs_select(which)) {
-        printf("[OD] CS_SELECT %u: cs_pin_2 not wired\r\n", (unsigned)which);
+        OD_DIAG("[OD] CS_SELECT %u: cs_pin_2 not wired\r\n", (unsigned)which);
         return false;
     }
     return true;
@@ -319,7 +320,7 @@ extern "C" int od_epd_desc_from_config(od_panel_desc_t *out, uint8_t display_ins
     out->colour_scheme = d->color_scheme;
 
     if ((od_cfg_index_count() <= 0 || !od_cfg_index_current()) && od_cfg_index_build() < 0) {
-        printf("[OD] desc: no config index\r\n");
+        OD_DIAG("[OD] desc: no config index\r\n");
         return desc_fail(-2);
     }
 
@@ -340,7 +341,7 @@ extern "C" int od_epd_desc_from_config(od_panel_desc_t *out, uint8_t display_ins
                                                             : sizeof(body));
     if (pe == NULL || pe->len < PANEL_OFF_SLEEPSEQ ||
         od_cfg_read(pe, 0u, body, got) != got) {
-        printf("[OD] desc: display %u has no display_panel (0xB1) packet\r\n",
+        OD_DIAG("[OD] desc: display %u has no display_panel (0xB1) packet\r\n",
                (unsigned)display_instance);
         return desc_fail(-3);
     }
@@ -375,7 +376,7 @@ extern "C" int od_epd_desc_from_config(od_panel_desc_t *out, uint8_t display_ins
         }
     }
     if (s_mode_entry_count == 0u) {
-        printf("[OD] desc: display %u has no usable 0x2E modes\r\n",
+        OD_DIAG("[OD] desc: display %u has no usable 0x2E modes\r\n",
                (unsigned)display_instance);
         return desc_fail(-4);
     }
@@ -428,7 +429,7 @@ int OdEpdAdapter::setPanelType(uint8_t display_instance)
      * still gets a defined pass count. */
     (void)od_epd_select_mode(&_epd, 0u);
     _ready = true;
-    printf("[OD] panel from config: %ux%u cs=%u busy=%s modes=%u\r\n",
+    OD_DIAG("[OD] panel from config: %ux%u cs=%u busy=%s modes=%u\r\n",
            (unsigned)_desc.width, (unsigned)_desc.height,
            (unsigned)_desc.colour_scheme,
            _desc.busy_usable ? "poll" : "fixed-delay",
@@ -477,7 +478,7 @@ int OdEpdAdapter::beginPass(uint8_t pass)
     }
     _last_rc = od_epd_begin_pass(&_epd, pass);
     if (_last_rc != 0) {
-        printf("[OD] beginPass %u failed rc=%d%s\r\n", (unsigned)pass, _last_rc,
+        OD_DIAG("[OD] beginPass %u failed rc=%d%s\r\n", (unsigned)pass, _last_rc,
                _last_rc == OD_EPD_RC_UNSUP ? " (sequence refused: unsupported escape)"
                                            : "");
         return BBEP_ERROR_BAD_PARAMETER;
@@ -496,7 +497,7 @@ int OdEpdAdapter::nextPlane(void)
 {
     int rc = od_epd_next_plane(&_epd);
     if (rc != 0) {
-        printf("[OD] nextPlane failed rc=%d (sequence has no second plane?)\r\n", rc);
+        OD_DIAG("[OD] nextPlane failed rc=%d (sequence has no second plane?)\r\n", rc);
         return BBEP_ERROR_BAD_PARAMETER;
     }
     return BBEP_SUCCESS;
@@ -506,7 +507,7 @@ int OdEpdAdapter::finishPass(void)
 {
     int rc = od_epd_finish_pass(&_epd);
     if (rc != 0) {
-        printf("[OD] finishPass failed rc=%d\r\n", rc);
+        OD_DIAG("[OD] finishPass failed rc=%d\r\n", rc);
         return BBEP_ERROR_BAD_PARAMETER;
     }
     return BBEP_SUCCESS;

@@ -1,6 +1,7 @@
 /* Shared crypto HAL over Silicon Labs PSA/CRYPTOACC. */
 
 #include "od_hal_crypto.h"
+#include "od_diag.h"
 
 #include <psa/crypto.h>
 #include <stdbool.h>
@@ -45,7 +46,7 @@ static bool release_slot(od_hal_crypto_slot_t slot)
   s_keys[slot] = 0;
   s_ready[slot] = false;
   if (!destroy_key(id)) {
-    printf("[OD] PSA session-key destroy failed; key slot leaked\r\n");
+    OD_DIAG("[OD] PSA session-key destroy failed; key slot leaked\r\n");
     return false;
   }
   return true;
@@ -67,7 +68,7 @@ enum od_hal_crypto_status od_hal_crypto_key_set(od_hal_crypto_slot_t slot,
   ps = psa_import_key(&attr, key, 16u, &s_keys[slot]);
   psa_reset_key_attributes(&attr);
   if (ps != PSA_SUCCESS) {
-    printf("[OD] PSA CCM key import failed: %ld\r\n", (long)ps);
+    OD_DIAG("[OD] PSA CCM key import failed: %ld\r\n", (long)ps);
     return OD_HAL_CRYPTO_ERROR;
   }
   s_ready[slot] = true;
@@ -98,7 +99,7 @@ enum od_hal_crypto_status od_hal_crypto_ccm_encrypt(od_hal_crypto_slot_t slot,
   ps = psa_aead_encrypt(s_keys[slot], OD_PSA_CCM_ALG, nonce, nonce_len, aad, aad_len,
                         plain, plain_len, ct, ct_cap, &out_len);
   if (ps != PSA_SUCCESS || out_len != (size_t)plain_len + OD_HAL_CRYPTO_TAG_LEN) {
-    printf("[OD] PSA CCM encrypt failed: %ld\r\n", (long)ps);
+    OD_DIAG("[OD] PSA CCM encrypt failed: %ld\r\n", (long)ps);
     return OD_HAL_CRYPTO_ERROR;
   }
   *ct_len = (uint16_t)out_len;
@@ -130,7 +131,7 @@ enum od_hal_crypto_status od_hal_crypto_ccm_decrypt(od_hal_crypto_slot_t slot,
     return OD_HAL_CRYPTO_AUTH_FAILED;
   }
   if (ps != PSA_SUCCESS || out_len != expected) {
-    printf("[OD] PSA CCM decrypt failed: %ld\r\n", (long)ps);
+    OD_DIAG("[OD] PSA CCM decrypt failed: %ld\r\n", (long)ps);
     return OD_HAL_CRYPTO_ERROR;
   }
   *plain_len = (uint16_t)out_len;
@@ -165,7 +166,7 @@ static enum od_hal_crypto_status one_shot(const uint8_t key[16], const uint8_t *
     destroyed = destroy_key(id);
   }
   if (ps != PSA_SUCCESS || out_len != 16u || !destroyed) {
-    printf("[OD] PSA %s failed: %ld%s\r\n", cmac ? "CMAC" : "ECB", (long)ps,
+    OD_DIAG("[OD] PSA %s failed: %ld%s\r\n", cmac ? "CMAC" : "ECB", (long)ps,
            destroyed ? "" : "; key slot leaked");
     return OD_HAL_CRYPTO_ERROR;
   }
@@ -209,7 +210,7 @@ void od_hal_crypto_ecdh_discard(void)
     s_ecdh = 0;
     s_ecdh_ready = false;
     if (!destroy_key(id)) {
-      printf("[OD] PSA ECDH key destroy failed; key slot leaked\r\n");
+      OD_DIAG("[OD] PSA ECDH key destroy failed; key slot leaked\r\n");
     }
   }
 }
@@ -232,7 +233,7 @@ enum od_hal_crypto_status od_hal_crypto_ecdh_keygen(uint8_t pub[64])
   ps = psa_generate_key(&attr, &s_ecdh);
   psa_reset_key_attributes(&attr);
   if (ps != PSA_SUCCESS) {
-    printf("[OD] PSA ECDH keygen failed: %ld\r\n", (long)ps);
+    OD_DIAG("[OD] PSA ECDH keygen failed: %ld\r\n", (long)ps);
     return OD_HAL_CRYPTO_ERROR;
   }
   s_ecdh_ready = true;

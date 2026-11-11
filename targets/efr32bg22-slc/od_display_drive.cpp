@@ -13,6 +13,7 @@
  * ack bound has to be the wide one (120 s in render16.py).
  */
 #include "od_display_drive.h"
+#include "od_diag.h"
 
 #include "od_caps.h"
 #include "od_color.h"
@@ -87,7 +88,7 @@ extern "C" int od_display_drive_write_start(uint8_t mode, uint8_t refresh, uint8
      * names the waveform so there is nothing left for it to select. Logged rather than silently
      * dropped so a host sending it can see it had no effect. */
     if (refresh != 0u) {
-        printf("[OD] drive refresh=%u ignored, mode %u names the waveform\r\n",
+        OD_DIAG("[OD] drive refresh=%u ignored, mode %u names the waveform\r\n",
                (unsigned)refresh, (unsigned)mode);
     }
 
@@ -104,7 +105,7 @@ extern "C" int od_display_drive_write_start(uint8_t mode, uint8_t refresh, uint8
      * The ACK reports whichever ran, which is why a host must read the mode back. */
     if (temp_c != (int8_t)0x7F && !mode_temp_ok(hdr, temp_c)) {
         if (hdr.temp_policy == OD_DRIVE_TEMP_REJECT) {
-            printf("[OD] drive mode %u rejected at %d C (window %d..%d)\r\n",
+            OD_DIAG("[OD] drive mode %u rejected at %d C (window %d..%d)\r\n",
                    (unsigned)mode, (int)temp_c, (int)hdr.temp_min_c, (int)hdr.temp_max_c);
             opendisplay_display_power(false);
             return -OD_ERR_DRIVE_TEMP_RANGE;
@@ -113,11 +114,11 @@ extern "C" int od_display_drive_write_start(uint8_t mode, uint8_t refresh, uint8
          * mode 0's own window covers the reading. */
         if (hdr.temp_policy == OD_DRIVE_TEMP_SUBSTITUTE) {
             if (mode == 0u || !od_epd_shim_reselect(0u, &hdr) || !mode_temp_ok(hdr, temp_c)) {
-                printf("[OD] drive: mode 0 does not cover %d C\r\n", (int)temp_c);
+                OD_DIAG("[OD] drive: mode 0 does not cover %d C\r\n", (int)temp_c);
                 opendisplay_display_power(false);
                 return -OD_ERR_DRIVE_TEMP_RANGE;
             }
-            printf("[OD] drive %d C: mode 0 substituted for %u\r\n", (int)temp_c,
+            OD_DIAG("[OD] drive %d C: mode 0 substituted for %u\r\n", (int)temp_c,
                    (unsigned)mode);
             mode = 0u;
         }
@@ -155,7 +156,7 @@ extern "C" int od_display_drive_write_start(uint8_t mode, uint8_t refresh, uint8
     if (mode_out != nullptr) {
         *mode_out = mode;
     }
-    printf("[OD] drive mode=%u passes=%u frame=%lu total=%lu temp=%d\r\n",
+    OD_DIAG("[OD] drive mode=%u passes=%u frame=%lu total=%lu temp=%d\r\n",
            (unsigned)mode, (unsigned)hdr.passes, (unsigned long)geom.total_bytes,
            (unsigned long)(geom.total_bytes * hdr.passes), (int)temp_c);
     return 0;

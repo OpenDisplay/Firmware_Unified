@@ -14,6 +14,13 @@ option(OD_TNB132M_BOOT_PROBE "At boot read TNB132M NDEF via Type-3 AI@0x48 + dat
 option(OD_TNB132M_WRITE_NDEF "With BOOT_PROBE: before the read, write OD_TNB132M_NDEF_TEXT as a Text record" OFF)
 set(OD_TNB132M_NDEF_TEXT "OpenDisplay" CACHE STRING "UTF-8 text (lang=en) written when OD_TNB132M_WRITE_NDEF=ON; max 25 chars")
 
+# Target printf diagnostics, see od_diag.h: 2 every line, 1 boot banner + fatals only, 0 none.
+set(OD_BG22_DIAG "2" CACHE STRING "BG22 printf diagnostics level (0 none, 1 fatal+banner, 2 all)")
+set_property(CACHE OD_BG22_DIAG PROPERTY STRINGS 0 1 2)
+if(NOT OD_BG22_DIAG MATCHES "^[012]$")
+  message(FATAL_ERROR "OD_BG22_DIAG must be 0, 1 or 2 (got '${OD_BG22_DIAG}')")
+endif()
+
 set(OD_APP_VERSION "0x0300" CACHE STRING "16-bit BLE app version (hex, high byte=major, low=minor); ignored when OD_FW_VERSION is set")
 set(OD_FW_VERSION "" CACHE STRING "App version string major.minor[.patch] (optional leading v); drives BLE 0x43 + boot screen")
 set(OPENDISPLAY_BUILD_ID "bg22-dev" CACHE STRING "Firmware version string (GATT 0x0043 / build id)")
@@ -47,6 +54,7 @@ target_compile_definitions(slc PUBLIC
 	OD_TNB132M_WRITE_NDEF=$<IF:$<BOOL:${OD_TNB132M_WRITE_NDEF}>,1,0>
 	"OD_TNB132M_NDEF_TEXT=\"${OD_TNB132M_NDEF_TEXT}\""
 	SL_APP_PROPERTIES=1
+	"OD_BG22_DIAG=${OD_BG22_DIAG}"
 	"OD_APP_VERSION=${OD_APP_VERSION}"
 	"OPENDISPLAY_BUILD_ID=\"${OPENDISPLAY_BUILD_ID}\""
 )

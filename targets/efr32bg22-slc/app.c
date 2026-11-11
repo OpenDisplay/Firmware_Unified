@@ -28,6 +28,7 @@
  *
  ******************************************************************************/
 #include "sl_bt_api.h"
+#include "od_diag.h"
 #include "sl_main_init.h"
 #include "app_assert.h"
 #include "app.h"
@@ -82,10 +83,10 @@ void sl_bt_on_event(sl_bt_msg_t *evt)
     // This event indicates the device has started and the radio is ready.
     // Do not call any stack command before receiving this boot event!
     case sl_bt_evt_system_boot_id:
-      printf("[app] sl_bt_evt_system_boot\r\n");
+      OD_DIAG("[app] sl_bt_evt_system_boot\r\n");
       sc = sl_bt_advertiser_create_set(&advertising_set_handle);
       if (sc != SL_STATUS_OK) {
-        printf("[app] advertiser_create_set sc=0x%04lX\r\n", (unsigned long)sc);
+        OD_DIAG("[app] advertiser_create_set sc=0x%04lX\r\n", (unsigned long)sc);
       }
       app_assert_status(sc);
       opendisplay_ble_on_boot(advertising_set_handle);

@@ -1,4 +1,5 @@
 #include "opendisplay_config_storage.h"
+#include "od_diag.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -57,7 +58,7 @@ bool saveConfig(uint8_t *config_data, uint32_t len)
 
   rc = od_config_store_save(s_cfg.record, sizeof(s_cfg.record), config_data, len);
   if (rc != OD_CONFIG_STORE_OK) {
-    printf("[OD] config save failed rc=%d len=%u\r\n", (int)rc, (unsigned)len);
+    OD_DIAG("[OD] config save failed rc=%d len=%u\r\n", (int)rc, (unsigned)len);
   }
   /* After the write, always: the state words are already gone, so leaving `active` set would
    * resume a transfer against a record header. */

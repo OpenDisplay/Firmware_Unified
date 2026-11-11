@@ -1,4 +1,5 @@
 #include "opendisplay_display.h"
+#include "od_diag.h"
 #include "od_color.h"
 #include "opendisplay_ble.h"
 #include "opendisplay_config_parser.h"
@@ -792,7 +793,7 @@ static bool xfer_app_write_full(uint32_t stream_offset, od_span_t data)
         && stream_offset + off >= (uint32_t)(s_xfer_app.drive_pass + 1u)
                                   * s_xfer_app.frame_bytes) {
       if (!od_epd_shim_finish()) {
-        printf("[OD] drive pass %u refresh failed\r\n", (unsigned)s_xfer_app.drive_pass);
+        OD_DIAG("[OD] drive pass %u refresh failed\r\n", (unsigned)s_xfer_app.drive_pass);
         return false;
       }
       s_xfer_app.drive_pass++;
@@ -802,7 +803,7 @@ static bool xfer_app_write_full(uint32_t stream_offset, od_span_t data)
       if (!od_epd_shim_begin_pass(s_xfer_app.drive_pass)) {
         return false;
       }
-      printf("[OD] drive pass %u/%u\r\n", (unsigned)s_xfer_app.drive_pass + 1u,
+      OD_DIAG("[OD] drive pass %u/%u\r\n", (unsigned)s_xfer_app.drive_pass + 1u,
              (unsigned)s_xfer_app.drive_passes);
     }
   }
@@ -843,7 +844,7 @@ bool opendisplay_display_drive_adopt(const od_color_geometry_t *geometry, uint8_
     declared = (uint32_t)payload[0] | ((uint32_t)payload[1] << 8)
              | ((uint32_t)payload[2] << 16) | ((uint32_t)payload[3] << 24);
     if (declared != (uint32_t)total) {
-      printf("[OD] drive declared %lu != passes*frame %lu\r\n",
+      OD_DIAG("[OD] drive declared %lu != passes*frame %lu\r\n",
              (unsigned long)declared, (unsigned long)total);
       return false;
     }
@@ -890,7 +891,7 @@ extern "C" void opendisplay_display_boot_apply(void)
    * calls this again so that writing drive packets brings the boot screen up without a power
    * cycle. Say so, since an undriven panel looks exactly like one driven white. */
   if (!od_epd_shim_available(d)) {
-    printf("[OD] boot screen: no drive packets; will retry after the next config write\r\n");
+    OD_DIAG("[OD] boot screen: no drive packets; will retry after the next config write\r\n");
     return;
   }
   display_power_set(true);
@@ -898,12 +899,12 @@ extern "C" void opendisplay_display_boot_apply(void)
   if (!od_epd_shim_begin(d->instance_number, 0u, d->rotation,
                          d->dc_pin, d->reset_pin, d->busy_pin, d->cs_pin,
                          d->data_pin, d->clk_pin)) {
-    printf("[OD] boot screen: mode 0 unavailable; will retry after the next config write\r\n");
+    OD_DIAG("[OD] boot screen: mode 0 unavailable; will retry after the next config write\r\n");
     display_power_set(false);
     return;
   }
   if (!render_boot_screen(opendisplay_get_global_config())) {
-    printf("[OD] boot screen did not fit; skipping refresh\r\n");
+    OD_DIAG("[OD] boot screen did not fit; skipping refresh\r\n");
     od_epd_shim_sleep();
     display_power_set(false);
     return;
