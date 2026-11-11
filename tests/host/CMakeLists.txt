@@ -156,6 +156,16 @@ add_executable(od_span_test span_test.c)
 target_link_libraries(od_span_test od_shared)
 add_test(NAME span COMMAND od_span_test)
 
+# health: od_health's verdicts (docs/BG22_RAM_BUDGET.md section 4). The shipped default (escape
+# pattern off) links od_shared; the opt-in pattern is compiled into a second executable directly.
+add_executable(od_health_test health_test.c)
+target_link_libraries(od_health_test od_shared)
+add_test(NAME health COMMAND od_health_test)
+add_executable(od_health_pattern_test health_test.c ${CMAKE_CURRENT_LIST_DIR}/../../shared/core/od_health.c)
+target_include_directories(od_health_pattern_test PRIVATE ${OD_SHARED_INCLUDE_DIRS})
+target_compile_definitions(od_health_pattern_test PRIVATE OD_HEALTH_UPDATE_PATTERN_SHORT_BOOTS=2u)
+add_test(NAME health_pattern COMMAND od_health_pattern_test)
+
 add_executable(od_boot_payload_test boot_payload_test.c)
 target_link_libraries(od_boot_payload_test od_shared)
 add_test(NAME boot_payload COMMAND od_boot_payload_test)
