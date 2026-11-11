@@ -108,6 +108,9 @@ Accepted, documented differences (a stream that differs only by these is `equiva
 - **D8 partial window on a whole-panel update.** A WINDOW/FILL partial mode always sends the
   window commands and the two white fills; 2.x skips both when the rectangle is the whole panel.
   Equivalence for these modes is checked on the three captured sub-rectangles.
+- **Post-sleep bleed** (not a difference). Panels in `pdlib.POST_SLEEP_BLEED` (EP42B, both
+  ids) end the sleep sequence with the DELAY the 2.x firmware ran after `bbepSleep()` before it
+  cut the rail; the reference sleep stream gets the same DELAY before comparing.
 - **D7 Spectra nibbles.** 2.x `split_panel.cpp` clamps pixel nibbles 4 and 7-15 to 0 before
   writing; od_epd streams host bytes untouched, so the host must send only valid Spectra codes.
 
@@ -150,7 +153,7 @@ removes or changes the meaning of a field bumps `schema_version`.
   "caps": {                             // config byte ceilings (whole config blob) + od_epd limits
     "bg22": 3120, "esp32": 4096, "nordic": 4096,
     "typical_base_config_bytes": 417,   // legacy-only config used for the fits check
-    "seq_max": 512, "max_steps": 128, "sleep_max": 16, "lut_max": 535
+    "seq_max": 512, "max_steps": 128, "sleep_max": 20, "lut_max": 535
   },
   "names": {"EP29YR_168x384": "0x001E"},// name -> key (aliases excluded)
   "panels": {
@@ -284,7 +287,7 @@ A client must stop refusing sequences longer than 128 B (or 64 steps) for BG22.
 | `REPLAY_REFUSED` | a glass entry the class's interpreter refuses |
 | `LUT_MAX` | the moved payloads exceed one 535-byte slot |
 | `LUT_SLOTS` | more than 8 distinct slots for one panel |
-| `SLEEP_MAX` | sleep sequence longer than `OD_EPD_SLEEP_SEQ_MAX` (16 B); no current panel hits it |
+| `SLEEP_MAX` | sleep sequence longer than `OD_EPD_SLEEP_SEQ_MAX` (20 B); no current panel hits it |
 | `CS_BOTH` | a transfer that must reach both controllers simultaneously (none in the 2.x flows: D6 covers them) |
 | `CS_EVERY_BYTE` | CS toggled around every byte (bb_epaper flag); no legacy id uses it |
 | `DATA_WITHOUT_CMD` | a data burst not preceded by a command on the same CS |

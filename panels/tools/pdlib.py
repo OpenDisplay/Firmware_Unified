@@ -26,7 +26,11 @@ PKT_MODE, PKT_LUT, PKT_CAL, PKT_PANEL = 0xAE, 0xAF, 0xB0, 0xB1
 # od_epd executor bounds (shared/core/od_epd.h). A sequence has no byte cap in the firmware: it
 # is streamed from the stored record, bounded by the record length and the step cap.
 MAX_STEPS = 128
-SLEEP_MAX = 16
+SLEEP_MAX = 20   # OD_EPD_SLEEP_SEQ_MAX
+# Panels whose board rail must not drop until the boost caps and VCOM have bled: a DELAY at the
+# end of the sleep sequence (upstream Firmware d28582c: the 4.2in SSD16xx greys out over the
+# following minutes with 50 ms). Keyed by bb_epaper panel name; both ids share the glass.
+POST_SLEEP_BLEED = {"EP42B_400x300": 200, "EP42B_400x300_4GRAY": 200}
 LUT_MAX = 535
 MAX_LUT_SLOTS = 8
 

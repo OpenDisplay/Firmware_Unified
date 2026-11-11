@@ -43,14 +43,9 @@ extern volatile uint8_t pwrmgmState;
 extern uint32_t pwrmgmOffDeadlineMs;
 void pwrmgm(bool onoff);
 
-/* After the sleep sequence, before the rail drops: the boost caps and VCOM need time to bleed.
- * 50 ms is too short on the 4.2in SSD16xx (EP42B): the image greys over the following minutes.
- * The discharge commands themselves are in that panel's 0xB1 sleep sequence. */
-static const uint32_t kPostSleepBleedMs = 200u;
 /* After a hardware reset every controller reports BUSY idle within milliseconds. */
 static const uint32_t kBootProbeTimeoutMs = 2000u;
 
-static bool s_bleed_pending;
 static bool s_spi_raw_open;
 static bool s_boot_applied;
 static bool s_boot_pending;
@@ -109,11 +104,6 @@ static void rail_off(void)
         return;
     }
     od_watchdog_app_phase(OD_WDT_PHASE_FORCE_OFF);
-    if (s_bleed_pending &&
-        (globalConfig.system_config.pwr_pin != 0xFFu || axp2101_configured())) {
-        od_hal_delay_ms(kPostSleepBleedMs);
-    }
-    s_bleed_pending = false;
     pwrmgm(false);
     od_watchdog_app_phase(OD_WDT_PHASE_IDLE_OFF);
 }
@@ -250,7 +240,6 @@ extern "C" bool od_drive_app_panel_up(const struct DisplayConfig *d)
         rail_off();
         return false;
     }
-    s_bleed_pending = true;
     od_watchdog_app_phase(OD_WDT_PHASE_INIT_SEQ);
     return true;
 }
@@ -330,7 +319,6 @@ static bool boot_panel_responds(const struct DisplayConfig *d)
     } while (od_hal_uptime_ms() - start < kBootProbeTimeoutMs);
     /* Raw rail cut: a sleep sequence would wait on the BUSY that just failed. */
     od_epd_esp_close();
-    s_bleed_pending = false;
     rail_off();
     return false;
 }

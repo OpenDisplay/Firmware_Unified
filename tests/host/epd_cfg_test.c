@@ -889,10 +889,10 @@ static void test_sleep_sequence(void)
     CHECK(fx_cmd_count == 1u);
     CHECK(g_cs_last == 1);
 
-    CASE("a sleep_seq_len past 16 B is dropped, not truncated");
+    CASE("a sleep_seq_len past OD_EPD_SLEEP_SEQ_MAX is dropped, not truncated");
     begin_cfg(&c, 1u);
     {
-        uint8_t s[17];
+        uint8_t s[OD_EPD_SLEEP_SEQ_MAX + 1u];
         memset(s, 0, sizeof s);
         s[0] = 1; s[1] = 0x07;
         fx_cfg_ext(&c, OD_PKT_DISPLAY_PANEL, g_b, panel_body(g_b, 0u, s, sizeof s));

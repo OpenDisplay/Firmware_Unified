@@ -167,6 +167,8 @@ def derive(p: dict, cls: str) -> dict:
                       "scheme": 0 if flow == "partial" else scheme, "refs": refs,
                       "window": any(s[0] in ("window", "fill") for s in steps)})
     sleep_toks = P.normalise(p["flows"]["sleep"], "bbep")
+    if p.get("bleed_ms"):
+        sleep_toks = sleep_toks + [("DELAY", p["bleed_ms"])]
     sst, sr, sbl = P.tokens_to_steps(sleep_toks, layout, "sleep")
     sst, _, sbl2 = P.fit_steps(sst, P.SLEEP_MAX, allow_lut=False, max_steps=c["max_steps"])
     sbl = sorted(set(sbl + sbl2))
@@ -364,6 +366,10 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
             out[key] = e
             continue
         native = P.native_scheme(p)
+        if enum in P.POST_SLEEP_BLEED:
+            p["bleed_ms"] = P.POST_SLEEP_BLEED[enum]
+            e["notes"].append(f"sleep sequence ends with a {p['bleed_ms']} ms DELAY so the rail does not "
+                              "drop before the boost caps and VCOM have bled (upstream Firmware d28582c)")
         e.update({"width": p["width"], "height": p["height"], "controller": p["chip"],
                   "bbep_flags": P.flag_names(p["flags"])})
         if legacy_scheme is None:

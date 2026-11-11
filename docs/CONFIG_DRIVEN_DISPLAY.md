@@ -119,8 +119,13 @@ since 2026-11-11.
 | mode sequence length | no cap (the record) | no cap (the record) |
 | `OD_EPD_MAX_SEQ_STEPS` | 128 | 128 |
 | `OD_EPD_SEQ_WINDOW` (sequence bytes resident in RAM) | 128 B | 128 B |
-| `OD_EPD_SLEEP_SEQ_MAX` | 16 B | 16 B |
+| `OD_EPD_SLEEP_SEQ_MAX` | 20 B | 20 B |
 | `OD_EPD_LUT_BYTES` | 535 B | 535 B |
+
+The rail bleed is panel data, not firmware: a panel whose boost caps and VCOM must bleed before
+the board rail drops ends its 0xB1 sleep sequence with a DELAY (the 4.2in SSD16xx, 0x0002 and
+0x0044: 200 ms after its discharge commands). Every other panel's rail drops straight after its
+sleep sequence.
 
 A mode sequence is not copied into RAM: od_epd reads it from the stored record through
 `io->seq_read` into a 128-byte window as it walks, for validation and execution alike (the sleep
@@ -232,7 +237,7 @@ From the panel database's `blocked_on` ids, against this firmware:
 | PIXEL_XFORM | missing: firmware-side repacking (SSD2683 1->2 bpp, 4BPP_DATA, Spectra nibble clamp); hosts must send controller format |
 | READBACK | missing: controller detection by register read-back (SSD2677 sticky variant); needs a conditional/branch primitive, and READ_SCRATCH, which Nordic cannot do |
 | IT8951, PARALLEL | out of scope for the sequence language; ESP32 selects a built-in driver by 0xB3 (below) |
-| sleep > 16 B | not seen in the database yet; `OD_EPD_SLEEP_SEQ_MAX` would need the same treatment |
+| sleep > 20 B | not seen in the database; the longest is 19 B (0x0002 discharge + bleed DELAY) |
 
 ## ESP32 target
 
@@ -256,7 +261,6 @@ Behaviour that is target logic rather than drive data:
 | behaviour | where | why not data |
 |---|---|---|
 | Rail, AXP2101 bring-up, 800 ms settle; keep-alive window (`screen_timeout_seconds`, max 30 s, 0 on AXP2101) | `pwrmgm()`, `rail_on/rail_release` | board power, not panel |
-| 200 ms bleed between the sleep sequence and the rail cut when a `pwr_pin` or AXP2101 cuts power | `rail_off()` | the 4.2in SSD16xx (0x0002) greys out with less; its discharge commands are in its 0xB1 sleep sequence, but a 200 ms DELAY does not fit SLEEP_MAX (16 B). Applied to every panel on a switched rail |
 | Boot presence probe: reset, BUSY must reach idle within 2 s, else no boot screen and a raw rail cut | `boot_panel_responds()` | skipped for split panels, no BUSY/RST, or a 0xB1 that says BUSY is not usable |
 | reTerminal Sticky SD-card park (SCK 13 / MOSI 14 / CS 15: GPIO8 high, GPIO10 low) before any panel SPI | `park_shared_sd_card()` | a board quirk |
 | Boot screen deferred after a config write that brings drive packets | `displayServiceDeferredBoot()` from `loop()` | as Nordic |

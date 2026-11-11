@@ -312,8 +312,15 @@ class Equivalence(unittest.TestCase):
                 with self.subTest(key=key, cls=cls, mode="sleep"):
                     rc, got = G.run_replay(blob, "sleep", cls, [W, H])
                     self.assertEqual(rc, 0)
-                    self.assertEqual(G.compare([tok(t) for t in st["flows"]["sleep"]], got)["equal"],
-                                     v["status"] == "equivalent")
+                    ref = [tok(t) for t in st["flows"]["sleep"]]
+                    bleed = P.POST_SLEEP_BLEED.get(e["name"])
+                    if bleed:
+                        # the 2.x firmware's post-sleep bleed, outside bb_epaper's stream
+                        self.assertEqual(got[-1:], [("DELAY", bleed)])
+                        ref.append(("DELAY", bleed))
+                    else:
+                        self.assertNotIn(("DELAY", 200), got[-1:])
+                    self.assertEqual(G.compare(ref, got)["equal"], v["status"] == "equivalent")
         self.assertGreaterEqual(n, 200)
 
     def test_default_window_mode_refused_by_bg22(self):

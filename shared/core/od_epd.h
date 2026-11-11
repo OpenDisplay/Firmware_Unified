@@ -69,7 +69,9 @@ extern "C" {
  * The largest real sequence has 79 steps (panels/generated, 0x0042 dual-controller Spectra 6). */
 #define OD_EPD_MAX_SEQ_STEPS  128u
 #define OD_EPD_LUT_BYTES      535u   /* 7-byte analog header + 528-byte body */
-#define OD_EPD_SLEEP_SEQ_MAX   16u
+/* 20: the longest sleep sequence is the 4.2in SSD16xx's discharge plus its 200 ms bleed DELAY
+ * (19 B; panels/tools/pdlib.py POST_SLEEP_BLEED). */
+#define OD_EPD_SLEEP_SEQ_MAX   20u
 #define OD_EPD_SCRATCH_LEN     16u   /* READ_SCRATCH/WRITE_SCRATCH buffer, zeroed per sequence */
 
 /* Sequence step encoding, produced by the host from panels.yaml.
