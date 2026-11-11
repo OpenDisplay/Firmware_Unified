@@ -137,8 +137,6 @@ void od_sec2_app_claim_event(enum od_sec2_claim_event ev, uint32_t arg)
 bool od_sec2_app_scrub(void) { return g_scrub_ok; }
 bool od_sec2_app_display_busy(void) { return g_busy; }
 void od_sec2_app_rest_sync(void) { ++g_rest_syncs; }
-static unsigned g_key_screen;
-void od_sec2_app_key_screen_changed(void) { ++g_key_screen; }
 
 /* Time passing while the loop runs (pumped every 100 ms). A jump of g_now_ms without a pump is a
  * stalled loop, which od_sec2 compensates (OD_SEC2_STALL_MS). */
@@ -240,13 +238,16 @@ static void setup(bool claimed)
     g_scrub_ok = true;
     g_rest_syncs = 0u;
     g_hook_calls = 0u;
-    g_key_screen = 0u;
     sec_init(0u);
     g_app_sec = &g_sec;
     (void)od_sec2_boot(claimed ? &g_sec : NULL);
     clear_capture();
     sec2c_init(&C, MASTER, UID);
 }
+
+/* Below line 248 on purpose: py-opendisplay's interop bridge copies lines 14-248 of this file. */
+static unsigned g_key_screen;
+void od_sec2_app_key_screen_changed(void) { ++g_key_screen; }
 
 /* Send one frame; return how many frames came back, the first in f0/n0. */
 static uint8_t f0[256];
@@ -1101,6 +1102,7 @@ static void test_sec_key(void)
 
     CASE("ROTATE then ROTATE_CONFIRM: new key persisted, session torn down after the reply");
     setup(true);
+    g_key_screen = 0u;
     CHECK(sec2c_auth(&C, &BLE) == 0);
     p[0] = OD_SEC2_KEY_ROTATE;
     CHECK(send_sealed(CMD_SEC_KEY, p, 1u) == 1u);
