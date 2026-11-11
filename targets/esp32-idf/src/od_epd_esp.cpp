@@ -1,4 +1,5 @@
 /* See od_epd_esp.h. */
+#include "od_claim_mode.h"
 #include "od_epd_esp.h"
 
 #include <string.h>
@@ -108,6 +109,9 @@ static int bus_busy_read(void)
 static void bus_delay_ms(uint32_t ms)
 {
     od_hal_delay_ms(ms);
+    /* The refresh waits run on the loop task and can outlast T_ARM: keep the boot count on
+     * time (od_claim_mode.h, SECURITY_V2 7.2). */
+    od_claim_mode_tick_count();
 }
 
 static bool bus_faulted(void)

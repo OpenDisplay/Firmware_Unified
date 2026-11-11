@@ -670,6 +670,9 @@ od_frame_outcome_t od_dispatch_app_frame(const od_reply_t *rp, uint8_t* data, ui
     return outcome;
 }
 
+// SECURITY_V2 6.1: from the security state, never from the 0x27 bytes. The bytes said "open"
+// on a LOCKED device whose config has encryption_enabled = 0 (boot row 7) and in claim mode;
+// both served SMP image upload to any peer on the bench.
 extern "C" bool od_smp_encryption_on(void) {
-    return securityConfig.encryption_enabled != 0u;
+    return od_sec2_dfu_needs_unlock();
 }

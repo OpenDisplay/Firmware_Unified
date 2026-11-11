@@ -388,6 +388,21 @@ static void test_history_edges(void)
     run_until(10000u);
     CHECK(short_boots() == 0u);
 
+    CASE("a loop blocked past T_ARM (a panel refresh) still arms at 2 s via tick_count");
+    wipe_device();
+    provision(false, false, 0u, 0xFFu);
+    boot(OD_HAL_RESET_POWER_ON);
+    while (g_now < 5600u) {          /* one 5.6 s refresh: only the busy-wait hook runs */
+        g_now += 5u;
+        od_claim_mode_tick_count();
+        if (g_now == 2000u) {
+            CHECK(short_boots() == 1u);
+        }
+    }
+    CHECK(g_draws[OD_SETUP_SCREEN_SETUP] == 0u && g_reboots == 0u);
+    run_until(10000u);
+    CHECK(short_boots() == 0u);
+
     CASE("wear: two OS2S writes for a boot that lives past 10 s, one if cut in 2-10 s, none < 2 s");
     g_os2s_writes = 0u;
     cycle(20000u);

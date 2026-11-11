@@ -18,6 +18,7 @@
 #include "od_sec2_app.h"
 #include "od_sec2_code.h"
 #include "od_sec2_kdf.h"
+#include "od_sec2_trace.h"
 
 #include <string.h>
 
@@ -345,6 +346,17 @@ enum od_sec2_state od_sec2_state(void)
 bool od_sec2_needs_session(void)
 {
     return s.state != OD_SEC2_UNCLAIMED;
+}
+
+bool od_sec2_dfu_needs_unlock(void)
+{
+    struct od_sec2_claim_mode cm;
+
+    if (s.state != OD_SEC2_UNCLAIMED) {
+        return true;
+    }
+    od_sec2_app_claim_mode(&cm);
+    return cm.active;
 }
 
 static bool legacy_secrets_open(void)
@@ -1232,6 +1244,7 @@ od_cmd_result_t od_sec2_key_cmd(const od_cmd_ctx_t *ctx, od_span_t body)
             } else if (!write_os2k(OD_SEC2_ORIGIN_CLAIMED, gen, s.u.c.k_new)) {
                 err = OD_SEC_ERR_STORAGE_ERROR;
             } else {
+                OD_SEC2_TRACE_PAUSE("rotate step 2 (OS2K gen+1 written)");
                 after = ROTATED;
             }
             if (err != 0u) {
@@ -1253,6 +1266,8 @@ od_cmd_result_t od_sec2_key_cmd(const od_cmd_ctx_t *ctx, od_span_t body)
     if (after != KEEP) {
         s.os2s.key_gen = gen;             /* rotation: the new gen; unclaim: a tombstone */
         (void)write_os2s();
+        OD_SEC2_TRACE_PAUSE(after == ROTATED ? "rotate step 3 (OS2S key_gen written)"
+                                             : "unclaim (OS2S tombstone written)");
         teardown = true;
     }
     f[0] = (err != 0u) ? RESP_NACK : RESP_ACK;
@@ -1267,6 +1282,7 @@ od_cmd_result_t od_sec2_key_cmd(const od_cmd_ctx_t *ctx, od_span_t body)
     if (after == ROTATED) {
         set_key(OD_SEC2_ORIGIN_CLAIMED, gen, s.u.c.k_new);
         od_sec2_app_rest_sync();
+        OD_SEC2_TRACE_PAUSE("rotate step 4 (0x27 at rest rewritten)");
     } else if (after == UNCLAIMED) {
         s.state = OD_SEC2_UNCLAIMED;
         wipe(s.k_dev, sizeof s.k_dev);

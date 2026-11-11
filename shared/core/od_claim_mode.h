@@ -140,6 +140,14 @@ bool od_claim_mode_defer_boot_screen(void);
  * flush and reboot. Draws (which may block) happen here, never inside a frame handler. */
 void od_claim_mode_tick(void);
 
+/* Only the T_ARM / T_CLEAR writes of od_claim_mode_tick(): no draw, no reboot, no session work,
+ * so it is safe from inside a long blocking operation of the loop's own task -- a panel refresh
+ * wait. A boot-screen or SETUP refresh that blocks the loop past T_ARM would otherwise move the
+ * count to the end of the refresh (5.7 s on the reTerminal Sticky), and an on-period shorter
+ * than that, such as the "wait about 5 seconds" of the user instruction (SECURITY_V2 7.2),
+ * would not count. Same task only: od_claim_mode is not thread-safe. */
+void od_claim_mode_tick_count(void);
+
 /* The target is about to deep-sleep, power off or reboot for its own reasons (CMD_REBOOT, the
  * reboot that applies a config, an OTA). Clears an armed boot count first (section 7.2) and, in
  * claim mode, writes OS2C so the next boot CONTINUEs -- or, once claimed, ENDs the session.

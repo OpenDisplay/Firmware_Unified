@@ -11,6 +11,7 @@
 #include "od_boot_app.h"
 #include "od_boot_screen.h"
 #include "od_claim_app.h"
+#include "od_sec2_trace.h"
 #include "od_watchdog_app.h"
 #include "touch_input.h"
 #include "od_color.h"
@@ -133,7 +134,30 @@ bool writeBootScreenWithQr()
 
 /* SECURITY_V2 7.8 / FACTORY_RESET.md 4 (od_claim_app.h): a setup-family screen through the same
  * two sinks as the boot screen. Blocks for the refresh; the caller has flushed its replies. */
+static const char *setup_kind_name(enum od_setup_screen kind)
+{
+  switch (kind) {
+  case OD_SETUP_SCREEN_SETUP: return "SETUP";
+  case OD_SETUP_SCREEN_CODE:  return "CODE";
+  case OD_SETUP_SCREEN_RESET: return "RESET";
+  default:                    return "NORMAL";
+  }
+}
+
+static bool claim_app_draw(enum od_setup_screen kind, uint32_t code);
+
 extern "C" bool od_claim_app_draw(enum od_setup_screen kind, uint32_t code)
+{
+  const bool ok = claim_app_draw(kind, code);
+
+  OD_SEC2_TRACE("od_claim_app_draw(%s) -> %s (display_count=%u needs_migration=%u)",
+                setup_kind_name(kind), ok ? "drawn" : "NOT drawn",
+                (unsigned)globalConfig.display_count, (unsigned)od_display_needs_migration());
+  (void)setup_kind_name;
+  return ok;
+}
+
+static bool claim_app_draw(enum od_setup_screen kind, uint32_t code)
 {
   bool ok = false;
 

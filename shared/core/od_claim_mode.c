@@ -12,6 +12,7 @@
 #include "od_hal_secret.h"
 #include "od_log.h"
 #include "od_sec2_app.h"
+#include "od_sec2_trace.h"
 
 OD_STATIC_ASSERT(OD_CM_MAX_RENDERS >= 1u && OD_CM_MAX_RENDERS < 0xFFu, "render cap");
 OD_STATIC_ASSERT(OD_CM_MAX_RESTARTS < 0xFFu, "restart cap");
@@ -119,7 +120,11 @@ static void count_put(uint8_t v)
 
     od_sec2_os2s_get(&st, &valid);
     if (st.short_boots != v) {
-        (void)od_sec2_os2s_put(st.flags, v);
+        const bool ok = od_sec2_os2s_put(st.flags, v);
+
+        OD_SEC2_TRACE("boot history: short_boots %u -> %u at %u ms (%s)", (unsigned)st.short_boots,
+                      (unsigned)v, (unsigned)now_ms(), ok ? "ok" : "WRITE FAILED");
+        (void)ok;
     }
 }
 
@@ -159,6 +164,9 @@ static void end_session(enum od_claim_end why)
     od_hal_retained_clear();
     clear_fresh();                       /* Q15: whatever the reason */
     od_log_info("claim mode ends: reason %u", (unsigned)why);
+    OD_SEC2_TRACE("claim mode END reason=%u (1 CLAIMED 2 TIMEOUT 3 CANCEL 4 ATTEMPTS 5 RESTART_CAP) "
+                  "renders=%u restarts=%u; reboot in %u ms", (unsigned)why, (unsigned)c.renders,
+                  (unsigned)c.restarts, (unsigned)OD_CM_END_FLUSH_MS);
 }
 
 static void enter(enum od_claim_kind kind, bool resumed)
@@ -174,6 +182,10 @@ static void enter(enum od_claim_kind kind, bool resumed)
     c.setup_due = true;
     od_claim_app_signal(OD_CLAIM_SIG_CM_WAITING, 0u);
     od_log_info("claim mode: kind %u%s", (unsigned)kind, resumed ? " (continued)" : "");
+    OD_SEC2_TRACE("claim mode ENTER kind=%s%s renders=%u restarts=%u config_locked=%u window=%u ms",
+                  kind == OD_CLAIM_KIND_FRESH ? "FRESH" : "GESTURE", resumed ? " (CONTINUE)" : "",
+                  (unsigned)c.renders, (unsigned)c.restarts, (unsigned)c.config_locked,
+                  (unsigned)OD_CM_WINDOW_MS);
 }
 
 void od_claim_mode_status(struct od_sec2_claim_mode *out)
@@ -212,9 +224,13 @@ void od_claim_mode_event(enum od_sec2_claim_event ev, uint32_t arg)
             c.deadline = until;          /* a pending claim extends the window to its CONFIRM */
         }
         od_claim_app_signal(OD_CLAIM_SIG_CM_CODE, 0u);
+        OD_SEC2_TRACE("claim CODE %03u %03u (render %u of %u), CODE screen due in %u ms",
+                      (unsigned)(arg / 1000u), (unsigned)(arg % 1000u), (unsigned)c.renders,
+                      (unsigned)OD_CM_MAX_RENDERS, (unsigned)OD_CM_CODE_FLUSH_MS);
         break;
     }
     case OD_SEC2_EV_DISCARDED:
+        OD_SEC2_TRACE("claim discarded (nonced=%u), renders=%u", (unsigned)arg, (unsigned)c.renders);
         if (c.renders >= OD_CM_MAX_RENDERS) {
             end_session(OD_CLAIM_END_ATTEMPTS);
         } else {
@@ -222,17 +238,21 @@ void od_claim_mode_event(enum od_sec2_claim_event ev, uint32_t arg)
         }
         break;
     case OD_SEC2_EV_EXHAUSTED:
+        OD_SEC2_TRACE("claim attempts exhausted");
         end_session(OD_CLAIM_END_ATTEMPTS);
         break;
     case OD_SEC2_EV_EXIT:
+        OD_SEC2_TRACE("claim EXIT (claimed=%u)", (unsigned)c.claimed);
         end_session(c.claimed ? OD_CLAIM_END_CLAIMED : OD_CLAIM_END_CANCEL);
         break;
     case OD_SEC2_EV_CLAIMED:
+        OD_SEC2_TRACE("claim CONFIRMED: device CLAIMED (still in claim mode until it ends)");
         c.claimed = true;
         c.code_due = false;
         od_claim_app_signal(OD_CLAIM_SIG_CM_CLAIMED, 0u);
         break;
     case OD_SEC2_EV_DISCONNECTED:
+        OD_SEC2_TRACE("claim-mode peer disconnected (claimed=%u)", (unsigned)c.claimed);
         if (c.claimed) {
             end_session(OD_CLAIM_END_CLAIMED);
         }
@@ -291,6 +311,10 @@ void od_security_boot(const struct SecurityConfig *sec, bool config_present,
     c.k = read_k();
     rep.short_boots = c.k;
     rep.pattern = pattern_of(c.k, c.counted);
+    OD_SEC2_TRACE("boot: cause=0x%03x counted=%u short_boots(k)=%u pattern=%u "
+                  "(0 NONE 1 COUNTING 2 CLAIM 3 FACTORY_RESET) reset_pin=%u",
+                  (unsigned)rep.cause, (unsigned)c.counted, (unsigned)c.k, (unsigned)rep.pattern,
+                  (unsigned)pin);
 
     /* 3. a factory reset: pending, or triggered by the pin or the pattern */
     if (od_fr_pending(NULL)) {
@@ -360,6 +384,10 @@ void od_security_boot(const struct SecurityConfig *sec, bool config_present,
         }
     }
     rep.kind = c.active ? c.kind : OD_CLAIM_KIND_NONE;
+    OD_SEC2_TRACE("boot decision: state=%u (0 UNCLAIMED 1 CLAIMED 2 LOCKED) os2s_valid=%u flags=0x%02x "
+                  "key_gen=%u fr=%u claim_kind=%u history=%u arm_due=%u",
+                  (unsigned)rep.state, (unsigned)st_valid, (unsigned)st.flags, (unsigned)st.key_gen,
+                  (unsigned)fr, (unsigned)rep.kind, (unsigned)c.history, (unsigned)c.arm_due);
     if (out != NULL) {
         *out = rep;
     }
@@ -377,7 +405,7 @@ bool od_claim_mode_defer_boot_screen(void)
     return c.counted && c.history && c.k != 0u && (c.arm_due || c.armed);
 }
 
-void od_claim_mode_tick(void)
+void od_claim_mode_tick_count(void)
 {
     const uint32_t t = now_ms();
 
@@ -393,11 +421,19 @@ void od_claim_mode_tick(void)
         c.armed = false;
         count_put(0u);
     }
+}
+
+void od_claim_mode_tick(void)
+{
+    const uint32_t t = now_ms();
+
+    od_claim_mode_tick_count();
     if (!c.active) {
         return;
     }
     if (c.ending) {
         if (!before(t, c.end_at)) {
+            OD_SEC2_TRACE("claim mode over: software reset into normal mode");
             c.active = false;
             od_hal_reset_reboot();
         }
@@ -409,12 +445,15 @@ void od_claim_mode_tick(void)
     }
     if (c.code_due && !before(t, c.code_at)) {
         c.code_due = false;
+        OD_SEC2_TRACE("draw CODE screen (code %03u %03u)", (unsigned)(c.code / 1000u),
+                      (unsigned)(c.code % 1000u));
         (void)od_claim_app_draw(OD_SETUP_SCREEN_CODE, c.code);
         return;
     }
     /* SETUP waits out a pattern in progress (k >= 2), so the pattern costs no extra refresh. */
     if (c.setup_due && !c.claimed && (c.k < 2u || !before(t, OD_CM_T_CLEAR_MS))) {
         c.setup_due = false;
+        OD_SEC2_TRACE("draw SETUP screen");
         (void)od_claim_app_draw(OD_SETUP_SCREEN_SETUP, 0u);
     }
 }
@@ -430,6 +469,8 @@ bool od_claim_mode_before_reboot(void)
             clear_fresh();
         } else {
             os2c_put();
+            OD_SEC2_TRACE("planned reboot in claim mode: OS2C written (renders=%u restarts=%u)",
+                          (unsigned)c.renders, (unsigned)c.restarts);
         }
     }
     return true;

@@ -9,6 +9,7 @@
 #include "od_reply.h"
 #include "od_sec2.h"
 #include "od_sec2_app.h"
+#include "od_sec2_wire.h"
 #include "od_txq.h"
 #include "od_xfer.h"
 #include "od_link_policy.h"
@@ -721,7 +722,8 @@ static void test_read_ident(void)
     CHECK(f[0] == RESP_ACK && f[1] == RESP_READ_IDENT);
     CHECK(f[2] == (uint8_t)OD_PROTOCOL_VERSION_MINOR && f[3] == OD_IDENT_TARGET_SILABS);
     CHECK(f[4] == 0u);
-    CHECK(f[5] == 0x01u);   /* config-driven firmware; no display, so nothing to migrate */
+    /* config-driven firmware; no display, so nothing to migrate; SEC_V2 (unclaimed, normal mode) */
+    CHECK(f[5] == (0x01u | OD_IDENT_FLAG_SEC_V2));
     /* The tail: BG22's limits, so a host needs no table. 3120 B config, 128 steps, no
      * WINDOW/FILL compiled in. */
     CHECK(f[6] == (3120u & 0xFFu) && f[7] == (3120u >> 8));
@@ -750,7 +752,8 @@ static void test_read_ident(void)
     CHECK(f[7] == 168u && f[8] == 0u);
     CHECK(f[9] == 0x80u && f[10] == 0x01u);
     CHECK(f[11] == 3u);
-    CHECK(f[12] == 0x03u);  /* a display with no drive packets stored: needs migration */
+    /* no drive packets stored: needs migration; claimed (authenticate() above) */
+    CHECK(f[12] == (0x03u | OD_IDENT_FLAG_SEC_V2 | OD_IDENT_FLAG_CLAIMED));
 }
 
 /* ---- config write -> reconnect -> authenticate while the boot-screen pass is pending -------- *

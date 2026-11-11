@@ -185,6 +185,45 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     endif()
 endif()
 
+# TEST-ONLY SEC2 trace (shared/core/od_sec2_trace.h): prints the claim code, the setup-screen
+# kind, claim-mode transitions, boot-history decisions and factory-reset steps on the log
+# console. The claim code is what claim mode keeps off the radio, so this is a bench build only:
+#   -DOD_SEC2_TEST_TRACE=I_ACCEPT_CLAIM_CODE_ON_SERIAL     (any other value is a configure error)
+#   -DOD_SEC2_TEST_CM_WINDOW_MS=<ms>                       (optional, only with the trace: a
+#                                                           shorter claim-mode window)
+# Not kept in the cache, like the factory switches above: a reconfigure without the flag builds a
+# normal image. Refused when OD_FW_VERSION or CI is set (build-release.sh, release.yml).
+set(OD_SEC2_TRACE_DEFINES "")
+if(NOT CMAKE_BUILD_EARLY_EXPANSION AND DEFINED OD_SEC2_TEST_TRACE)
+    set(od_sec2_trace "${OD_SEC2_TEST_TRACE}")
+    unset(OD_SEC2_TEST_TRACE CACHE)
+    if(NOT od_sec2_trace STREQUAL "" AND NOT od_sec2_trace MATCHES "^(0|OFF|[Nn][Oo])$")
+        if(NOT od_sec2_trace STREQUAL "I_ACCEPT_CLAIM_CODE_ON_SERIAL")
+            message(FATAL_ERROR "od: OD_SEC2_TEST_TRACE must be I_ACCEPT_CLAIM_CODE_ON_SERIAL "
+                                "(a test-only build that prints the claim code)")
+        endif()
+        if(DEFINED ENV{OD_FW_VERSION} OR DEFINED ENV{CI})
+            message(FATAL_ERROR "od: OD_SEC2_TEST_TRACE refused in a release/CI build")
+        endif()
+        list(APPEND OD_SEC2_TRACE_DEFINES OD_SEC2_TEST_TRACE=1)
+        message(WARNING "od: SEC2 TEST-TRACE BUILD -- prints the claim code on the console. NOT FOR RELEASE.")
+    endif()
+endif()
+if(NOT CMAKE_BUILD_EARLY_EXPANSION AND DEFINED OD_SEC2_TEST_CM_WINDOW_MS)
+    set(od_sec2_window "${OD_SEC2_TEST_CM_WINDOW_MS}")
+    unset(OD_SEC2_TEST_CM_WINDOW_MS CACHE)
+    if(NOT od_sec2_window STREQUAL "")
+        if(NOT OD_SEC2_TRACE_DEFINES)
+            message(FATAL_ERROR "od: OD_SEC2_TEST_CM_WINDOW_MS needs OD_SEC2_TEST_TRACE")
+        endif()
+        if(NOT od_sec2_window MATCHES "^[0-9]+$")
+            message(FATAL_ERROR "od: OD_SEC2_TEST_CM_WINDOW_MS must be a number of milliseconds")
+        endif()
+        list(APPEND OD_SEC2_TRACE_DEFINES OD_CM_WINDOW_MS=${od_sec2_window}u)
+        message(WARNING "od: test claim-mode window ${od_sec2_window} ms")
+    endif()
+endif()
+
 idf_component_register(
     SRCS ${OD_APP_SOURCES}
     INCLUDE_DIRS
@@ -267,6 +306,7 @@ endif()
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     ${OD_BOARD_DEFINES}
     ${OD_FACTORY_DEFINES}
+    ${OD_SEC2_TRACE_DEFINES}
     OD_XFER_DIRECT_AUTO_END=1
     # This target has no tag. It must be set HERE, with the commit that adds od_nfc.c to the
     # aggregate: od_core_reset() names od_nfc_reset(), so the machine is linked from that moment
