@@ -299,20 +299,29 @@ driver and parameterises it**, which is what a board-id switch did before:
 
 SCLK, MOSI, CS, BUSY (HRDY) and RST stay in 0x20. ESP32 reads it through
 `targets/esp32-idf/src/od_controller_esp.cpp`; a FastEPD build drives class 1 and 2, every other
-build treats them as undrivable (NEEDS_MIGRATION). A config **without** 0xB3 is described from
-`panel_ic_type` for the panels that shipped before it (3000/3001 ED103TC2, 3005 M5Paper, 3002 /
-3003 Inkplate, 3004 PaperS3): that table is now the only place a panel id selects a driver, and
-it exists so fielded configs keep working. Removing it is a maintainer decision.
+build treats them as undrivable (NEEDS_MIGRATION).
+
+**0xB3 is the only selector** (decided 2026-11-11). `panel_ic_type` never picks a driver: a
+config without 0xB3 is command-driven, so on an IT8951 or parallel board without drive packets
+it behaves like any config without drive packets -- nothing is drawn and READ_IDENT reports
+NEEDS_MIGRATION. The panel database carries the packet for every legacy id of these boards
+(`panels/panels.yaml` `native_controllers`, emitted to `panels/generated/drive_presets.json`
+`native_controllers`: 3000/3001 ED103TC2 on the reTerminal E1003, 3002/3003 Inkplate 5 V2 / 10,
+3004 PaperS3, 3005 M5Paper) with that board's default pins; a client migrating such a config
+appends it. The M5Paper entry also lists the 0x20 SPI pins the board needs, since the firmware
+has no per-id pin defaults. The first 0xB3 for an instance wins, as for every per-instance
+packet.
 
 Not data, and not proposed as data: the IT8951 word protocol and its DEV_INFO / LISAR readback,
 the IT8951 waveform-mode choice per refresh (INIT/GC16/DU/A2 stay in `display_it8951.cpp`), and
 the parallel waveform engine. Like every packet, 0xB3 is stored only if the config write
-contains it, so a 2.x config write drops it and the legacy table takes over again.
+contains it, so a config written by a client that does not know 0xB3 leaves such a board
+undrawn until it is migrated.
 
 ## FastEPD parallel: why it stays on FastEPD
 
 PaperS3, Inkplate 5 V2 / 10 (S3 boards) and the M5Paper's IT8951 (wrover build) stay on FastEPD,
-selected by 0xB3 or the legacy table. A parallel panel's "drive data" is a waveform matrix plus
+selected by 0xB3. A parallel panel's "drive data" is a waveform matrix plus
 a frame engine: the MCU strobes CKV/SPV and latches the source drivers for every row of every
 frame, with microsecond timing and DMA over the LCD/i80 peripheral. A forward-only command walk
 cannot express that, and the matrices alone (the one part that could be 0xAF-sized data) do

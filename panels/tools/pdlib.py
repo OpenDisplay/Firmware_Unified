@@ -562,6 +562,29 @@ def dump_json(obj, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(obj, indent=1, sort_keys=False) + "\n")
 
+# ----------------------------------------------------------------------------- 0xB3
+
+PKT_CONTROLLER = 0xB3
+CTRL_CLASS = {"COMMAND": 0, "IT8951": 1, "PARALLEL": 2}
+CTRL_FLAG = {"MIRRORED": 0x01, "GRAY16": 0x02, "TEMP_SENSOR": 0x04}
+CTRL_TEMP_DEFAULT = 0x7F
+CTRL_PIN_NONE = 0xFF
+
+
+def controller_body(ent: dict, instance: int = 0) -> bytes:
+    """0xB3 display_controller body, version 0 (12 B)."""
+    flags = 0
+    for f in ent.get("flags") or []:
+        flags |= CTRL_FLAG[f]
+    vcom = int(ent.get("vcom_mv", 0))
+    pins = ent.get("pins") or {}
+    temp = int(ent.get("default_temp_c", CTRL_TEMP_DEFAULT)) & 0xFF
+    return bytes([instance, 0, CTRL_CLASS[ent["class"]], flags, vcom & 0xFF, vcom >> 8, temp,
+                  int(ent.get("parallel_panel", 0)),
+                  int(pins.get("miso", CTRL_PIN_NONE)), int(pins.get("en", CTRL_PIN_NONE)),
+                  int(pins.get("ite_en", CTRL_PIN_NONE)), 0])
+
+
 # ----------------------------------------------------------------------------- panels.yaml
 
 _WAVE_TOKENS = {f"@w{i}": i for i in range(7)}

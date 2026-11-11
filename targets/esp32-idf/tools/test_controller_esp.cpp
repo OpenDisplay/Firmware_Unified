@@ -1,5 +1,5 @@
-// Host test for src/od_controller_esp.cpp: the 0xB3 display_controller packet and the legacy
-// panel_ic_type table that describe which built-in driver drives a display. The stored config
+// Host test for src/od_controller_esp.cpp: the 0xB3 display_controller packet, the only thing
+// that selects a built-in driver for a display. The stored config
 // is a fake od_hal_nvs holding a real record; od_cfg_index is the shared one, compiled with
 // OD_CFG_INDEX_CONTROLLER=1 as on the target.
 #include "od_controller_esp.h"
@@ -163,7 +163,7 @@ int main()
     CHECK(c->from_packet && c->cls == OD_CTRL_CLASS_PARALLEL &&
           c->parallel_panel == OD_CTRL_PARALLEL_M5PAPERS3);
 
-    g_case = "short, future-version or unknown-class 0xB3 is ignored (legacy table applies)";
+    g_case = "short, future-version or unknown-class 0xB3 is ignored (command-driven)";
     for (int k = 0; k < 3; k++) {
         display(OD_PANEL_IC_INKPLATE10_1200X825, 0u);
         store_reset();
@@ -172,42 +172,60 @@ int main()
         store_commit();
         od_controller_esp_reload();
         c = od_controller_esp();
-        CHECK(!c->from_packet && c->cls == OD_CTRL_CLASS_PARALLEL &&
-              c->parallel_panel == OD_CTRL_PARALLEL_INKPLATE10);
+        CHECK(!c->from_packet && c->cls == OD_CTRL_CLASS_COMMAND);
     }
 
-    g_case = "legacy table: ED103TC2 4-gray (E1003 wiring defaults)";
-    display(OD_PANEL_IC_ED103TC2_1872X1404_4GRAY, 0u);
+    g_case = "first 0xB3 for the instance wins";
+    display(0x0002u, 0u);
     store_reset();
+    controller(0u, OD_CTRL_CLASS_PARALLEL, 0u, 0u, 0x7F, OD_CTRL_PARALLEL_INKPLATE10, 0xFFu, 0xFFu,
+               0xFFu);
+    controller(0u, OD_CTRL_CLASS_IT8951, 0u, 0u, 0x7F, 0u, 8u, 11u, 21u);
+    store_commit();
     od_controller_esp_reload();
-    c = od_controller_esp();
-    CHECK(c->cls == OD_CTRL_CLASS_IT8951 && c->vcom_mv == 1500u);
-    CHECK(c->flags == (OD_CTRL_FLAG_GRAY16 | OD_CTRL_FLAG_MIRRORED | OD_CTRL_FLAG_TEMP_SENSOR));
-    CHECK(c->miso_pin == 8u && c->en_pin == 11u && c->ite_en_pin == 21u);
+    CHECK(od_controller_esp()->cls == OD_CTRL_CLASS_PARALLEL);
 
-    g_case = "legacy table: ED103TC2 with pwr_pin_2/3 and dc_pin set";
-    display(OD_PANEL_IC_ED103TC2_1872X1404, 0u);
-    globalConfig.displays[0].dc_pin = 40u;
-    globalConfig.system_config.pwr_pin_2 = 41u;
-    globalConfig.system_config.pwr_pin_3 = 42u;
-    od_controller_esp_reload();
-    c = od_controller_esp();
-    CHECK(c->flags == (OD_CTRL_FLAG_MIRRORED | OD_CTRL_FLAG_TEMP_SENSOR));
-    CHECK(c->miso_pin == 40u && c->en_pin == 41u && c->ite_en_pin == 42u);
+    /* panel_ic_type never selects a driver: a legacy IT8951 / parallel id without 0xB3 is
+     * command-driven, so with no drive packets it draws nothing and reports NEEDS_MIGRATION. */
+    static const uint16_t kLegacy[] = {
+        OD_PANEL_IC_ED103TC2_1872X1404, OD_PANEL_IC_ED103TC2_1872X1404_4GRAY,
+        OD_PANEL_IC_INKPLATE5V2_1280X720, OD_PANEL_IC_INKPLATE10_1200X825,
+        OD_PANEL_IC_M5PAPERS3_960X540, OD_PANEL_IC_M5PAPER_960X540,
+    };
+    g_case = "legacy id without 0xB3 is command-driven";
+    for (uint16_t id : kLegacy) {
+        display(id, 0u);
+        store_reset();
+        store_commit();
+        od_controller_esp_reload();
+        CHECK(!od_controller_esp()->from_packet && od_controller_esp()->cls == OD_CTRL_CLASS_COMMAND);
+    }
 
-    g_case = "legacy table: M5Paper unmirrored, stored VCOM, reset doubles as EN";
-    display(OD_PANEL_IC_M5PAPER_960X540, 0u);
-    od_controller_esp_reload();
-    c = od_controller_esp();
-    CHECK(c->cls == OD_CTRL_CLASS_IT8951 && c->vcom_mv == 0u &&
-          (c->flags & OD_CTRL_FLAG_MIRRORED) == 0u);
-    CHECK(c->miso_pin == 13u && c->en_pin == 23u && c->ite_en_pin == 23u);
-
-    g_case = "legacy table: display_technology other than 0/1 is not claimed";
-    display(OD_PANEL_IC_INKPLATE5V2_1280X720, 0u);
-    globalConfig.displays[0].display_technology = 2u;
-    od_controller_esp_reload();
-    CHECK(od_controller_esp()->cls == OD_CTRL_CLASS_COMMAND);
+    /* The 0xB3 bodies panels/generated/drive_presets.json `native_controllers` carries for those
+     * ids, decoded as the firmware decodes them. */
+    struct dbcase { uint16_t id; uint8_t body[12]; uint8_t cls, flags; uint16_t vcom;
+                    uint8_t parallel, miso, en, ite_en; };
+    static const dbcase kDb[] = {
+        {3000, {0, 0, 1, 5, 0xdc, 5, 0x7f, 0, 8, 11, 21, 0}, 1, 5, 1500, 0, 8, 11, 21},
+        {3001, {0, 0, 1, 7, 0xdc, 5, 0x7f, 0, 8, 11, 21, 0}, 1, 7, 1500, 0, 8, 11, 21},
+        {3002, {0, 0, 2, 0, 0, 0, 0x7f, 1, 0xff, 0xff, 0xff, 0}, 2, 0, 0, 1, 0xff, 0xff, 0xff},
+        {3003, {0, 0, 2, 0, 0, 0, 0x7f, 2, 0xff, 0xff, 0xff, 0}, 2, 0, 0, 2, 0xff, 0xff, 0xff},
+        {3004, {0, 0, 2, 0, 0, 0, 0x7f, 3, 0xff, 0xff, 0xff, 0}, 2, 0, 0, 3, 0xff, 0xff, 0xff},
+        {3005, {0, 0, 1, 4, 0, 0, 0x7f, 0, 13, 23, 23, 0}, 1, 4, 0, 0, 13, 23, 23},
+    };
+    g_case = "panel database 0xB3 entries";
+    for (const dbcase &k : kDb) {
+        display(k.id, 0u);
+        store_reset();
+        store_packet(OD_PKT_DISPLAY_CONTROLLER, k.body, sizeof k.body);
+        store_commit();
+        od_controller_esp_reload();
+        c = od_controller_esp();
+        CHECK(c->from_packet && c->cls == k.cls && c->flags == k.flags && c->vcom_mv == k.vcom);
+        CHECK(c->parallel_panel == (k.cls == OD_CTRL_CLASS_PARALLEL ? k.parallel : 0u));
+        CHECK(c->miso_pin == k.miso && c->en_pin == k.en && c->ite_en_pin == k.ite_en);
+        CHECK(c->default_temp_c == OD_CTRL_TEMP_DEFAULT);
+    }
 
     std::printf("controller_esp: %u checks, %u failures\n", g_checks, g_failures);
     return g_failures == 0u ? 0 : 1;

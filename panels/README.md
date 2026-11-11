@@ -140,7 +140,7 @@ removes or changes the meaning of a field bumps `schema_version`.
 {
   "schema": "opendisplay.drive_presets",
   "schema_version": 1,
-  "schema_minor": 2,                  // 1: target classes; 2: one step cap, no BG22 length cap
+  "schema_minor": 3,                  // 1: target classes; 2: one step cap, no BG22 length cap; 3: native_controllers
   "sources": {
     "bb_epaper": "4edfa7f",            // revision the streams were captured from
     "bb_epaper_vendored": "5dccfbb",   // third_party/ copy (drift listed in coverage.md)
@@ -206,6 +206,15 @@ removes or changes the meaning of a field bumps `schema_version`.
         {"variant": "single_init", "target_class": "bg22", "status": "alternative",
          "verified": "untested", "equivalent": false, "modes": [], "packets": [], "…": "…"}
       ]
+    }
+  },
+  "native_controllers": {              // minor 3: IT8951 / FastEPD parallel ids (ESP32 only)
+    "0x0BBD": {                         // key: legacy panel_ic_type 3000-3005, "0x%04X"
+      "panel_ic_type": 3005, "name": "M5PAPER_960x540", "board": "M5Stack M5Paper (ED047TC1)",
+      "controller_class": "IT8951",     // "IT8951" | "PARALLEL"
+      "packets": [{"id": 179, "number": 0, "body_hex": "…"}],   // one 0xB3, the board's default pins
+      "framed_hex": "…",                // append to the config; no 0xAE/0xAF/0xB1 for these ids
+      "display_pins": {"clk": 14, "data": 12, "cs": 15, "busy": 27, "reset": 23}  // 0x20 pins the board needs ({} = none)
     }
   }
 }
@@ -279,7 +288,7 @@ A client must stop refusing sequences longer than 128 B (or 64 steps) for BG22.
 | `CS_BOTH` | a transfer that must reach both controllers simultaneously (none in the 2.x flows: D6 covers them) |
 | `CS_EVERY_BYTE` | CS toggled around every byte (bb_epaper flag); no legacy id uses it |
 | `DATA_WITHOUT_CMD` | a data burst not preceded by a command on the same CS |
-| `IT8951` / `PARALLEL` | not SPI command-stream panels (see NOTES_special.md); none has a legacy id |
+| `IT8951` / `PARALLEL` | not SPI command-stream panels (see NOTES_special.md); their legacy ids 3000-3005 get a 0xB3 packet in `native_controllers` instead of drive data |
 | `NO_FULL_FLOW` / `NO_BBEP_ENUM` | nothing to derive from |
 
 Escapes a target must implement (`requires_escapes`, not blockers): `SET_PIN` with

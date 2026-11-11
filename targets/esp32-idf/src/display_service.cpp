@@ -167,7 +167,7 @@ extern uint8_t staticRowBuffer[BOOT_ROW_BUFFER_SIZE];
 
 
 /* IT8951 and parallel panels are on FastEPD's built-in drivers; od_controller_esp says which
- * (0xB3, or the legacy panel_ic_type table). Every other panel is driven from drive packets. */
+ * (from 0xB3 only). Every other panel is driven from drive packets. */
 bool displayConfigUsesNativeDriver(const struct DisplayConfig *d) {
 #if !defined(OPENDISPLAY_FASTEPD)
     (void)d;
@@ -178,7 +178,7 @@ bool displayConfigUsesNativeDriver(const struct DisplayConfig *d) {
         return od_controller_esp()->cls != OD_CTRL_CLASS_COMMAND;
     }
     struct od_controller_desc desc;
-    od_controller_esp_describe(d, &globalConfig.system_config, &desc);
+    od_controller_esp_describe(d, &desc);
     return desc.cls != OD_CTRL_CLASS_COMMAND;
 #endif
 }

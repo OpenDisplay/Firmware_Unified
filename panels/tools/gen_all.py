@@ -15,6 +15,8 @@ Pipeline per legacy panel_ic_type (panels/panel_ids.json):
   3. replay: run the encoded packets through shared/core/od_epd.c built with that class's
      limits and compare its bus stream with the bb_epaper one (README accepted differences);
   4. emit drive_presets.json, bbep_streams.json and coverage.md.
+The IT8951 / FastEPD parallel ids get no drive data: drive_presets.json `native_controllers`
+carries their 0xB3 display_controller packet, encoded from panels.yaml.
 Needs a C/C++ compiler and the bb_epaper clone (OD_BBEP_UPSTREAM); PyYAML only for the
 panels.yaml entries (falls back to the committed presets when it is missing).
 """
@@ -34,7 +36,7 @@ OUT_STREAMS = P.GENERATED / "bbep_streams.json"
 OUT_COVERAGE = P.GENERATED / "coverage.md"
 
 FLOW_ORDER = ("full", "fast", "partial")
-SCHEMA_MINOR = 2
+SCHEMA_MINOR = 3
 DIFFS_BASE = ["D1", "D2", "D3", "D4", "D5"]
 
 
@@ -282,13 +284,36 @@ def glass_packets(entry: dict, website: list | None) -> list[tuple[int, int, byt
         return [(x["number"], x["id"], bytes.fromhex(x["body_hex"])) for x in website]
 
 
-def load_yaml() -> dict[int, dict]:
+def load_yaml_doc() -> dict | None:
     try:
         import yaml
     except ImportError:
-        return {}
-    doc = yaml.safe_load((P.PANELS / "panels.yaml").read_text())
-    return {int(str(e["id"]), 0): e for e in doc["panels"]}
+        return None
+    return yaml.safe_load((P.PANELS / "panels.yaml").read_text())
+
+
+def load_yaml() -> dict[int, dict]:
+    doc = load_yaml_doc()
+    return {int(str(e["id"]), 0): e for e in doc["panels"]} if doc else {}
+
+
+def native_controllers(prev: dict | None) -> dict:
+    """panels.yaml native_controllers -> one 0xB3 packet per legacy panel_ic_type."""
+    doc = load_yaml_doc()
+    if doc is None:
+        return (prev or {}).get("native_controllers", {})
+    out = {}
+    for ent in doc.get("native_controllers") or []:
+        num = int(str(ent["id"]), 0)
+        body = P.controller_body(ent)
+        out["0x%04X" % num] = {
+            "panel_ic_type": num, "name": ent["name"], "board": ent["board"],
+            "controller_class": ent["class"],
+            "packets": [{"id": P.PKT_CONTROLLER, "number": 0, "body_hex": body.hex()}],
+            "framed_hex": P.frame(0, P.PKT_CONTROLLER, body).hex(),
+            "display_pins": ent.get("display_pins") or {},
+        }
+    return out
 
 
 # ----------------------------------------------------------------------------- main
@@ -440,6 +465,7 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
         "bg22_unavailable": bg22_out,
         "names": {e["name"]: k for k, e in out.items() if not e.get("alias_of")},
         "panels": out,
+        "native_controllers": native_controllers(prev),
     }
     streams["drift_vs_vendored"] = drift
     return presets, streams, coverage_md(out, drift, bg22_out)

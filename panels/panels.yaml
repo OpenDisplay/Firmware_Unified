@@ -618,3 +618,65 @@ panels:
         - "@busy"
         - "12 00"
         - "@busy"
+
+# -----------------------------------------------------------------------------
+# Built-in controller drivers (0xB3 display_controller, ESP32 + FastEPD only).
+#
+# These panels are not driven by a command stream, so they carry no 0xAE/0xAF/0xB1: the
+# firmware selects its IT8951 or FastEPD parallel driver from a 0xB3 packet and from nothing
+# else. A config for one of these ids without 0xB3 draws nothing and reports NEEDS_MIGRATION.
+# One entry per legacy panel_ic_type. Pins are the board defaults for the board each id ships
+# on; a config for different wiring writes its own. `display_pins` are the 0x20 DisplayConfig
+# pins the board needs (the firmware has no per-id defaults for them).
+#
+# 0xB3 body v0 (12 B): instance, version 0, class, flags, vcom_mv LE16, default_temp_c,
+# parallel_panel, miso_pin, en_pin, ite_en_pin, reserved 0.
+#   class: 1 IT8951 (SPI), 2 PARALLEL (FastEPD owns the bus)
+#   flags: 0x01 MIRRORED, 0x02 GRAY16 (4 bpp frame), 0x04 TEMP_SENSOR
+#   parallel_panel: 1 Inkplate 5 V2, 2 Inkplate 10, 3 M5Stack PaperS3
+#   default_temp_c 127 = the driver's own default; pin 255 = none; vcom 0 = keep stored VCOM
+native_controllers:
+
+  - id: 3000
+    name: ED103TC2_1872x1404
+    board: Seeed reTerminal E1003
+    class: IT8951
+    flags: [MIRRORED, TEMP_SENSOR]
+    vcom_mv: 1500
+    pins: { miso: 8, en: 11, ite_en: 21 }
+
+  - id: 3001
+    name: ED103TC2_1872x1404_4GRAY
+    board: Seeed reTerminal E1003
+    class: IT8951
+    flags: [MIRRORED, GRAY16, TEMP_SENSOR]
+    vcom_mv: 1500
+    pins: { miso: 8, en: 11, ite_en: 21 }
+
+  - id: 3002
+    name: INKPLATE5V2_1280x720
+    board: Soldered Inkplate 5 V2
+    class: PARALLEL
+    parallel_panel: 1
+
+  - id: 3003
+    name: INKPLATE10_1200x825
+    board: Soldered Inkplate 10
+    class: PARALLEL
+    parallel_panel: 2
+
+  - id: 3004
+    name: M5PAPERS3_960x540
+    board: M5Stack PaperS3
+    class: PARALLEL
+    parallel_panel: 3
+
+  - id: 3005
+    name: M5PAPER_960x540
+    board: M5Stack M5Paper (ED047TC1)
+    class: IT8951
+    flags: [TEMP_SENSOR]
+    vcom_mv: 0                # keep the controller's stored VCOM
+    # The IT8951 reset is not wired; GPIO23 gates its supply, so EN and ITE_EN are both 23.
+    pins: { miso: 13, en: 23, ite_en: 23 }
+    display_pins: { clk: 14, data: 12, cs: 15, busy: 27, reset: 23 }

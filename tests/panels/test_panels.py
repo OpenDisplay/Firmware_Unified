@@ -404,6 +404,29 @@ class DisplayPresets(unittest.TestCase):
             self.assertEqual(got, want, f"{name} ({pid}, {cls or 'default'}) is stale")
 
 
+class NativeControllers(unittest.TestCase):
+    """0xB3 for the IT8951 / FastEPD parallel ids: the ESP32 firmware selects those drivers from
+    this packet only, so every legacy id that had one needs an entry with the same parameters."""
+    # id: (class, flags, vcom_mv, parallel_panel, miso, en, ite_en)
+    WANT = {3000: (1, 0x05, 1500, 0, 8, 11, 21), 3001: (1, 0x07, 1500, 0, 8, 11, 21),
+            3002: (2, 0, 0, 1, 0xFF, 0xFF, 0xFF), 3003: (2, 0, 0, 2, 0xFF, 0xFF, 0xFF),
+            3004: (2, 0, 0, 3, 0xFF, 0xFF, 0xFF), 3005: (1, 0x04, 0, 0, 13, 23, 23)}
+
+    def test_entries(self):
+        nc = PRESETS["native_controllers"]
+        self.assertEqual({e["panel_ic_type"] for e in nc.values()}, set(self.WANT))
+        for key, e in nc.items():
+            self.assertEqual(key, "0x%04X" % e["panel_ic_type"])
+            (pk,) = e["packets"]
+            b = bytes.fromhex(pk["body_hex"])
+            self.assertEqual((pk["id"], pk["number"], len(b)), (0xB3, 0, 12), key)
+            self.assertEqual(e["framed_hex"], P.frame(0, 0xB3, b).hex(), key)
+            self.assertEqual((b[0], b[1], b[6], b[11]), (0, 0, 0x7F, 0), key)
+            got = (b[2], b[3], b[4] | b[5] << 8, b[7], b[8], b[9], b[10])
+            self.assertEqual(got, self.WANT[e["panel_ic_type"]], key)
+            self.assertNotIn(key, PRESETS["panels"])
+
+
 class Stale(unittest.TestCase):
     def test_generated_is_current(self):
         import subprocess

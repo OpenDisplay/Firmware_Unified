@@ -1,7 +1,7 @@
 {
  "schema": "opendisplay.drive_presets",
  "schema_version": 1,
- "schema_minor": 2,
+ "schema_minor": 3,
  "sources": {
   "bb_epaper": "4edfa7f",
   "bb_epaper_vendored": "5dccfbb",
@@ -10,7 +10,7 @@
    "opendisplay.org_2": "a1216df",
    "Firmware_Silabs": "fd3bae8"
   },
-  "panels_yaml_sha256": "88de6bdd544d3a1dcf59fa08a4e90ee04e7618c2473a000e187f6ba19d804330"
+  "panels_yaml_sha256": "b532660932aa4c61a0230f3fe569fc6b3bf0144384f91c97769e16497d46d631"
  },
  "caps": {
   "bg22": 3120,
@@ -22394,6 +22394,104 @@
     "bg22": true
    },
    "alias_of": "0x003A"
+  }
+ },
+ "native_controllers": {
+  "0x0BB8": {
+   "panel_ic_type": 3000,
+   "name": "ED103TC2_1872x1404",
+   "board": "Seeed reTerminal E1003",
+   "controller_class": "IT8951",
+   "packets": [
+    {
+     "id": 179,
+     "number": 0,
+     "body_hex": "00000105dc057f00080b1500"
+    }
+   ],
+   "framed_hex": "00b30c0000000105dc057f00080b1500",
+   "display_pins": {}
+  },
+  "0x0BB9": {
+   "panel_ic_type": 3001,
+   "name": "ED103TC2_1872x1404_4GRAY",
+   "board": "Seeed reTerminal E1003",
+   "controller_class": "IT8951",
+   "packets": [
+    {
+     "id": 179,
+     "number": 0,
+     "body_hex": "00000107dc057f00080b1500"
+    }
+   ],
+   "framed_hex": "00b30c0000000107dc057f00080b1500",
+   "display_pins": {}
+  },
+  "0x0BBA": {
+   "panel_ic_type": 3002,
+   "name": "INKPLATE5V2_1280x720",
+   "board": "Soldered Inkplate 5 V2",
+   "controller_class": "PARALLEL",
+   "packets": [
+    {
+     "id": 179,
+     "number": 0,
+     "body_hex": "0000020000007f01ffffff00"
+    }
+   ],
+   "framed_hex": "00b30c000000020000007f01ffffff00",
+   "display_pins": {}
+  },
+  "0x0BBB": {
+   "panel_ic_type": 3003,
+   "name": "INKPLATE10_1200x825",
+   "board": "Soldered Inkplate 10",
+   "controller_class": "PARALLEL",
+   "packets": [
+    {
+     "id": 179,
+     "number": 0,
+     "body_hex": "0000020000007f02ffffff00"
+    }
+   ],
+   "framed_hex": "00b30c000000020000007f02ffffff00",
+   "display_pins": {}
+  },
+  "0x0BBC": {
+   "panel_ic_type": 3004,
+   "name": "M5PAPERS3_960x540",
+   "board": "M5Stack PaperS3",
+   "controller_class": "PARALLEL",
+   "packets": [
+    {
+     "id": 179,
+     "number": 0,
+     "body_hex": "0000020000007f03ffffff00"
+    }
+   ],
+   "framed_hex": "00b30c000000020000007f03ffffff00",
+   "display_pins": {}
+  },
+  "0x0BBD": {
+   "panel_ic_type": 3005,
+   "name": "M5PAPER_960x540",
+   "board": "M5Stack M5Paper (ED047TC1)",
+   "controller_class": "IT8951",
+   "packets": [
+    {
+     "id": 179,
+     "number": 0,
+     "body_hex": "0000010400007f000d171700"
+    }
+   ],
+   "framed_hex": "00b30c000000010400007f000d171700",
+   "display_pins": {
+    "clk": 14,
+    "data": 12,
+    "cs": 15,
+    "busy": 27,
+    "reset": 23
+   }
   }
  }
 }

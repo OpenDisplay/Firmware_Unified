@@ -40,7 +40,7 @@ public:
     FASTEPDSTATE* state() { return &_state; }
 };
 
-// The controller description (0xB3 display_controller, or the legacy panel_ic_type table in
+// The controller description (0xB3 display_controller, read by
 // od_controller_esp.cpp) -> FastEPD native parallel panel id, -1 if not a parallel panel.
 // FastEPD owns the Inkplate bus/PMIC/IO-expanders internally.
 static int fastepd_parallel_panel(void) {
@@ -71,18 +71,14 @@ static bool s_init_failed = false;
 
 extern "C" {
 
-/* SCLK/MOSI/CS/BUSY/RST from the DisplayConfig; MISO, EN and ITE_EN from the controller
- * description. A pin left unset keeps the E1003 default above, except on the M5Paper, whose
- * legacy description supplies its own (sys and panel_ic_type are read there, not here). */
+/* SCLK/MOSI/CS/BUSY/RST from the DisplayConfig; MISO, EN and ITE_EN from the 0xB3 controller
+ * description. A pin left unset keeps the E1003 default above. */
 void opendisplay_fastepd_load_pins_from_display(const struct DisplayConfig* d, const struct SystemConfig* sys, uint16_t panel_ic_type) {
     (void)sys;
+    (void)panel_ic_type;
     if (!d) return;
     const struct od_controller_desc* c = od_controller_esp();
     if (c->cls != OD_CTRL_CLASS_IT8951) return;
-    const bool m5paper = !c->from_packet && panel_ic_type == OD_PANEL_IC_M5PAPER_960X540;
-    if (m5paper) {
-        s_sclk = 14; s_mosi = 12; s_cs = 15; s_busy = 27; s_rst = 23;
-    }
     if (d->clk_pin != 0xFF) s_sclk = (int8_t)d->clk_pin;
     if (d->data_pin != 0xFF) s_mosi = (int8_t)d->data_pin;
     if (d->cs_pin != 0xFF) s_cs = (int8_t)d->cs_pin;

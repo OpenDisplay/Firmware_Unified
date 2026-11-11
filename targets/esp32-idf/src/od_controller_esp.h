@@ -1,10 +1,11 @@
 /* od_controller_esp -- which built-in controller driver, if any, drives display 0, and with which
  * parameters.
  *
- * Read from the 0xB3 display_controller packet (PROVISIONAL; docs/CONFIG_DRIVEN_DISPLAY.md,
- * "Built-in controller drivers"). A config without one is described from its panel_ic_type for
- * the panels that shipped before the packet existed (IT8951: ED103TC2, M5Paper; parallel:
- * Inkplate 5 V2 / 10, PaperS3) -- that table is the only place a panel id selects a driver. */
+ * Read from the 0xB3 display_controller packet (docs/CONFIG_DRIVEN_DISPLAY.md, "Built-in
+ * controller drivers") and from nothing else: panel_ic_type never selects a driver. A config
+ * without 0xB3 is command-driven, so on an IT8951 / parallel board without drive packets it draws
+ * nothing and READ_IDENT reports NEEDS_MIGRATION. panels/panels.yaml `native_controllers` holds
+ * the 0xB3 packet for every legacy id of those boards. */
 #ifndef OD_CONTROLLER_ESP_H
 #define OD_CONTROLLER_ESP_H
 
@@ -16,7 +17,6 @@ extern "C" {
 #endif
 
 struct DisplayConfig;
-struct SystemConfig;
 
 /* 0xB3 body byte 2. */
 #define OD_CTRL_CLASS_COMMAND  0u   /* a command-driven controller: the drive packets drive it */
@@ -45,14 +45,13 @@ struct od_controller_desc {
     uint8_t  miso_pin;          /* IT8951 read line */
     uint8_t  en_pin;            /* IT8951 board supply enable */
     uint8_t  ite_en_pin;        /* IT8951 controller enable */
-    bool     from_packet;       /* false: described from panel_ic_type */
+    bool     from_packet;       /* a valid 0xB3 for this display was found */
 };
 
 /* The description of display 0. Cached; od_controller_esp_reload() after every config load. */
 const struct od_controller_desc *od_controller_esp(void);
 /* The description for any display (uncached; reads the stored config). */
-void od_controller_esp_describe(const struct DisplayConfig *d, const struct SystemConfig *sys,
-                                struct od_controller_desc *out);
+void od_controller_esp_describe(const struct DisplayConfig *d, struct od_controller_desc *out);
 void od_controller_esp_reload(void);
 
 #ifdef __cplusplus
