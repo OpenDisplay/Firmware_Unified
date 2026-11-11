@@ -1,65 +1,30 @@
-/* gate_test.c -- one case per od_session result, checking the wire bytes AND the outcome.
+/* gate_test.c -- one case per od_gate_admit() outcome, checking the wire bytes AND the outcome.
  *
- * The compiler already guarantees the switches are exhaustive (od_gate.h explains the ratchet, and
- * it was verified by deleting a case and watching the build fail). What it cannot check is that
- * each member maps to the RIGHT wire action, which is where the security consequences live: a
- * refusal answered 0xFE advances the link's auth-abuse run, one answered 0xFF does not, and one
- * answered with silence keeps an upload alive that a NACK would kill.
+ * The compiler already guarantees the od_sec2_open switch is exhaustive (od_gate.h explains the
+ * -Wswitch ratchet). What it cannot check is that each row of the gating table maps to the RIGHT
+ * wire action, which is where the security consequences live: FE goes out plaintext because the
+ * peer has no session to read it with, the record-layer NACKs F1-F3 go out sealed, the third bad
+ * tag ends the session after its NACK, and a no-ack opcode draws silence because a NACK would kill
+ * the client's upload loop.
+ *
+ * The session is a real one: SEC_AUTH through tests/host/sec2_client.c (NOT independent of
+ * od_sec2, see its header), and every H->D record is sealed by that client.
  */
 
 #include "od_gate.h"
 
-#include "od_log.h"
-#include "od_session_app.h"
+#include "od_reply.h"
+#include "od_sec2.h"
+#include "od_sec2_app.h"
+#include "sec2_client.h"
 #include "session_fake.h"
 
-#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
 static unsigned g_checks;
 static unsigned g_failures;
 static const char *g_case = "(none)";
-
-#define LOG_CAP 16u
-static struct {
-    int level;
-    char text[128];
-} g_logs[LOG_CAP];
-static unsigned g_log_count;
-
-void _od_log(int level, const char *fmt, ...)
-{
-    va_list ap;
-
-    if (g_log_count >= LOG_CAP) {
-        return;
-    }
-    g_logs[g_log_count].level = level;
-    va_start(ap, fmt);
-    (void)vsnprintf(g_logs[g_log_count].text, sizeof g_logs[g_log_count].text, fmt, ap);
-    va_end(ap);
-    ++g_log_count;
-}
-
-static void logs_reset(void)
-{
-    memset(g_logs, 0, sizeof g_logs);
-    g_log_count = 0u;
-}
-
-static unsigned log_count_exact(int level, const char *text)
-{
-    unsigned count = 0u;
-    unsigned i;
-
-    for (i = 0u; i < g_log_count; ++i) {
-        if (g_logs[i].level == level && strcmp(g_logs[i].text, text) == 0) {
-            ++count;
-        }
-    }
-    return count;
-}
 
 #define CHECK(cond)                                                            \
     do {                                                                       \
@@ -74,9 +39,10 @@ static unsigned log_count_exact(int level, const char *text)
 
 /* ------------------------------------------------------------------------------ fake radio --- */
 
-#define SENT_MAX 8u
+#define SENT_MAX 16u
 static struct { uint16_t len; uint8_t data[OD_TX_FRAME_MAX]; } g_sent[SENT_MAX];
 static unsigned g_sent_n;
+static unsigned g_pop;
 
 od_radio_result_t od_hal_radio_send(od_origin_t origin, uint32_t tag,
                                     const uint8_t *frame, uint16_t len)
@@ -96,342 +62,404 @@ bool od_hal_radio_tag_is_live(od_origin_t origin, uint32_t tag)
     return true;
 }
 
-/* ------------------------------------------------------------------ fake od_session_app seam --- */
-
-static struct od_session g_app_session;
-static uint32_t g_now_ms;
-static bool     g_security_on;
-static int      g_last_open_result;
-static unsigned g_open_reports;
-
-struct od_session *od_session_app_state(void) { return &g_app_session; }
-const struct SecurityConfig *od_session_app_security(void)
+bool sec2c_radio_pop(uint8_t *buf, uint16_t *len)
 {
-    return g_security_on ? &g_sec : NULL;
-}
-uint32_t od_session_app_now_ms(void) { return g_now_ms; }
-void od_session_app_device_id(uint8_t out[OD_SESSION_DEVICE_ID_LEN])
-{
-    memcpy(out, DEVICE_ID, OD_SESSION_DEVICE_ID_LEN);
-}
-void od_session_app_report(enum od_session_app_op op, int result, uint16_t cmd,
-                           const struct od_session_report *report)
-{
-    (void)cmd; (void)report;
-    if (op == OD_SESSION_APP_OPEN) { g_last_open_result = result; ++g_open_reports; }
+    if (g_pop >= g_sent_n) {
+        return false;
+    }
+    memcpy(buf, g_sent[g_pop].data, g_sent[g_pop].len);
+    *len = g_sent[g_pop].len;
+    ++g_pop;
+    return true;
 }
 
-/* od_txq's drop seam. Counted so a test can assert that a discarded entry was REPORTED, not just
- * that it vanished -- the difference between a diagnosable failure and a silent one. */
-static unsigned g_dropped;
 void od_txq_app_dropped(const od_reply_t *rp, uint16_t len, od_radio_result_t why)
 {
     (void)rp; (void)len; (void)why;
-    ++g_dropped;
 }
+
+/* ------------------------------------------------------------------------- od_sec2_app hooks --- */
+
+/* Claim mode is set per case; the other three claim-mode hooks are here only because defining
+ * one of them means od_sec2_pending.c's copies must not be linked. */
+static struct od_sec2_claim_mode g_cm;
+
+uint32_t od_sec2_app_now_ms(void) { return 1000u; }
+void od_sec2_app_uid(uint8_t uid[8]) { memcpy(uid, UID, 8u); }
+uint8_t od_sec2_app_dflags(void) { return OD_SEC2_DFLAG_HAS_PANEL; }
+const struct SecurityConfig *od_sec2_app_security(void) { return &g_sec; }
+void od_sec2_app_claim_mode(struct od_sec2_claim_mode *out) { *out = g_cm; }
+void od_sec2_app_claim_event(enum od_sec2_claim_event ev, uint32_t arg) { (void)ev; (void)arg; }
+bool od_sec2_app_scrub(void) { return false; }
+void od_sec2_app_rest_sync(void) { }
 
 /* --------------------------------------------------------------------------------- helpers --- */
 
-static const od_reply_t BLE = { OD_ORIGIN_BLE, 3u };
-static uint8_t g_scratch[OD_SESSION_PLAIN_MAX];
+static const od_reply_t BLE  = { OD_ORIGIN_BLE, 3u };
+static const od_reply_t BLE2 = { OD_ORIGIN_BLE, 4u };
+static const od_reply_t LAN  = { OD_ORIGIN_LAN_PLAIN, 5u };
+static const od_reply_t TLS  = { OD_ORIGIN_LAN_TLS, 6u };
 
-static void setup(bool open_session)
+static uint8_t g_scratch[OD_SEC2_PLAIN_MAX];
+static struct sec2c C;
+static const uint8_t PAYLOAD[4] = { 1u, 2u, 3u, 4u };
+
+static void clear_sent(void)
 {
-    uint8_t server_nonce[16];
-
-    fake_reset();
-    sec_init(0);
-    memset(&g_app_session, 0, sizeof g_app_session);
-    od_session_init(&g_app_session, 0);
-    od_txq_reset();
     memset(g_sent, 0, sizeof g_sent);
     g_sent_n = 0u;
-    g_now_ms = 1000u;
-    g_security_on = true;
-    g_last_open_result = -1;
-    g_open_reports = 0u;
-    if (open_session) {
-        CHECK(handshake(&g_app_session, g_now_ms, server_nonce, false)
-              == OD_SESSION_AUTH_ESTABLISHED);
-    }
-    logs_reset();
+    g_pop = 0u;
 }
 
-/* Seal a frame through the live session so the gate has something valid to open. Returns the
- * envelope (the bytes AFTER the two command bytes) in `env`. */
-static uint16_t seal_frame(const uint8_t *frame, uint16_t len, uint8_t *env, size_t env_cap)
+enum dev { UNCLAIMED, CLAIMED, LIVE };
+
+static void setup(enum dev d)
 {
-    uint8_t sealed[OD_SESSION_SEALED_MAX];
-    uint16_t sealed_len = 0u;
-
-    if (od_session_seal(&g_app_session, od_span_make(frame, len), sealed, sizeof sealed,
-                        &sealed_len, g_now_ms, NULL) != OD_SESSION_SEAL_OK) {
-        return 0u;
+    fake_reset();
+    sec_init(0);
+    od_txq_reset();
+    memset(&g_cm, 0, sizeof g_cm);
+    clear_sent();
+    (void)od_sec2_boot(d == UNCLAIMED ? NULL : &g_sec);
+    sec2c_init(&C, MASTER, UID);
+    if (d == LIVE) {
+        CHECK(sec2c_auth(&C, &BLE) == 0);
     }
-    if ((size_t)(sealed_len - 2u) > env_cap) { return 0u; }
-    memcpy(env, sealed + 2, (size_t)(sealed_len - 2u));
-    return (uint16_t)(sealed_len - 2u);
+    clear_sent();
 }
 
-static void drain(void) { (void)od_txq_process(); }
+/* A claimed device whose OS2K is corrupt while 0x27 carries claim evidence: boot row 3. */
+static void setup_locked(void)
+{
+    struct SecurityConfig ev;
 
-/* --------------------------------------------------------------------------------- inbound --- */
+    setup(CLAIMED);
+    g_secret[OD_HAL_SECRET_KEY].data[10] ^= 1u;
+    memset(&ev, 0, sizeof ev);
+    ev.reserved[0] = OD_SEC27_AT_REST_SEC2;
+    CHECK(od_sec2_boot(&ev) == OD_SEC2_LOCKED);
+    clear_sent();
+}
+
+/* Run the gate once on `body` with a fresh one-unit reservation, then drain the queue. */
+static od_gate_result_t admit(const od_reply_t *rp, uint16_t cmd, const uint8_t *body,
+                              uint16_t n, uint8_t *scratch, size_t cap)
+{
+    od_tx_reservation_t r;
+    od_gate_result_t g;
+
+    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
+    g = od_gate_admit(&r, rp, cmd, od_span_make(body, n), scratch, cap);
+    od_txq_release(&r);
+    (void)od_txq_process();
+    return g;
+}
+
+/* Seal PAYLOAD as `cmd` and admit it; the record (after the opcode) is left in rec/rec_n. */
+static uint8_t g_rec[64];
+static uint16_t g_rec_n;
+static od_gate_result_t admit_sealed(uint16_t cmd)
+{
+    uint8_t f[64];
+    const uint16_t n = sec2c_seal(&C, cmd, PAYLOAD, sizeof PAYLOAD, f);
+
+    g_rec_n = (uint16_t)(n - 2u);
+    memcpy(g_rec, f + 2, g_rec_n);
+    return admit(&BLE, cmd, g_rec, g_rec_n, g_scratch, sizeof g_scratch);
+}
+
+static bool sent_plain(unsigned i, uint8_t b0, uint16_t cmd, uint8_t code)
+{
+    return g_sent[i].len == 3u && g_sent[i].data[0] == b0 &&
+           g_sent[i].data[1] == (uint8_t)cmd && g_sent[i].data[2] == code;
+}
+
+/* The i-th captured frame is a sealed [FF][cmd_lo][code]. */
+static bool sent_sealed_nack(unsigned i, uint16_t cmd, uint8_t code)
+{
+    uint8_t p[OD_TX_FRAME_MAX];
+    uint16_t pn = 0u;
+
+    return g_sent[i].data[0] == OD_SEC2_SEALED_STATUS &&
+           sec2c_open(&C, g_sent[i].data, g_sent[i].len, p, &pn) && pn == 3u &&
+           p[0] == RESP_NACK && p[1] == (uint8_t)cmd && p[2] == code;
+}
+
+/* ------------------------------------------------------------------------------- the table --- */
+
+static void test_locked(void)
+{
+    od_gate_result_t g;
+
+    CASE("LOCKED: [00][cmd][FE] plaintext on BLE, AUTH_REQUIRED");
+    setup_locked();
+    g = admit(&BLE, 0x0071u, PAYLOAD, sizeof PAYLOAD, g_scratch, sizeof g_scratch);
+    CHECK(g.outcome == OD_FRAME_AUTH_REQUIRED);
+    CHECK(g_sent_n == 1u && sent_plain(0u, RESP_ACK, 0x0071u, RESP_AUTH_REQUIRED));
+
+    CASE("LOCKED: FE on TLS too -- every origin");
+    clear_sent();
+    g = admit(&TLS, 0x0071u, PAYLOAD, sizeof PAYLOAD, g_scratch, sizeof g_scratch);
+    CHECK(g.outcome == OD_FRAME_AUTH_REQUIRED);
+    CHECK(g_sent_n == 1u && sent_plain(0u, RESP_ACK, 0x0071u, RESP_AUTH_REQUIRED));
+}
+
+static void test_unclaimed(void)
+{
+    od_gate_result_t g;
+
+    CASE("UNCLAIMED, BLE: the body runs as sent, unsealed, nothing queued");
+    setup(UNCLAIMED);
+    g = admit(&BLE, 0x0071u, PAYLOAD, sizeof PAYLOAD, g_scratch, sizeof g_scratch);
+    CHECK(g.outcome == OD_FRAME_ACCEPTED);
+    CHECK(g.body.p == PAYLOAD && g.body.n == sizeof PAYLOAD);
+    CHECK(!g.sealed);
+    CHECK(g_sent_n == 0u);
+
+    CASE("UNCLAIMED, LAN plain: likewise");
+    g = admit(&LAN, 0x0071u, PAYLOAD, sizeof PAYLOAD, g_scratch, sizeof g_scratch);
+    CHECK(g.outcome == OD_FRAME_ACCEPTED && !g.sealed && g_sent_n == 0u);
+
+    CASE("UNCLAIMED in claim mode: a command off the allow-list is [FF][cmd][FD] plaintext");
+    g_cm.active = true;
+    g = admit(&BLE, 0x0071u, PAYLOAD, sizeof PAYLOAD, g_scratch, sizeof g_scratch);
+    CHECK(g.outcome == OD_FRAME_HANDLER_NACK);
+    CHECK(g_sent_n == 1u && sent_plain(0u, RESP_NACK, 0x0071u, OD_GATE_CLAIM_MODE));
+
+    CASE("UNCLAIMED in claim mode: an allow-listed command runs");
+    clear_sent();
+    g = admit(&BLE, CMD_CONFIG_READ, PAYLOAD, sizeof PAYLOAD, g_scratch, sizeof g_scratch);
+    CHECK(g.outcome == OD_FRAME_ACCEPTED && g_sent_n == 0u);
+}
+
+static void test_claimed_without_a_session(void)
+{
+    od_gate_result_t g;
+
+    CASE("CLAIMED, LAN TLS: plaintext runs, TLS protects it");
+    setup(CLAIMED);
+    g = admit(&TLS, 0x0071u, PAYLOAD, sizeof PAYLOAD, g_scratch, sizeof g_scratch);
+    CHECK(g.outcome == OD_FRAME_ACCEPTED);
+    CHECK(g.body.p == PAYLOAD && !g.sealed && g_sent_n == 0u);
+
+    CASE("CLAIMED, LAN plain: [00][cmd][FE]");
+    g = admit(&LAN, 0x0071u, PAYLOAD, sizeof PAYLOAD, g_scratch, sizeof g_scratch);
+    CHECK(g.outcome == OD_FRAME_AUTH_REQUIRED);
+    CHECK(g_sent_n == 1u && sent_plain(0u, RESP_ACK, 0x0071u, RESP_AUTH_REQUIRED));
+
+    CASE("CLAIMED, BLE, no session: [00][cmd][FE], and no-ack opcodes are refused the same way");
+    clear_sent();
+    g = admit(&BLE, 0x0071u, PAYLOAD, sizeof PAYLOAD, g_scratch, sizeof g_scratch);
+    CHECK(g.outcome == OD_FRAME_AUTH_REQUIRED);
+    CHECK(g_sent_n == 1u && sent_plain(0u, RESP_ACK, 0x0071u, RESP_AUTH_REQUIRED));
+    clear_sent();
+    g = admit(&BLE, CMD_PIPE_WRITE_DATA, PAYLOAD, sizeof PAYLOAD, g_scratch, sizeof g_scratch);
+    CHECK(g.outcome == OD_FRAME_AUTH_REQUIRED);
+    CHECK(g_sent_n == 1u && sent_plain(0u, RESP_ACK, CMD_PIPE_WRITE_DATA, RESP_AUTH_REQUIRED));
+
+    CASE("CLAIMED, BLE, a session that belongs to another connection: FE");
+    setup(LIVE);
+    g = admit(&BLE2, 0x0071u, PAYLOAD, sizeof PAYLOAD, g_scratch, sizeof g_scratch);
+    CHECK(g.outcome == OD_FRAME_AUTH_REQUIRED);
+    CHECK(g_sent_n == 1u && sent_plain(0u, RESP_ACK, 0x0071u, RESP_AUTH_REQUIRED));
+}
 
 static void test_open_ok(void)
 {
-    od_tx_reservation_t r;
-    uint8_t env[OD_SESSION_ENVELOPE_MAX];
-    const uint8_t frame[6] = { 0x00u, 0x71u, 1u, 2u, 3u, 4u };
-    uint16_t env_len;
     od_gate_result_t g;
 
-    CASE("OK: the decrypted payload is returned and nothing is queued");
-    setup(true);
-    env_len = seal_frame(frame, sizeof frame, env, sizeof env);
-    CHECK(env_len > 0u);
-    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
-    g = od_gate_open(&r, &BLE, 0x0071u, od_span_make(env, env_len), g_scratch, sizeof g_scratch);
+    CASE("OPEN_OK: the payload is returned from the scratch, sealed, and nothing is queued");
+    setup(LIVE);
+    g = admit_sealed(0x0071u);
     CHECK(g.outcome == OD_FRAME_ACCEPTED);
-    CHECK(g.body.n == sizeof frame - 2u);
-    CHECK(memcmp(g.body.p, frame + 2, g.body.n) == 0);
-    CHECK(od_txq_depth() == 0u);              /* the handler replies, not the gate */
-    CHECK(r.remaining == 1u);                 /* and the unit is still the handler's to spend */
+    CHECK(g.sealed);
+    CHECK(g.body.p == g_scratch);
+    CHECK(g.body.n == sizeof PAYLOAD && memcmp(g.body.p, PAYLOAD, sizeof PAYLOAD) == 0);
+    CHECK(g_sent_n == 0u);
+
+    CASE("a live session in claim mode: off the allow-list is a SEALED [FF][cmd][FD]");
+    g_cm.active = true;
+    g = admit_sealed(0x0071u);
+    CHECK(g.outcome == OD_FRAME_HANDLER_NACK);
+    CHECK(g_sent_n == 1u && sent_sealed_nack(0u, 0x0071u, OD_GATE_CLAIM_MODE));
 }
 
-static void test_open_no_session(void)
+static void test_open_record(void)
 {
-    od_tx_reservation_t r;
-    uint8_t env[64];
     od_gate_result_t g;
 
-    CASE("NO_SESSION is answered 0xFE and is AUTH_REQUIRED, not CRYPTO_FAILED");
-    setup(false);                             /* security on, never authenticated */
-    memset(env, 0xAAu, sizeof env);
-    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
-    g = od_gate_open(&r, &BLE, 0x0071u, od_span_make(env, sizeof env), g_scratch, sizeof g_scratch);
-    /* The distinction is the whole reason two outcomes exist: only this one advances the link's
-     * auth-abuse run, and only this one tells the host to authenticate rather than to retry. */
-    CHECK(g.outcome == OD_FRAME_AUTH_REQUIRED);
-    CHECK(g.body.n == 0u);
-    drain();
-    CHECK(g_sent_n == 1u);
-    CHECK(g_sent[0].len == 3u);
-    CHECK(g_sent[0].data[0] == RESP_ACK);
-    CHECK(g_sent[0].data[1] == 0x71u);
-    CHECK(g_sent[0].data[2] == RESP_AUTH_REQUIRED);
+    CASE("OPEN_RECORD: shorter than ctr+tag is a sealed [FF][cmd][F1], session kept");
+    setup(LIVE);
+    g = admit(&BLE, 0x0071u, PAYLOAD, sizeof PAYLOAD, g_scratch, sizeof g_scratch);
+    CHECK(g.outcome == OD_FRAME_CRYPTO_FAILED);
+    CHECK(g_sent_n == 1u && sent_sealed_nack(0u, 0x0071u, OD_SEC_NACK_RECORD));
+    CHECK(od_sec2_session_live(&BLE));
+}
+
+static void test_open_replay(void)
+{
+    od_gate_result_t g;
+
+    CASE("OPEN_REPLAY: the same record twice is a sealed [FF][cmd][F2] the second time");
+    setup(LIVE);
+    g = admit_sealed(0x0071u);
+    CHECK(g.outcome == OD_FRAME_ACCEPTED);
+    g = admit(&BLE, 0x0071u, g_rec, g_rec_n, g_scratch, sizeof g_scratch);
+    CHECK(g.outcome == OD_FRAME_CRYPTO_FAILED);
+    CHECK(g_sent_n == 1u && sent_sealed_nack(0u, 0x0071u, OD_SEC_NACK_REPLAY));
+    CHECK(od_sec2_session_live(&BLE));
 }
 
 static void test_open_bad_tag(void)
 {
-    od_tx_reservation_t r;
-    uint8_t env[OD_SESSION_ENVELOPE_MAX];
-    const uint8_t frame[6] = { 0x00u, 0x71u, 1u, 2u, 3u, 4u };
-    uint16_t env_len;
     od_gate_result_t g;
+    unsigned i;
 
-    CASE("a corrupted tag is answered 0xFF, and the body is NOT readable");
-    setup(true);
-    env_len = seal_frame(frame, sizeof frame, env, sizeof env);
-    env[env_len - 1u] ^= 0x01u;               /* flip a tag bit */
-    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
-    g = od_gate_open(&r, &BLE, 0x0071u, od_span_make(env, env_len), g_scratch, sizeof g_scratch);
-    CHECK(g.outcome == OD_FRAME_CRYPTO_FAILED);
-    /* CCM is decrypt-then-verify, so the scratch holds UNVERIFIED plaintext here. An empty body is
-     * what stops a caller acting on it -- acting on it is decrypting for the attacker. */
-    CHECK(g.body.n == 0u);
-    CHECK(g.body.p == NULL);
-    drain();
-    CHECK(g_sent[0].data[2] == RESP_NACK);
-    CHECK(g_last_open_result == (int)OD_SESSION_OPEN_BAD_TAG);
-}
-
-static void test_open_short_and_long(void)
-{
-    od_tx_reservation_t r;
-    static uint8_t big[OD_SESSION_ENVELOPE_MAX + 8];
-    uint8_t tiny[4] = { 1u, 2u, 3u, 4u };
-    od_gate_result_t g;
-
-    memset(big, 0x33u, sizeof big);
-
-    CASE("an under-length envelope is 0xFF, refused before the cipher");
-    setup(true);
-    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
-    g = od_gate_open(&r, &BLE, 0x0071u, od_span_make(tiny, sizeof tiny), g_scratch, sizeof g_scratch);
-    CHECK(g.outcome == OD_FRAME_CRYPTO_FAILED);
-    CHECK(g_last_open_result == (int)OD_SESSION_OPEN_SHORT);
-    drain();
-    CHECK(g_sent[0].data[2] == RESP_NACK);
-
-    CASE("an over-length envelope is 0xFF, also before the cipher");
-    setup(true);
-    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
-    g = od_gate_open(&r, &BLE, 0x0071u, od_span_make(big, OD_SESSION_ENVELOPE_MAX + 1u),
-                     g_scratch, sizeof g_scratch);
-    CHECK(g.outcome == OD_FRAME_CRYPTO_FAILED);
-    CHECK(g_last_open_result == (int)OD_SESSION_OPEN_TOO_LONG);
-}
-
-static void test_pipe_replay_is_silent(void)
-{
-    od_tx_reservation_t r;
-    uint8_t env[OD_SESSION_ENVELOPE_MAX];
-    const uint8_t frame[6] = { 0x00u, 0x81u, 1u, 2u, 3u, 4u };
-    uint16_t env_len;
-    od_gate_result_t g;
-
-    CASE("THE OD-S1 RULE: a replayed PIPE DATA frame draws NO response");
-    setup(true);
-    env_len = seal_frame(frame, sizeof frame, env, sizeof env);
-    CHECK(od_txq_reserve(2u, &r) == OD_TXQ_OK);
-    /* First delivery is accepted... */
-    g = od_gate_open(&r, &BLE, 0x0081u, od_span_make(env, env_len), g_scratch, sizeof g_scratch);
-    CHECK(g.outcome == OD_FRAME_ACCEPTED);
-    /* ...the identical bytes again are a replay, and answering them with the fatal 0x81 NACK would
-     * kill the whole upload on the first dropped frame. */
-    g = od_gate_open(&r, &BLE, 0x0081u, od_span_make(env, env_len), g_scratch, sizeof g_scratch);
-    CHECK(g.outcome == OD_FRAME_CRYPTO_DROPPED);
-    CHECK(g_last_open_result == (int)OD_SESSION_OPEN_REPLAY);
-    drain();
-    CHECK(g_sent_n == 0u);                    /* silence, not a NACK */
-
-    CASE("but telemetry still fired -- the report precedes the silent return");
-    CHECK(g_open_reports == 2u);
-
-    CASE("and the SAME replay on 0x0071 keeps its NACK: the rule is narrow on purpose");
-    setup(true);
-    {
-        /* Sealed AS 0x0071 -- the two command bytes are the AAD, so a frame sealed under one
-         * opcode cannot be opened under another. (Sealing 0x0081 here and opening it as 0x0071
-         * fails as BAD_TAG, which is the AAD binding doing its job rather than a replay.) */
-        const uint8_t dw[6] = { 0x00u, 0x71u, 1u, 2u, 3u, 4u };
-        env_len = seal_frame(dw, sizeof dw, env, sizeof env);
+    CASE("OPEN_BAD_TAG: a flipped tag bit is a sealed [FF][cmd][F3], body never returned");
+    setup(LIVE);
+    for (i = 0u; i < 2u; ++i) {
+        uint8_t f[64];
+        const uint16_t n = sec2c_seal(&C, 0x0071u, PAYLOAD, sizeof PAYLOAD, f);
+        f[n - 1u] ^= 0x01u;
+        clear_sent();
+        g = admit(&BLE, 0x0071u, f + 2, (uint16_t)(n - 2u), g_scratch, sizeof g_scratch);
+        CHECK(g.outcome == OD_FRAME_CRYPTO_FAILED);
+        CHECK(g.body.n == 0u);
+        CHECK(g_sent_n == 1u && sent_sealed_nack(0u, 0x0071u, OD_SEC_NACK_INTEGRITY));
+        CHECK(od_sec2_session_live(&BLE));
     }
-    CHECK(od_txq_reserve(2u, &r) == OD_TXQ_OK);
-    g = od_gate_open(&r, &BLE, 0x0071u, od_span_make(env, env_len), g_scratch, sizeof g_scratch);
-    CHECK(g.outcome == OD_FRAME_ACCEPTED);
-    g = od_gate_open(&r, &BLE, 0x0071u, od_span_make(env, env_len), g_scratch, sizeof g_scratch);
+
+    CASE("OPEN_BAD_TAG_TEARDOWN: the third strike's F3 still goes out sealed, then the session ends");
+    {
+        uint8_t f[64];
+        const uint16_t n = sec2c_seal(&C, 0x0071u, PAYLOAD, sizeof PAYLOAD, f);
+        f[n - 1u] ^= 0x01u;
+        clear_sent();
+        g = admit(&BLE, 0x0071u, f + 2, (uint16_t)(n - 2u), g_scratch, sizeof g_scratch);
+    }
     CHECK(g.outcome == OD_FRAME_CRYPTO_FAILED);
-    drain();
-    CHECK(g_sent_n == 1u);
-    CHECK(g_sent[0].data[2] == RESP_NACK);
+    CHECK(g_sent_n == 1u && sent_sealed_nack(0u, 0x0071u, OD_SEC_NACK_INTEGRITY));
+    CHECK(!od_sec2_session_live(&BLE));
+
+    CASE("and the next record meets FE, plaintext");
+    clear_sent();
+    g = admit_sealed(0x0071u);
+    CHECK(g.outcome == OD_FRAME_AUTH_REQUIRED);
+    CHECK(g_sent_n == 1u && sent_plain(0u, RESP_ACK, 0x0071u, RESP_AUTH_REQUIRED));
 }
 
-static void test_bad_scratch(void)
+static void test_open_crypto_error_and_no_room(void)
 {
-    od_tx_reservation_t r;
-    uint8_t env[64];
-    uint8_t small[8];
     od_gate_result_t g;
 
-    CASE("a scratch too small to hold a decrypted frame is refused, not written into");
-    setup(true);
-    memset(env, 0xAAu, sizeof env);
-    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
-    g = od_gate_open(&r, &BLE, 0x0071u, od_span_make(env, sizeof env), small, sizeof small);
+    CASE("OPEN_CRYPTO_ERROR: an engine fault is a sealed [FF][cmd][00], no strike");
+    setup(LIVE);
+    g_force_status = OD_HAL_CRYPTO_ERROR;
+    g_force_after = (int32_t)g_hal_calls;
+    g_force_once = true;
+    g = admit_sealed(0x0071u);
     CHECK(g.outcome == OD_FRAME_CRYPTO_FAILED);
-    CHECK(g.body.n == 0u);
-    CHECK(g_open_reports == 0u);              /* the session was never even asked */
-    CHECK(log_count_exact(OD_LOG_ERROR,
-                          "Session gate scratch is unavailable for command 0x0071") == 1u);
+    CHECK(g_sent_n == 1u && sent_sealed_nack(0u, 0x0071u, 0x00u));
+    CHECK(od_sec2_session_live(&BLE));
+
+    CASE("OPEN_NO_ROOM: a scratch too small for the payload is a sealed [FF][cmd][00]");
+    setup(LIVE);
+    {
+        uint8_t f[64];
+        uint8_t tiny[2];
+        const uint16_t n = sec2c_seal(&C, 0x0071u, PAYLOAD, sizeof PAYLOAD, f);
+        g = admit(&BLE, 0x0071u, f + 2, (uint16_t)(n - 2u), tiny, sizeof tiny);
+    }
+    CHECK(g.outcome == OD_FRAME_CRYPTO_FAILED);
+    CHECK(g_sent_n == 1u && sent_sealed_nack(0u, 0x0071u, 0x00u));
 
     CASE("a NULL scratch likewise");
-    setup(true);
-    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
-    g = od_gate_open(&r, &BLE, 0x0071u, od_span_make(env, sizeof env), NULL, OD_SESSION_PLAIN_MAX);
+    clear_sent();
+    {
+        uint8_t f[64];
+        const uint16_t n = sec2c_seal(&C, 0x0071u, PAYLOAD, sizeof PAYLOAD, f);
+        g = admit(&BLE, 0x0071u, f + 2, (uint16_t)(n - 2u), NULL, 0u);
+    }
     CHECK(g.outcome == OD_FRAME_CRYPTO_FAILED);
-    CHECK(log_count_exact(OD_LOG_ERROR,
-                          "Session gate scratch is unavailable for command 0x0071") == 1u);
+    CHECK(g_sent_n == 1u && sent_sealed_nack(0u, 0x0071u, 0x00u));
 }
 
-/* ---------------------------------------------------------------------------- the handshake --- */
-
-static void test_authenticate_dispositions(void)
+static void test_no_ack_opcodes_are_silent(void)
 {
-    od_tx_reservation_t r;
-    uint8_t step1[1] = { 0x00u };
-    uint8_t junk[7] = { 1u, 2u, 3u, 4u, 5u, 6u, 7u };
-    od_frame_outcome_t o;
+    static const uint16_t quiet[2] = { CMD_PIPE_WRITE_DATA, CMD_DEEP_SLEEP };
+    od_gate_result_t g;
+    unsigned i;
 
-    CASE("step 1 is AUTH_CONTROL and its 23-byte reply goes out PLAINTEXT");
-    setup(false);
-    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
-    o = od_gate_authenticate(&r, &BLE, od_span_make(step1, 1u));
-    CHECK(o == OD_FRAME_AUTH_CONTROL);
-    drain();
-    CHECK(g_sent_n == 1u);
-    CHECK(g_sent[0].len == OD_SESSION_STEP1_REPLY_LEN);
-    CHECK(g_sent[0].data[0] == RESP_ACK);
-    CHECK(g_sent[0].data[1] == RESP_AUTHENTICATE);
-    CHECK(g_sent[0].data[2] == AUTH_STATUS_CHALLENGE);
+    for (i = 0u; i < 2u; ++i) {
+        CASE("no-ack opcode: a replay is CRYPTO_DROPPED with nothing on the wire");
+        setup(LIVE);
+        g = admit_sealed(quiet[i]);
+        CHECK(g.outcome == OD_FRAME_ACCEPTED);
+        g = admit(&BLE, quiet[i], g_rec, g_rec_n, g_scratch, sizeof g_scratch);
+        CHECK(g.outcome == OD_FRAME_CRYPTO_DROPPED);
+        CHECK(g_sent_n == 0u);
 
-    CASE("a malformed body is AUTH_CONTROL with the core's own 3-byte error reply");
-    setup(false);
-    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
-    o = od_gate_authenticate(&r, &BLE, od_span_make(junk, sizeof junk));
-    CHECK(o == OD_FRAME_AUTH_CONTROL);
-    drain();
-    CHECK(g_sent[0].len == 3u);
-    CHECK(g_sent[0].data[2] == AUTH_STATUS_ERROR);
+        CASE("no-ack opcode: a short record is silent too");
+        g = admit(&BLE, quiet[i], PAYLOAD, sizeof PAYLOAD, g_scratch, sizeof g_scratch);
+        CHECK(g.outcome == OD_FRAME_CRYPTO_DROPPED);
+        CHECK(g_sent_n == 0u);
 
-    CASE("a successful step 2 is AUTH_ESTABLISHED, not merely AUTH_CONTROL");
-    /* The two differ in policy: only this one resets the auth-abuse run, and NEITHER stamps
-     * activity -- a peer that has just authenticated has not yet done work worth holding the
-     * exclusive link for. */
-    setup(false);
-    {
-        uint8_t rsp[OD_SESSION_REPLY_MAX];
-        uint16_t rl = 0u;
-        uint8_t server_nonce[16];
-        uint8_t proof_in[36], proof[16], body2[32];
-
-        CHECK(handshake_step1(&g_app_session, g_now_ms, server_nonce, rsp, &rl));
-        memcpy(proof_in, server_nonce, 16u);
-        memcpy(proof_in + 16, CLIENT_NONCE, 16u);
-        memcpy(proof_in + 32, DEVICE_ID, OD_SESSION_DEVICE_ID_LEN);
-        host_cmac(MASTER, proof_in, 36u, proof);
-        memcpy(body2, CLIENT_NONCE, 16u);
-        memcpy(body2 + 16, proof, 16u);
-
-        od_txq_reset();
-        memset(g_sent, 0, sizeof g_sent);
-        g_sent_n = 0u;
-        CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
-        o = od_gate_authenticate(&r, &BLE, od_span_make(body2, sizeof body2));
-        CHECK(o == OD_FRAME_AUTH_ESTABLISHED);
-        drain();
-        CHECK(g_sent[0].len == OD_SESSION_STEP2_REPLY_LEN);
-        CHECK(g_sent[0].data[2] == AUTH_STATUS_SUCCESS);
+        CASE("no-ack opcode: the third bad tag is silent and still ends the session");
+        {
+            unsigned k;
+            for (k = 0u; k < OD_SEC2_STRIKES; ++k) {
+                uint8_t f[64];
+                const uint16_t n = sec2c_seal(&C, quiet[i], PAYLOAD, sizeof PAYLOAD, f);
+                f[n - 1u] ^= 0x01u;
+                g = admit(&BLE, quiet[i], f + 2, (uint16_t)(n - 2u), g_scratch,
+                          sizeof g_scratch);
+                CHECK(g.outcome == OD_FRAME_CRYPTO_DROPPED);
+            }
+        }
+        CHECK(g_sent_n == 0u);
+        CHECK(!od_sec2_session_live(&BLE));
     }
 
-    CASE("a wrong proof is AUTH_CONTROL, and the reply is still plaintext");
-    setup(false);
-    {
-        uint8_t server_nonce[16];
-        CHECK(od_txq_reserve(2u, &r) == OD_TXQ_OK);
-        CHECK(handshake(&g_app_session, g_now_ms, server_nonce, true) == OD_SESSION_AUTH_REJECTED);
-    }
+    CASE("the no-ack set is exactly PIPE DATA and DEEP_SLEEP");
+    CHECK(od_gate_no_ack(CMD_PIPE_WRITE_DATA));
+    CHECK(od_gate_no_ack(CMD_DEEP_SLEEP));
+    CHECK(!od_gate_no_ack(CMD_DIRECT_WRITE_DATA));
+    CHECK(!od_gate_no_ack(CMD_PIPE_WRITE_END));
+}
 
-    CASE("no security configured is AUTH_CONTROL with AUTH_STATUS_NOT_CONFIG");
-    setup(false);
-    g_security_on = false;
-    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
-    o = od_gate_authenticate(&r, &BLE, od_span_make(step1, 1u));
-    CHECK(o == OD_FRAME_AUTH_CONTROL);
-    drain();
-    CHECK(g_sent[0].len == 3u);
-    CHECK(g_sent[0].data[2] == AUTH_STATUS_NOT_CONFIG);
+static void test_claim_mode_allow_list(void)
+{
+    CASE("claim mode always admits the discovery and handshake set");
+    CHECK(od_gate_claim_mode_allows(CMD_REBOOT, false, true));
+    CHECK(od_gate_claim_mode_allows(CMD_CONFIG_READ, false, true));
+    CHECK(od_gate_claim_mode_allows(CMD_SEC_STATUS, false, true));
+    CHECK(od_gate_claim_mode_allows(CMD_SEC_CLAIM, false, true));
+
+    CASE("config writes only in a FRESH claim mode before a code is rendered");
+    CHECK(od_gate_claim_mode_allows(CMD_CONFIG_WRITE, true, false));
+    CHECK(od_gate_claim_mode_allows(CMD_CONFIG_CHUNK, true, false));
+    CHECK(od_gate_claim_mode_allows(CMD_CONFIG_CLEAR, true, false));
+    CHECK(!od_gate_claim_mode_allows(CMD_CONFIG_WRITE, true, true));
+    CHECK(!od_gate_claim_mode_allows(CMD_CONFIG_WRITE, false, false));
+
+    CASE("everything else is refused");
+    CHECK(!od_gate_claim_mode_allows(CMD_DIRECT_WRITE_START, true, false));
+    CHECK(!od_gate_claim_mode_allows(CMD_SEC_KEY, true, false));
+    CHECK(!od_gate_claim_mode_allows(CMD_PIPE_WRITE_DATA, true, false));
 }
 
 int main(void)
 {
+    test_locked();
+    test_unclaimed();
+    test_claimed_without_a_session();
     test_open_ok();
-    test_open_no_session();
+    test_open_record();
+    test_open_replay();
     test_open_bad_tag();
-    test_open_short_and_long();
-    test_pipe_replay_is_silent();
-    test_bad_scratch();
-    test_authenticate_dispositions();
+    test_open_crypto_error_and_no_room();
+    test_no_ack_opcodes_are_silent();
+    test_claim_mode_allow_list();
 
     printf("gate: %u checks, %u failures\n", g_checks, g_failures);
     return g_failures == 0u ? 0 : 1;

@@ -223,11 +223,9 @@ uint32_t od_xfer_app_now_ms(void) { return fake_k_uptime_ms; }
 
 bool initConfigStorage(void) { return fake_store_init_ok; }
 
-/* The fake store never holds writes, so a refused save is always the generic failure. */
-uint8_t od_config_store_save_error(void)
-{
-    return OD_ERR_CONFIG_WRITE_FAILED;
-}
+/* od_config_store_save_error() is the real one: od_config_store.c is linked for the CRC the SEC2
+ * key records use. Its busy flag is set only by od_config_store_save(), which this fake store
+ * never calls, so a refused save always reads as the generic failure. */
 
 bool saveConfig(uint8_t *data, uint32_t len)
 {
@@ -324,8 +322,8 @@ int opendisplay_buzzer_activate(const uint8_t *p, uint16_t n)
     return fake_buzzer_rc;
 }
 
-/* The parsed security configuration. The corpus runner owns the session, and od_session_app_security
- * is its seam, so this returns NULL: the command code only asks in the key-loss path. */
+/* The parsed security configuration. The suite owns the device's security state through the
+ * od_sec2_app hooks, so the command code sees none here. */
 const struct SecurityConfig *od_get_parsed_security(void) { return NULL; }
 
 /* ----------------------------------------------------------------------------------- kernel --- */

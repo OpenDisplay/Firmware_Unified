@@ -22,7 +22,6 @@
 
 #include "opendisplay_config_parser.h"
 #include "od_log.h"
-#include "od_session.h"
 #include "opendisplay_config_storage.h"
 
 /* The config parsed last, for the two security accessors below. A pointer rather than a copy:
@@ -40,7 +39,16 @@ static uint8_t s_security_enabled_snapshot;
 
 static void publish_security_enabled(const struct od_config *cfg)
 {
-	const bool enabled = cfg != NULL && od_session_security_enabled(&cfg->security);
+	/* The 2.x rule (enabled and a non-zero key), for the RX-thread debug predicate only; whether a
+	 * session is required is od_sec2's state, which lives on the main thread. */
+	bool enabled = false;
+	unsigned i;
+
+	if (cfg != NULL && cfg->security.encryption_enabled != 0u) {
+		for (i = 0; i < sizeof(cfg->security.encryption_key); ++i) {
+			enabled = enabled || cfg->security.encryption_key[i] != 0u;
+		}
+	}
 
 	__atomic_store_n(&s_security_enabled_snapshot, enabled ? 1u : 0u, __ATOMIC_RELEASE);
 }

@@ -14,8 +14,7 @@ void opendisplay_pipe_process(void);
  * belonging to a connection that has gone.
  *
  * Public rather than behind a private header because it is a fact about the TRANSPORT, which is
- * what this file is for. The header it used to share with the session accessors is gone: those
- * moved behind od_session_app, and what was left was a general escape hatch with one member. */
+ * what this file is for. */
 uint32_t od_pipe_conn_gen(void);
 
 #endif

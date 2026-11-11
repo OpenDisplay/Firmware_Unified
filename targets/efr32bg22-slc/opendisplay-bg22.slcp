@@ -114,7 +114,7 @@ configuration:
 - condition:
   - psa_crypto
   name: SL_PSA_KEY_USER_SLOT_COUNT
-  value: '1'
+  value: '3'
 ui_hints:
   highlight:
   - path: config/btconf/gatt_configuration.btconf

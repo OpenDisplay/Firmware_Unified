@@ -6,8 +6,7 @@
 #include "od_log.h"
 #include "encryption_state.h"
 #include "encryption.h"   // checkResetPin()
-#include "od_session.h"
-#include "od_session_app.h"
+#include "od_sec2.h"
 #include "power_latch.h"
 #include "opendisplay_structs.h"
 #include "wifi_service.h"  // OPENDISPLAY_HAS_WIFI + lanActivePort()/lanTlsEnabled()
@@ -299,6 +298,7 @@ void full_config_init() {
     od_log_info("Factory clear build: erasing stored config");
     clearStoredConfig();
     od_log_info("Config cleared; skipping load");
+    (void)od_sec2_boot(nullptr);
     return;
 #endif
 
@@ -306,9 +306,10 @@ void full_config_init() {
     if (!configLoaded && tryProvisionFactoryEmbed()) {
         configLoaded = loadGlobalConfig();
     }
+    /* SECURITY_V2 10.1: decided once per boot, before the radio starts. */
+    (void)od_sec2_boot(configLoaded ? &securityConfig : nullptr);
     if (configLoaded) {
         logWifiRuntimeState();
-        od_session_clear(od_session_app_state());
         encryptionInitialized = true;
         checkResetPin();
         if (globalConfig.loaded && (globalConfig.system_config.device_flags & DEVICE_FLAG_WS_PP_INIT)) {

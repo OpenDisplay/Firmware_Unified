@@ -18,6 +18,7 @@
 #include "od_action.h"
 #include "od_watchdog_app.h"
 #include "od_config_read.h"
+#include "od_sec2.h"
 #include "od_txq.h"
 
 /* The log port itself lives in hal/od_hal_log.c now -- including the UART-number choice and
@@ -950,6 +951,7 @@ void loop() {
     // behind it permanently.
     (void)od_txq_process();
     (void)od_config_read_pump();
+    od_sec2_pump();
     if (s_msdUpdatePending) {
         s_msdUpdatePending = false;
         updatemsdata();
@@ -1068,6 +1070,7 @@ void idleDelay(uint32_t delayMs) {
         // read for the whole delay while its consumer sat here draining an empty queue.
         (void)od_txq_process();
         (void)od_config_read_pump();
+        od_sec2_pump();
         // RX and transport events are deliberately NOT serviced here -- return to
         // loop() and let serviceBleEvents()/serviceBleRx() handle them at top
         // level. Dispatching RX inside idleDelay would make command handlers

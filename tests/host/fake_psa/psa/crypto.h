@@ -46,6 +46,12 @@ typedef uint32_t psa_key_usage_t;
 #define PSA_KEY_USAGE_DECRYPT          ((psa_key_usage_t)0x00000200)
 #define PSA_KEY_USAGE_SIGN_MESSAGE     ((psa_key_usage_t)0x00000400)
 #define PSA_KEY_USAGE_VERIFY_MESSAGE   ((psa_key_usage_t)0x00000800)
+#define PSA_KEY_USAGE_DERIVE           ((psa_key_usage_t)0x00004000)
+
+typedef uint8_t psa_ecc_family_t;
+#define PSA_ECC_FAMILY_SECP_R1         ((psa_ecc_family_t)0x12)
+#define PSA_KEY_TYPE_ECC_KEY_PAIR(curve) ((psa_key_type_t)(0x7100u | (curve)))
+#define PSA_ALG_ECDH                   ((psa_algorithm_t)0x09020000)
 
 typedef struct {
     psa_key_type_t  type;
@@ -85,5 +91,14 @@ psa_status_t psa_cipher_encrypt(psa_key_id_t key, psa_algorithm_t alg,
                                 const uint8_t *in, size_t in_len,
                                 uint8_t *out, size_t out_size, size_t *out_len);
 psa_status_t psa_generate_random(uint8_t *out, size_t out_len);
+
+/* ECDH, structurally only: the fake checks the 04 prefix and refuses an all-zero X with
+ * INVALID_ARGUMENT, and the "shared secret" is a byte mix, not P-256. */
+psa_status_t psa_generate_key(const psa_key_attributes_t *attr, psa_key_id_t *key);
+psa_status_t psa_export_public_key(psa_key_id_t key, uint8_t *data, size_t data_size,
+                                   size_t *data_len);
+psa_status_t psa_raw_key_agreement(psa_algorithm_t alg, psa_key_id_t key,
+                                   const uint8_t *peer, size_t peer_len,
+                                   uint8_t *out, size_t out_size, size_t *out_len);
 
 #endif /* OD_TEST_FAKE_PSA_CRYPTO_H */

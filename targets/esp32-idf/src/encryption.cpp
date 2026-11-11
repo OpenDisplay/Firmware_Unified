@@ -46,8 +46,7 @@ void getAuthDeviceIdBytes(uint8_t* device_id) {
 
 /* What remains here is the DEVICE IDENTITY and the local key-loss controls: the efuse-derived
  * auth id and advertised name, the secure erase of the stored config, and the reset pin. The
- * session itself -- handshake, KDF, replay window, CCM envelope -- is shared/core/od_session.c,
- * and callers reach it through od_session_app.h directly. */
+ * session itself -- handshake, KDF, records -- is shared/core/od_sec2.c. */
 
 static constexpr const char* CONFIG_FILE_PATH_LOCAL = "/config.bin";
 

@@ -1,3 +1,4 @@
+#include "od_sec2.h"
 #include "opendisplay_ble.h"
 #include "od_hal_i2c.h"
 #include "od_nfc_app.h"
@@ -1821,7 +1822,10 @@ void opendisplay_ble_on_boot(uint8_t advertising_set_handle)
   }
   opendisplay_pipe_set_tx_report_available(true);
 
-  if (loadGlobalConfig(&s_od_global_config)) {
+  const bool config_loaded = loadGlobalConfig(&s_od_global_config);
+  /* SECURITY_V2 10.1: decided once per boot, before advertising starts. */
+  (void)od_sec2_boot(config_loaded ? od_get_parsed_security() : NULL);
+  if (config_loaded) {
     printf("[OD] config: loaded displays=%u leds=%u buses=%u nfc=%u flash=%u ver=%u.%u\r\n",
            (unsigned)s_od_global_config.display_count,
            (unsigned)s_od_global_config.led_count,

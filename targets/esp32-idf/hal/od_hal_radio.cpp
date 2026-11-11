@@ -23,8 +23,7 @@
  *
  * The depth is read BEFORE the entry is dequeued, so a healthy path reads [Q:0] and a rising Q
  * flags the drain falling behind the producer. It is not conditioned on the frame having been
- * sealed -- that question is answered at the seam that knows the answer, od_session_app_report's
- * OD_SESSION_APP_SEAL case, rather than re-derived here from bytes that cannot show it. */
+ * sealed: od_reply decides that, and the bytes here cannot show it. */
 static void logTxFrame(od_origin_t origin, const uint8_t *frame, uint16_t len)
 {
     const uint16_t cmd = (len >= 2u) ? (uint16_t)((frame[0] << 8) | frame[1]) : frame[0];

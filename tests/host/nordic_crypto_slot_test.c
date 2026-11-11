@@ -219,8 +219,45 @@ static void test_random_propagates_failure(void)
     CHECK(od_hal_crypto_random(buf, sizeof buf) == OD_HAL_CRYPTO_OK);
 }
 
+/* The ephemeral ECDH key: one PSA key, destroyed by every agree whatever its result, and an
+ * INVALID_ARGUMENT from PSA reported as BAD_POINT (the shared code already validated the point;
+ * this is the backend's second opinion). The fake's arithmetic is not P-256. */
+static void test_ecdh_key_lifetime(void)
+{
+    uint8_t q[64], peer[64], z[32];
+
+    CASE("ECDH keygen holds one key; agree destroys it");
+    reset();
+    CHECK(od_hal_crypto_ecdh_keygen(q) == OD_HAL_CRYPTO_OK);
+    CHECK(fake_psa_live_keys() == 1u);
+    CHECK((fake_psa_last_attr.usage & PSA_KEY_USAGE_DERIVE) != 0u);
+    memset(peer, 0x11, sizeof peer);
+    CHECK(od_hal_crypto_ecdh_agree(peer, z) == OD_HAL_CRYPTO_OK);
+    CHECK(fake_psa_live_keys() == 0u);
+
+    CASE("a second keygen replaces the first rather than leaking it");
+    CHECK(od_hal_crypto_ecdh_keygen(q) == OD_HAL_CRYPTO_OK);
+    CHECK(od_hal_crypto_ecdh_keygen(q) == OD_HAL_CRYPTO_OK);
+    CHECK(fake_psa_live_keys() == 1u);
+
+    CASE("a peer PSA rejects is BAD_POINT, and the key is still gone");
+    memset(peer, 0, 32u);
+    CHECK(od_hal_crypto_ecdh_agree(peer, z) == OD_HAL_CRYPTO_BAD_POINT);
+    CHECK(fake_psa_live_keys() == 0u);
+
+    CASE("agree without a key is an error");
+    CHECK(od_hal_crypto_ecdh_agree(peer, z) == OD_HAL_CRYPTO_ERROR);
+
+    CASE("discard is idempotent");
+    CHECK(od_hal_crypto_ecdh_keygen(q) == OD_HAL_CRYPTO_OK);
+    od_hal_crypto_ecdh_discard();
+    od_hal_crypto_ecdh_discard();
+    CHECK(fake_psa_live_keys() == 0u);
+}
+
 int main(void)
 {
+    test_ecdh_key_lifetime();
     test_normal_replacement();
     test_destroy_failure_does_not_latch();
     test_clear_after_failed_destroy_is_idempotent();

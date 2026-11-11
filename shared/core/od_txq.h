@@ -15,7 +15,7 @@
  * reply consumed one of ITS units". The token makes borrowing another frame's capacity an
  * invariant failure rather than an accident that shows up as a lost ack under load.
  *
- * CONTEXT: single loop/main task, like od_adv_control and od_session. No locks. The token supplies
+ * CONTEXT: single loop/main task, like od_adv_control and od_sec2. No locks. The token supplies
  * the ownership a bare global counter did not; it does not make this reentrant.
  */
 

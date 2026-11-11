@@ -1,31 +1,30 @@
 #include "od_color.h"
 #include "od_inflate_app.h"
-#include "od_session_app.h"
+#include "od_sec2.h"
+#include "od_sec2_app.h"
 #include "od_cmd_test_ctx.h"
 #include "od_xfer.h"
 #include "od_xfer_app.h"
 #include "od_zlib_inflate.h"
+#include "sec2_client.h"
 #include "session_fake.h"
 
 #include <stdio.h>
 #include <string.h>
 
-static struct od_session g_session;
+static struct sec2c g_client;
 static bool g_panel_ok;
 static bool g_refresh_completed;
 static uint8_t g_scratch[32];
 static uint8_t g_sent[8][OD_TX_FRAME_MAX];
 static uint16_t g_sent_len[8];
 static unsigned g_sent_n;
+static unsigned g_pop;
 
-struct od_session *od_session_app_state(void) { return &g_session; }
-const struct SecurityConfig *od_session_app_security(void) { return &g_sec; }
-uint32_t od_session_app_now_ms(void) { return 1000u; }
-void od_session_app_device_id(uint8_t out[OD_SESSION_DEVICE_ID_LEN])
-{ memcpy(out, DEVICE_ID, OD_SESSION_DEVICE_ID_LEN); }
-void od_session_app_report(enum od_session_app_op op, int result, uint16_t cmd,
-                           const struct od_session_report *report)
-{ (void)op; (void)result; (void)cmd; (void)report; }
+uint32_t od_sec2_app_now_ms(void) { return 1000u; }
+void od_sec2_app_uid(uint8_t uid[8]) { memcpy(uid, UID, 8u); }
+uint8_t od_sec2_app_dflags(void) { return OD_SEC2_DFLAG_HAS_PANEL; }
+const struct SecurityConfig *od_sec2_app_security(void) { return &g_sec; }
 
 od_radio_result_t od_hal_radio_send(od_origin_t origin, uint32_t tag,
                                     const uint8_t *frame, uint16_t len)
@@ -37,6 +36,14 @@ od_radio_result_t od_hal_radio_send(od_origin_t origin, uint32_t tag,
     }
     ++g_sent_n;
     return OD_RADIO_SENT;
+}
+bool sec2c_radio_pop(uint8_t *buf, uint16_t *len)
+{
+    if (g_pop >= g_sent_n || g_pop >= sizeof g_sent / sizeof g_sent[0]) return false;
+    memcpy(buf, g_sent[g_pop], g_sent_len[g_pop]);
+    *len = g_sent_len[g_pop];
+    ++g_pop;
+    return true;
 }
 bool od_hal_radio_tag_is_live(od_origin_t origin, uint32_t tag)
 { (void)origin; (void)tag; return true; }
@@ -83,6 +90,7 @@ static void clear_sent(void)
     memset(g_sent, 0, sizeof g_sent);
     memset(g_sent_len, 0, sizeof g_sent_len);
     g_sent_n = 0u;
+    g_pop = 0u;
 }
 
 static int drain_all(void)
@@ -138,32 +146,41 @@ static int run_complete(bool completed)
     return drain_all();
 }
 
+/* Sealed: every frame opens under the live session, in order. Plain: none is a sealed frame. */
+static int is_sealed(unsigned i)
+{
+    uint8_t plain[OD_TX_FRAME_MAX];
+    uint16_t plain_len = 0u;
+    return g_sent[i][0] == OD_SEC2_SEALED_STATUS &&
+           sec2c_open(&g_client, g_sent[i], g_sent_len[i], plain, &plain_len);
+}
+
 static int all_application_replies_are(bool sealed)
 {
     unsigned i;
     if (g_sent_n != 4u) return 0;
     for (i = 0u; i < g_sent_n; ++i) {
-        if ((g_sent_len[i] > 2u) != sealed) return 0;
+        if (sealed ? !is_sealed(i) : (g_sent[i][0] == OD_SEC2_SEALED_STATUS)) return 0;
     }
     return 1;
 }
 
 int main(void)
 {
-    uint8_t server_nonce[16];
+    static const od_reply_t ble = { OD_ORIGIN_BLE, 7u };
 
     fake_reset();
     sec_init(0u);
-    memset(&g_session, 0, sizeof g_session);
-    od_session_init(&g_session, 0u);
-    if (handshake(&g_session, 1000u, server_nonce, false) != OD_SESSION_AUTH_ESTABLISHED) {
+    od_txq_reset();
+    (void)od_sec2_boot(&g_sec);
+    sec2c_init(&g_client, MASTER, UID);
+    if (sec2c_auth(&g_client, &ble) != 0) {
         return 1;
     }
-    od_txq_reset();
     od_xfer_reset();
     g_refresh_completed = true;
 
-    if (!run_start(true) || g_sent_n != 1u || g_sent_len[0] <= 2u) {
+    if (!run_start(true) || g_sent_n != 1u || !is_sealed(0u)) {
         return 1;
     }
     od_xfer_reset();
@@ -174,9 +191,9 @@ int main(void)
     if (!run_complete(true) || !all_application_replies_are(true)) return 1;
     if (!run_complete(false) || !all_application_replies_are(true)) return 1;
 
-    od_session_clear(&g_session);
-    sec_init(0u);
-    g_sec.encryption_enabled = 0u;
+    /* Unclaimed: no key record in the store, so the same replies go out in plaintext. */
+    fake_reset();
+    (void)od_sec2_boot(NULL);
     od_txq_reset();
     od_xfer_reset();
     if (!run_complete(true) || !all_application_replies_are(false)) return 1;

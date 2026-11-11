@@ -1,10 +1,9 @@
 /* aes128_test.c -- known-answer tests for the host AES-128 core.
  *
- * WHY THIS IS REGISTERED AND session_test.c IS NOT. This one has something to link today, and
- * it guards the foundation: every expected byte the session suite computes -- the KDF, the
- * session id, the auth proof, every CCM tag -- comes out of od_test_aes128_encrypt(). If it is
- * wrong, the session differential tests still agree with themselves and prove nothing. So the
- * vectors below are the standard's own, not values this implementation produced.
+ * It guards the foundation: every expected byte the SEC2 suites compute -- the KDF, the
+ * transcript tags, every CCM tag -- comes out of od_test_aes128_encrypt(). If it is wrong, those
+ * suites still agree with themselves and prove nothing. So the vectors below are the standard's
+ * own, not values this implementation produced.
  *
  * Vectors: FIPS-197 Appendix B (the worked example) and Appendix C.1 (AES-128 key expansion
  * example), plus NIST SP 800-38A F.1.1 ECB-AES128 block 1.

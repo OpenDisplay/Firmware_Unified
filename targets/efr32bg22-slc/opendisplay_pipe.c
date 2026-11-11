@@ -6,8 +6,7 @@
 #include "od_config_read.h"
 #include "od_core.h"
 #include "od_dispatch.h"
-#include "od_session.h"
-#include "od_session_app.h"
+#include "od_sec2.h"
 #include "od_span.h"
 #include "od_txq.h"
 #include "od_xfer.h"
@@ -152,7 +151,6 @@ void opendisplay_pipe_set_characteristic(uint16_t pipe_value_handle)
 {
   s_attr = pipe_value_handle;
   s_notify = false;
-  od_session_init(od_session_app_state(), 0u);
   opendisplay_pipe_reset_transport();
 }
 
@@ -169,7 +167,7 @@ bool sl_bt_can_process_event(uint32_t len)
 {
   bool held;
   (void)len;
-  held = od_config_read_active() || od_txq_depth() != 0u;
+  held = od_config_read_active() || od_sec2_tx_active() || od_txq_depth() != 0u;
   if (held && !s_hold_active) {
     s_hold_started_ms = now_ms();
     s_hold_active = true;
@@ -191,9 +189,6 @@ void od_core_frame_done(const od_reply_t *rp, od_frame_outcome_t outcome)
     /* can_process_event() should make this unreachable; swallowing it would lose a command. */
     printf("[OD] invariant: shared dispatch deferred an admitted BGAPI frame\r\n");
     return;
-  }
-  if (policy.stamp_activity) {
-    od_session_touch(od_session_app_state(), now_ms());
   }
   if (policy.reset_abuse) {
     s_auth_abuse = 0u;
@@ -275,6 +270,7 @@ void opendisplay_pipe_process(void)
 
   (void)od_txq_process();
   (void)od_config_read_pump();
+  od_sec2_pump();
   (void)od_txq_process();
   if (od_config_read_active()) {
     if (!s_read_active) {

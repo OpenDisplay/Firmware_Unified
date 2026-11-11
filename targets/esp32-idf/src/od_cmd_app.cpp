@@ -138,13 +138,3 @@ extern "C" bool od_cmd_mutates_config(uint16_t cmd)
     }
 }
 
-extern "C" bool od_cmd_allow_unauthenticated(uint16_t cmd)
-{
-    /* NOTHING, on this target. Its key-loss recovery is not a gate exemption: configWriteGate()
-     * runs INSIDE handleWriteConfig, so it is reachable only for frames that already passed the
-     * session gate -- which in practice means the TLS-LAN channel, where the transport is the
-     * authentication. Returning true for anything here would open a plaintext-BLE path that
-     * ESP32 has never had. */
-    (void)cmd;
-    return false;
-}

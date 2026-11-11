@@ -42,6 +42,7 @@ list(APPEND OD_APP_SOURCES ${CMAKE_CURRENT_LIST_DIR}/../hal/od_hal_nvs.c
                            ${CMAKE_CURRENT_LIST_DIR}/../hal/od_hal_wdt.c
                            ${CMAKE_CURRENT_LIST_DIR}/../hal/od_hal_crypto.c
                            ${CMAKE_CURRENT_LIST_DIR}/../hal/od_hal_crypto_random.c
+                           ${CMAKE_CURRENT_LIST_DIR}/../hal/od_hal_secret.c
                            ${CMAKE_CURRENT_LIST_DIR}/../hal/od_hal_radio.cpp
                            ${CMAKE_CURRENT_LIST_DIR}/../ble/od_ble_nimble.cpp)
 

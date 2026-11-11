@@ -1,3 +1,4 @@
+#include "od_sec2.h"
 #include "opendisplay_ble.h"
 #include "opendisplay_idle_wake.h"
 #include "od_log.h"
@@ -1068,6 +1069,8 @@ void opendisplay_ble_init(void)
 	} else {
 		od_log_info("config: defaults");
 	}
+	/* SECURITY_V2 10.1: decided once per boot, before advertising starts. */
+	(void)od_sec2_boot(config_loaded ? &s_od_global_config.security : NULL);
 	flash_powerdown_from_config();
 
 	od_sensor_bq27220_init(opendisplay_get_global_config());

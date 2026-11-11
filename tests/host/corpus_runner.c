@@ -23,9 +23,10 @@
 #include "od_config_read.h"
 #include "od_dispatch.h"
 #include "od_reply.h"
-#include "od_session.h"
-#include "od_session_app.h"
+#include "od_sec2.h"
+#include "od_sec2_app.h"
 #include "od_txq.h"
+#include "sec2_client.h"
 #include "session_fake.h"
 
 #include <stdio.h>
@@ -49,6 +50,7 @@ static unsigned g_checks;
 #define SENT_LEN 320u
 static struct { uint16_t len; uint8_t data[SENT_LEN]; } g_sent[SENT_MAX];
 static unsigned g_sent_n;
+static unsigned g_pop;
 
 od_radio_result_t od_hal_radio_send(od_origin_t origin, uint32_t tag,
                                     const uint8_t *frame, uint16_t len)
@@ -73,27 +75,26 @@ void od_txq_app_dropped(const od_reply_t *rp, uint16_t len, od_radio_result_t wh
     (void)rp; (void)len; (void)why;
 }
 
-/* ------------------------------------------------------------------------- the app session --- */
+/* The SEC2 client reads its handshake replies from the same capture. */
+bool sec2c_radio_pop(uint8_t *buf, uint16_t *len)
+{
+    if (g_pop >= g_sent_n || g_pop >= SENT_MAX) {
+        return false;
+    }
+    memcpy(buf, g_sent[g_pop].data, g_sent[g_pop].len);
+    *len = g_sent[g_pop].len;
+    ++g_pop;
+    return true;
+}
 
-static struct od_session g_session;
-static bool     g_security_on;
+/* ------------------------------------------------------------------------- od_sec2_app hooks --- */
+
 static uint32_t g_now_ms = 1000u;
 
-struct od_session *od_session_app_state(void) { return &g_session; }
-const struct SecurityConfig *od_session_app_security(void)
-{
-    return g_security_on ? &g_sec : NULL;
-}
-uint32_t od_session_app_now_ms(void) { return g_now_ms; }
-void od_session_app_device_id(uint8_t out[OD_SESSION_DEVICE_ID_LEN])
-{
-    memcpy(out, DEVICE_ID, OD_SESSION_DEVICE_ID_LEN);
-}
-void od_session_app_report(enum od_session_app_op op, int result, uint16_t cmd,
-                           const struct od_session_report *report)
-{
-    (void)op; (void)result; (void)cmd; (void)report;
-}
+uint32_t od_sec2_app_now_ms(void) { return g_now_ms; }
+void od_sec2_app_uid(uint8_t uid[8]) { memcpy(uid, UID, 8u); }
+uint8_t od_sec2_app_dflags(void) { return OD_SEC2_DFLAG_HAS_PANEL; }
+const struct SecurityConfig *od_sec2_app_security(void) { return &g_sec; }
 
 /* The dispatcher's own policy hook. Nothing here reads it, but every caller of od_dispatch_frame()
  * must call it exactly once, so the runner does what a target does. */
@@ -119,21 +120,20 @@ static void hex(const uint8_t *b, size_t n, char *out, size_t cap)
     out[(o < cap) ? o : (cap - 1u)] = '\0';
 }
 
-/* Open a real session when the vector asks for one, so an encrypted-path vector meets the same
- * gate a device would. The handshake is the shared one against the shared fake -- not a flag set
- * behind od_session's back, which would test a state the firmware cannot actually be in. */
+/* `sec_enabled` is a claimed device (a 2.x key migrated at boot), and a live session is a real
+ * SEC_AUTH handshake through the dispatcher -- not a flag set behind od_sec2's back, which would
+ * test a state the firmware cannot actually be in. */
 static bool arm(const od_vec_t *v)
 {
-    uint8_t server_nonce[16];
+    static struct sec2c client;
 
     fake_reset();
     sec_init(0);
-    memset(&g_session, 0, sizeof g_session);
-    od_session_init(&g_session, 0);
     od_config_read_cancel();
     od_txq_reset();
     g_sent_n = 0u;
-    g_security_on = (v->sec_enabled != 0u);
+    g_pop = 0u;
+    (void)od_sec2_boot(v->sec_enabled ? &g_sec : NULL);
 
     od_corpus_knobs.xfer_active = v->xfer_active;
     od_corpus_knobs.storage_ok = v->storage_ok;
@@ -143,20 +143,44 @@ static bool arm(const od_vec_t *v)
     od_corpus_profile_reset(v);
 
     if (v->session_live) {
-        if (handshake(&g_session, g_now_ms, server_nonce, false) != OD_SESSION_AUTH_ESTABLISHED) {
+        const od_reply_t rp = { OD_ORIGIN_BLE, 9u };
+
+        sec2c_init(&client, MASTER, UID);
+        if (sec2c_auth(&client, &rp) != 0) {
             return false;
         }
         /* The handshake itself answers; those bytes are not this vector's subject. */
         g_sent_n = 0u;
+        g_pop = 0u;
         od_txq_reset();
     }
     return true;
 }
 
+/* Vectors whose expected bytes are v1 session behaviour, which SEC2 replaced. Each needs a
+ * corpus update in ../opendisplay-protocol; until then they are counted, not run.
+ *   dispatch/decrypt-failure  a v1 CCM envelope answered [00][cmd][FF]; SEC2 records are
+ *                             [ctr][C][T] and refuse with a sealed [FF][cmd][F1..F3]. */
+static const char *const k_superseded[] = {
+    "dispatch/decrypt-failure",
+};
+
+static bool superseded(const od_vec_t *v)
+{
+    size_t i;
+
+    for (i = 0u; i < sizeof k_superseded / sizeof k_superseded[0]; ++i) {
+        if (strcmp(v->id, k_superseded[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /* ----------------------------------------------------------------------------------- cases --- */
 
 struct totals {
-    unsigned discovered, executed, d2h_only, excluded, excluded_historical;
+    unsigned discovered, executed, d2h_only, excluded, excluded_historical, superseded;
     unsigned by_proof[3];
 };
 
@@ -187,6 +211,11 @@ static void run_vector(const od_vec_t *v, struct totals *t)
          * firmware or the vector agree with the other, which is the edit this classification
          * exists to forbid; the portable profile covers it instead. */
         ++t->excluded_historical;
+        return;
+    }
+
+    if (superseded(v)) {
+        ++t->superseded;
         return;
     }
 
@@ -262,9 +291,10 @@ int main(void)
     }
 
     printf("corpus[%s]: %u discovered, %u h2d steps executed, %u d2h direction-only, "
-           "%u excluded by predicate, %u historical (not production-provable)\n",
+           "%u excluded by predicate, %u historical (not production-provable), "
+           "%u superseded by SEC2\n",
            od_corpus_profile_name(), t.discovered, t.executed, t.d2h_only, t.excluded,
-           t.excluded_historical);
+           t.excluded_historical, t.superseded);
     printf("corpus[%s]: shared=%u target-production=%u historical-fixture=%u\n",
            od_corpus_profile_name(), t.by_proof[OD_PROOF_SHARED],
            t.by_proof[OD_PROOF_TARGET_PRODUCTION], t.by_proof[OD_PROOF_HISTORICAL_FIXTURE]);

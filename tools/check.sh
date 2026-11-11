@@ -144,24 +144,24 @@ check "shared boundary: no vendor includes"   boundary_includes
 check "shared boundary: C only, no String"    boundary_c_only
 check "shared boundary: protocol headers"     boundary_protocol
 
-# od_session.c compares attacker-supplied bytes -- an auth proof and a session id -- and must do
-# it in od_ct_equal, whose fixed-iteration volatile loop is the whole defence. A HOST TEST CANNOT
-# CATCH THIS: replacing od_ct_equal with memcmp passes the entire suite, verified by mutation.
+# od_sec2.c compares attacker-supplied bytes -- handshake tags and the confirmation tag -- and must
+# do it in ct_equal, whose fixed-iteration volatile loop is the whole defence. A HOST TEST CANNOT
+# CATCH THIS: a memcmp in place of ct_equal is functionally identical, so every suite passes.
 # It is exactly the regression AUDIT_NORDIC_ZEPHYR_2026-08-14.md:259 records shipping unnoticed on
 # another target, so the enforcement has to be structural.
 session_constant_time() {
     local hits
-    hits=$(grep -nE '\bmemcmp[[:space:]]*\(' shared/core/od_session.c || true)
+    hits=$(grep -nE '\bmemcmp[[:space:]]*\(' shared/core/od_sec2.c || true)
     if [ -n "$hits" ]; then
         echo "$hits"
         echo
-        echo "memcmp in od_session.c: comparisons of attacker-supplied bytes belong in"
-        echo "od_ct_equal(), which is fixed-iteration with a volatile accumulator. If this is a"
+        echo "memcmp in od_sec2: comparisons of attacker-supplied bytes belong in"
+        echo "ct_equal(), which is fixed-iteration with a volatile accumulator. If this is a"
         echo "comparison of non-secret data, move it behind a helper with a name that says so."
         return 1
     fi
 }
-check "shared boundary: od_session uses no memcmp"  session_constant_time
+check "shared boundary: od_sec2 uses no memcmp"  session_constant_time
 
 # od_hal_time is the two-function ambient/busy-wait seam. Millisecond sleep stays private until
 # ESP32's unsigned round-up contract is reconciled with Nordic's signed k_msleep contract, and the
@@ -252,12 +252,12 @@ c11_structure() {
     # od_reply_t and pass it.
     scan "implicit frame context" '\b(g_commandOrigin|g_commandInstance|commandOrigin|imageDataWritten)\b' \
          "build an od_reply_t at the ingress and pass it to od_dispatch_app_frame()."
-    # The session object is private to its od_session_app translation unit. A name reachable from
+    # The session state is private to od_sec2.c. A name reachable from
     # elsewhere is one a caller can memset -- and memset is not teardown here: the key lives in an
     # od_hal_crypto slot, so zeroing the struct strands a prepared key in a finite pool and loses
-    # the slot index with it. od_session_clear() is the only teardown.
+    # the slot index with it. od_sec2_teardown() is the only teardown.
     scan "exported session singleton" '\b(g_session|od_pipe_session|od_pipe_device_id)\b' \
-         "reach the session through od_session_app_state()."
+         "end a session with od_sec2_teardown()."
     # Confidentiality is chosen at the CALL SITE. Inferring it from response bytes is how this
     # firmware once sealed its own rejection frames, which the host then validated as ACKs.
     scan "byte-inferred sealing" 'response\[(0|2)\][[:space:]]*==[[:space:]]*(RESP_NACK|0xFF)' \
@@ -756,14 +756,16 @@ silabs_c13_config() {
         echo "Silabs tracked PSA CCM selection missing"; return 1; }
     grep -A2 -q 'id: psa_crypto_ccm' targets/efr32bg22-slc/opendisplay-bg22.slcp || {
         echo "Silabs SLC project no longer selects PSA CCM"; return 1; }
-    grep -q '^#define SL_PSA_KEY_USER_SLOT_COUNT[[:space:]]\+1$' \
+    # Three: the SEC2 H->D and D->H record keys plus the ephemeral ECDH key, all live at once
+    # during FINISH/CONFIRM. Each slot costs RAM on a 32 KB part, so the count is pinned.
+    grep -q '^#define SL_PSA_KEY_USER_SLOT_COUNT[[:space:]]\+3$' \
         targets/efr32bg22-slc/config/psa_crypto_config.h || {
-        echo "Silabs application PSA key-slot reserve is not one"; return 1; }
+        echo "Silabs application PSA key-slot reserve is not three"; return 1; }
     grep -A1 -q "name: SL_PSA_KEY_USER_SLOT_COUNT[[:space:]]*$" \
         targets/efr32bg22-slc/opendisplay-bg22.slcp || {
         echo "Silabs SLC project lost its PSA key-slot setting"; return 1; }
     grep -A1 "name: SL_PSA_KEY_USER_SLOT_COUNT[[:space:]]*$" \
-        targets/efr32bg22-slc/opendisplay-bg22.slcp | grep -q "value: '1'" || {
+        targets/efr32bg22-slc/opendisplay-bg22.slcp | grep -q "value: '3'" || {
         echo "Silabs SLC project would regenerate the PSA key-slot reserve incorrectly"; return 1; }
     grep -q '^#define SL_BGAPI_MAX_PAYLOAD_SIZE[[:space:]]\+(263)$' \
         targets/efr32bg22-slc/config/sl_bgapi_config.h || {
@@ -1333,7 +1335,7 @@ nfc_off_link_proof() {
 check "host: NFC capability-off link proof" nfc_off_link_proof
 
 # ASan + UBSan over every host test at once -- including the two PRE-AUTH parsers, od_config_tlv
-# and od_session, whose inputs an unauthenticated peer controls. halt_on_error is not decoration:
+# and od_sec2, whose inputs an unauthenticated peer controls. halt_on_error is not decoration:
 # UBSan's default is to print a diagnostic and carry on with status 0.
 host_sanitizers() {
     local dir="$BUILD_ROOT/host-asan"
@@ -1362,7 +1364,7 @@ fi
 #
 # A crash writes its input to ./crash-<sha1>. Commit it to the corpus AND pin it as a numbered
 # case in the corresponding ordinary host test, so the regression fails without fuzzing too.
-FUZZ_TARGETS=(session_open_raw session_open_sealed session_auth pipe_start pipe_data config_drive)
+FUZZ_TARGETS=(sec2_frames pipe_start pipe_data config_drive)
 
 fuzz_all() {
     local dir="$BUILD_ROOT/fuzz" t

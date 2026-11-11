@@ -16,8 +16,9 @@
 #include "od_cmd_test_ctx.h"
 #include "od_hal_radio.h"
 #include "od_reply.h"
-#include "od_session.h"
-#include "od_session_app.h"
+#include "od_sec2.h"
+#include "od_sec2_app.h"
+#include "sec2_client.h"
 #include "od_txq.h"
 #include "opendisplay_protocol.h"
 #include "session_fake.h"
@@ -42,14 +43,19 @@ static const char *g_case = "(none)";
     } while (0)
 #define CASE(name) (g_case = (name))
 
-#define SENT_MAX 4
+#define SENT_MAX 16
 static struct { uint16_t len; uint8_t data[OD_TX_FRAME_MAX]; } g_sent[SENT_MAX];
 static unsigned g_sent_n;
+static unsigned g_pop;
 
 od_radio_result_t od_hal_radio_send(od_origin_t origin, uint32_t tag,
                                     const uint8_t *frame, uint16_t len)
 {
     (void)origin; (void)tag;
+    if (g_pop == g_sent_n) {              /* everything captured so far was consumed */
+        g_pop = 0u;
+        g_sent_n = 0u;
+    }
     if (g_sent_n < SENT_MAX) {
         g_sent[g_sent_n].len = len;
         memcpy(g_sent[g_sent_n].data, frame, len);
@@ -64,30 +70,38 @@ bool od_hal_radio_tag_is_live(od_origin_t origin, uint32_t tag)
     return true;
 }
 
-/* Plaintext throughout: the bound under test is evaluated before anything session-dependent, and
- * an unauthenticated peer reaches it whenever security is disabled. */
-static struct od_session g_session;
-static bool g_security_on;          /* false throughout -- see the note above */
-struct od_session *od_session_app_state(void) { return &g_session; }
-const struct SecurityConfig *od_session_app_security(void)
-{ return g_security_on ? &g_sec : NULL; }
-uint32_t od_session_app_now_ms(void) { return 1000u; }
-void od_session_app_device_id(uint8_t out[OD_SESSION_DEVICE_ID_LEN])
-{ memset(out, 0xA5, OD_SESSION_DEVICE_ID_LEN); }
-void od_session_app_report(enum od_session_app_op op, int result, uint16_t cmd,
-                           const struct od_session_report *report)
-{ (void)op; (void)result; (void)cmd; (void)report; }
+/* The SEC2 client reads its handshake replies from the capture. */
+bool sec2c_radio_pop(uint8_t *buf, uint16_t *len)
+{
+    if (g_pop >= g_sent_n) {
+        return false;
+    }
+    memcpy(buf, g_sent[g_pop].data, g_sent[g_pop].len);
+    *len = g_sent[g_pop].len;
+    ++g_pop;
+    return true;
+}
+
+/* Unclaimed unless a reference row asks for a session: the bound under test is evaluated before
+ * anything session-dependent, and an unclaimed device takes every command in plaintext. */
+uint32_t od_sec2_app_now_ms(void) { return 1000u; }
+void od_sec2_app_uid(uint8_t uid[8]) { memcpy(uid, UID, 8u); }
+uint8_t od_sec2_app_dflags(void) { return OD_SEC2_DFLAG_HAS_PANEL; }
+const struct SecurityConfig *od_sec2_app_security(void) { return &g_sec; }
+
+static struct sec2c g_ref_client;
 
 static void setup(void)
 {
     fake_nordic_reset();
+    fake_reset();
     sec_init(0u);
-    g_security_on = false;
+    (void)od_sec2_boot(NULL);
     od_txq_reset();
-    od_session_clear(&g_session);
     od_nfc_reset();
     memset(g_sent, 0, sizeof g_sent);
     g_sent_n = 0u;
+    g_pop = 0u;
 }
 
 /* Drive one 0x0083 frame through the production handler and drain the queue into g_sent. */
@@ -249,13 +263,19 @@ static od_cmd_result_t ref_submit(const uint8_t *body, uint16_t n, bool foreign_
 
 static void ref_authenticate(void)
 {
-    uint8_t nonce[16];
+    const od_reply_t ble = { OD_ORIGIN_BLE, 1u };
 
-    g_security_on = true;
-    CHECK(handshake(&g_session, od_session_app_now_ms(), nonce, false)
-          == OD_SESSION_AUTH_ESTABLISHED);
-    CHECK(od_session_authenticated(&g_session));
+    (void)od_sec2_boot(&g_sec);
+    sec2c_init(&g_ref_client, MASTER, UID);
+    CHECK(sec2c_auth(&g_ref_client, &ble) == 0);
+    CHECK(od_sec2_session_live(&ble));
     g_sent_n = 0u;
+    g_pop = 0u;
+}
+
+static bool ref_open_reply(const uint8_t *frame, uint16_t n, uint8_t *out, uint16_t *out_n)
+{
+    return sec2c_open(&g_ref_client, frame, n, out, out_n);
 }
 
 #include "nfc_reference_cases.inc"

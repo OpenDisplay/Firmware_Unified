@@ -1,7 +1,7 @@
 #include "fake_silabs.h"
 
+#include "opendisplay_protocol.h"
 #include "sl_bt_api.h"
-#include "od_session.h"
 
 #include <string.h>
 

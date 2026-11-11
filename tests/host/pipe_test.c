@@ -426,9 +426,10 @@ static void test_bounds_and_fatal_reset(void)
     CASE("START minimum is protection-aware");
     setup();
     start = od_test_cmd_ctx(owner, &g_reservation, 12u, true);
-    CHECK(od_pipe_start(&start, start_body(sb, 0u, 1u, 1u, 32u, 32u)) == OD_CMD_NACK);
+    /* A sealed DATA frame is [cmd:2][seq][1 B][ctr:4][tag:12] at least: 20 bytes. */
+    CHECK(od_pipe_start(&start, start_body(sb, 0u, 1u, 1u, 19u, 32u)) == OD_CMD_NACK);
     CHECK(g_replies[0].plain && g_replies[0].bytes[2] == OD_ERR_PIPE_START_BAD_HEADER);
-    CHECK(od_pipe_start(&start, start_body(sb, 0u, 1u, 1u, 33u, 32u)) == OD_CMD_OK);
+    CHECK(od_pipe_start(&start, start_body(sb, 0u, 1u, 1u, 20u, 32u)) == OD_CMD_OK);
 
     CASE("protected DATA is bounded by its original sealed wire length");
     setup();

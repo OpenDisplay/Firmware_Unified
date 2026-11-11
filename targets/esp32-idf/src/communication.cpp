@@ -28,9 +28,7 @@
 #include "od_dispatch.h"   /* od_dispatch_budget, for the migration's legacy reservations */
 #include "od_cmd_reply.h"
 
-/* The CCM envelope, both directions. The session itself is od_session_app.cpp's. */
-#include "od_session.h"
-#include "od_session_app.h"
+#include "od_sec2.h"
 #include "od_span.h"
 #include "od_xfer.h"
 #include "encryption_state.h"
@@ -192,7 +190,6 @@ static void reloadConfigAfterSave(void) {
     }
     // A boot screen skipped for want of drive packets is shown once a config brings them.
     displayRequestBootAfterConfigWrite();
-    od_session_clear(od_session_app_state());
 #ifdef OPENDISPLAY_HAS_WIFI
     // Non-blocking: a config write arrives over a live BLE link, and the blocking
     // form stalls the loop task for up to 36 s of connect retries, freezing BLE
@@ -418,17 +415,10 @@ static ConfigWriteGate configWriteGate(const od_cmd_ctx_t *ctx) {
         return CONFIG_WRITE_ALLOWED;
     }
 #endif
-    // BLE and plaintext LAN keep the pre-TLS rule unchanged.
-    // od_session_alive() is MUTATING: it clears a session that has expired, which is the
-    // liveness semantics this gate has always had. Do not reorder the short-circuit, and do
-    // not swap in od_session_authenticated() -- that one is pure and would leave an expired
-    // session standing.
-    if (!od_session_security_enabled(od_session_app_security()) ||
-        od_session_alive(od_session_app_state(), od_hal_uptime_ms(), NULL)) {
-        return CONFIG_WRITE_ALLOWED;
-    }
-    const bool rewriteAllowed = (securityConfig.flags & (1 << 0)) != 0;
-    return rewriteAllowed ? CONFIG_WRITE_ALLOWED_ERASE : CONFIG_WRITE_DENIED;
+    // The SEC2 gate already admitted this frame: an unclaimed device, a claimed one with a
+    // verified record, or LAN TLS. The 2.x REWRITE_ALLOWED erase-and-write path is gone; key
+    // loss is recovered by factory reset (SECURITY_V2 13.5).
+    return CONFIG_WRITE_ALLOWED;
 }
 
 od_cmd_result_t handleWriteConfig(const od_cmd_ctx_t *ctx, uint8_t* data, uint16_t len) {
@@ -631,11 +621,6 @@ extern "C" void od_core_frame_done(const od_reply_t *rp, od_frame_outcome_t outc
     }
     if (p.stamp_activity) {
         linkStampOwnerCommand();
-        /* BOTH clocks, and the session one is not redundant. od_session_open() touches it on the
-         * encrypted BLE path, but an accepted TLS-LAN command never reaches od_session_open at all
-         * (SECTION 9 rule 4 gates it out), so without this the session's activity clock would stop
-         * for exactly the traffic that is keeping the link busy. */
-        od_session_touch(od_session_app_state(), od_hal_uptime_ms());
     }
     /* BLE ONLY, and the origin gate is not decoration: the same auth gate is reachable from
      * plaintext LAN, and counting those would let LAN traffic drop a BLE client. */

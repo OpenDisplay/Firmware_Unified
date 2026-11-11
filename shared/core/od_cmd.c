@@ -48,7 +48,7 @@ od_frame_policy_t od_frame_policy(od_frame_outcome_t outcome)
 
     case OD_FRAME_CRYPTO_FAILED:
     case OD_FRAME_CRYPTO_DROPPED:
-        /* Neither touches the run. od_session already applied its own strike policy -- only a bad
+        /* Neither touches the run. od_sec2 already applied its own strike policy -- only a bad
          * tag counts there -- and adding a link-level count would punish the same frame twice, or
          * punish ordinary packet loss. */
         break;

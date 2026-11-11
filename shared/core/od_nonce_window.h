@@ -7,7 +7,7 @@
  * migration rule is to import working code unchanged.
  *
  * WHY IT IS PORTED RATHER THAN WRITTEN. This repo's targets/esp32-idf/src/encryption.cpp carries
- * an older +-32 signed-difference window. Upstream replaced it, and an od_session design that
+ * an older +-32 signed-difference window. Upstream replaced it, and an earlier session design that
  * re-derived one instead of porting this got two things wrong in security-relevant ways: it
  * bounded the FORWARD direction (which strands a session once a gap exceeds the cap, since
  * nothing then commits and last_seen never advances), and it used signed differences on a counter
@@ -15,7 +15,7 @@
  * the comments below.
  *
  * Its 816-line host test lives at ../Firmware/tools/test_nonce_window.cpp and is the differential
- * oracle for tests/host/session_test.c.
+ * oracle for tests/host/nonce_window_test.c.
  *
  * shared/ boundary: this file includes only stdbool/stdint/string.h and touches no global state,
  * which is what let it move without change.

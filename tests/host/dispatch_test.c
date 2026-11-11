@@ -4,7 +4,7 @@
  *   reserve after the gate      -> the gate's own FE/FF answer has no slot and vanishes
  *   reserve after the handler   -> a handler mutates state and then cannot say so, which to the
  *                                  host is indistinguishable from the command never running
- *   defer after decrypt         -> the replay window advanced, so the re-dispatched frame is
+ *   defer after record open     -> the replay window advanced, so the re-dispatched frame is
  *                                  refused the second time and the transfer stalls
  *   producer conflict too late  -> a config write lands between two read chunks and splices two
  *                                  configs into one CRC-valid read-back
@@ -19,9 +19,10 @@
 #include "od_pipe.h"
 #include "od_config_read.h"
 #include "od_reply.h"
-#include "od_session.h"
-#include "od_session_app.h"
+#include "od_sec2.h"
+#include "od_sec2_app.h"
 #include "od_xfer.h"
+#include "sec2_client.h"
 #include "session_fake.h"
 
 #include <stdarg.h>
@@ -90,6 +91,7 @@ static unsigned log_count_exact(int level, const char *text)
 #define SENT_MAX 64u
 static struct { uint16_t len; uint8_t data[OD_TX_FRAME_MAX]; } g_sent[SENT_MAX];
 static unsigned g_sent_n;
+static unsigned g_pop;
 static bool     g_tag_live;
 
 od_radio_result_t od_hal_radio_send(od_origin_t origin, uint32_t tag,
@@ -115,36 +117,33 @@ void od_txq_app_dropped(const od_reply_t *rp, uint16_t len, od_radio_result_t wh
     (void)rp; (void)len; (void)why;
 }
 
-/* ------------------------------------------------------------------ fake od_session_app seam --- */
+bool sec2c_radio_pop(uint8_t *buf, uint16_t *len)
+{
+    if (g_pop >= g_sent_n) {
+        return false;
+    }
+    memcpy(buf, g_sent[g_pop].data, g_sent[g_pop].len);
+    *len = g_sent[g_pop].len;
+    ++g_pop;
+    return true;
+}
 
-static struct od_session g_app_session;
-static bool     g_security_on;
+/* ------------------------------------------------------------------------- od_sec2_app hooks --- */
+
 static uint32_t g_now_ms = 1000u;
 
-struct od_session *od_session_app_state(void) { return &g_app_session; }
-const struct SecurityConfig *od_session_app_security(void)
-{
-    return g_security_on ? &g_sec : NULL;
-}
-uint32_t od_session_app_now_ms(void) { return g_now_ms; }
-void od_session_app_device_id(uint8_t out[OD_SESSION_DEVICE_ID_LEN])
-{
-    memcpy(out, DEVICE_ID, OD_SESSION_DEVICE_ID_LEN);
-}
-void od_session_app_report(enum od_session_app_op op, int result, uint16_t cmd,
-                           const struct od_session_report *report)
-{
-    (void)op; (void)result; (void)cmd; (void)report;
-}
+uint32_t od_sec2_app_now_ms(void) { return g_now_ms; }
+void od_sec2_app_uid(uint8_t uid[8]) { memcpy(uid, UID, 8u); }
+uint8_t od_sec2_app_dflags(void) { return OD_SEC2_DFLAG_HAS_PANEL; }
+const struct SecurityConfig *od_sec2_app_security(void) { return &g_sec; }
 
 /* --------------------------------------------------------------------------- fake handlers --- */
 
 static unsigned        g_handler_calls;
 static uint16_t        g_handler_cmd;
 /* Wide enough for the largest UNENCRYPTED body the dispatcher can pass (its BLE ceiling minus the
- * two opcode bytes), not just the largest decrypted one. Sized to OD_SESSION_PLAIN_MAX, a mutation
- * that raises the ceiling overflowed this and corrupted the harness -- the defect was detected,
- * but by memory corruption rather than by an assertion. */
+ * two opcode bytes), not just the largest opened record; a ceiling mutation must fail an
+ * assertion, not corrupt the harness. */
 static uint8_t         g_handler_body[OD_TX_FRAME_MAX];
 static uint16_t        g_handler_body_len;
 static uint16_t        g_handler_wire_len;
@@ -243,40 +242,35 @@ bool od_cmd_mutates_config(uint16_t cmd)
     return g_mutates_config;
 }
 
-/* The key-loss exemption, off unless a case turns it on. Defaulting it OFF is deliberate: every
- * existing case asserts the gate's behaviour, and a fake that exempted by default would quietly
- * make them assert nothing. */
-static bool g_allow_unauthenticated;
-
-bool od_cmd_allow_unauthenticated(uint16_t cmd)
-{
-    return g_allow_unauthenticated && cmd == CMD_CONFIG_WRITE;
-}
-
 /* --------------------------------------------------------------------------------- helpers --- */
 
 static const od_reply_t BLE = { OD_ORIGIN_BLE, 9u };
-/* SECTION 9 rule 4: TLS-PSK LAN is authenticated and encrypted by the transport, so its frames
- * carry no CCM envelope and must not meet the session gate. Tag 0 is what wifi_service publishes
+/* TLS-PSK LAN is authenticated and encrypted by the transport (K_lan is the PSK), so its frames
+ * carry no SEC2 record and must not meet the record layer. Tag 0 is what wifi_service publishes
  * when the link owner is not OWNER_LAN, and od_hal_radio_tag_is_live treats it as live. */
 static const od_reply_t LAN_TLS = { OD_ORIGIN_LAN_TLS, 0u };
 static const od_reply_t LAN_PLAIN = { OD_ORIGIN_LAN_PLAIN, 0u };
 static uint8_t g_blob[1024];
+static struct sec2c C;
 
-static void setup(bool security_on, bool open_session)
+static void clear_sent(void)
 {
-    uint8_t server_nonce[16];
-
-    fake_reset();
-    sec_init(0);
-    memset(&g_app_session, 0, sizeof g_app_session);
-    od_session_init(&g_app_session, 0);
-    od_config_read_cancel();
-    od_txq_reset();
     memset(g_sent, 0, sizeof g_sent);
     g_sent_n = 0u;
+    g_pop = 0u;
+}
+
+/* `claimed` boots from a 2.x key (row 4); `open_session` then runs SEC_AUTH on BLE. */
+static void setup(bool claimed, bool open_session)
+{
+    fake_reset();
+    sec_init(0);
+    od_config_read_cancel();
+    od_txq_reset();
+    clear_sent();
     g_tag_live = true;
-    g_security_on = security_on;
+    (void)od_sec2_boot(claimed ? &g_sec : NULL);
+    sec2c_init(&C, MASTER, UID);
     g_handler_calls = 0u;
     g_handler_cmd = 0u;
     g_handler_body_len = 0u;
@@ -288,27 +282,16 @@ static void setup(bool security_on, bool open_session)
     memset(g_blob, 0x5Au, sizeof g_blob);
 
     if (open_session) {
-        CHECK(handshake(&g_app_session, g_now_ms, server_nonce, false)
-              == OD_SESSION_AUTH_ESTABLISHED);
+        CHECK(sec2c_auth(&C, &BLE) == 0);
+        clear_sent();
     }
     logs_reset();
 }
 
-/* Build [cmd:2][sealed envelope] as the wire carries it. */
+/* Build [cmd:2][ctr:4][C][T:12] as the wire carries it. */
 static uint16_t make_encrypted(uint16_t cmd, const uint8_t *payload, uint16_t n, uint8_t *out)
 {
-    uint8_t plain[OD_SESSION_PLAIN_FRAME_MAX];
-    uint16_t sealed_len = 0u;
-
-    plain[0] = (uint8_t)((cmd >> 8) & 0xFFu);
-    plain[1] = (uint8_t)(cmd & 0xFFu);
-    memcpy(plain + 2, payload, n);
-    if (od_session_seal(&g_app_session, od_span_make(plain, (uint16_t)(n + 2u)),
-                        out, OD_SESSION_SEALED_MAX, &sealed_len, g_now_ms, NULL)
-        != OD_SESSION_SEAL_OK) {
-        return 0u;
-    }
-    return sealed_len;
+    return sec2c_seal(&C, cmd, payload, n, out);
 }
 
 /* ----------------------------------------------------------------------------------- cases --- */
@@ -317,7 +300,7 @@ static void test_plaintext_path(void)
 {
     uint8_t frame[6] = { 0x00u, 0x77u, 1u, 2u, 3u, 4u };
 
-    CASE("security off: the body reaches the handler unchanged");
+    CASE("unclaimed: the body reaches the handler unchanged");
     setup(false, false);
     CHECK(od_dispatch_frame(&BLE, od_span_make(frame, sizeof frame)) == OD_FRAME_ACCEPTED);
     CHECK(g_handler_calls == 1u);
@@ -330,11 +313,11 @@ static void test_plaintext_path(void)
 
 static void test_encrypted_path(void)
 {
-    uint8_t wire[OD_SESSION_SEALED_MAX];
+    uint8_t wire[256];
     const uint8_t payload[4] = { 0xDEu, 0xADu, 0xBEu, 0xEFu };
     uint16_t n;
 
-    CASE("security on: the handler sees decrypted plaintext");
+    CASE("claimed with a live session: the handler sees the opened plaintext");
     setup(true, true);
     n = make_encrypted(0x0077u, payload, sizeof payload, wire);
     CHECK(n > 0u);
@@ -344,7 +327,7 @@ static void test_encrypted_path(void)
     CHECK(g_handler_wire_len == n && g_handler_was_protected);
     CHECK(memcmp(g_handler_body, payload, sizeof payload) == 0);
 
-    CASE("security on with no session: AUTH_REQUIRED, and the handler never runs");
+    CASE("claimed with no session: AUTH_REQUIRED, and the handler never runs");
     setup(true, false);
     {
         uint8_t junk[40];
@@ -357,9 +340,8 @@ static void test_encrypted_path(void)
     /* THE TLS BYPASS, pinned in both directions. Losing it is silent in exactly the wrong way:
      * the device still answers, so it looks alive, and every ordinary command inside an
      * authenticated TLS session comes back AUTH_REQUIRED with no way for the host to tell that
-     * from a genuine session problem. It also makes the TLS branch of the target's config-write
-     * authorization unreachable. */
-    CASE("TLS-LAN bypasses the session gate: PLAINTEXT reaches the handler with security on");
+     * from a genuine session problem. */
+    CASE("TLS-LAN bypasses the record layer: PLAINTEXT reaches the handler on a claimed device");
     setup(true, false);
     {
         uint8_t plain[6] = { 0x00u, 0x77u, 1u, 2u, 3u, 4u };
@@ -378,53 +360,27 @@ static void test_encrypted_path(void)
               OD_FRAME_AUTH_REQUIRED);
         CHECK(g_handler_calls == 0u);
     }
-    g_allow_unauthenticated = false;
 }
 
-/* KEY-LOSS RECOVERY. A device whose host lost the session key answers AUTH_REQUIRED to everything
- * and is otherwise reachable only physically, so a target may exempt a config REWRITE. The whole
- * safety of that rests on the two boundaries below, and neither is obvious from the call site. */
-static void test_unauthenticated_exemption(void)
+/* Inside a live session a plaintext frame is parsed as a record and refused: there is no way to
+ * slip a cleartext command past the record layer and its replay window mid-session. */
+static void test_plaintext_refused_inside_a_session(void)
 {
     uint8_t plain[6] = { 0x00u, 0x41u, 1u, 2u, 3u, 4u };
-    uint8_t other[6] = { 0x00u, 0x77u, 1u, 2u, 3u, 4u };
-    uint8_t server_nonce[16];
     uint8_t wire[64];
     uint16_t n;
 
-    CASE("an exempt opcode reaches the handler unauthenticated, with its PLAINTEXT body");
-    setup(true, false);
-    g_allow_unauthenticated = true;
-    CHECK(od_dispatch_frame(&BLE, od_span_make(plain, sizeof plain)) == OD_FRAME_ACCEPTED);
-    CHECK(g_handler_calls == 1u);
-    CHECK(g_handler_body_len == 4u);
-    CHECK(memcmp(g_handler_body, plain + 2, 4u) == 0);
-
-    CASE("a NON-exempt opcode is still refused, so the exemption is per-opcode not per-device");
-    setup(true, false);
-    g_allow_unauthenticated = true;
-    CHECK(od_dispatch_frame(&BLE, od_span_make(other, sizeof other)) == OD_FRAME_AUTH_REQUIRED);
+    CASE("with a LIVE session a plaintext CONFIG_WRITE is refused and never runs");
+    setup(true, true);
+    CHECK(od_dispatch_frame(&BLE, od_span_make(plain, sizeof plain)) == OD_FRAME_CRYPTO_FAILED);
     CHECK(g_handler_calls == 0u);
 
-    /* THE BOUNDARY THAT MATTERS. With a session live the exemption must not be consulted at all,
-     * or a peer could send the exempt opcode in the CLEAR mid-session and skip both the envelope
-     * and the replay window -- turning a recovery path into an authentication bypass. */
-    CASE("with a LIVE session the exemption is not consulted: plaintext is still refused");
-    setup(true, false);
-    g_allow_unauthenticated = true;
-    CHECK(handshake(od_session_app_state(), g_now_ms, server_nonce, false) ==
-          OD_SESSION_AUTH_ESTABLISHED);
-    CHECK(od_dispatch_frame(&BLE, od_span_make(plain, sizeof plain)) != OD_FRAME_ACCEPTED);
-    CHECK(g_handler_calls == 0u);
-
-    CASE("and a SEALED exempt frame on that live session still decrypts normally");
+    CASE("and a SEALED one on that session opens normally");
     n = make_encrypted(0x0041u, plain + 2, 4u, wire);
     CHECK(n > 0u);
     CHECK(od_dispatch_frame(&BLE, od_span_make(wire, n)) == OD_FRAME_ACCEPTED);
     CHECK(g_handler_calls == 1u);
     CHECK(g_handler_body_len == 4u);
-
-    g_allow_unauthenticated = false;
 }
 
 static void test_structural_and_liveness(void)
@@ -588,15 +544,14 @@ static void test_budget_covers_the_worst_case(void)
 static void test_producer_conflict_defers_before_decrypt(void)
 {
     od_tx_reservation_t r;
-    uint8_t wire[OD_SESSION_SEALED_MAX];
-    uint8_t alternate[OD_SESSION_SEALED_MAX];
+    uint8_t wire[256];
+    uint8_t alternate[256];
     const uint8_t payload[2] = { 1u, 2u };
     uint16_t n;
-    uint64_t rx_before;
 
-    CASE("a config write during an active read is DEFERRED, and the replay window does NOT move");
-    /* Deferring after decrypt would advance rx_last, so the re-dispatched frame is refused the
-     * second time and the transfer stalls -- the reason this check is above the gate. */
+    CASE("a config write during an active read is DEFERRED before the record is opened");
+    /* Deferring after the open would commit the record counter, so the re-dispatched frame is
+     * refused as a replay and the transfer stalls -- the reason this check is above the gate. */
     setup(true, true);
     g_mutates_config = true;
     CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
@@ -605,7 +560,6 @@ static void test_producer_conflict_defers_before_decrypt(void)
 
     n = make_encrypted(0x0041u, payload, sizeof payload, wire);
     CHECK(n > 0u);
-    rx_before = g_app_session.rx_last;
     CHECK(od_dispatch_frame(&BLE, od_span_make(wire, n)) == OD_FRAME_DEFERRED);
     CHECK(od_dispatch_frame(&BLE, od_span_make(wire, n)) == OD_FRAME_DEFERRED);
     memcpy(alternate, wire, n);
@@ -616,9 +570,8 @@ static void test_producer_conflict_defers_before_decrypt(void)
                           "Command 0x0041 deferred while configuration read is active") == 1u);
 #endif
     CHECK(g_handler_calls == 0u);
-    CHECK(g_app_session.rx_last == rx_before);      /* untouched: it never reached the cipher */
 
-    CASE("and the SAME frame dispatches once the read completes");
+    CASE("and the SAME frame dispatches once the read completes: its counter was never spent");
     od_config_read_cancel();
     g_mutates_config = true;
     CHECK(od_dispatch_frame(&BLE, od_span_make(wire, n)) == OD_FRAME_ACCEPTED);
@@ -652,14 +605,24 @@ static void test_control_opcodes(void)
     ver[0] = (uint8_t)((CMD_FIRMWARE_VERSION >> 8) & 0xFFu);
     ver[1] = (uint8_t)(CMD_FIRMWARE_VERSION & 0xFFu);
 
-    CASE("AUTHENTICATE is answered by the gate and never reaches a handler");
+    CASE("AUTHENTICATE on a claimed device refuses with [00][50][05] and reaches no handler");
     setup(true, false);
     CHECK(od_dispatch_frame(&BLE, od_span_make(step1, sizeof step1)) == OD_FRAME_AUTH_CONTROL);
     CHECK(g_handler_calls == 0u);
     (void)od_txq_process();
-    CHECK(g_sent[0].len == OD_SESSION_STEP1_REPLY_LEN);
+    CHECK(g_sent_n == 1u && g_sent[0].len == 3u);
+    CHECK(g_sent[0].data[0] == RESP_ACK && g_sent[0].data[1] == 0x50u &&
+          g_sent[0].data[2] == AUTH_STATUS_V2_REQUIRED);
+    CHECK(!od_sec2_session_live(&BLE));
 
-    CASE("FIRMWARE_VERSION bypasses the session gate even with security on and no session");
+    CASE("AUTHENTICATE on an unclaimed device answers [00][50][03]");
+    setup(false, false);
+    CHECK(od_dispatch_frame(&BLE, od_span_make(step1, sizeof step1)) == OD_FRAME_AUTH_CONTROL);
+    (void)od_txq_process();
+    CHECK(g_sent_n == 1u && g_sent[0].len == 3u);
+    CHECK(g_sent[0].data[2] == AUTH_STATUS_NOT_CONFIG);
+
+    CASE("FIRMWARE_VERSION bypasses the gate on a claimed device with no session");
     /* A client must be able to learn what it is talking to before it can authenticate, and a
      * device whose key the host lost would otherwise be unidentifiable. */
     setup(true, false);
@@ -667,13 +630,28 @@ static void test_control_opcodes(void)
     CHECK(g_handler_calls == 1u);
     CHECK(g_handler_cmd == CMD_FIRMWARE_VERSION);
 
+    CASE("and its reply stays plaintext inside a live session");
+    setup(true, true);
+    CHECK(od_dispatch_frame(&BLE, od_span_make(ver, sizeof ver)) == OD_FRAME_DISCOVERY);
+    (void)od_txq_process();
+    CHECK(g_sent_n == 1u && g_sent[0].data[0] == RESP_ACK && g_sent[0].len == 4u);
+
+    CASE("READ_MSD bypasses the gate too, and is DISCOVERY");
+    {
+        const uint8_t msd[2] = { 0x00u, (uint8_t)(CMD_READ_MSD & 0xFFu) };
+        setup(true, false);
+        CHECK(od_dispatch_frame(&BLE, od_span_make(msd, sizeof msd)) == OD_FRAME_DISCOVERY);
+        CHECK(g_handler_calls == 1u);
+        CHECK(g_handler_cmd == CMD_READ_MSD);
+    }
+
     CASE("DISCOVERY is distinct from ACCEPTED, so a version poll cannot stamp activity");
     CHECK(OD_FRAME_DISCOVERY != OD_FRAME_ACCEPTED);
 
 #if OD_CAP_READ_IDENT
     {
         const uint8_t ident[2] = { 0x00u, (uint8_t)(CMD_READ_IDENT & 0xFFu) };
-        CASE("READ_IDENT bypasses the session gate too, and is DISCOVERY");
+        CASE("READ_IDENT bypasses the gate too, and is DISCOVERY");
         setup(true, false);
         CHECK(od_dispatch_frame(&BLE, od_span_make(ident, sizeof ident)) == OD_FRAME_DISCOVERY);
         CHECK(g_handler_calls == 1u);
@@ -775,7 +753,7 @@ static void test_outcome_policy_table(void)
         CHECK(no_consume == 1u);
     }
 
-    CASE("neither crypto outcome touches the run -- od_session already applied its own strike");
+    CASE("neither crypto outcome touches the run -- od_sec2 already applied its own strike");
     p = od_frame_policy(OD_FRAME_CRYPTO_FAILED);
     CHECK(!p.increment_abuse && !p.reset_abuse && !p.stamp_activity);
     p = od_frame_policy(OD_FRAME_CRYPTO_DROPPED);
@@ -791,7 +769,7 @@ int main(void)
 {
     test_plaintext_path();
     test_encrypted_path();
-    test_unauthenticated_exemption();
+    test_plaintext_refused_inside_a_session();
     test_structural_and_liveness();
     test_reserve_precedes_the_handler();
     test_budget_covers_the_worst_case();

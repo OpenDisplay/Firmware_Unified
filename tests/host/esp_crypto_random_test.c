@@ -1,11 +1,11 @@
 /* esp_crypto_random_test.c -- targets/esp32-idf/hal/od_hal_crypto_random.c, the PRODUCTION file,
  * compiled against tests/host/fake_psa/.
  *
- * THE CONTRACT IS FALLIBILITY. od_hal_crypto_random() feeds the AUTHENTICATE challenge, and
- * od_session's rule is that a device must never offer a challenge it cannot honour: a challenge
- * built from a failed draw is either predictable or stale, and the session derived from it is
- * worthless. That rule is unenforceable while the backend cannot report failure -- which is the
- * state esp_fill_random() leaves it in, since it returns void.
+ * THE CONTRACT IS FALLIBILITY. od_hal_crypto_random() feeds the SEC2 handshake nonces, and
+ * od_sec2's rule is that a device must never send a nonce it cannot vouch for: one built from a
+ * failed draw is either predictable or stale, and the session derived from it is worthless. That
+ * rule is unenforceable while the backend cannot report failure -- which is the state
+ * esp_fill_random() leaves it in, since it returns void.
  *
  * NO SILENT FALLBACK. A PSA error must not quietly drop back to esp_fill_random(): the caller
  * would then get a "success" indistinguishable from a real one, which is the exact behaviour this

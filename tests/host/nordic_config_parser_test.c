@@ -2,7 +2,6 @@
 
 #include "od_config.h"
 #include "od_rxq_app.h"
-#include "od_session.h"
 #include "opendisplay_config_parser.h"
 #include "session_fake.h"
 
@@ -133,18 +132,35 @@ static void test_derived_security_rule(void)
     CHECK(!od_security_enabled_snapshot());
 }
 
-static void test_partial_parse_uses_the_session_rule(void)
+/* The 2.x rule the snapshot publishes: encryption enabled and a non-zero key. Written out here
+ * rather than read from the parser, so a drift in its loop shows. */
+static bool key_rule(const struct SecurityConfig *sec)
+{
+    unsigned i;
+
+    if (sec->encryption_enabled == 0u) {
+        return false;
+    }
+    for (i = 0u; i < sizeof sec->encryption_key; ++i) {
+        if (sec->encryption_key[i] != 0u) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void test_partial_parse_uses_the_key_rule(void)
 {
     struct od_config cfg;
     struct blob b;
 
-    CASE("a security packet before truncation matches the gate's canonical rule");
+    CASE("a security packet before truncation matches the enabled-and-non-zero-key rule");
     make_security_blob(&b, 1u, true);
     append_truncated_display(&b);
     CHECK(!parseConfigBytes(b.bytes, b.len, &cfg));
     CHECK(!cfg.loaded);
     CHECK(cfg.security.encryption_enabled == 1u);
-    CHECK(od_session_security_enabled(&cfg.security));
+    CHECK(key_rule(&cfg.security));
     CHECK(od_security_enabled_snapshot());
     CHECK(od_rxq_app_encryption_enabled());
 }
@@ -188,7 +204,7 @@ int main(void)
     fake_reset();
 
     test_derived_security_rule();
-    test_partial_parse_uses_the_session_rule();
+    test_partial_parse_uses_the_key_rule();
     test_load_publishes_only_after_completion();
 
     printf("nordic_config_parser: %u checks, %u failures\n", g_checks, g_failures);

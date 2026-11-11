@@ -11,16 +11,16 @@
 #include "od_nfc.h"
 #include "od_pipe.h"
 #include "od_reply.h"
-#include "od_session.h"
-#include "od_session_app.h"
+#include "od_sec2.h"
+#include "od_sec2_app.h"
 #include "od_xfer.h"
 
 #include <string.h>
 
-/* THE DECRYPT SCRATCH, owned here. One buffer for the whole command path: the gate decrypts into
- * it and the body handed to a handler points into it, so it must outlive the handler and must not
- * be shared with anything that runs inside one. */
-static uint8_t s_plain[OD_SESSION_PLAIN_MAX];
+/* THE DECRYPT SCRATCH, owned here. One buffer for the whole command path: the gate opens records
+ * into it and the body handed to a handler points into it, so it must outlive the handler and
+ * must not be shared with anything that runs inside one. */
+static uint8_t s_plain[OD_SEC2_PLAIN_MAX];
 
 #if OD_LOG_EFFECTIVE_LEVEL >= OD_LOG_DEBUG
 /* A deferred frame is re-offered on every loop pass. One flag per cause keeps the first command
@@ -66,7 +66,7 @@ static od_log_budget_t s_unknown_budget;
 
 static bool warning_allowed(od_log_budget_t *budget)
 {
-    return od_log_budget_allows(budget, od_session_app_now_ms(),
+    return od_log_budget_allows(budget, od_sec2_app_now_ms(),
                                 OD_DISPATCH_WARN_INTERVAL_MS);
 }
 
@@ -118,9 +118,6 @@ uint8_t od_dispatch_budget(uint16_t cmd)
 #define OD_BUDGET_CASE(cmd_, hook_, budget_) case cmd_: return (uint8_t)(budget_);
         OD_DISPATCH_OPCODE_ROWS(OD_BUDGET_CASE)
 #undef OD_BUDGET_CASE
-    case CMD_AUTHENTICATE:
-    case CMD_FIRMWARE_VERSION:
-    case CMD_READ_IDENT:
     default:
         return 1u;
     }
@@ -135,24 +132,6 @@ OD_DISPATCH_OPCODE_ROWS(OD_ASSERT_ROW_FITS)
 #undef OD_ASSERT_ROW_FITS
 typedef char od_dispatch_budget_fits_authenticate[(1u <= (OD_TXQ_SLOTS - 1u)) ? 1 : -1];
 typedef char od_dispatch_budget_fits_firmware_version[(1u <= (OD_TXQ_SLOTS - 1u)) ? 1 : -1];
-
-/* KEY-LOSS RECOVERY, and the ORDER of these two tests is the whole safety argument.
- *
- * The liveness question comes FIRST, so the target is asked only about a frame that has no session
- * behind it. On a live session every command still meets the gate, so this can never be used to
- * skip decryption or to slip a plaintext command past the replay window mid-session. It is
- * reachable exactly when the device would otherwise be permanently unreachable.
- *
- * od_session_alive() rather than od_session_authenticated(): the MUTATING form, which tears down an
- * expired session as it answers. The pure predicate would leave an expired-but-uncleared session
- * looking authenticated, and the exemption would then be judged against a session already dead. */
-static bool unauthenticated_exempt(uint16_t cmd)
-{
-    if (od_session_alive(od_session_app_state(), od_session_app_now_ms(), NULL)) {
-        return false;
-    }
-    return od_cmd_allow_unauthenticated(cmd);
-}
 
 static uint16_t origin_ceiling(od_origin_t origin)
 {
@@ -201,8 +180,8 @@ static void refuse_oversize(const od_reply_t *rp, uint16_t cmd)
  * link error. Promoted rows name their shared state machine directly; capability-off behaviour is
  * compiled into that shared implementation.
  *
- * AUTHENTICATE and FIRMWARE_VERSION are absent: both are routed by od_dispatch_frame() before this
- * point, the first into od_gate and the second pre-gate. */
+ * The plaintext set (0x0043, 0x0044, 0x0046, 0x0050, 0x0054-0x0056) is absent: od_dispatch_frame()
+ * answers it before the gate. */
 static od_cmd_result_t dispatch_plain(const od_cmd_ctx_t *ctx, uint16_t cmd, od_span_t body)
 {
     switch (cmd) {
@@ -282,6 +261,12 @@ od_frame_outcome_t od_dispatch_frame(const od_reply_t *rp, od_span_t frame)
         clear_config_deferred();
     }
 
+    /* A fragmented SEC reply is still leaving through od_sec2_pump(): the next CLAIM/AUTH frame
+     * would overwrite the buffer it is sent from. */
+    if ((cmd == CMD_SEC_CLAIM || cmd == CMD_SEC_AUTH) && od_sec2_tx_active()) {
+        return OD_FRAME_DEFERRED;
+    }
+
     /* ---- budget and reserve ---- */
     {
         const uint8_t budget = od_dispatch_budget(cmd);
@@ -295,56 +280,51 @@ od_frame_outcome_t od_dispatch_frame(const od_reply_t *rp, od_span_t frame)
     }
     clear_capacity_deferred();
 
-    /* ---- gate ----
-     * Everything below has a slot, including the gate's own FE/FF answers. */
-    if (cmd == CMD_AUTHENTICATE) {
-        outcome = od_gate_authenticate(&r, rp, body);
+    /* ---- the plaintext set (SECURITY_V2 section 6 rule 1) ----
+     * Answered in plaintext in every state, inside a session too, and never parsed as a record.
+     * Everything below has a slot. */
+    if (cmd == CMD_AUTHENTICATE || cmd == CMD_SEC_STATUS || cmd == CMD_SEC_CLAIM ||
+        cmd == CMD_SEC_AUTH) {
+        outcome = od_sec2_command(&r, rp, cmd, body);
         od_txq_release(&r);
         return outcome;
     }
-
-    /* FIRMWARE_VERSION IS ALWAYS PLAINTEXT-READABLE, exempt from the session gate on every target
-     * (Firmware communication.cpp:488). A client must be able to learn what it is talking to
-     * before it can authenticate -- and a device whose key the host has lost would otherwise be
-     * unidentifiable. DISCOVERY rather than ACCEPTED, so a version poll cannot stamp activity and
-     * hold the exclusive link indefinitely. */
-    if (cmd == CMD_FIRMWARE_VERSION) {
-        const od_cmd_ctx_t ctx = { *rp, &r, (uint16_t)frame.n, false };
-        const od_cmd_result_t rc = od_cmd_app_firmware_version(&ctx, body);
-        od_txq_release(&r);
-        return (rc == OD_CMD_OK) ? OD_FRAME_DISCOVERY : outcome_of(cmd, rc);
-    }
-
+    if (cmd == CMD_FIRMWARE_VERSION || cmd == CMD_READ_MSD
 #if OD_CAP_READ_IDENT
-    /* READ_IDENT is pre-gate for the same reason (protocol 2.3: "never auth-gated"): a host
-     * picks the panel-database entry from it before it knows which key applies. It carries
-     * only what DisplayConfig already exposes -- panel type, geometry, colour scheme. */
-    if (cmd == CMD_READ_IDENT) {
+        || cmd == CMD_READ_IDENT
+#endif
+        ) {
+        /* DISCOVERY rather than ACCEPTED, so a poll cannot stamp activity and hold the exclusive
+         * link indefinitely. */
         const od_cmd_ctx_t ctx = { *rp, &r, (uint16_t)frame.n, false };
-        const od_cmd_result_t rc = od_cmd_app_read_ident(&ctx, body);
+        od_cmd_result_t rc;
+
+        od_reply_plain_scope(true);
+        if (cmd == CMD_FIRMWARE_VERSION) {
+            rc = od_cmd_app_firmware_version(&ctx, body);
+        } else if (cmd == CMD_READ_MSD) {
+            rc = od_cmd_app_read_msd(&ctx, body);
+        } else {
+#if OD_CAP_READ_IDENT
+            rc = od_cmd_app_read_ident(&ctx, body);
+#else
+            rc = OD_CMD_UNKNOWN;
+#endif
+        }
+        od_reply_plain_scope(false);
         od_txq_release(&r);
         return (rc == OD_CMD_OK) ? OD_FRAME_DISCOVERY : outcome_of(cmd, rc);
     }
-#endif
 
-    /* ORIGIN-GATED DECRYPT, SECTION 9 rule 4. A frame on the TLS-PSK LAN channel is already
-     * confidential and authenticated by TLS and carries NO CCM envelope, so it must not meet this
-     * gate: od_session_open() would read its plaintext as a nonce and refuse it, and every ordinary
-     * command inside an authenticated TLS session would answer AUTH_REQUIRED.
-     *
-     * The decision belongs here and cannot be pushed into od_session, which deliberately takes no
-     * origin -- see od_session.h. Applying the session to a TLS frame would also advance the replay
-     * counter on traffic the window never authenticated. */
-    if (rp->origin != OD_ORIGIN_LAN_TLS &&
-        od_session_security_enabled(od_session_app_security()) &&
-        !unauthenticated_exempt(cmd)) {
-        const od_gate_result_t g = od_gate_open(&r, rp, cmd, body, s_plain, sizeof s_plain);
+    /* ---- gate: FE / FD / record open (SECURITY_V2 sections 6, 9.5) ---- */
+    {
+        const od_gate_result_t g = od_gate_admit(&r, rp, cmd, body, s_plain, sizeof s_plain);
         if (g.outcome != OD_FRAME_ACCEPTED) {
             od_txq_release(&r);
             return g.outcome;
         }
         body = g.body;
-        was_protected = true;
+        was_protected = g.sealed;
     }
 
     /* ---- handler ---- */

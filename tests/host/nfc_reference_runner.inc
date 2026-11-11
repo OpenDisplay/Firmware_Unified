@@ -9,6 +9,8 @@
  *   ref_sink_*()         the tag fake's call count, forwarded length and forwarded bytes
  *   ref_knob_read/write  apply a driver knob
  *   ref_reset_transport()
+ *   ref_authenticate()   claim the device and open a SEC2 session for the next frame
+ *   ref_open_reply(f, n, out, out_n)  open a sealed D->H frame with that session's client
  *   CHECK(), CASE()
  *
  * The drivers differ only in those seams; the checking is here so the two targets cannot drift
@@ -65,11 +67,11 @@ static void ref_run_table(void)
 
             CHECK(verdict == (fr->expect_ok ? OD_CMD_OK : OD_CMD_NACK));
             if (!fr->skip_reply) {
-                /* A sealed frame is compared for MEANING: unseal it and check the application
+                /* A sealed frame is compared for MEANING: open it and check the application
                  * frame inside, so the assertion is the same one the plaintext row makes. The
                  * wire length is checked too, but on its own it would pass on any correctly
                  * sized ciphertext. */
-                uint8_t plain[OD_SESSION_PLAIN_FRAME_MAX];
+                uint8_t plain[256];
                 uint16_t plain_len = 0u;
                 const uint8_t *app = NULL;
                 uint16_t app_len = 0u;
@@ -78,8 +80,8 @@ static void ref_run_table(void)
                 if (fr->reply_len != 0u && ref_reply_count() == 1u) {
                     CHECK(ref_reply_len(0) == fr->reply_len);
                     if (fr->unseal_reply) {
-                        CHECK(session_fake_unseal(ref_reply_data(0), ref_reply_len(0),
-                                                  plain, (uint16_t)sizeof plain, &plain_len));
+                        CHECK(ref_open_reply(ref_reply_data(0), ref_reply_len(0),
+                                             plain, &plain_len));
                         app = plain;
                         app_len = plain_len;
                     } else {
@@ -104,7 +106,8 @@ static void ref_run_table(void)
                         CHECK(bad == 0u);
                         /* Sealed or not, the application frame is the same 224 bytes. */
                         CHECK(app_len == (fr->unseal_reply
-                                          ? (uint16_t)(fr->reply_len - 29u) : fr->reply_len));
+                                          ? (uint16_t)(fr->reply_len - OD_SEC2_D2H_OVERHEAD)
+                                          : fr->reply_len));
                     }
                 }
             }

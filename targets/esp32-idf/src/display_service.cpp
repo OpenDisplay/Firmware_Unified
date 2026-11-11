@@ -24,8 +24,7 @@
 #include "boot_screen.h"
 #include "link_owner.h"
 #include "session_guard.h"
-#include "od_session.h"
-#include "od_session_app.h"
+#include "od_sec2.h"
 #include "touch_input.h"
 #include "od_zlib_pump.h"
 #include "od_xfer.h"
@@ -1025,9 +1024,9 @@ void updatemsdata(){
     adv.connection_requested = connectionRequested;
     adv.loop_counter = mloopcounter;
     od_advert_build(&adv, msd_payload);
-    // Status bit 3 = application-layer encryption active (enabled and a non-zero key), as the
-    // Firmware 2.x fleet advertises it. od_advert_build() has no input for it, so it is set here.
-    if (od_session_security_enabled(od_session_app_security())) {
+    // Status bit 3 = a session is required (CLAIMED or LOCKED, SECURITY_V2 5.3).
+    // od_advert_build() has no input for it, so it is set here.
+    if (od_sec2_needs_session()) {
         msd_payload[15] |= OD_MSD_STATUS_ENCRYPTION_ENABLED;
     }
     // Skip the (relatively expensive) advertisement rebuild when nothing changed;

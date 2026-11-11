@@ -5,8 +5,8 @@
 #include "od_config_asm.h"
 #include "od_color.h"
 #include "od_core.h"
-#include "od_session.h"
-#include "od_session_app.h"
+#include "od_sec2.h"
+#include "od_sec2_app.h"
 #include "od_txq.h"
 #include "od_xfer.h"
 #include "od_xfer_app.h"
@@ -125,8 +125,7 @@ void opendisplay_ble_schedule_deep_sleep(void) { }
 void opendisplay_ble_reload_config_from_nvm(void)
 {
     fake_silabs_reload_saw_queued = od_txq_depth() != 0u;
-    fake_silabs_reload_saw_authenticated =
-        od_session_authenticated(od_session_app_state());
+    fake_silabs_reload_saw_authenticated = od_sec2_session_live(NULL);
     ++fake_silabs_store_reloads;
 }
 void opendisplay_ble_copy_msd_bytes(uint8_t out[16]) { memset(out, 0, 16u); }
@@ -214,7 +213,7 @@ bool od_xfer_app_refresh(uint8_t mode, bool *completed)
     return true;
 }
 
-uint32_t od_xfer_app_now_ms(void) { return od_session_app_now_ms(); }
+uint32_t od_xfer_app_now_ms(void) { return od_sec2_app_now_ms(); }
 
 void opendisplay_display_abort(void)
 { ++fake_silabs_aborts; fake_silabs_xfer_active = false; }

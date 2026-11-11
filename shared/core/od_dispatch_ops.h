@@ -4,8 +4,8 @@
  * two properties in one row makes it impossible to add a multi-reply hook while accidentally
  * leaving the one-unit default budget in place.
  *
- * AUTHENTICATE belongs to od_gate and FIRMWARE_VERSION is the explicit pre-gate discovery path;
- * both remain outside this ordinary-route table and have one-unit assertions in od_dispatch.c.
+ * The plaintext set (FIRMWARE_VERSION, READ_MSD, READ_IDENT, AUTHENTICATE, SEC_STATUS, SEC_CLAIM,
+ * SEC_AUTH) is answered before the gate and stays outside this table, at one unit each.
  */
 
 #ifndef OD_DISPATCH_OPS_H
@@ -62,11 +62,11 @@
     X(CMD_CONFIG_READ,         od_cmd_app_config_read,     1u)                       \
     X(CMD_CONFIG_WRITE,        od_cmd_app_config_write,    1u)                       \
     X(CMD_CONFIG_CHUNK,        od_cmd_app_config_chunk,    1u)                       \
-    X(CMD_READ_MSD,            od_cmd_app_read_msd,        1u)                       \
     X(CMD_CONFIG_CLEAR,        od_cmd_app_config_clear,    1u)                       \
     X(CMD_ENTER_DFU,           od_cmd_app_enter_dfu,       1u)                       \
     X(CMD_POWER_OFF,           od_cmd_app_power_off,       1u)                       \
     X(CMD_DEEP_SLEEP,          od_cmd_app_deep_sleep,      1u)                       \
+    X(CMD_SEC_KEY,             od_sec2_key_cmd,            1u)                       \
     X(CMD_DIRECT_WRITE_START,  od_xfer_direct_start,       1u)                       \
     X(CMD_DIRECT_WRITE_DATA,   od_xfer_data,               2u)                       \
     X(CMD_DIRECT_WRITE_END,    od_xfer_end,                2u)                       \

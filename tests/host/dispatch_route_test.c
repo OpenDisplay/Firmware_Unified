@@ -19,8 +19,8 @@
 #include "od_config_read.h"
 #include "od_reply.h"
 #include "od_pipe.h"
-#include "od_session.h"
-#include "od_session_app.h"
+#include "od_sec2.h"
+#include "od_sec2_app.h"
 #include "od_xfer.h"
 #include "session_fake.h"
 
@@ -65,26 +65,16 @@ void od_txq_app_dropped(const od_reply_t *rp, uint16_t len, od_radio_result_t wh
     (void)rp; (void)len; (void)why;
 }
 
-/* ------------------------------------------------------------------------- fake app session --- */
+/* ------------------------------------------------------------------------- od_sec2_app hooks --- */
 
-static struct od_session g_app_session;
 static uint32_t g_now_ms = 1000u;
 
-struct od_session *od_session_app_state(void) { return &g_app_session; }
-const struct SecurityConfig *od_session_app_security(void) { return NULL; }
-uint32_t od_session_app_now_ms(void) { return g_now_ms; }
-void od_session_app_device_id(uint8_t out[OD_SESSION_DEVICE_ID_LEN])
-{
-    memcpy(out, DEVICE_ID, OD_SESSION_DEVICE_ID_LEN);
-}
-void od_session_app_report(enum od_session_app_op op, int result, uint16_t cmd,
-                           const struct od_session_report *report)
-{
-    (void)op; (void)result; (void)cmd; (void)report;
-}
+uint32_t od_sec2_app_now_ms(void) { return g_now_ms; }
+void od_sec2_app_uid(uint8_t uid[8]) { memcpy(uid, UID, 8u); }
+uint8_t od_sec2_app_dflags(void) { return OD_SEC2_DFLAG_HAS_PANEL; }
+const struct SecurityConfig *od_sec2_app_security(void) { return NULL; }
 
 bool od_cmd_mutates_config(uint16_t cmd) { (void)cmd; return false; }
-bool od_cmd_allow_unauthenticated(uint16_t cmd) { (void)cmd; return false; }
 
 /* --------------------------------------------------------------------------- the fake hooks --- */
 
@@ -155,8 +145,7 @@ static void setup(void)
 {
     fake_reset();
     sec_init(0);
-    memset(&g_app_session, 0, sizeof g_app_session);
-    od_session_init(&g_app_session, 0);
+    (void)od_sec2_boot(NULL);
     od_config_read_cancel();
     od_txq_reset();
     g_sent_n = 0u;
@@ -167,8 +156,8 @@ static void setup(void)
     memset(&g_hook_rp, 0, sizeof g_hook_rp);
 }
 
-/* Security is OFF for the whole suite (od_session_app_security() returns NULL), so every frame is
- * plaintext and reaches its hook without a handshake. Routing is what is under test here; the gate
+/* The device is UNCLAIMED for the whole suite (od_sec2_boot(NULL) over an empty secret store), so
+ * every frame is plaintext and reaches its hook without a session. Routing is what is under test here; the gate
  * has its own suite. */
 static od_frame_outcome_t send_cmd(uint16_t cmd, uint16_t body_len)
 {
@@ -205,7 +194,6 @@ static void test_every_opcode_reaches_its_own_hook(void)
     route(CMD_CONFIG_READ,         HOOK_CONFIG_READ,      OD_FRAME_ACCEPTED);
     route(CMD_CONFIG_WRITE,        HOOK_CONFIG_WRITE,     OD_FRAME_ACCEPTED);
     route(CMD_CONFIG_CHUNK,        HOOK_CONFIG_CHUNK,     OD_FRAME_ACCEPTED);
-    route(CMD_READ_MSD,            HOOK_READ_MSD,         OD_FRAME_ACCEPTED);
     route(CMD_CONFIG_CLEAR,        HOOK_CONFIG_CLEAR,     OD_FRAME_ACCEPTED);
     route(CMD_ENTER_DFU,           HOOK_ENTER_DFU,        OD_FRAME_ACCEPTED);
     route(CMD_POWER_OFF,           HOOK_POWER_OFF,        OD_FRAME_ACCEPTED);
@@ -224,16 +212,24 @@ static void test_every_opcode_reaches_its_own_hook(void)
 
     /* FIRMWARE_VERSION is routed BEFORE the session gate and answered DISCOVERY rather than
      * ACCEPTED: a version poll must not stamp activity, or it holds the exclusive link forever. */
-    CASE("FIRMWARE_VERSION reaches its hook pre-gate and is DISCOVERY, not ACCEPTED");
+    CASE("FIRMWARE_VERSION and READ_MSD reach their hooks pre-gate and are DISCOVERY");
     route(CMD_FIRMWARE_VERSION,    HOOK_FIRMWARE_VERSION, OD_FRAME_DISCOVERY);
+    route(CMD_READ_MSD,            HOOK_READ_MSD,         OD_FRAME_DISCOVERY);
 }
 
 static void test_authenticate_never_reaches_a_hook(void)
 {
-    CASE("AUTHENTICATE is od_gate's alone -- no target hook sees it");
-    setup();
-    (void)send_cmd(CMD_AUTHENTICATE, 3u);
-    CHECK(g_hook_calls == 0u);
+    static const uint16_t sec[5] = {
+        CMD_AUTHENTICATE, CMD_SEC_STATUS, CMD_SEC_CLAIM, CMD_SEC_AUTH, CMD_SEC_KEY
+    };
+    unsigned i;
+
+    CASE("AUTHENTICATE and the SEC opcodes are od_sec2's alone -- no target hook sees them");
+    for (i = 0u; i < 5u; ++i) {
+        setup();
+        (void)send_cmd(sec[i], 3u);
+        CHECK(g_hook_calls == 0u);
+    }
 }
 
 static void test_unknown_opcode_reaches_nothing(void)

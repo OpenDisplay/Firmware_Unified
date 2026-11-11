@@ -5,9 +5,7 @@
 #include <stdbool.h>
 #include "structs.h"
 
-/* The parsed configuration this firmware runs on. The SESSION is deliberately absent: it is
- * file-static in od_session_app.cpp and reached through od_session_app_state(), because an
- * exported singleton is one a caller can memset -- which strands its od_hal_crypto key slot. */
+/* The parsed 0x27 this firmware runs on. The SEC2 state is file-static in shared/core/od_sec2.c. */
 extern struct SecurityConfig &securityConfig;
 extern bool encryptionInitialized;
 

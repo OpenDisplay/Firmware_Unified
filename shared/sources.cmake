@@ -63,13 +63,8 @@
 #                         three targets already broadcast, now pinned by a differential host
 #                         test instead of by a comment citing another target's line numbers.
 #                         Not a reordering of anything that parses or alters wire BEHAVIOUR.)
-#   core/od_session.c     auth, KDF, nonce/replay              (LANDED — moved AHEAD of
-#                         od_dispatch.c, deliberately. The dispatcher's own encryption gate is
-#                         written in terms of this module: it asks od_session_security_enabled()
-#                         and od_session_alive() before routing, and calls od_session_open() /
-#                         od_session_seal() around every handler. Landing dispatch first would
-#                         mean writing that gate against three targets' private session state and
-#                         then rewriting it, so the ordering is a dependency, not a preference.)
+#   core/od_sec2*.c       SEC2: KDF, code, P-256 check, key records, claim/auth/records
+#                         (docs/SECURITY_V2.md is the spec.)
 #   core/od_txq.c         response queue, reservation, drain   (LANDED — egress before dispatch,
 #                         because the dispatcher reserves capacity BEFORE it calls a handler and
 #                         cannot be written against a queue that does not exist yet. No wire
@@ -143,7 +138,9 @@ set(OD_SHARED_SOURCES_HAL_ADV
 )
 
 set(OD_SHARED_SOURCES_HAL_CRYPTO
-    "${CMAKE_CURRENT_LIST_DIR}/core/od_session.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_sec2_kdf.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_sec2_code.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_sec2_p256.c"
 )
 
 set(OD_SHARED_SOURCES_HAL_RADIO
@@ -156,11 +153,16 @@ set(OD_SHARED_SOURCES_HAL_NVS
     "${CMAKE_CURRENT_LIST_DIR}/core/od_config_store.c"
 )
 
-# APP_SESSION needs MORE than a HAL: the target must supply the od_session_app seam and pair this
-# tier with APP_XFER. Dispatch routes the mandatory direct/partial opcode family straight to
+# APP_SESSION needs MORE than a HAL: the target must supply the od_sec2_app seam and
+# od_hal_secret, take HAL_CRYPTO and HAL_NVS (key records use its CRC), and pair this tier with
+# APP_XFER. od_sec2_pending.c holds the claim-mode / config-policy hooks until WP3b/WP4 replace
+# them. Dispatch routes the mandatory direct/partial opcode family straight to
 # od_xfer, so a consumer taking APP_SESSION must also implement od_xfer_app. APP_XFER in turn
 # requires APP_INFLATE. These are source-list dependencies, not optional target policy.
 set(OD_SHARED_SOURCES_APP_SESSION
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_sec2.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_sec2_rec.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_sec2_pending.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_reply.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_gate.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_config_read.c"

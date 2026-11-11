@@ -3,7 +3,7 @@
  * What is left here is what only this file can own: the GATT write callback, the connection
  * generation that is this target's frame identity, the deferred-close flag, and the bounded pump
  * that drives shared dispatch. The commands moved out to od_cmd_{device,config,direct,nfc}.c and
- * the shared transfer machine; the session logging seam is od_session_app.c.
+ * the shared transfer machine.
  */
 
 #include "od_spi_raw_app.h"
@@ -15,8 +15,7 @@
 #include "od_dispatch.h"
 #include "od_log.h"
 #include "od_rxq.h"
-#include "od_session.h"
-#include "od_session_app.h"
+#include "od_sec2.h"
 #include "od_span.h"
 #include "opendisplay_protocol.h"
 
@@ -75,18 +74,12 @@ static bool rx_tag_is_live(uint32_t tag, void *context)
 /* IMPLEMENTED FOR shared/core/od_cmd.h. Applies od_frame_policy() with this target's scoping.
  *
  * Nordic has NO exclusive-link idle clock and NO auth-abuse drop -- those are ESP32's
- * CONNECTION_POLICY mechanisms and there is nothing here to stamp or to count. What IS applicable
- * is the session's own activity clock: od_session_open() touches it on the encrypted path, but an
- * accepted PLAINTEXT command (security off, or FIRMWARE_VERSION) never reaches od_session_open, so
- * without this the clock would stop for exactly the traffic keeping the link busy. */
+ * CONNECTION_POLICY mechanisms -- and a SEC2 session's lifetime is absolute, so nothing is
+ * stamped here. */
 void od_core_frame_done(const od_reply_t *rp, od_frame_outcome_t outcome)
 {
-  const od_frame_policy_t p = od_frame_policy(outcome);
-
-  if (rp == NULL || !p.stamp_activity) {
-    return;
-  }
-  od_session_touch(od_session_app_state(), od_session_app_now_ms());
+  (void)rp;
+  (void)outcome;
 }
 
 /* The main-thread pump. The ORDER is the design, and each step is here because leaving it out is
@@ -133,6 +126,7 @@ void opendisplay_pipe_process(void)
 
     (void)od_txq_process();
     (void)od_config_read_pump();
+    od_sec2_pump();
 
     (void)od_rxq_discard_stale(rx_tag_is_live, NULL);
     item = od_rxq_peek();

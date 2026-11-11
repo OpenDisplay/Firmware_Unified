@@ -1,27 +1,20 @@
-/* session_fake.c -- the fake crypto HAL every od_session host binary links against.
- *
- * Extracted from session_test.c so the libFuzzer targets in tests/fuzz/ drive the SAME fake the
- * unit suite does. A second, subtly different fake would make a fuzz finding unreproducible in
- * the suite, which is where findings have to land to stay fixed.
- *
- * WHAT A FAKE HAL CAN AND CANNOT PROVE. It proves the POLICY: the handshake state machine, the
- * KDF chain, the replay window, the strike and lockout rules, the envelope framing. It cannot
- * prove that mbedTLS or PSA is driven correctly, that a PSA key policy is right, or that the tag
- * a real backend produces matches this one -- those need the targets, and C5/C6 hardware. Do not
- * let a green run here be quoted as "the session works".
- */
+/* session_fake.c -- see session_fake.h. One fake for the unit suites and tests/fuzz/ alike, so a
+ * fuzz finding reproduces in a suite. */
+
+#define OPENSSL_SUPPRESS_DEPRECATED 1
 
 #include "session_fake.h"
 
-#include "od_session.h"
-
 #include "aes128.h"
+
+#include <openssl/ec.h>
+#include <openssl/ecdh.h>
+#include <openssl/obj_mac.h>
 
 #include <string.h>
 
 /* --------------------------------------------------------------------- AES-CMAC on the host --- */
 
-/* Left-shift a 16-byte block by one bit, XORing the CMAC constant on overflow (RFC 4493 §2.3). */
 static void cmac_dbl(uint8_t b[16])
 {
     uint8_t carry = (uint8_t)(b[0] >> 7);
@@ -47,14 +40,13 @@ void host_cmac(const uint8_t key[16], const uint8_t *msg, uint32_t len, uint8_t 
     memcpy(k2, k1, 16u);
     cmac_dbl(k2);
 
-    full = (len == 0u) ? 0u : ((len - 1u) / 16u);   /* complete blocks before the last */
+    full = (len == 0u) ? 0u : ((len - 1u) / 16u);
     memset(x, 0, 16u);
     for (i = 0; i < full; ++i) {
         unsigned j;
         for (j = 0; j < 16u; ++j) { blk[j] = (uint8_t)(x[j] ^ msg[i * 16u + j]); }
         od_test_aes128_encrypt(key, blk, x);
     }
-
     {
         uint32_t rem = len - (full * 16u);
         unsigned j;
@@ -71,50 +63,176 @@ void host_cmac(const uint8_t key[16], const uint8_t *msg, uint32_t len, uint8_t 
     }
 }
 
-/* ------------------------------------------------------- the preserved soft-CCM reference --- */
+/* ------------------------------------------------------------------- CCM (RFC 3610) on the host --- */
 
-/* session_ccm_reference.inc is the RFC 3610 implementation targets/nordic-zephyr shipped, copied
- * verbatim before C1 deleted it. It is not a translation unit: it needs these two symbols, which
- * are the only things it took from its target. Supplying them here is what makes the shipped
- * algorithm usable as an independent oracle. */
-static uint8_t g_ref_key[16];
-static struct { uint8_t *session_key; } s_session = { g_ref_key };
+#define CCM_M 12u
+#define CCM_L 2u
 
-static bool aes_ecb_encrypt_16(const uint8_t *key, const uint8_t *in, uint8_t *out)
+static void cbc_absorb(const uint8_t key[16], uint8_t x[16], const uint8_t *p, uint32_t n)
 {
-    od_test_aes128_encrypt(key, in, out);
-    return true;
+    uint32_t i;
+
+    for (i = 0; i < n; i += 16u) {
+        unsigned j;
+        for (j = 0; j < 16u && i + j < n; ++j) { x[j] ^= p[i + j]; }
+        od_test_aes128_encrypt(key, x, x);
+    }
 }
 
-#include "session_ccm_reference.inc"
+static void ccm_mac(const uint8_t key[16], const uint8_t nonce[13], const uint8_t *aad,
+                    uint8_t aad_len, const uint8_t *plain, uint16_t len, uint8_t tag[16])
+{
+    uint8_t x[16];
+    uint8_t hdr[2u + 255u];
+
+    x[0] = (uint8_t)((aad_len ? 0x40u : 0u) | (((CCM_M - 2u) / 2u) << 3) | (CCM_L - 1u));
+    memcpy(&x[1], nonce, 13u);
+    x[14] = (uint8_t)(len >> 8);
+    x[15] = (uint8_t)len;
+    od_test_aes128_encrypt(key, x, x);
+    if (aad_len != 0u) {
+        hdr[0] = 0u;
+        hdr[1] = aad_len;
+        memcpy(&hdr[2], aad, aad_len);
+        cbc_absorb(key, x, hdr, 2u + (uint32_t)aad_len);
+    }
+    if (len != 0u) {
+        cbc_absorb(key, x, plain, len);
+    }
+    memcpy(tag, x, 16u);
+}
+
+static void ccm_ctr(const uint8_t key[16], const uint8_t nonce[13], uint16_t i, uint8_t s[16])
+{
+    uint8_t a[16];
+
+    a[0] = (uint8_t)(CCM_L - 1u);
+    memcpy(&a[1], nonce, 13u);
+    a[14] = (uint8_t)(i >> 8);
+    a[15] = (uint8_t)i;
+    od_test_aes128_encrypt(key, a, s);
+}
+
+static void ccm_xor(const uint8_t key[16], const uint8_t nonce[13], const uint8_t *in,
+                    uint16_t len, uint8_t *out)
+{
+    uint8_t s[16];
+    uint16_t i;
+
+    for (i = 0; i < len; ++i) {
+        if (i % 16u == 0u) {
+            ccm_ctr(key, nonce, (uint16_t)(i / 16u + 1u), s);
+        }
+        out[i] = (uint8_t)(in[i] ^ s[i % 16u]);
+    }
+}
+
+void host_ccm_encrypt(const uint8_t key[16], const uint8_t nonce[13], const uint8_t *aad,
+                      uint8_t aad_len, const uint8_t *plain, uint16_t len, uint8_t *out)
+{
+    uint8_t t[16], s0[16];
+    unsigned i;
+
+    ccm_mac(key, nonce, aad, aad_len, plain, len, t);
+    ccm_xor(key, nonce, plain, len, out);
+    ccm_ctr(key, nonce, 0u, s0);
+    for (i = 0; i < CCM_M; ++i) { out[len + i] = (uint8_t)(t[i] ^ s0[i]); }
+}
+
+bool host_ccm_decrypt(const uint8_t key[16], const uint8_t nonce[13], const uint8_t *aad,
+                      uint8_t aad_len, const uint8_t *in, uint16_t len, uint8_t *plain)
+{
+    uint8_t t[16], s0[16];
+    uint8_t d = 0u;
+    uint16_t n;
+    unsigned i;
+
+    if (len < CCM_M) { return false; }
+    n = (uint16_t)(len - CCM_M);
+    ccm_xor(key, nonce, in, n, plain);
+    ccm_mac(key, nonce, aad, aad_len, plain, n, t);
+    ccm_ctr(key, nonce, 0u, s0);
+    for (i = 0; i < CCM_M; ++i) { d |= (uint8_t)(in[n + i] ^ t[i] ^ s0[i]); }
+    return d == 0u;
+}
+
+/* ----------------------------------------------------------------------------- P-256 (OpenSSL) --- */
+
+void *tp256_new(uint8_t pub[64])
+{
+    EC_KEY *k = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
+    uint8_t raw[65];
+
+    if (k == NULL || EC_KEY_generate_key(k) != 1 ||
+        EC_POINT_point2oct(EC_KEY_get0_group(k), EC_KEY_get0_public_key(k),
+                           POINT_CONVERSION_UNCOMPRESSED, raw, sizeof raw, NULL) != sizeof raw) {
+        EC_KEY_free(k);
+        return NULL;
+    }
+    memcpy(pub, &raw[1], 64u);
+    return k;
+}
+
+bool tp256_agree(void *key, const uint8_t peer[64], uint8_t z[32])
+{
+    EC_KEY *k = (EC_KEY *)key;
+    const EC_GROUP *g;
+    EC_POINT *p;
+    uint8_t raw[65];
+    bool ok;
+
+    if (k == NULL) { return false; }
+    g = EC_KEY_get0_group(k);
+    p = EC_POINT_new(g);
+    raw[0] = 0x04u;
+    memcpy(&raw[1], peer, 64u);
+    ok = p != NULL && EC_POINT_oct2point(g, p, raw, sizeof raw, NULL) == 1 &&
+         ECDH_compute_key(z, 32u, p, k, NULL) == 32;
+    EC_POINT_free(p);
+    return ok;
+}
+
+void tp256_free(void *key)
+{
+    EC_KEY_free((EC_KEY *)key);
+}
 
 /* ------------------------------------------------------------------------------ fake HAL --- */
 
-/* Defined at file scope and bound at LINK time, exactly as a target does -- shared/ binds its HAL
- * at link time by design, so there is no injection seam and this exercises real linkage. */
-
 uint8_t  g_slot_key[OD_HAL_CRYPTO_KEY_SLOTS][16];
-static bool     g_slot_loaded[OD_HAL_CRYPTO_KEY_SLOTS];
+static bool g_slot_loaded[OD_HAL_CRYPTO_KEY_SLOTS];
 unsigned g_key_set_calls;
 unsigned g_key_clear_calls;
-static uint8_t  g_rand_next;                    /* deterministic: handshakes must reproduce */
-enum od_hal_crypto_status g_force_status; /* OK, or an error to inject */
-int32_t g_force_after;                    /* HAL calls to let through first; -1 = inject none */
-int32_t g_zero_cmac_after = -1;           /* make the Nth CMAC return all zeros; -1 = never */
-unsigned g_hal_calls;                     /* every entry point counts, whatever it returns */
+uint8_t  g_rand_next;
+enum od_hal_crypto_status g_force_status;
+int32_t  g_force_after;
+unsigned g_hal_calls;
+bool     g_ecdh_live;
+unsigned g_ecdh_keygens;
+static void *g_ecdh_key;
 
-/* One gate for every entry point. Counting happens on EVERY call so a test can say "fail the
- * THIRD one" and mean it -- with a single all-or-nothing flag the first call swallows the
- * injection, which left four of the five step-2 crypto-failure paths in od_session.c unreachable:
- * the two derivations after the proof compare, the all-zero-session-id rejection, and both
- * od_session_clear() calls that stop a half-derived session persisting. */
+struct fake_secret g_secret[3];
+unsigned g_secret_writes;
+int32_t  g_secret_fail_after = -1;
+
+bool g_force_once;
+
 static enum od_hal_crypto_status forced(void)
 {
     const unsigned n = g_hal_calls++;
 
-    if (g_force_status == OD_HAL_CRYPTO_OK) { return OD_HAL_CRYPTO_OK; }
-    if (g_force_after < 0) { return OD_HAL_CRYPTO_OK; }
-    return (n >= (unsigned)g_force_after) ? g_force_status : OD_HAL_CRYPTO_OK;
+    enum od_hal_crypto_status st;
+
+    if (g_force_status == OD_HAL_CRYPTO_OK || g_force_after < 0) { return OD_HAL_CRYPTO_OK; }
+    if (n < (unsigned)g_force_after) { return OD_HAL_CRYPTO_OK; }
+    st = g_force_status;
+    if (g_force_once) { g_force_status = OD_HAL_CRYPTO_OK; }
+    return st;
+}
+
+bool fake_slot_loaded(unsigned slot)
+{
+    return slot < OD_HAL_CRYPTO_KEY_SLOTS && g_slot_loaded[slot];
 }
 
 void fake_reset(void)
@@ -125,17 +243,23 @@ void fake_reset(void)
     g_key_clear_calls = 0;
     g_rand_next = 0;
     g_force_status = OD_HAL_CRYPTO_OK;
-    g_force_after = 0;                    /* fail from the first call, the historical behaviour */
-    g_zero_cmac_after = -1;
+    g_force_once = false;
+    g_force_after = 0;
     g_hal_calls = 0;
+    tp256_free(g_ecdh_key);
+    g_ecdh_key = NULL;
+    g_ecdh_live = false;
+    g_ecdh_keygens = 0;
+    memset(g_secret, 0, sizeof g_secret);
+    g_secret_writes = 0;
+    g_secret_fail_after = -1;
 }
 
 enum od_hal_crypto_status od_hal_crypto_key_set(od_hal_crypto_slot_t slot, const uint8_t key[16])
 {
-    {
-        const enum od_hal_crypto_status forced_status = forced();
-        if (forced_status != OD_HAL_CRYPTO_OK) { return forced_status; }
-    }
+    const enum od_hal_crypto_status f = forced();
+
+    if (f != OD_HAL_CRYPTO_OK) { return f; }
     if (slot >= OD_HAL_CRYPTO_KEY_SLOTS) { return OD_HAL_CRYPTO_ERROR; }
     ++g_key_set_calls;
     memcpy(g_slot_key[slot], key, 16u);
@@ -154,17 +278,9 @@ void od_hal_crypto_key_clear(od_hal_crypto_slot_t slot)
 enum od_hal_crypto_status od_hal_crypto_cmac(const uint8_t key[16], const uint8_t *msg,
                                              uint32_t msg_len, uint8_t out[16])
 {
-    unsigned index;
+    const enum od_hal_crypto_status f = forced();
 
-    {
-        const enum od_hal_crypto_status forced_status = forced();
-        if (forced_status != OD_HAL_CRYPTO_OK) { return forced_status; }
-    }
-    index = g_hal_calls - 1u;             /* forced() has already consumed this call's index */
-    if (g_zero_cmac_after >= 0 && index == (unsigned)g_zero_cmac_after) {
-        memset(out, 0, 16u);              /* SUCCEEDS, and yields zeros -- see the header */
-        return OD_HAL_CRYPTO_OK;
-    }
+    if (f != OD_HAL_CRYPTO_OK) { return f; }
     host_cmac(key, msg, msg_len, out);
     return OD_HAL_CRYPTO_OK;
 }
@@ -172,22 +288,19 @@ enum od_hal_crypto_status od_hal_crypto_cmac(const uint8_t key[16], const uint8_
 enum od_hal_crypto_status od_hal_crypto_aes_ecb(const uint8_t key[16], const uint8_t in[16],
                                                 uint8_t out[16])
 {
-    {
-        const enum od_hal_crypto_status forced_status = forced();
-        if (forced_status != OD_HAL_CRYPTO_OK) { return forced_status; }
-    }
+    const enum od_hal_crypto_status f = forced();
+
+    if (f != OD_HAL_CRYPTO_OK) { return f; }
     od_test_aes128_encrypt(key, in, out);
     return OD_HAL_CRYPTO_OK;
 }
 
 enum od_hal_crypto_status od_hal_crypto_random(uint8_t *buf, uint16_t len)
 {
+    const enum od_hal_crypto_status f = forced();
     uint16_t i;
 
-    {
-        const enum od_hal_crypto_status forced_status = forced();
-        if (forced_status != OD_HAL_CRYPTO_OK) { return forced_status; }
-    }
+    if (f != OD_HAL_CRYPTO_OK) { return f; }
     for (i = 0; i < len; ++i) { buf[i] = g_rand_next++; }
     return OD_HAL_CRYPTO_OK;
 }
@@ -197,18 +310,14 @@ enum od_hal_crypto_status od_hal_crypto_ccm_encrypt(od_hal_crypto_slot_t slot,
         const uint8_t *plain, uint16_t plain_len,
         uint8_t *ct, uint16_t ct_cap, uint16_t *ct_len)
 {
-    {
-        const enum od_hal_crypto_status forced_status = forced();
-        if (forced_status != OD_HAL_CRYPTO_OK) { return forced_status; }
-    }
-    if (slot >= OD_HAL_CRYPTO_KEY_SLOTS || !g_slot_loaded[slot]) { return OD_HAL_CRYPTO_ERROR; }
-    if (nonce_len != OD_SESSION_CCM_NONCE_LEN || aad_len != 2u) { return OD_HAL_CRYPTO_ERROR; }
-    if (ct_cap < (uint16_t)(plain_len + OD_HAL_CRYPTO_TAG_LEN)) { return OD_HAL_CRYPTO_ERROR; }
+    const enum od_hal_crypto_status f = forced();
 
-    memcpy(g_ref_key, g_slot_key[slot], 16u);
-    if (!od_ccm_encrypt(nonce, aad, plain, plain_len, ct, &ct[plain_len])) {
+    if (f != OD_HAL_CRYPTO_OK) { return f; }
+    if (slot >= OD_HAL_CRYPTO_KEY_SLOTS || !g_slot_loaded[slot] || nonce_len != 13u ||
+        ct_cap < (uint16_t)(plain_len + OD_HAL_CRYPTO_TAG_LEN)) {
         return OD_HAL_CRYPTO_ERROR;
     }
+    host_ccm_encrypt(g_slot_key[slot], nonce, aad, aad_len, plain, plain_len, ct);
     *ct_len = (uint16_t)(plain_len + OD_HAL_CRYPTO_TAG_LEN);
     return OD_HAL_CRYPTO_OK;
 }
@@ -218,78 +327,93 @@ enum od_hal_crypto_status od_hal_crypto_ccm_decrypt(od_hal_crypto_slot_t slot,
         const uint8_t *ct, uint16_t ct_len,
         uint8_t *plain, uint16_t plain_cap, uint16_t *plain_len)
 {
+    const enum od_hal_crypto_status f = forced();
+    uint8_t tmp[512];
     uint16_t body;
 
-    {
-        const enum od_hal_crypto_status forced_status = forced();
-        if (forced_status != OD_HAL_CRYPTO_OK) { return forced_status; }
+    if (f != OD_HAL_CRYPTO_OK) { return f; }
+    if (slot >= OD_HAL_CRYPTO_KEY_SLOTS || !g_slot_loaded[slot] || nonce_len != 13u ||
+        ct_len < OD_HAL_CRYPTO_TAG_LEN || ct_len - OD_HAL_CRYPTO_TAG_LEN > sizeof tmp) {
+        return OD_HAL_CRYPTO_ERROR;
     }
-    if (slot >= OD_HAL_CRYPTO_KEY_SLOTS || !g_slot_loaded[slot]) { return OD_HAL_CRYPTO_ERROR; }
-    if (nonce_len != OD_SESSION_CCM_NONCE_LEN || aad_len != 2u) { return OD_HAL_CRYPTO_ERROR; }
-    if (ct_len <= OD_HAL_CRYPTO_TAG_LEN) { return OD_HAL_CRYPTO_ERROR; }
     body = (uint16_t)(ct_len - OD_HAL_CRYPTO_TAG_LEN);
     if (plain_cap < body) { return OD_HAL_CRYPTO_ERROR; }
-
-    memcpy(g_ref_key, g_slot_key[slot], 16u);
-    if (!od_ccm_decrypt(nonce, aad, ct, body, &ct[body], plain)) {
-        return OD_HAL_CRYPTO_AUTH_FAILED;   /* the reference reports only tag failure this way */
+    if (!host_ccm_decrypt(g_slot_key[slot], nonce, aad, aad_len, ct, ct_len, tmp)) {
+        return OD_HAL_CRYPTO_AUTH_FAILED;
     }
+    if (body != 0u) { memcpy(plain, tmp, body); }
     *plain_len = body;
     return OD_HAL_CRYPTO_OK;
 }
 
-bool session_fake_unseal(const uint8_t *frame, uint16_t len, uint8_t *out, uint16_t out_cap,
-                         uint16_t *out_len)
+void od_hal_crypto_ecdh_discard(void)
 {
-    uint8_t inner[1u + OD_SESSION_PAYLOAD_MAX];
-    const uint16_t head = 2u + OD_SESSION_NONCE_LEN;
-    uint16_t ct_len;
-    uint8_t payload_len;
-    unsigned slot;
+    tp256_free(g_ecdh_key);
+    g_ecdh_key = NULL;
+    g_ecdh_live = false;
+}
 
-    if (frame == NULL || out == NULL || out_len == NULL
-        || len <= head + OD_HAL_CRYPTO_TAG_LEN) {
-        return false;
+enum od_hal_crypto_status od_hal_crypto_ecdh_keygen(uint8_t pub[64])
+{
+    const enum od_hal_crypto_status f = forced();
+
+    od_hal_crypto_ecdh_discard();
+    if (f != OD_HAL_CRYPTO_OK) { return f; }
+    g_ecdh_key = tp256_new(pub);
+    if (g_ecdh_key == NULL) { return OD_HAL_CRYPTO_ERROR; }
+    g_ecdh_live = true;
+    ++g_ecdh_keygens;
+    return OD_HAL_CRYPTO_OK;
+}
+
+enum od_hal_crypto_status od_hal_crypto_ecdh_agree(const uint8_t peer[64], uint8_t z[32])
+{
+    const enum od_hal_crypto_status f = forced();
+    bool ok;
+
+    if (f != OD_HAL_CRYPTO_OK || !g_ecdh_live) {
+        od_hal_crypto_ecdh_discard();
+        return (f != OD_HAL_CRYPTO_OK) ? f : OD_HAL_CRYPTO_ERROR;
     }
-    ct_len = (uint16_t)(len - head - OD_HAL_CRYPTO_TAG_LEN);
-    if (ct_len == 0u || ct_len > sizeof inner) {
-        return false;
-    }
-    /* The device keeps its slot private, so try each LOADED one: exactly one authenticates, and a
-     * wrong key fails the tag rather than producing plausible plaintext. Skipping the unloaded
-     * slots keeps that claim true -- an all-zero slot is still a key, and authenticating against
-     * one would mean the helper had decoded a frame the device never sealed. */
-    for (slot = 0u; slot < OD_HAL_CRYPTO_KEY_SLOTS; ++slot) {
-        if (!g_slot_loaded[slot]) {
-            continue;
-        }
-        memcpy(g_ref_key, g_slot_key[slot], 16u);
-        if (od_ccm_decrypt(frame + 2 + 3, frame, frame + head, ct_len,
-                           frame + head + ct_len, inner)) {
-            break;
-        }
-    }
-    if (slot == OD_HAL_CRYPTO_KEY_SLOTS) {
-        return false;
-    }
-    payload_len = inner[0];
-    if ((uint16_t)payload_len != (uint16_t)(ct_len - 1u)
-        || (uint16_t)(2u + payload_len) > out_cap) {
-        return false;
-    }
-    out[0] = frame[0];
-    out[1] = frame[1];
-    memcpy(out + 2, inner + 1, payload_len);
-    *out_len = (uint16_t)(2u + payload_len);
+    ok = tp256_agree(g_ecdh_key, peer, z);
+    od_hal_crypto_ecdh_discard();
+    return ok ? OD_HAL_CRYPTO_OK : OD_HAL_CRYPTO_BAD_POINT;
+}
+
+/* ------------------------------------------------------------------------- fake secret store --- */
+
+bool od_hal_secret_read(enum od_hal_secret_id id, uint8_t *buf, uint16_t len)
+{
+    if ((unsigned)id > 2u || !g_secret[id].present || g_secret[id].len != len) { return false; }
+    memcpy(buf, g_secret[id].data, len);
     return true;
 }
 
-/* --------------------------------------------------------------------------------- cases --- */
+bool od_hal_secret_write(enum od_hal_secret_id id, const uint8_t *buf, uint16_t len)
+{
+    if ((unsigned)id > 2u || len > sizeof g_secret[id].data) { return false; }
+    if (g_secret_fail_after == 0) { return false; }
+    if (g_secret_fail_after > 0) { --g_secret_fail_after; }
+    memcpy(g_secret[id].data, buf, len);
+    g_secret[id].len = len;
+    g_secret[id].present = true;
+    ++g_secret_writes;
+    return true;
+}
+
+bool od_hal_secret_erase(enum od_hal_secret_id id)
+{
+    if ((unsigned)id > 2u) { return false; }
+    memset(&g_secret[id], 0, sizeof g_secret[id]);
+    return true;
+}
+
+/* --------------------------------------------------------------------------------- fixture --- */
 
 const uint8_t MASTER[16] = {
     0x00,0x11,0x22,0x33,0x44,0x55,0x66,0x77,0x88,0x99,0xaa,0xbb,0xcc,0xdd,0xee,0xff
 };
-const uint8_t DEVICE_ID[4] = { 0xDE,0xAD,0xBE,0xEF };
+const uint8_t UID[8] = { 0x01,0x23,0x45,0x67,0x89,0xAB,0xCD,0xEF };
 
 struct SecurityConfig g_sec;
 
@@ -299,67 +423,4 @@ void sec_init(uint16_t timeout_s)
     g_sec.encryption_enabled = 1u;
     memcpy(g_sec.encryption_key, MASTER, 16u);
     g_sec.session_timeout_seconds = timeout_s;
-}
-
-bool handshake_step1(struct od_session *s, uint32_t now_ms, uint8_t server_nonce_out[16],
-                     uint8_t *rsp, uint16_t *rsp_len)
-{
-    uint8_t body1[1] = { 0x00 };
-
-    if (od_session_authenticate(s, &g_sec, DEVICE_ID, od_span_make(body1, 1), now_ms,
-                                rsp, OD_SESSION_REPLY_MAX, rsp_len, NULL)
-        != OD_SESSION_AUTH_CHALLENGE) {
-        return false;
-    }
-    memcpy(server_nonce_out, rsp + 3, 16u);
-    return true;
-}
-
-/* Drive a full handshake. Returns the od_session_auth of step 2 and, on success, leaves the
- * session open. server_nonce_out receives the challenge so tests can recompute proofs. */
-const uint8_t CLIENT_NONCE[16] = {
-    0xa0,0xa1,0xa2,0xa3,0xa4,0xa5,0xa6,0xa7,0xa8,0xa9,0xaa,0xab,0xac,0xad,0xae,0xaf
-};
-
-/* The shared body of both handshake entry points. */
-static enum od_session_auth handshake_impl(struct od_session *s, uint32_t now_ms,
-                                           uint8_t server_nonce_out[16], bool corrupt_proof,
-                                           uint8_t *rsp, uint16_t *rsp_len)
-{
-    uint8_t body1[1] = { 0x00 };
-    uint8_t body2[32];
-    uint8_t proof_in[36], proof[16];
-    enum od_session_auth r;
-
-    r = od_session_authenticate(s, &g_sec, DEVICE_ID, od_span_make(body1, 1), now_ms,
-                                rsp, OD_SESSION_REPLY_MAX, rsp_len, NULL);
-    if (r != OD_SESSION_AUTH_CHALLENGE) { return r; }
-    memcpy(server_nonce_out, rsp + 3, 16u);
-
-    memcpy(proof_in, server_nonce_out, 16u);
-    memcpy(proof_in + 16, CLIENT_NONCE, 16u);
-    memcpy(proof_in + 32, DEVICE_ID, 4u);
-    host_cmac(MASTER, proof_in, 36u, proof);
-    if (corrupt_proof) { proof[15] ^= 0x01u; }
-
-    memcpy(body2, CLIENT_NONCE, 16u);
-    memcpy(body2 + 16, proof, 16u);
-    return od_session_authenticate(s, &g_sec, DEVICE_ID, od_span_make(body2, 32), now_ms,
-                                   rsp, OD_SESSION_REPLY_MAX, rsp_len, NULL);
-}
-
-enum od_session_auth handshake_capture(struct od_session *s, uint32_t now_ms,
-                                       uint8_t server_nonce_out[16],
-                                       uint8_t *rsp, uint16_t *rsp_len)
-{
-    return handshake_impl(s, now_ms, server_nonce_out, false, rsp, rsp_len);
-}
-
-enum od_session_auth handshake(struct od_session *s, uint32_t now_ms,
-                                      uint8_t server_nonce_out[16], bool corrupt_proof)
-{
-    uint8_t rsp[OD_SESSION_REPLY_MAX];
-    uint16_t rsp_len = 0;
-
-    return handshake_impl(s, now_ms, server_nonce_out, corrupt_proof, rsp, &rsp_len);
 }
