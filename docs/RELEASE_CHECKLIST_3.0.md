@@ -75,6 +75,8 @@ HARDWARE_VERIFICATION_CHECKLIST.md.
 | D7 | nRF54L15 board: boot, BLE, SMP update **from `Firmware_NRF54` 1.1.1**, and whether settings survive. | needs hardware | [ ] |
 | D8 | BG22: **2.3.0 → 3.0 `.gbl`**, first without drive packets (the panel must stay reachable while blank), then `finish_v3_upgrade` (the panel renders). | needs hardware | [ ] |
 | D9 | BG22 virgin part: `-bootloader.s37` then `-app.s37` over SWD (needs A5). | needs hardware | [ ] |
+| D11 | BG22 RAM: the release image passes the heap gate (`tools/bg22_ram_budget.py`, run by every CMake build; heap ≥ 9,600 B), and **no BG22 image is OTA'd that has not passed it**. Measure the heap high-water mark on hardware once (BG22_RAM_BUDGET.md § 5) and record it. | needs hardware (measurement) | [ ] |
+| D12 | BG22 health gate (BG22_RAM_BUDGET.md § 4), on a unit with a debugger: (a) a healthy image with 20 connect/disconnect cycles, phone + BlueZ, is never forced into the AppLoader; (b) an image built with the heap starved (gate bypassed by hand) enters the AppLoader after the first link and accepts a `.gbl` there. | needs hardware | [ ] |
 | D10 | Update the release matrix in HARDWARE_VERIFICATION_CHECKLIST.md (`:742-760`). It still says "Adafruit UF2" and "Not started". | needs hardware | [ ] |
 
 ## E. Clients (outside this repo)
