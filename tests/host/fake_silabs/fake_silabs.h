@@ -18,6 +18,9 @@ extern unsigned fake_silabs_store_clears;
 extern bool fake_silabs_save_saw_queue_empty;
 extern bool fake_silabs_reload_saw_queued;
 extern bool fake_silabs_reload_saw_authenticated;
+/* Runs inside opendisplay_ble_reload_config_from_nvm(): what the reloaded config does, e.g. a
+ * new key, or the boot-screen request the real reload ends with. Cleared by fake_silabs_reset(). */
+extern void (*fake_silabs_reload_hook)(void);
 extern uint8_t fake_silabs_store_blob[2048];
 extern uint32_t fake_silabs_store_len;
 /* What opendisplay_get_global_config() returns. Zeroed (not loaded) by fake_silabs_reset(). */

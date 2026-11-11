@@ -286,6 +286,7 @@ add_library(slc OBJECT
     "../od_claim_app_silabs.c"
     "../od_hal_secret.c"
     "../od_cmd_silabs.c"
+    "../od_link_policy.c"
     "../opendisplay_config_storage.c"
     "../opendisplay_config_parser.c"
     "../opendisplay_display.cpp"

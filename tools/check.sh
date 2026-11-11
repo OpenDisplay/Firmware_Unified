@@ -885,8 +885,16 @@ silabs_advertising_ownership() {
     fi
     count=$(grep -c '\bopendisplay_ble_restart_advertising[[:space:]]*(' \
         targets/efr32bg22-slc/opendisplay_ble.c)
-    if [ "$count" -ne 2 ]; then
-        echo "Silabs restart must have one private definition and one close-event call; found $count"
+    # Definition, the close-event call, and the resume after a panel job that paused
+    # connectable advertising (opendisplay_ble_set_connectable, same file).
+    if [ "$count" -ne 3 ]; then
+        echo "Silabs restart must have one private definition, one close-event call and one resume call; found $count"
+        return 1
+    fi
+    if [ "$(sed -n '/^void opendisplay_ble_set_connectable(/,/^}/p' \
+            targets/efr32bg22-slc/opendisplay_ble.c \
+            | grep -c '\bopendisplay_ble_restart_advertising[[:space:]]*(')" -ne 1 ]; then
+        echo "Silabs advertising resume must live in opendisplay_ble_set_connectable()"
         return 1
     fi
     close_calls=$(sed -n '/case sl_bt_evt_connection_closed_id:/,/^[[:space:]]*break;/p' \

@@ -202,6 +202,8 @@ static char s_dev_name[16];
 static struct GlobalConfig s_od_global_config;
 static uint32_t s_last_msd_refresh_ms;
 static uint32_t s_adv_boost_until_ms;
+/* Connectable advertising held off by opendisplay_ble_set_connectable(false). */
+static bool s_adv_paused;
 static bool s_pending_dfu;
 static bool s_pending_deep_sleep;
 static uint32_t s_connection_open_ms;
@@ -532,7 +534,7 @@ static void od_buttons_init_from_config(void)
 
 static void od_publish_button_msd(uint8_t adv_handle, uint32_t now_ms)
 {
-  if (!s_button_msd_dirty || adv_handle == 0xFFu || g_connection != 0xFFu) {
+  if (!s_button_msd_dirty || adv_handle == 0xFFu || g_connection != 0xFFu || s_adv_paused) {
     return;
   }
   s_button_msd_dirty = false;
@@ -1638,7 +1640,7 @@ static void od_advertising_interval_tick(uint8_t adv_handle, uint32_t now_ms)
                              "advertising boost timing")) {
     return;
   }
-  if (g_connection == 0xFFu) {
+  if (g_connection == 0xFFu && !s_adv_paused) {
     (void)sl_bt_advertiser_stop(adv_handle);
     (void)od_advertising_api_ok(sl_bt_legacy_advertiser_start(
                                    adv_handle, sl_bt_legacy_advertiser_connectable),
@@ -2027,6 +2029,7 @@ void opendisplay_ble_on_event(sl_bt_msg_t *evt)
        * display twice for one close event. */
       OD_DIAG("[OD] connection closed reason=0x%02X\r\n",
              (unsigned)evt->data.evt_connection_closed.reason);
+      s_adv_paused = false;
       if (s_adv_handle != 0xFFu) {
         if (opendisplay_ble_restart_advertising(s_adv_handle)) {
           OD_DIAG("[OD] advertising resumed after disconnect\r\n");
@@ -2036,6 +2039,22 @@ void opendisplay_ble_on_event(sl_bt_msg_t *evt)
     default:
       (void)g_od_pipe_char;
       break;
+  }
+}
+
+void opendisplay_ble_set_connectable(bool connectable)
+{
+  if (s_adv_handle == 0xFFu) {
+    return;
+  }
+  if (!connectable) {
+    s_adv_paused = true;
+    (void)sl_bt_advertiser_stop(s_adv_handle);
+    return;
+  }
+  s_adv_paused = false;
+  if (g_connection == 0xFFu) {
+    (void)opendisplay_ble_restart_advertising(s_adv_handle);
   }
 }
 

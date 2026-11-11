@@ -25,6 +25,9 @@ bool opendisplay_ble_erase_images(void);
 
 void opendisplay_ble_on_event(sl_bt_msg_t *evt);
 void opendisplay_ble_process(void);
+/* Stop or resume connectable OpenDisplay advertising (the finding-network sets are untouched).
+ * Used around work that blocks the superloop, so no peer can open a link the host cannot serve. */
+void opendisplay_ble_set_connectable(bool connectable);
 void opendisplay_ble_schedule_dfu(void);
 void opendisplay_ble_schedule_deep_sleep(void);
 

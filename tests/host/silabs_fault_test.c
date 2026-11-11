@@ -11,6 +11,7 @@
 #include "od_sec2_app.h"
 #include "od_txq.h"
 #include "od_xfer.h"
+#include "od_link_policy.h"
 #include "opendisplay_display.h"
 #include "opendisplay_pipe.h"
 #include "sec2_client.h"
@@ -117,6 +118,8 @@ static void authenticate(void)
     g_pop = 0u;
 }
 
+static void change_key(void) { g_sec.encryption_key[0] ^= 0x01u; }
+
 static void test_config_persist_before_queue(void)
 {
     const uint8_t config[] = { 0x55u };
@@ -156,6 +159,26 @@ static void test_config_persist_before_queue(void)
         CHECK(plain_n == 4u);
         CHECK(plain[0] == RESP_ACK && plain[1] == RESP_CONFIG_WRITE);
     }
+
+    CASE("config success that changes the 0x27 key bytes keeps the SEC2 session (9.6)");
+    /* The v1 image retires its session when 0x27 changes (v3/reconnect-fix). SEC2 keys live in
+     * the secret store, not in the config record, so the same write leaves the session live and
+     * the ACK still leaves sealed. */
+    setup();
+    authenticate();
+    fake_silabs_reload_hook = change_key;
+    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
+    ctx = od_test_cmd_ctx((od_reply_t){ OD_ORIGIN_BLE,
+                                         opendisplay_pipe_connection_tag() },
+                          &r, 2u, false);
+    CHECK(od_cmd_app_config_write(&ctx, od_span_make(config, sizeof config)) == OD_CMD_OK);
+    od_txq_release(&r);
+    fake_silabs_reload_hook = NULL;
+    CHECK(fake_silabs_reload_saw_authenticated);
+    CHECK(od_sec2_session_live(NULL));
+    CHECK(od_txq_process() == 1u);
+    CHECK(fake_silabs_sent_n == 1u);
+    CHECK(fake_silabs_sent[0].data[0] == OD_SEC2_SEALED_STATUS);
 
     CASE("config persistence failure cannot emit success, reload, or alter old storage");
     setup();
@@ -730,6 +753,149 @@ static void test_read_ident(void)
     CHECK(f[12] == 0x03u);  /* a display with no drive packets stored: needs migration */
 }
 
+/* ---- config write -> reconnect -> authenticate while the boot-screen pass is pending -------- *
+ * The loop below is opendisplay_display_service()'s boot branch, driven by the production
+ * policy (od_link_policy.c) and the production transport (opendisplay_pipe.c). The panel pass
+ * itself is a counter: on the device it blocks the superloop for a whole refresh, which is
+ * exactly why it must never run while a link is open or connectable advertising is on. */
+static struct od_panel_defer g_boot_defer;
+static unsigned g_panel_passes;
+static bool g_connectable;
+static bool g_pass_saw_link;
+static bool g_pass_saw_connectable;
+
+static void request_boot_screen(void) { od_panel_defer_request(&g_boot_defer); }
+
+static void service_pass(void)
+{
+    switch (od_panel_defer_poll(&g_boot_defer, opendisplay_pipe_connection() != 0xFFu,
+                                od_txq_depth() != 0u || od_xfer_active())) {
+    case OD_PANEL_DEFER_PAUSE_ADV:
+        g_connectable = false;
+        break;
+    case OD_PANEL_DEFER_RUN:
+        ++g_panel_passes;
+        g_pass_saw_link = g_pass_saw_link || opendisplay_pipe_connection() != 0xFFu;
+        g_pass_saw_connectable = g_pass_saw_connectable || g_connectable;
+        if (od_panel_defer_done(&g_boot_defer)) g_connectable = true;
+        break;
+    case OD_PANEL_DEFER_IDLE:
+    case OD_PANEL_DEFER_WAIT:
+        break;
+    }
+}
+
+static void close_connection(void)
+{
+    sl_bt_msg_t evt;
+    memset(&evt, 0, sizeof evt);
+    evt.header = sl_bt_evt_connection_closed_id;
+    evt.data.evt_connection_closed.reason = 0x13u;
+    opendisplay_pipe_handle_gatt_event(&evt);
+    g_connectable = true;   /* opendisplay_ble_on_event() restarts advertising on close */
+}
+
+static void gatt_write(const uint8_t *frame, uint8_t len)
+{
+    sl_bt_msg_t evt;
+    memset(&evt, 0, sizeof evt);
+    evt.header = sl_bt_evt_gatt_server_attribute_value_id;
+    evt.data.evt_gatt_server_attribute_value.attribute = opendisplay_pipe_characteristic();
+    evt.data.evt_gatt_server_attribute_value.att_opcode = sl_bt_gatt_write_request;
+    evt.data.evt_gatt_server_attribute_value.value.len = len;
+    memcpy(evt.data.evt_gatt_server_attribute_value.value.data, frame, len);
+    opendisplay_pipe_handle_gatt_event(&evt);
+}
+
+static void test_reconnect_after_config_write(void)
+{
+    const uint8_t config[] = { 0x55u };
+    const uint8_t fw_version[] = { 0x00u, 0x43u };
+    od_tx_reservation_t r;
+    unsigned sent;
+
+    CASE("config write -> reconnect -> authenticate while the boot-screen pass is pending");
+    setup();
+    memset(&g_boot_defer, 0, sizeof g_boot_defer);
+    g_panel_passes = 0u;
+    g_connectable = true;
+    g_pass_saw_link = false;
+    g_pass_saw_connectable = false;
+    fake_silabs_reload_hook = request_boot_screen;
+    authenticate();
+
+    /* The write that brings the first drive data: ACK queued, reload requests the boot screen. */
+    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
+    od_cmd_ctx_t ctx = od_test_cmd_ctx(
+        (od_reply_t){ OD_ORIGIN_BLE, opendisplay_pipe_connection_tag() }, &r, 2u, false);
+    CHECK(od_cmd_app_config_write(&ctx, od_span_make(config, sizeof config)) == OD_CMD_OK);
+    od_txq_release(&r);
+    service_pass();                       /* ACK still queued: the pass must wait */
+    CHECK(g_panel_passes == 0u);
+    CHECK(od_txq_process() == 1u);
+    CHECK(fake_silabs_sent_n == 1u);
+
+    /* The writer stays on the link and keeps working: nothing starves it, and its session
+     * survived the apply (SECURITY_V2 9.6: a config save ends no session). */
+    for (unsigned i = 0u; i < 5u; i++) service_pass();
+    CHECK(g_panel_passes == 0u);
+    CHECK(g_connectable);
+    CHECK(od_sec2_session_live(NULL));
+    sent = fake_silabs_sent_n;
+    gatt_write(fw_version, sizeof fw_version);
+    CHECK(fake_silabs_sent_n == sent + 1u);
+
+    /* Writer leaves. The first pass pauses advertising; a client the controller accepted just
+     * before the stop has its "opened" event delivered before the second pass. */
+    close_connection();
+    service_pass();
+    CHECK(!g_connectable);
+    CHECK(g_panel_passes == 0u);
+    open_connection(8u);
+    set_notifications(true);
+    service_pass();
+    CHECK(g_panel_passes == 0u);          /* the race cancelled the run */
+
+    /* The writer's session died with its link; the new client is answered at once: a full
+     * SEC2 HELLO/FINISH (not BUSY, not silence), and the plaintext set keeps answering. */
+    CHECK(!od_sec2_session_live(NULL));
+    {
+        const od_reply_t rp8 = { OD_ORIGIN_BLE, opendisplay_pipe_connection_tag() };
+        g_pop = fake_silabs_sent_n;
+        sec2c_init(&C, MASTER, UID);
+        CHECK(sec2c_auth(&C, &rp8) == 0);
+        CHECK(od_sec2_session_live(&rp8));
+    }
+    sent = fake_silabs_sent_n;
+    gatt_write(fw_version, sizeof fw_version);
+    CHECK(fake_silabs_sent_n == sent + 1u);
+    CHECK(fake_silabs_sent[sent].data[0] == RESP_ACK);
+    for (unsigned i = 0u; i < 5u; i++) service_pass();
+    CHECK(g_panel_passes == 0u);
+
+    /* It leaves too: pause, then the pass runs with no link and advertising off, then resumes. */
+    close_connection();
+    service_pass();
+    CHECK(!g_connectable);
+    service_pass();
+    CHECK(g_panel_passes == 1u);
+    CHECK(!g_pass_saw_link);
+    CHECK(!g_pass_saw_connectable);
+    CHECK(g_connectable);
+    service_pass();
+    CHECK(g_panel_passes == 1u);          /* one request, one pass */
+}
+
+static void test_link_policy_units(void)
+{
+    CASE("link policy: only BWR/BWY boot screens send a blank second plane");
+    CHECK(od_boot_has_blank_second_plane(OD_COLOR_SCHEME_BWR));
+    CHECK(od_boot_has_blank_second_plane(OD_COLOR_SCHEME_BWY));
+    CHECK(!od_boot_has_blank_second_plane(OD_COLOR_SCHEME_BWRY));
+    CHECK(!od_boot_has_blank_second_plane(OD_COLOR_SCHEME_MONO));
+    CHECK(!od_boot_has_blank_second_plane(OD_COLOR_SCHEME_GRAY4));
+}
+
 int main(void)
 {
     test_read_ident();
@@ -740,6 +906,8 @@ int main(void)
     test_transport_deadlines();
     test_transport_pressure_policy();
     test_degraded_boot_contracts();
+    test_reconnect_after_config_write();
+    test_link_policy_units();
     printf("silabs_fault: %u checks, %u failures\n", g_checks, g_failures);
     return g_failures == 0u ? 0 : 1;
 }

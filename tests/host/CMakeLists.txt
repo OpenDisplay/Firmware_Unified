@@ -1043,6 +1043,7 @@ if(Python3_FOUND)
         ../../targets/efr32bg22-slc/od_cmd_drive.c
         ../../shared/core/od_cmd_spi_raw.c
         ../../targets/efr32bg22-slc/od_cmd_silabs.c
+        ../../targets/efr32bg22-slc/od_link_policy.c
         ../../shared/core/od_cmd_ident.c
         ../../shared/core/od_cfg_index.c
         nvs_empty_test_stub.c
@@ -1071,6 +1072,7 @@ if(Python3_FOUND)
         ../../targets/efr32bg22-slc/od_cmd_drive.c
         ../../shared/core/od_cmd_spi_raw.c
         ../../targets/efr32bg22-slc/od_cmd_silabs.c
+        ../../targets/efr32bg22-slc/od_link_policy.c
         ../../shared/core/od_cmd_ident.c
         ../../shared/core/od_cfg_index.c
         nvs_empty_test_stub.c

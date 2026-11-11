@@ -16,6 +16,7 @@
 #include "od_txq.h"
 #include "od_xfer.h"
 #include "od_xfer_app.h"
+#include "od_link_policy.h"
 #include "opendisplay_pipe.h"
 #include "opendisplay_protocol.h"
 #include "em_cmu.h"
@@ -474,9 +475,7 @@ static bool render_screen(const struct DisplayConfig *dc, const char *const *lin
 
   /* Two image planes, from the colour scheme rather than a vendored panel flag: a
    * spot-colour panel takes a second plane even when the boot screen leaves it blank. */
-  bool is3clr = dc->color_scheme == OD_COLOR_SCHEME_BWR
-             || dc->color_scheme == OD_COLOR_SCHEME_BWY
-             || dc->color_scheme == OD_COLOR_SCHEME_BWRY;
+  bool is3clr = od_boot_has_blank_second_plane(dc->color_scheme);
   bool is_gray4 = dc->color_scheme == OD_COLOR_SCHEME_GRAY4;
   int bits_per_pixel = boot_bits_per_pixel(dc->color_scheme);
   if (bits_per_pixel == 0) {
@@ -967,29 +966,48 @@ extern "C" void opendisplay_display_boot_apply(void)
   }
 }
 
+/* A config write is ACKed before its redraw: the ACK is only QUEUED when the handler returns,
+ * and a 20-35 s refresh run inline would hold it past the host's 5 s bound, so a successful
+ * write would report as a timeout. The request is serviced from the loop, and only with no link
+ * open and advertising paused (od_link_policy.h): the refresh does not run the Bluetooth host. */
+static struct od_panel_defer s_boot_defer;
+
 /* SECURITY_V2 7.8 / FACTORY_RESET.md 4 (od_claim_app.h). A drawn setup screen also latches the
- * boot screen, so a config write in claim mode does not paint the normal screen over it. */
+ * boot screen, so a config write in claim mode does not paint the normal screen over it.
+ *
+ * The draw blocks the loop like the boot screen does. With no link open (SETUP, RESET),
+ * connectable advertising is held off for its duration so no peer opens a link into the stalled
+ * host (od_link_policy.h). The CODE screen is drawn for the claimant on its open link, which
+ * waits for it by design (SECURITY_V2 7.8); a pause already owned by the boot-screen deferral is
+ * left to it. */
 extern "C" bool od_claim_app_draw(enum od_setup_screen kind, uint32_t code)
 {
   const struct DisplayConfig *d = display_cfg();
+  bool paused = false;
+  bool ok;
 
-  if (d == nullptr || kind == OD_SETUP_SCREEN_NORMAL || !boot_pass(d, kind, code)) {
+  if (d == nullptr || kind == OD_SETUP_SCREEN_NORMAL) {
+    return false;
+  }
+  if (opendisplay_pipe_connection() == 0xFFu && !od_panel_defer_adv_paused(&s_boot_defer)) {
+    opendisplay_ble_set_connectable(false);
+    paused = true;
+  }
+  ok = boot_pass(d, kind, code);
+  if (paused) {
+    opendisplay_ble_set_connectable(true);
+  }
+  if (!ok) {
     return false;
   }
   s_boot_applied = true;
   return true;
 }
 
-/* A config write is ACKed before its redraw: the ACK is only QUEUED when the handler returns,
- * and a 20-35 s refresh run inline would hold it past the host's 5 s bound, so a successful
- * write would report as a timeout. The request is serviced from the loop once the queue has
- * drained -- the same reason a display-from-slot runs from opendisplay_display_service(). */
-static bool s_boot_requested;
-
 extern "C" void opendisplay_display_boot_request(void)
 {
   if (!s_boot_applied) {
-    s_boot_requested = true;
+    od_panel_defer_request(&s_boot_defer);
   }
 }
 
@@ -1178,9 +1196,20 @@ extern "C" bool od_display_from_slot_arm(uint8_t index)
  * the panel takes its 10-20 s, or a successful display reports as a host timeout. */
 extern "C" void opendisplay_display_service(void)
 {
-  if (s_boot_requested && od_txq_depth() == 0u && !od_xfer_active()) {
-    s_boot_requested = false;
+  switch (od_panel_defer_poll(&s_boot_defer, opendisplay_pipe_connection() != 0xFFu,
+                              od_txq_depth() != 0u || od_xfer_active())) {
+  case OD_PANEL_DEFER_PAUSE_ADV:
+    opendisplay_ble_set_connectable(false);
+    return;
+  case OD_PANEL_DEFER_RUN:
     opendisplay_display_boot_apply();
+    if (od_panel_defer_done(&s_boot_defer)) {
+      opendisplay_ble_set_connectable(true);
+    }
+    break;
+  case OD_PANEL_DEFER_IDLE:
+  case OD_PANEL_DEFER_WAIT:
+    break;
   }
   if (s_pending_slot < 0) {
     return;

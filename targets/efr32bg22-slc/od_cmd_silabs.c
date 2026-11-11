@@ -49,7 +49,8 @@ static od_cmd_result_t persist_config(const od_cmd_ctx_t *ctx, uint8_t response,
     return OD_CMD_NACK;
   }
   /* Queued (and sealed, on a claimed device) before the reload. A config save does not end the
-   * session: the key is not in the config record (SECURITY_V2 9.6). */
+   * session: the key is not in the config record (SECURITY_V2 9.6), so the v1 rule "keep the
+   * session only if 0x27 is byte-identical" (v3/reconnect-fix) has no SEC2 counterpart. */
   qrc = reply(ctx, ok, sizeof(ok));
   opendisplay_ble_reload_config_from_nvm();
   return qrc == OD_TXQ_OK ? OD_CMD_OK : OD_CMD_NACK;

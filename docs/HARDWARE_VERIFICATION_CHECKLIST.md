@@ -46,6 +46,26 @@ Nordic's 0x0085 was on glass before the move to shared code; nothing below has r
 - [ ] ESP32: CMD_SPI_RAW sub-opcodes, and refusal on a FastEPD/IT8951 board
 - [ ] ESP32: ordinary bb_epaper upload still works after a drive or raw session
 
+### EFR32BG22 (`efr32bg22-slc`) — link starvation after a config write, 2026-11-11
+
+Unit **OD13FA1E** (M3 Silabs Pro, EP29YR 2.9in BWRY, 168x384), encrypted, FMDN + FindMy on,
+LTO image `bg22-test-B-fix` (v3/reconnect-fix), 2274 B config, delivered by BLE OTA only.
+
+- [x] **Boot screen renders on BWRY** (was: no blank second plane for a single packed plane;
+      the render failed after a 21 s stall at boot and after every config write).
+- [x] **No refresh while a link is open; advertising paused during it.** After a config write
+      the writer stayed connected and got FIRMWARE_VERSION and encrypted READ_MSD in 0.09 s each
+      (session kept: security packet unchanged). After it disconnected, adverts stopped for
+      ~24 s while the boot screen drew, then resumed; connects at t=15..100 s all served,
+      a connect at t=5 s failed cleanly at the client's 20 s timeout (no half-open link).
+- [x] Config write/restore round trip byte-identical (2274 B); 0x0085 16-colour ACK in 28.9 s;
+      compressed upload; OTA of the image onto itself, first reconnect clean.
+- [x] **Image store mounts with flash MISO = PC0** (`0x20` in the 0x26 packet's MISO byte):
+      31 slots x 16 KiB; preload slot 0 -> VALID with digest, display accepted, erase -> empty,
+      display of the erased slot refused. The shipped config/preset has MISO 0xFF, so the store
+      stays unmounted until the preset is fixed. Panel output not camera-checked.
+- [ ] Not seen on glass by a camera; not watermarked for stack.
+
 ### EFR32BG22 (`efr32bg22-slc`) — CMD_SPI_RAW + config ceiling, 2026-11-06
 
 Unit **ODBEEBA6** (2.9in BWRY GDEY029F51H, 168x384), 3.0 V from a PPK2, encrypted link,

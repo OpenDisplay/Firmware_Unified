@@ -81,6 +81,7 @@ void fake_silabs_reset(void)
     memset(fake_silabs_nfc_write_data, 0, sizeof fake_silabs_nfc_write_data);
     fake_silabs_store_len = 0u;
     memset(fake_silabs_store_blob, 0, sizeof fake_silabs_store_blob);
+    fake_silabs_reload_hook = NULL;
     od_config_asm_reset(&s_assembler);
 }
 
@@ -122,11 +123,14 @@ uint16_t opendisplay_ble_get_app_version(void) { return 0x0105u; }
 uint8_t opendisplay_ble_get_app_version_patch(void) { return 3u; }
 void opendisplay_ble_schedule_dfu(void) { }
 void opendisplay_ble_schedule_deep_sleep(void) { }
+void (*fake_silabs_reload_hook)(void);
+
 void opendisplay_ble_reload_config_from_nvm(void)
 {
     fake_silabs_reload_saw_queued = od_txq_depth() != 0u;
     fake_silabs_reload_saw_authenticated = od_sec2_session_live(NULL);
     ++fake_silabs_store_reloads;
+    if (fake_silabs_reload_hook != NULL) fake_silabs_reload_hook();
 }
 void opendisplay_ble_copy_msd_bytes(uint8_t out[16]) { memset(out, 0, 16u); }
 
