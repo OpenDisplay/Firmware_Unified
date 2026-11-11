@@ -6,8 +6,9 @@ name: Release
 # (docs/RELEASE_CHECKLIST_3.0.md). Consumers (the website sync, py-opendisplay) see only
 # published releases, so they can never pick up a half-built one.
 #
-# Tags: `3.0.0` (the form every other OpenDisplay repo uses, and the recommended one) and
-# `v3.0.0` are both accepted. manifest.json always carries the bare version.
+# Tags: releases are tagged `3.0.0`, without a `v` (decided 2026-11-11; the form every other
+# OpenDisplay repo uses). `v3.0.0` is still accepted so a mistyped tag builds the same version;
+# manifest.json always carries the bare version.
 #
 # workflow_dispatch with a version is a dry run: the same build and collection, uploaded as a
 # workflow artifact, and no release.

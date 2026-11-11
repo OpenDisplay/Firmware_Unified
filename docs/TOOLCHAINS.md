@@ -63,6 +63,9 @@ Findings that drove the analysis, worth re-checking if they change.
 
 ### bb_epaper is already an ESP-IDF component upstream
 
+> 3.0: no firmware target compiles bb_epaper (panels run from config drive packets); this and
+> the related notes below are the import-time record.
+
 This was the risk I expected to dominate, and it is already solved. The upstream checkout at
 `~/bb_epaper` has:
 

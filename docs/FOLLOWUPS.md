@@ -684,8 +684,8 @@ PIPE.
 
 **Status:** FIXED in code — every listed BG22 call site now reads `od_hal_uptime_ms()`
 (`opendisplay_display.cpp`'s `od_xfer_app_now_ms` included), and `tools/check.sh`
-`time_hal_structure` refuses the 32-bit form in `targets/efr32bg22-slc`. The dead
-`panel/od_bbep_efr32_io.inl` (not compiled) still has it. Hardware known-interval check open.
+`time_hal_structure` refuses the 32-bit form in `targets/efr32bg22-slc`. The dead bb_epaper
+adapter that also had it (`panel/od_bbep_efr32_io.inl`) is deleted. Hardware known-interval check open.
 **Evidence:** `verified` against all current BG22 call sites and Simplicity SDK 2025.12.2's
 sleeptimer implementation. **Severity:** latent correctness failure on long-running devices.
 
@@ -715,7 +715,8 @@ Affected consumers:
 - `targets/efr32bg22-slc/opendisplay_pipe.c` — the two-second END barrier deadline;
 - `targets/efr32bg22-slc/opendisplay_display.cpp` — transfer `started_ms`;
 - `targets/efr32bg22-slc/opendisplay_ble.c` — six connection-age, NFC and timeout uses; and
-- `targets/efr32bg22-slc/panel/od_bbep_efr32_io.inl` — the `bb_epaper` `millis()` adapter.
+- `targets/efr32bg22-slc/panel/od_bbep_efr32_io.inl` — the `bb_epaper` `millis()` adapter
+  (since deleted with the rest of `panel/`).
 
 ### Fix
 

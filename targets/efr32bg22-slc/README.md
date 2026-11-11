@@ -15,7 +15,7 @@ before the import and are corrected here.
 | This target builds | **yes**, clean: `text 249892  data 492  bss 31792`, `heap_size 0x2cd0` (`./build-and-flash.sh --no-flash`) |
 | Hardware-verified | **no** — nothing here has been flashed to a board |
 | Takes from `shared/` | seven tiers it calls — PURE + HAL_CRYPTO + HAL_RADIO + APP_SESSION + APP_INFLATE + APP_XFER + APP_NFC — **plus HAL_LOG compiled capability-off** (`OD_CAP_LOG=0`), which links no logger symbol or state. Declines APP_RXQ, HAL_ADV and HAL_WDT. See [below](#what-this-target-takes-from-shared-today) |
-| Blocked by | *(resolved)* `bb_epaper` had no EFR32 IO backend and no `sendPanelInitFull()`; fixed by the target-owned `panel/od_bbep_efr32.cpp` adapter, `third_party/` unedited |
+| Panel library | none: the panel is driven from the config's drive packets (`od_epd_adapter.cpp`, `od_epd_io_silabs.c`). The bb_epaper adapter (`panel/`) and the panel-id map (`opendisplay_epd_map.c`) are deleted |
 | Also missing | *(resolved)* SEGGER RTT and `app_properties` come from the pinned SDK; neither is vendored |
 
 The rest of this section is the record of how it got there, kept because the failures it

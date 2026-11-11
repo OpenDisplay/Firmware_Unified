@@ -160,6 +160,10 @@ buffer with the CCM plaintext buffer, and shrink the replay window (below).
 
 ## Dependency policy: bb_epaper and FastEPD under ESP-IDF
 
+> 3.0: only FastEPD is still compiled (ESP32 IT8951 / parallel boards). No target links
+> bb_epaper; SPI panels run from config drive packets through `shared/core/od_epd.c`, and the
+> Group5 collision below no longer arises. The bb_epaper half is the import-time record.
+
 Both are Arduino-origin panel libraries; both must work under ESP-IDF (the ESP32 target drops
 Arduino). Findings verified against the clones at `/home/davelee/opendisplay/{bb_epaper,FastEPD}`.
 

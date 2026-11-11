@@ -34,11 +34,10 @@ manifest. `tools/release/collect.py --check-only <dir>` re-validates a directory
    The only files without a board are `manifest.json`, `SHA256SUMS`, `MANIFEST-*.txt`,
    `LICENSE` and `NOTICE.md`.
 4. Debug boards (`*-debug`) are built by CI but are **not** release assets.
-5. Tags: `3.0.0` and `v3.0.0` are both accepted, and they mean the same version. The other
-   OpenDisplay repos tag without a `v`. The toolbox's `tbCompareVersions` parses `"v3"` as 0,
-   so a `v3.0.0` tag would sort *below* every 2.x release there. **Use `3.0.0`.**
-   (Maintainer question: confirm. `manifest.json` always carries the bare `version` either
-   way.)
+5. Tags: **releases are tagged `3.0.0`, without a `v`** (decided 2026-11-11), as the other
+   OpenDisplay repos do. The toolbox's `tbCompareVersions` parses `"v3"` as 0, so a `v3.0.0`
+   tag would sort *below* every 2.x release there. `release.yml` still accepts `v3.0.0` and
+   builds the same version from it; `manifest.json` always carries the bare `version`.
 
 ## 2. Release flow: draft, then publish
 

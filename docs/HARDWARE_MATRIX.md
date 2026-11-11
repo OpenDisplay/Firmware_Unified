@@ -34,7 +34,7 @@ no build file states them, so treat that pair as the one unverified column.
 | `s3-n32r8` | ESP32-S3 | 2 × Xtensa LX7 | 240 MHz | 512 KB | 8 MB OPI | 32 MB | yes | FastEPD |
 | `s3-n16r8-extuart` | ESP32-S3 | 2 × Xtensa LX7 | 240 MHz | 512 KB | 8 MB OPI | 16 MB | yes | console on CH343P UART (GPIO43/44) |
 | `s3-n16r8-extuart-debug` | ESP32-S3 | 2 × Xtensa LX7 | 240 MHz | 512 KB | 8 MB OPI | 16 MB | **no** | `OD_LOG_LEVEL=OD_LOG_DEBUG`; the hardware-verified board |
-| `s3-n32r8-extuart` | ESP32-S3 | 2 × Xtensa LX7 | 240 MHz | 512 KB | 8 MB OPI | 32 MB | yes | reTerminal Sticky; panel via bb_epaper, **no FastEPD** |
+| `s3-n32r8-extuart` | ESP32-S3 | 2 × Xtensa LX7 | 240 MHz | 512 KB | 8 MB OPI | 32 MB | yes | reTerminal Sticky; SPI panel from the config's drive packets, **no FastEPD** |
 | `s3-n32r8-extuart-debug` | ESP32-S3 | 2 × Xtensa LX7 | 240 MHz | 512 KB | 8 MB OPI | 32 MB | **no** | `OD_LOG_LEVEL=OD_LOG_DEBUG` |
 | `c3-n4` | ESP32-C3 | 1 × RISC-V | 160 MHz | 400 KB | none | 4 MB | yes | no FastEPD (no LCD peripheral) |
 | `c3-n16` | ESP32-C3 | 1 × RISC-V | 160 MHz | 400 KB | none | 16 MB | yes | DIO flash to free GPIO12/13 |

@@ -52,7 +52,7 @@ checklist cites build SHAs.
 
 | # | Item | Owner | Status |
 |---|---|---|---|
-| C1 | **Tag format.** `release.yml` accepts both `3.0.0` and `v3.0.0`. **Recommended: `3.0.0`**, the form the other OpenDisplay repos and the website's version compare expect. | needs maintainer | [ ] |
+| C1 | **Tag format: `3.0.0`, no `v`** (decided 2026-11-11), the form the other OpenDisplay repos and the website's version compare expect. `release.yml` also accepts `v3.0.0`; do not use it. | decided | [x] |
 | C2 | **MCUboot key policy.** Options: (a) ship with the debug key and document it (the default today; CHANGELOG says so); (b) add the `OD_MCUBOOT_KEY_P256` and `OD_MCUBOOT_KEY_ED25519` secrets before tagging. With (b), `Firmware_NRF54` 1.1.x units cannot SMP-update without one SWD flash, and changing keys later costs a USB visit per nRF52840. | needs maintainer | [ ] |
 | C3 | The nRF52840 ships dual-slot MCUboot (now the `build.sh` default). Adafruit-only remains an unreleased opt-in. Confirm. | needs maintainer | [ ] |
 | C4 | ESP32 2.x → 3.0 erases config and key, by decision. Confirm it is acceptable with the backup/migrate CLI as the mitigation. | needs maintainer | [ ] |
@@ -91,7 +91,7 @@ HARDWARE_VERIFICATION_CHECKLIST.md.
 | # | Item | Owner | Status |
 |---|---|---|---|
 | F1 | CHANGELOG.md `## [3.0.0]`: delete the lines for any branch that did not merge; set the date. | needs maintainer | [ ] |
-| F2 | Tag on the merged commit (format per C1) and push the tag. `release.yml` builds and creates a **draft**. | needs maintainer | [ ] |
+| F2 | Tag the merged commit `3.0.0` (no `v`, C1) and push the tag. `release.yml` builds and creates a **draft**. | needs maintainer | [ ] |
 | F3 | Review the draft: `manifest.json` `signing` matches C2, every board in RELEASE_ARTEFACTS.md §3 is present, and no 2.x names appear. | needs maintainer | [ ] |
 | F4 | **Publish** the draft. Consumers (`releases/latest`, the toolbox) never see drafts. | needs maintainer | [ ] |
 | F5 | Run the website sync against the published release and release the website. | needs maintainer | [ ] |

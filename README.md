@@ -52,14 +52,16 @@ shared/          target-agnostic. MUST NOT include any vendor SDK header.
   compress/      inflate engines (uzlib bit-serial, ROM tinfl adapter) behind one API
   hal/           abstract interfaces that targets implement (SPI, GPIO, timers, NVS, radio)
 targets/         one directory per target: chip drivers + build system + HAL implementation
-third_party/     vendored cross-target libraries whose IO layer is per-target (bb_epaper)
+third_party/     vendored libraries: FastEPD (ESP32), the QR encoder, the boot logo; bb_epaper (host harness only)
 tools/           protocol-header sync, provisioning, device CLI
 docs/            architecture and migration notes
 ```
 
-`third_party/` exists because `bb_epaper` selects its IO backend by `#ifdef` and each backend
-includes vendor headers, so it can never satisfy the `shared/` rule — but it is still one
-vendored copy shared by every target, not a per-target fork.
+`third_party/` sits outside `shared/` because its libraries select their IO backends by `#ifdef`
+and include vendor headers, so they can never satisfy the `shared/` rule. No firmware target
+compiles `bb_epaper`: every panel is driven from the config's drive packets (`shared/core/od_epd.c`).
+It stays vendored for the host panel-data harness (`tests/panels/`), which checks the drive
+presets against its recorded streams.
 
 ## Targets
 

@@ -535,6 +535,12 @@ input has logged a credential.
 
 ### `od_hal_panel` — the display-specific interface
 
+> **Superseded in 3.0.** `od_hal_panel`, `od_panel_ops`, the bb_epaper backend and
+> `protocol_pending.h` are deleted. SPI panels are driven by `od_epd` through the
+> `od_epd_cfg_bus_t` seam (`shared/core/od_epd_cfg.h`); ESP32's IT8951 / parallel panels are
+> selected by the 0xB3 config packet (`targets/esp32-idf/src/od_controller_esp.cpp`). This
+> section and its corrections are the design record of the 2.x-era interface.
+
 This is the one interface worth real care, and `display_fastepd.h` (upstream) is the reference
 shape. Its actual surface (verified):
 

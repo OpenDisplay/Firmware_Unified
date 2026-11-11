@@ -644,6 +644,8 @@ by the idle timeout. That exposure is handled by a **refresh watchdog**, deliber
 
 Scoping it honestly, from the code:
 
+- *(3.0: the bb_epaper path is gone; SPI panels wait on BUSY inside `od_epd` with a per-mode
+  `busy_timeout_ms`, `shared/core/od_epd.h`. The 2.x record follows.)*
 - On the **`bb_epaper` polling path only**, the BUSY wait is bounded:
   `waitforrefresh(60)` loops `timeout * 100` times at 10 ms and then returns failure
   ([display_service.cpp:803-831](../src/display_service.cpp)).
