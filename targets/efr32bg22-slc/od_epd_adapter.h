@@ -90,8 +90,8 @@ class OdEpdAdapter {
     int lastRc(void) const { return _last_rc; }
 
  private:
-    od_epd_t        _epd;
-    od_panel_desc_t _desc;
+    od_epd_t        _epd{};
+    od_panel_desc_t _desc{};
     bool            _ready = false;
     int             _rotation = 0;
     int             _last_rc = 0;
