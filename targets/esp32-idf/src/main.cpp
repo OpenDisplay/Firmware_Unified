@@ -44,6 +44,44 @@
 #if CONFIG_PM_ENABLE
 #include "esp_pm.h"
 #endif
+#if OD_SEC2_TRACE_BUILD
+#include "driver/uart.h"
+#include "esp_task_wdt.h"
+#include <stdlib.h>
+/* Bench fault hooks, trace build only: "!P" panics (abort), "!I" spins with interrupts off
+ * (interrupt watchdog), "!T" shortens the task watchdog to 3 s and spins in loop() (task
+ * watchdog). They produce the reset causes the gesture logic must not count. */
+static void sec2TestFaultHooks() {
+    static uint8_t prev = 0;
+    uint8_t ch;
+    while (uart_read_bytes(UART_NUM_0, &ch, 1, 0) == 1) {
+        if (prev == '!') {
+            if (ch == 'P') {
+                OD_SEC2_TRACE("fault hook: abort() -> panic reset");
+                od_log_flush();
+                abort();
+            } else if (ch == 'I') {
+                OD_SEC2_TRACE("fault hook: interrupts off, spin -> interrupt watchdog");
+                od_log_flush();
+                portDISABLE_INTERRUPTS();
+                for (;;) {
+                }
+            } else if (ch == 'T') {
+                esp_task_wdt_config_t cfg = {};
+                cfg.timeout_ms = 3000;
+                cfg.idle_core_mask = 0;
+                cfg.trigger_panic = true;
+                (void)esp_task_wdt_reconfigure(&cfg);
+                OD_SEC2_TRACE("fault hook: task watchdog 3 s, loop() spins -> task watchdog");
+                od_log_flush();
+                for (;;) {
+                }
+            }
+        }
+        prev = ch;
+    }
+}
+#endif
 
 // Distinguishes a hidden mid-cycle reset (PANIC/WDT/BROWNOUT/SW) from a real
 // power-on or deep-sleep wake; any reset here clears the wake cause, so the
@@ -917,6 +955,9 @@ void loop() {
     /* First statement in the pass, so no early return below can skip it and so the feed is
      * evidence that loop() itself is running rather than that some subset of it completed. */
     od_watchdog_app_service();
+#if OD_SEC2_TRACE_BUILD
+    sec2TestFaultHooks();
+#endif
     od_claim_mode_tick();
     serviceSecurityPolicyReload();
     if (s_bootScreenDeferred && !od_claim_mode_defer_boot_screen()) {
