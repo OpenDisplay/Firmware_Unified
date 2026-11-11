@@ -1,3 +1,5 @@
+#include "od_claim_mode.h"
+#include "config_parser.h"
 #include "od_smp.h"
 #include "main.h"
 #include "od_display_esp.h"
@@ -106,6 +108,10 @@ static void logHeapUsage(const char *when)
                 (unsigned)psram_total);
 }
 
+// od_claim_mode_defer_boot_screen() held the boot refresh back; loop() draws it.
+static bool s_bootScreenDeferred = false;
+void od_esp_reset_note_rtc_wake(void);   // od_claim_app_esp.cpp
+
 void setup() {
     #if defined(OPENDISPLAY_LOG_UART)
     od_hal_log_open();
@@ -199,7 +205,8 @@ void setup() {
     // is configured: it also clears the flag that holds INT (and the rail) on.
     // RTC memory died with the rail, so displayed_etag is 0 (the host sends a
     // full image) and rebootFlag stays clear -- this is not a reboot.
-    if (rtcConsumeWake() && !is_deep_sleep_wake) {
+    const bool rtc_power_off_wake = rtcConsumeWake();
+    if (rtc_power_off_wake && !is_deep_sleep_wake) {
         is_deep_sleep_wake = true;
         woke_from_deep_sleep = true;
         deep_sleep_count++;
@@ -208,6 +215,8 @@ void setup() {
     }
     if (is_deep_sleep_wake) { od_log_info("[wake] << full_config_init >> initio"); od_log_flush(); }
     initio();
+    if (rtc_power_off_wake) od_esp_reset_note_rtc_wake();
+    securityBoot();
     if (!is_deep_sleep_wake) {
         // Arm here rather than at declaration: this branch is the boot screen
         // redraw, and every real reset (power-on, panic, WDT, SW) clears the
@@ -216,8 +225,16 @@ void setup() {
         rebootFlag = 1;
         // Wake keeps the panel image; skipping initDisplay() (EPD rail power +
         // full refresh) is the wake path's main energy saving.
-        initDisplay();
-        od_log_info("Display initialized");
+        //
+        // Claim mode draws its own screen. A boot that may be one step of a power-cycle
+        // pattern defers its refresh until the pattern can no longer continue
+        // (od_claim_mode.h), so the pattern costs no e-paper refresh per quick boot.
+        if (od_claim_mode_defer_boot_screen()) {
+            s_bootScreenDeferred = !od_claim_mode_active();
+        } else if (!od_claim_mode_active()) {
+            initDisplay();
+            od_log_info("Display initialized");
+        }
     }
     // Full BLE after display: ESP32 queues commands for loop() until setup returns.
     if (is_deep_sleep_wake) { od_log_info("[wake] >> ble_begin"); od_log_flush(); }
@@ -273,7 +290,8 @@ void setup() {
     }
     // BOOT fires on a power-on or reset, not on a deep-sleep wake: every timer wake re-runs
     // setup(), and a BOOT entry repeated on each one would cost battery for a "once" trigger.
-    if (!is_deep_sleep_wake) od_action_trigger(OD_TRIG_BOOT, 0u);
+    // Claim mode runs none of the device's own content sources (SECURITY_V2 7.4).
+    if (!is_deep_sleep_wake && !od_claim_mode_active()) od_action_trigger(OD_TRIG_BOOT, 0u);
     // Both sleep paths measure quiet time from here, not from power-on.
     lastActivityMs = od_hal_uptime_ms();
     od_log_info("=== Setup completed successfully ===");
@@ -894,9 +912,18 @@ void loop() {
     /* First statement in the pass, so no early return below can skip it and so the feed is
      * evidence that loop() itself is running rather than that some subset of it completed. */
     od_watchdog_app_service();
+    od_claim_mode_tick();
+    serviceSecurityPolicyReload();
+    if (s_bootScreenDeferred && !od_claim_mode_defer_boot_screen()) {
+        s_bootScreenDeferred = false;
+        initDisplay();
+    }
     serviceBleEvents();
     processLedFlash();
-    (void)od_action_service(od_hal_uptime_ms());   // at most one step; every step yields
+    // Claim mode runs none of the device's own content sources (SECURITY_V2 7.4).
+    if (!od_claim_mode_active()) {
+        (void)od_action_service(od_hal_uptime_ms());   // at most one step; every step yields
+    }
     epdSessionTick();   // od_hal_uptime_ms()-poll: power the panel down screen_timeout_seconds after last release
     displayServiceDeferredBoot();   // boot screen owed by a config write that brought drive packets
     buzzerService();
@@ -1128,6 +1155,11 @@ void enterDeepSleep(bool force, uint16_t overrideSleepSeconds) {
     // awake with the radio dark. force (host 0x0053) bypasses the hold.
     if (!force && minWakeHoldActive()) {
         od_log_debug("Skipping deep sleep - minimum wake window active");
+        return;
+    }
+    // Claim mode stays awake; otherwise an armed power-cycle count ends here (SECURITY_V2 7.2).
+    if (!od_claim_mode_before_sleep()) {
+        od_log_debug("Skipping deep sleep - claim mode");
         return;
     }
     // Panel power-down MUST sit below every early-return above (including the

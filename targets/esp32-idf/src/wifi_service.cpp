@@ -1,3 +1,4 @@
+#include "od_claim_mode.h"
 #include "wifi_service.h"
 #include "od_ble.h"        /* OD: BLE identity address for the mDNS TXT record */
 
@@ -1283,6 +1284,11 @@ void serviceLanRoam(void) {
 }
 
 void initWiFi(bool waitForConnection) {
+    /* SECURITY_V2 7.3 / 10.1: no WiFi in claim mode, none on a LOCKED device. */
+    if (od_claim_mode_active() || od_sec2_state() == OD_SEC2_LOCKED) {
+        od_log_info("WiFi not started: %s", od_claim_mode_active() ? "claim mode" : "LOCKED");
+        return;
+    }
     od_log_info("=== Initializing WiFi ===");
 
     // WiFi is NOT gated on power_mode: if COMM_MODE_WIFI is enabled the radio comes

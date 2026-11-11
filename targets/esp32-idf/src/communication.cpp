@@ -1,3 +1,4 @@
+#include "od_claim_mode.h"
 #include "od_smp.h"
 #include "communication.h"
 #include "od_display_esp.h"
@@ -189,7 +190,10 @@ static void reloadConfigAfterSave(void) {
         epdSessionForceOff();
     }
     // A boot screen skipped for want of drive packets is shown once a config brings them.
-    displayRequestBootAfterConfigWrite();
+    // Not in claim mode: it owns the panel until the reboot that ends it (SECURITY_V2 7.3).
+    if (!od_claim_mode_active()) {
+        displayRequestBootAfterConfigWrite();
+    }
 #ifdef OPENDISPLAY_HAS_WIFI
     // Non-blocking: a config write arrives over a live BLE link, and the blocking
     // form stalls the loop task for up to 36 s of connect retries, freezing BLE
@@ -197,7 +201,6 @@ static void reloadConfigAfterSave(void) {
     initWiFi(false);
 #endif
 }
-void secureEraseConfig();
 // chunked_write_state_t comes from config_parser.h; this file used to redefine it
 // with a hardcoded 4096 in place of OD_CONFIG_MAX_SIZE.
 extern uint8_t configReadResponseBuffer[128];
@@ -391,7 +394,6 @@ od_cmd_result_t handleReadConfig(const od_cmd_ctx_t *ctx) {
 // Outcome of "is this frame allowed to MUTATE stored configuration?".
 enum ConfigWriteGate {
     CONFIG_WRITE_ALLOWED,        // proceed as-is
-    CONFIG_WRITE_ALLOWED_ERASE,  // proceed, but wipe the old record first (rewrite policy)
     CONFIG_WRITE_DENIED,         // answer RESP_AUTH_REQUIRED
 };
 
@@ -432,9 +434,6 @@ od_cmd_result_t handleWriteConfig(const od_cmd_ctx_t *ctx, uint8_t* data, uint16
         uint8_t response[] = {RESP_ACK, (uint8_t)(CMD_CONFIG_WRITE & 0xFF), RESP_AUTH_REQUIRED};
         (void)od_cmd_reply_plain(ctx, response, sizeof(response));
         return OD_CMD_AUTH_REJECTED;
-    }
-    if (gate == CONFIG_WRITE_ALLOWED_ERASE) {
-        secureEraseConfig();
     }
 
     uint8_t responseOk[]  = {RESP_ACK,  RESP_CONFIG_WRITE, 0x00, 0x00};
@@ -529,9 +528,6 @@ od_cmd_result_t handleWriteConfigChunk(const od_cmd_ctx_t *ctx, uint8_t* data, u
             uint8_t response[] = {RESP_ACK, (uint8_t)(CMD_CONFIG_CHUNK & 0xFF), RESP_AUTH_REQUIRED};
             (void)od_cmd_reply_plain(ctx, response, sizeof(response));
             return OD_CMD_AUTH_REJECTED;
-        }
-        if (gate == CONFIG_WRITE_ALLOWED_ERASE) {
-            secureEraseConfig();
         }
     }
 

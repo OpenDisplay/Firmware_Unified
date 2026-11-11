@@ -1,3 +1,4 @@
+#include "od_claim_mode.h"
 #include "display_service.h"
 #include "od_cmd_reply.h"
 
@@ -1021,7 +1022,8 @@ void updatemsdata(){
     adv.chip_temperature_c = chipTemperature;
     adv.battery_10mv = batteryVoltage10mv;
     adv.reboot_flag = rebootFlag;
-    adv.connection_requested = connectionRequested;
+    // SECURITY_V2 5.3: bit 2 is set continuously while in claim mode.
+    adv.connection_requested = connectionRequested || od_claim_mode_active();
     adv.loop_counter = mloopcounter;
     od_advert_build(&adv, msd_payload);
     // Status bit 3 = a session is required (CLAIMED or LOCKED, SECURITY_V2 5.3).

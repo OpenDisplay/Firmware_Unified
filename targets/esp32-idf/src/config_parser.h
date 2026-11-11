@@ -36,6 +36,14 @@ bool loadConfig(uint8_t* configData, uint32_t* len);
 bool hasValidStoredConfig(void);
 bool loadGlobalConfig();
 void full_config_init();
+/* The SEC2 security boot (od_security_boot), once per boot after full_config_init(). */
+void securityBoot(void);
+/* od_claim_app_config_changed(): the policy rewrote the stored config; reload at the next
+ * serviceSecurityPolicyReload() (loop task). */
+void configChangedBySecurityPolicy(void);
+void serviceSecurityPolicyReload(void);
+/* The record workspace saveConfig() uses, lent to the SEC2 policy. */
+uint8_t* getConfigWorkspace(uint32_t* cap);
 
 // The one 4 KB config staging buffer, shared by every consumer that needs a
 // whole config blob in RAM (loadGlobalConfig, handleReadConfig,

@@ -4,6 +4,7 @@
  * od_smp_confirm_running() keeps it. Slot 0 is always reported as the running image and slot 1 as
  * the other one, which is the shape mcumgr clients expect whichever partition is executing.
  */
+#include "od_claim_mode.h"
 #include "od_smp.h"
 
 #include <stdlib.h>
@@ -325,6 +326,7 @@ static void restart_cb(void *arg)
 
 static void schedule_restart(void)
 {
+    (void)od_claim_mode_before_reboot();   /* on the caller's task, not the timer's */
     static esp_timer_handle_t timer;
     const esp_timer_create_args_t args = { .callback = restart_cb, .name = "od_smp_rst" };
 

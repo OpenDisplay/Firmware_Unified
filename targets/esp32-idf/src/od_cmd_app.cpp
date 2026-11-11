@@ -8,6 +8,7 @@
  * ABOUT an opcode before any handler runs, so they stay on od_dispatch.h rather than moving here.
  */
 
+#include "od_claim_mode.h"
 #include "od_reply.h"
 #include "od_cmd_app.h"
 
@@ -39,6 +40,7 @@ extern "C" od_cmd_result_t od_cmd_app_reboot(const od_cmd_ctx_t *ctx, od_span_t 
     (void)ctx; (void)body;
     /* Replies by not returning. The delay is the shipped one: it exists so a queued response to an
      * EARLIER command has a chance to leave before the reset. */
+    (void)od_claim_mode_before_reboot();   /* OS2C, or END(CLAIMED); disarms the count */
     od_hal_delay_ms(100);
     reboot();
     return OD_CMD_OK;

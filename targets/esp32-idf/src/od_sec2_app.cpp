@@ -6,6 +6,9 @@
 
 #include "encryption_state.h"
 #include "od_hal_time.h"
+#include "od_display.h"
+#include "od_xfer.h"
+#include "display_service.h"
 #include "od_config.h"
 #include "structs.h"
 
@@ -57,4 +60,10 @@ extern "C" void od_txq_app_dropped(const od_reply_t *rp, uint16_t len, od_radio_
     (void)rp;
     (void)len;
     (void)why;
+}
+
+/* A refresh runs (either driver path) or a transfer that ends in one is open. */
+extern "C" bool od_sec2_app_display_busy(void)
+{
+    return epdRefreshInProgress || od_xfer_active() || od_display_active();
 }

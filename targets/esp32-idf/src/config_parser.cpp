@@ -5,7 +5,8 @@
 #include "structs.h"
 #include "od_log.h"
 #include "encryption_state.h"
-#include "encryption.h"   // checkResetPin()
+#include "od_cfg_policy.h"
+#include "od_claim_mode.h"
 #include "od_sec2.h"
 #include "power_latch.h"
 #include "opendisplay_structs.h"
@@ -80,19 +81,27 @@ uint8_t* getConfigScratch(void) {
     return configScratch;
 }
 
-bool saveConfig(uint8_t* configData, uint32_t len){
-    /* The workspace od_config_store fills: header at offset 0, payload after it, written to the
-     * medium as one span. Static because it is 4 KB and config writes are serialised on the
-     * loop task. The factory-provisioning caller passes a flash pointer, which the core copies
-     * in here -- there is nowhere else it could be assembled contiguously. */
-    static uint8_t workspace[OD_CONFIG_STORE_MAX_RECORD];
+/* Static because it is 4 KB. Config writes and the SEC2 policy's own rewrites (which borrow it
+ * through od_claim_app_workspace()) are serialised on the loop task. */
+static uint8_t s_workspace[OD_CONFIG_STORE_MAX_RECORD];
 
-    return od_config_store_save(workspace, sizeof(workspace), configData, len)
+bool saveConfig(uint8_t* configData, uint32_t len){
+    /* Header at offset 0, payload after it, written to the medium as one span. The
+     * factory-provisioning caller passes a flash pointer, which is copied in here. Every store
+     * meets the SEC2 rules (secrets need a key, the 0x27 key field), the factory embed
+     * included. */
+    return od_cfg_policy_save(s_workspace, sizeof(s_workspace), configData, len)
            == OD_CONFIG_STORE_OK;
 }
 
+uint8_t* getConfigWorkspace(uint32_t* cap) {
+    *cap = (uint32_t)sizeof(s_workspace);
+    return s_workspace;
+}
+
 bool clearStoredConfig(void) {
-    if (od_config_store_clear() != OD_CONFIG_STORE_OK) {
+    /* SECURITY_V2 10.6: a claimed device keeps 0x27 at rest; the policy decides. */
+    if (od_cfg_policy_clear_store() != OD_CONFIG_STORE_OK) {
         return false;
     }
     /* One memset, not two: securityConfig is a member of globalConfig now, so zeroing the
@@ -289,6 +298,35 @@ bool loadGlobalConfig(){
     return true;
 }
 
+static bool s_configLoaded;
+static bool s_factoryProvisioned;
+static bool s_configChanged;
+
+void configChangedBySecurityPolicy(void) {
+    s_configChanged = true;
+}
+
+/* SECURITY_V2 7.1 / 10.1, FACTORY_RESET.md 3.1: the reset pin, the boot history, a pending or
+ * triggered factory reset, the boot decision and claim-mode entry. After full_config_init()
+ * and the RTC wake check (a PCF8563 power-off wake must not count as a power-cycle), before the
+ * display and the radio. */
+void securityBoot(void) {
+    struct od_security_boot_report rep;
+
+    od_security_boot(s_configLoaded ? &securityConfig : nullptr, s_configLoaded,
+                     s_factoryProvisioned, &rep);
+    od_log_info("sec2: cause=0x%03x k=%u state=%u claim=%u", (unsigned)rep.cause,
+                (unsigned)rep.short_boots, (unsigned)rep.state, (unsigned)rep.kind);
+    serviceSecurityPolicyReload();
+}
+
+void serviceSecurityPolicyReload(void) {
+    if (s_configChanged) {
+        s_configChanged = false;
+        s_configLoaded = loadGlobalConfig();
+    }
+}
+
 void full_config_init() {
     if (!initConfigStorage()) {
         return;
@@ -298,20 +336,19 @@ void full_config_init() {
     od_log_info("Factory clear build: erasing stored config");
     clearStoredConfig();
     od_log_info("Config cleared; skipping load");
-    (void)od_sec2_boot(nullptr);
+    s_configLoaded = false;
     return;
 #endif
 
     bool configLoaded = loadGlobalConfig();
     if (!configLoaded && tryProvisionFactoryEmbed()) {
         configLoaded = loadGlobalConfig();
+        s_factoryProvisioned = configLoaded;
     }
-    /* SECURITY_V2 10.1: decided once per boot, before the radio starts. */
-    (void)od_sec2_boot(configLoaded ? &securityConfig : nullptr);
+    s_configLoaded = configLoaded;
     if (configLoaded) {
         logWifiRuntimeState();
         encryptionInitialized = true;
-        checkResetPin();
         if (globalConfig.loaded && (globalConfig.system_config.device_flags & DEVICE_FLAG_WS_PP_INIT)) {
             od_log_info("Device flag DEVICE_FLAG_WS_PP_INIT is set, calling ws_pp_init()...");
             ws_pp_init();

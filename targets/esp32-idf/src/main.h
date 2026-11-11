@@ -143,8 +143,6 @@ void enterDeepSleep(bool force = false, uint16_t overrideSleepSeconds = 0);
 extern bool advertising_timeout_active;
 extern uint32_t advertising_start_time;
 void getChipIdHex(char* out, size_t out_size);   // see encryption.h for the contract
-void secureEraseConfig();
-void checkResetPin();
 void reboot();
 void enterDFUMode();
 void initio();

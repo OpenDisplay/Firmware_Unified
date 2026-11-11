@@ -17,7 +17,5 @@ void getAuthDeviceIdBytes(uint8_t* device_id);
  * now the contract instead of a convention. */
 #define OD_CHIP_ID_HEX_LEN 6
 void getChipIdHex(char* out, size_t out_size);
-void secureEraseConfig();
-void checkResetPin();
 
 #endif
