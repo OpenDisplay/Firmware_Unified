@@ -250,6 +250,33 @@ static void test_load_rejects_damaged_records(void)
 
 /* ------------------------------------------------------------------------- failure behaviour */
 
+/* A damaged stored record never blocks its replacement: saveConfig reads nothing back, so a
+ * client can always repair a device by writing a whole config over it. */
+static void test_damaged_record_is_overwritten(void)
+{
+    static const unsigned pokes[] = { 0u, 8u, 12u, HDR_LEN + 100u };
+    struct od_config_asm *s = opendisplay_config_assembler();
+    uint32_t out_len;
+
+    CASE("a new config write replaces a damaged stored record");
+    for (unsigned i = 0u; i < sizeof pokes / sizeof pokes[0]; ++i) {
+        setup();
+        (void)assemble(600u, 0x21u);
+        CHECK(saveConfig(s->buffer, 600u));
+        nvm3_fake_object[pokes[i]] ^= 0xffu;
+        simulate_reboot();
+        out_len = OD_CONFIG_MAX_SIZE;
+        CHECK(!loadConfig(s->buffer, &out_len));
+        (void)assemble(400u, 0x43u);
+        CHECK(saveConfig(s->buffer, 400u));
+        simulate_reboot();
+        out_len = OD_CONFIG_MAX_SIZE;
+        CHECK(loadConfig(s->buffer, &out_len));
+        CHECK(out_len == 400u);
+        CHECK(payload_matches(s->buffer, 400u, 0x43u));
+    }
+}
+
 static void test_write_failure_preserves_prior_record(void)
 {
     struct od_config_asm *s = opendisplay_config_assembler();
@@ -410,6 +437,7 @@ int main(void)
     test_aliased_and_external_saves_agree();
     test_read_back_across_reboot();
     test_load_rejects_damaged_records();
+    test_damaged_record_is_overwritten();
     test_write_failure_preserves_prior_record();
     test_on_demand_open();
     test_clear();
