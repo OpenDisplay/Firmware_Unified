@@ -90,6 +90,10 @@ OD_STATIC_ASSERT(OD_SEC2_STATUS_LEN == 2u + 1u + 1u + 1u + 2u + 8u + 2u + 1u + 1
 #define OD_SEC2_OS2S_FRESH          0x01u
 #define OD_SEC2_OS2S_LEGACY_SECRETS 0x02u
 #define OD_SEC2_OS2S_MIGRATED       0x04u
+/* Superseded copies of secrets may still sit in the raw storage medium (SECURITY_V2 10.4a): run
+ * od_claim_app_storage_purge() at the next boot, then clear. Set by UNCLAIM and factory-reset R6.
+ * Firmware that predates the bit ignores it. */
+#define OD_SEC2_OS2S_PURGE          0x08u
 
 struct od_sec2_key_rec {
     uint8_t  origin;

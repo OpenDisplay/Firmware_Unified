@@ -4,6 +4,7 @@
 #include "od_claim_app.h"
 #include "od_hal_reset.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "esp_attr.h"
@@ -159,6 +160,140 @@ extern "C" bool od_claim_app_erase_bonds(void)
         return false;
     }
     return true;
+}
+
+/* SECURITY_V2 10.4a. NVS has no way to reclaim one page on demand, so every live entry of the
+ * partition is read into RAM, the partition is erased and the entries are written back: only
+ * current values survive, no superseded config record or erased OS2K. ESP-IDF's nvs.net80211 is
+ * dropped (WIFI_STORAGE_RAM keeps it empty; 2.x left a password there). Boot only, before the
+ * radios, so no NVS handle is open. All reads happen before the erase; a read or an allocation
+ * failure gives up with nothing changed. A power cut between the erase and the last write leaves
+ * a partly or wholly blank partition: the config may be gone and the device boots unclaimed --
+ * the callers (UNCLAIM, factory reset) have already made it so. */
+struct purge_entry {
+    char ns[NVS_KEY_NAME_MAX_SIZE];
+    char key[NVS_KEY_NAME_MAX_SIZE];
+    nvs_type_t type;
+    size_t len;
+    uint64_t num;
+    uint8_t *data;
+};
+
+static bool purge_read(nvs_handle_t h, struct purge_entry *e)
+{
+    switch (e->type) {
+    case NVS_TYPE_U8:  { uint8_t v;  if (nvs_get_u8(h, e->key, &v) != ESP_OK) return false; e->num = v; return true; }
+    case NVS_TYPE_I8:  { int8_t v;   if (nvs_get_i8(h, e->key, &v) != ESP_OK) return false; e->num = (uint64_t)(uint8_t)v; return true; }
+    case NVS_TYPE_U16: { uint16_t v; if (nvs_get_u16(h, e->key, &v) != ESP_OK) return false; e->num = v; return true; }
+    case NVS_TYPE_I16: { int16_t v;  if (nvs_get_i16(h, e->key, &v) != ESP_OK) return false; e->num = (uint64_t)(uint16_t)v; return true; }
+    case NVS_TYPE_U32: { uint32_t v; if (nvs_get_u32(h, e->key, &v) != ESP_OK) return false; e->num = v; return true; }
+    case NVS_TYPE_I32: { int32_t v;  if (nvs_get_i32(h, e->key, &v) != ESP_OK) return false; e->num = (uint64_t)(uint32_t)v; return true; }
+    case NVS_TYPE_U64: return nvs_get_u64(h, e->key, &e->num) == ESP_OK;
+    case NVS_TYPE_I64: { int64_t v;  if (nvs_get_i64(h, e->key, &v) != ESP_OK) return false; e->num = (uint64_t)v; return true; }
+    case NVS_TYPE_STR:
+        if (nvs_get_str(h, e->key, NULL, &e->len) != ESP_OK || (e->data = (uint8_t *)malloc(e->len)) == NULL) {
+            return false;
+        }
+        return nvs_get_str(h, e->key, (char *)e->data, &e->len) == ESP_OK;
+    case NVS_TYPE_BLOB:
+        if (nvs_get_blob(h, e->key, NULL, &e->len) != ESP_OK ||
+            (e->data = (uint8_t *)malloc(e->len ? e->len : 1u)) == NULL) {
+            return false;
+        }
+        return nvs_get_blob(h, e->key, e->data, &e->len) == ESP_OK;
+    default:
+        return false;
+    }
+}
+
+static bool purge_write(nvs_handle_t h, const struct purge_entry *e)
+{
+    switch (e->type) {
+    case NVS_TYPE_U8:   return nvs_set_u8(h, e->key, (uint8_t)e->num) == ESP_OK;
+    case NVS_TYPE_I8:   return nvs_set_i8(h, e->key, (int8_t)(uint8_t)e->num) == ESP_OK;
+    case NVS_TYPE_U16:  return nvs_set_u16(h, e->key, (uint16_t)e->num) == ESP_OK;
+    case NVS_TYPE_I16:  return nvs_set_i16(h, e->key, (int16_t)(uint16_t)e->num) == ESP_OK;
+    case NVS_TYPE_U32:  return nvs_set_u32(h, e->key, (uint32_t)e->num) == ESP_OK;
+    case NVS_TYPE_I32:  return nvs_set_i32(h, e->key, (int32_t)(uint32_t)e->num) == ESP_OK;
+    case NVS_TYPE_U64:  return nvs_set_u64(h, e->key, e->num) == ESP_OK;
+    case NVS_TYPE_I64:  return nvs_set_i64(h, e->key, (int64_t)e->num) == ESP_OK;
+    case NVS_TYPE_STR:  return nvs_set_str(h, e->key, (const char *)e->data) == ESP_OK;
+    case NVS_TYPE_BLOB: return nvs_set_blob(h, e->key, e->data, e->len) == ESP_OK;
+    default:            return false;
+    }
+}
+
+extern "C" bool od_claim_app_storage_purge(void)
+{
+    struct purge_entry *list = NULL;
+    size_t n = 0u, cap = 0u, i;
+    nvs_iterator_t it = NULL;
+    bool ok = true;
+    esp_err_t res;
+
+    res = nvs_entry_find(NVS_DEFAULT_PART_NAME, NULL, NVS_TYPE_ANY, &it);
+    while (ok && res == ESP_OK) {
+        nvs_entry_info_t info;
+        nvs_handle_t h;
+
+        nvs_entry_info(it, &info);
+        if (strcmp(info.namespace_name, "nvs.net80211") != 0) {
+            if (n == cap) {
+                struct purge_entry *grown;
+                cap = cap ? 2u * cap : 32u;
+                grown = (struct purge_entry *)realloc(list, cap * sizeof *list);
+                if (grown == NULL) {
+                    ok = false;
+                    break;
+                }
+                list = grown;
+            }
+            memset(&list[n], 0, sizeof list[n]);
+            strlcpy(list[n].ns, info.namespace_name, sizeof list[n].ns);
+            strlcpy(list[n].key, info.key, sizeof list[n].key);
+            list[n].type = info.type;
+            ++n;
+            ok = nvs_open(list[n - 1u].ns, NVS_READONLY, &h) == ESP_OK;
+            if (ok) {
+                ok = purge_read(h, &list[n - 1u]);
+                nvs_close(h);
+            }
+        }
+        res = nvs_entry_next(&it);
+    }
+    nvs_release_iterator(it);
+    if (ok && res != ESP_ERR_NVS_NOT_FOUND) {
+        ok = false;                          /* the walk itself failed: nothing is known */
+    }
+    if (ok) {
+        (void)nvs_flash_deinit();
+        ok = nvs_flash_erase() == ESP_OK;
+        od_hal_nvs_esp_cache_drop();
+        if (nvs_flash_init() != ESP_OK) {
+            ok = false;
+        }
+        for (i = 0u; ok && i < n; ++i) {
+            nvs_handle_t h;
+
+            ok = nvs_open(list[i].ns, NVS_READWRITE, &h) == ESP_OK;
+            if (ok) {
+                ok = purge_write(h, &list[i]) && nvs_commit(h) == ESP_OK;
+                nvs_close(h);
+            }
+        }
+        od_hal_nvs_esp_cache_drop();
+    }
+    for (i = 0u; i < n; ++i) {
+        if (list[i].data != NULL) {
+            memset(list[i].data, 0, list[i].len);
+            free(list[i].data);
+        }
+    }
+    free(list);
+    if (!ok) {
+        od_log_error("storage purge: NVS rewrite failed");
+    }
+    return ok;
 }
 
 /* SECURITY_V2 10.4 scrub step 2 (A16): ESP-IDF's own copy of the WiFi credentials. */

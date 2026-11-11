@@ -11,7 +11,13 @@
 #include "opendisplay_config_storage.h"
 #include "od_caps.h"
 
+#include <string.h>
+
+#include <zephyr/fs/nvs.h>
 #include <zephyr/kernel.h>
+#include <zephyr/settings/settings.h>
+
+#include "od_hal_nvs.h"
 
 /* The panel is the primary signal; LED/buzzer patterns are not implemented on this target yet
  * (od_claim_app.h allows a no-op). */
@@ -83,6 +89,43 @@ bool od_claim_app_erase_bonds(void)
 bool od_claim_app_scrub_extras(void)
 {
 	return true;
+}
+
+/* SECURITY_V2 10.4a. The settings backend is Zephyr NVS: values are appended, and a superseded
+ * or deleted one stays readable until its sector is garbage-collected, which happens when the
+ * write position moves into a new sector (the sector after it is copied forward -- live entries
+ * only -- and erased). So the purge rewrites a throw-away key, with changing bytes because NVS
+ * skips an identical write, until the write sector has moved once per sector: every sector has
+ * then been erased and each live entry (config, OS2S, bonds) exists only as its current copy.
+ * This is NVS's own power-safe GC, so a power cut leaves a valid store and the next boot retries.
+ * NVS addresses carry the sector in their high 16 bits (subsys/fs/nvs/nvs_priv.h). */
+#define OD_NVS_ADDR_SECT(a) ((uint32_t)(a) >> 16)
+
+bool od_claim_app_storage_purge(void)
+{
+	struct nvs_fs *fs = NULL;
+	uint8_t fill[16];
+	uint32_t last, moved = 0u, i, max;
+
+	if (od_hal_nvs_init() != OD_HAL_NVS_OK || settings_storage_get((void **)&fs) != 0 ||
+	    fs == NULL || fs->sector_count == 0u) {
+		return false;
+	}
+	last = OD_NVS_ADDR_SECT(fs->ate_wra);
+	max = (2u * (uint32_t)fs->sector_count * fs->sector_size) / sizeof(fill) + 32u;
+	for (i = 0u; i < max && moved < fs->sector_count; ++i) {
+		memset(fill, (int)(i & 0xFFu), sizeof(fill));
+		fill[0] = (uint8_t)(i >> 8);
+		if (settings_save_one("od/purge", fill, sizeof(fill)) != 0) {
+			break;
+		}
+		if (OD_NVS_ADDR_SECT(fs->ate_wra) != last) {
+			moved += (OD_NVS_ADDR_SECT(fs->ate_wra) + fs->sector_count - last) % fs->sector_count;
+			last = OD_NVS_ADDR_SECT(fs->ate_wra);
+		}
+	}
+	(void)settings_delete("od/purge");
+	return moved >= fs->sector_count;
 }
 
 uint8_t *od_claim_app_workspace(uint32_t *cap)

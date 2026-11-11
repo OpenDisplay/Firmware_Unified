@@ -346,6 +346,18 @@ void od_security_boot(const struct SecurityConfig *sec, bool config_present,
     }
     rep.state = od_sec2_state();
 
+    /* 4a. SECURITY_V2 10.4a: an UNCLAIM or a factory reset left superseded secrets in the raw
+     * medium. Purged before the radio; the flag stays until a purge succeeds. */
+    od_sec2_os2s_get(&st, &st_valid);
+    if (st_valid && (st.flags & OD_SEC2_OS2S_PURGE) != 0u) {
+        if (od_claim_app_storage_purge()) {
+            (void)od_sec2_os2s_put((uint8_t)(st.flags & ~OD_SEC2_OS2S_PURGE), st.short_boots);
+            rep.purged = true;
+        } else {
+            od_log_error("storage purge failed; retried at the next boot");
+        }
+    }
+
     /* the count: every device keeps it (the reset pattern works on claimed and LOCKED ones) */
     c.history = OD_FR_PATTERN_SHORT_BOOTS != 0u || rep.state == OD_SEC2_UNCLAIMED;
     if (!c.counted || !c.history) {

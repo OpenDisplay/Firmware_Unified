@@ -119,6 +119,7 @@ struct od_security_boot_report {
     enum od_claim_kind    kind;           /* claim mode entered this boot, or NONE */
     bool                  continued;      /* CONTINUE: a session resumed across a planned reboot */
     bool                  reset_locked;   /* factory reset stage 4: LOCKED */
+    bool                  purged;         /* the storage purge ran this boot (SECURITY_V2 10.4a) */
 };
 
 /* The whole boot sequence above. `sec` is the parsed 0x27 (NULL when no config);

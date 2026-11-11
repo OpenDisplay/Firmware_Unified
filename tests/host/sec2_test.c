@@ -1152,6 +1152,11 @@ static void test_sec_key(void)
     CHECK(send_sealed(CMD_SEC_KEY, p, 3u) == 1u);
     CHECK(sec2c_open(&C, f0, n0, r, &rn) && rn == 3u && r[0] == 0x00u);
     CHECK(od_sec2_state() == OD_SEC2_UNCLAIMED && !g_secret[0].present);
+    {
+        struct od_sec2_state_rec st;   /* 10.4a: the next boot purges the medium */
+        CHECK(g_secret[1].present && od_sec2_os2s_decode(g_secret[1].data, &st));
+        CHECK((st.flags & OD_SEC2_OS2S_PURGE) != 0u);
+    }
     CHECK(od_sec2_boot(NULL) == OD_SEC2_UNCLAIMED);
 }
 

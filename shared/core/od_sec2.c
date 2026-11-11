@@ -1272,6 +1272,10 @@ od_cmd_result_t od_sec2_key_cmd(const od_cmd_ctx_t *ctx, od_span_t body)
 
     if (after != KEEP) {
         s.os2s.key_gen = gen;             /* rotation: the new gen; unclaim: a tombstone */
+        if (after == UNCLAIMED) {
+            /* 10.4a: the scrubbed secrets and the erased key leave the medium at the next boot */
+            s.os2s.flags = (uint8_t)(s.os2s.flags | OD_SEC2_OS2S_PURGE);
+        }
         (void)write_os2s();
         OD_SEC2_TRACE_PAUSE(after == ROTATED ? "rotate step 3 (OS2S key_gen written)"
                                              : "unclaim (OS2S tombstone written)");

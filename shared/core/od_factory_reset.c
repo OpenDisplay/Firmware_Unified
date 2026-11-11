@@ -312,7 +312,7 @@ static enum od_fr_result run(struct od_fr_marker m)
     OD_SEC2_TRACE_PAUSE("factory reset R5c");
     /* R6 */
     (void)os2s_read(&st);
-    st.flags = (uint8_t)(OD_SEC2_OS2S_FRESH | OD_SEC2_OS2S_MIGRATED);
+    st.flags = (uint8_t)(OD_SEC2_OS2S_FRESH | OD_SEC2_OS2S_MIGRATED | OD_SEC2_OS2S_PURGE);
     st.short_boots = 0u;
     st.key_gen = (uint16_t)(st.key_gen + 1u);
     if (!os2s_write(&st)) {

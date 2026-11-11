@@ -218,6 +218,9 @@ void od_claim_app_wait_ms(uint32_t ms) { g_now += ms; }
 bool od_claim_app_erase_images(void) { return mutate() || g_dead; }
 bool od_claim_app_erase_bonds(void) { return true; }
 bool od_claim_app_scrub_extras(void) { return true; }
+static unsigned g_purges;
+static bool g_purge_fails;
+bool od_claim_app_storage_purge(void) { ++g_purges; return !g_purge_fails; }
 static uint8_t s_ws[OD_CONFIG_STORE_MAX_RECORD];
 uint8_t *od_claim_app_workspace(uint32_t *cap) { *cap = sizeof s_ws; return s_ws; }
 bool od_claim_app_workspace_busy(void) { return false; }
@@ -497,9 +500,35 @@ static void test_five_cycles(void)
     CHECK(!g_st.sec[OD_HAL_SECRET_KEY].present && !g_st.sec[OD_HAL_SECRET_MARKER].present);
     CHECK(!g_st.rec_present);
     CHECK((os2s_flags() & OD_SEC2_OS2S_FRESH) != 0u);
+    CHECK((os2s_flags() & OD_SEC2_OS2S_PURGE) != 0u);   /* R6 asks the next boot to purge */
     CHECK(short_boots() == 0u);
+    g_purges = 0u;
     boot(OD_HAL_RESET_SOFTWARE);
     CHECK(g_rep.state == OD_SEC2_UNCLAIMED && g_rep.kind == OD_CLAIM_KIND_FRESH);
+    CHECK(g_purges == 1u && g_rep.purged && (os2s_flags() & OD_SEC2_OS2S_PURGE) == 0u);
+    CHECK((os2s_flags() & OD_SEC2_OS2S_FRESH) != 0u);  /* the purge keeps FRESH */
+    boot(OD_HAL_RESET_SOFTWARE);
+    CHECK(g_purges == 1u && !g_rep.purged);            /* once */
+
+    CASE("a failed purge keeps the flag; the next boot retries");
+    {
+        struct od_sec2_state_rec st = { (uint8_t)(OD_SEC2_OS2S_MIGRATED | OD_SEC2_OS2S_PURGE), 0u, 2u };
+        uint8_t t[OD_SEC2_OS2S_LEN];
+
+        wipe_device();
+        provision(false, false, 0u, 0xFFu);
+        od_sec2_os2s_encode(&st, t);
+        CHECK(od_hal_secret_write(OD_HAL_SECRET_STATE, t, sizeof t));
+        g_purges = 0u;
+        g_purge_fails = true;
+        boot(OD_HAL_RESET_SOFTWARE);
+        CHECK(g_purges == 1u && !g_rep.purged && (os2s_flags() & OD_SEC2_OS2S_PURGE) != 0u);
+        CHECK(g_rep.state == OD_SEC2_UNCLAIMED && g_rep.kind == OD_CLAIM_KIND_NONE);
+        g_purge_fails = false;
+        boot(OD_HAL_RESET_SOFTWARE);
+        CHECK(g_purges == 2u && g_rep.purged && (os2s_flags() & OD_SEC2_OS2S_PURGE) == 0u);
+        CHECK((os2s_flags() & OD_SEC2_OS2S_MIGRATED) != 0u);
+    }
 
     CASE("three quick cycles, then a long boot: no reset, the count is gone");
     wipe_device();

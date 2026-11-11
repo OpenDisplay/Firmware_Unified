@@ -23,6 +23,7 @@ WEAK void od_claim_app_wait_ms(uint32_t ms) { (void)ms; }
 WEAK bool od_claim_app_erase_images(void) { return true; }
 WEAK bool od_claim_app_erase_bonds(void) { return true; }
 WEAK bool od_claim_app_scrub_extras(void) { return true; }
+WEAK bool od_claim_app_storage_purge(void) { return true; }
 WEAK uint8_t *od_claim_app_workspace(uint32_t *cap) { *cap = sizeof s_ws; return s_ws; }
 WEAK bool od_claim_app_workspace_busy(void) { return false; }
 WEAK void od_claim_app_config_changed(void) { }

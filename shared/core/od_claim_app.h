@@ -79,6 +79,20 @@ bool od_claim_app_erase_bonds(void);
  * record (ESP32 nvs.net80211). true when done or when there is nothing to erase. */
 bool od_claim_app_scrub_extras(void);
 
+/* SECURITY_V2 section 10.4a: destroy every SUPERSEDED copy of every record in the target's
+ * persistent key/config storage, keeping each live record. NVS (ESP32), NVM3 (BG22) and Zephyr
+ * NVS (Nordic) are log-structured: an overwrite or a delete leaves the old bytes readable in
+ * flash until their page is reclaimed, so a scrubbed WiFi password or an erased key survives a
+ * USB/SWD read-out without this. Called at boot only, before the radio, from od_security_boot()
+ * when OS2S carries OD_SEC2_OS2S_PURGE. May take a few seconds of flash work.
+ *
+ * Power cuts: a target that compacts in place (BG22, Nordic: the medium's own garbage collection,
+ * which never drops a live record) leaves everything live; one that erases and rewrites (ESP32)
+ * may leave a blank medium, which boots as a virgin device -- acceptable because the callers are
+ * UNCLAIM and the factory reset, after which the device is unclaimed and holds no secret.
+ * true = done; false = not done (the flag stays and the next boot retries). */
+bool od_claim_app_storage_purge(void);
+
 /* ----------------------------------------------------------------- config workspace --- */
 
 /* A workspace of at least OD_CONFIG_STORE_MAX_RECORD bytes that the config policy may use for
