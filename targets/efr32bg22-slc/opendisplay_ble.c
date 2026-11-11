@@ -1574,7 +1574,9 @@ void opendisplay_ble_reload_config_from_nvm(void)
   od_buttons_init_from_config();
   opendisplay_display_park_pins();
   opendisplay_led_init();
-  if (!od_claim_mode_active()) {
+  /* Not while claim mode owns the panel, nor while a power-cycle pattern holds the boot screen
+   * back: the loop requests it once the pattern can no longer continue. */
+  if (!od_claim_mode_active() && !s_boot_screen_deferred) {
     opendisplay_display_boot_request();
   }
 }

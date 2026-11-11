@@ -25,6 +25,7 @@
  * than clocking all of it slowly.
  */
 #include "od_epd_io_silabs.h"
+#include "od_claim_mode.h"
 
 #include "em_cmu.h"
 #include "em_gpio.h"
@@ -229,14 +230,19 @@ static bool io_busy_level(void)
     return pin_in(s_io.busy) != 0;
 }
 
+/* The BUSY polls and fixed refresh delays of every pass end up here, on the superloop, which a
+ * refresh blocks for 20-35 s. Each slice keeps the power-cycle count on time (T_ARM / T_CLEAR,
+ * od_claim_mode_tick_count: writes only, no draw), so a boot screen or setup screen drawn at
+ * boot cannot move the count past an on-period the user was told is enough (SECURITY_V2 7.2).
+ * Slices of 100 ms bound the lateness without adding a measurable cost to a 5 ms BUSY poll. */
 static void io_delay_ms(uint32_t ms)
 {
-    while (ms > 60000u) {         /* sleeptimer takes a uint16_t */
-        sl_sleeptimer_delay_millisecond(60000u);
-        ms -= 60000u;
-    }
-    if (ms) {
-        sl_sleeptimer_delay_millisecond((uint16_t)ms);
+    while (ms > 0u) {
+        const uint32_t step = ms > 100u ? 100u : ms;
+
+        sl_sleeptimer_delay_millisecond((uint16_t)step);
+        ms -= step;
+        od_claim_mode_tick_count();
     }
 }
 

@@ -1012,7 +1012,9 @@ void opendisplay_ble_reload_config_from_nvm(void)
 	 * to re-read the device, and the MSD picks up the new encryption state. */
 	s_reboot_flag = 1;
 	opendisplay_ble_update_msd(true);
-	if (!od_claim_mode_active()) {       /* claim mode owns the panel (SECURITY_V2 7.3) */
+	/* Claim mode owns the panel (SECURITY_V2 7.3); a pattern in progress holds the boot screen
+	 * back until the loop requests it. */
+	if (!od_claim_mode_active() && !s_boot_screen_deferred) {
 		opendisplay_display_request_boot();
 	}
 	/* Apply advertising TX power once the advertiser is active again. */
@@ -1143,10 +1145,20 @@ void opendisplay_ble_init(void)
 	if (od_claim_mode_defer_boot_screen()) {
 		s_boot_screen_deferred = !od_claim_mode_active();
 	} else if (!od_claim_mode_active()) {
+		uint32_t waited = 0u;
+
 		schedule_boot_display_apply();
-		if (k_sem_take(&s_boot_display_done, K_MSEC(OD_BOOT_DISPLAY_WAIT_MS)) != 0) {
-			od_log_error("boot display: still running after %u ms - advertising anyway",
-				     (unsigned)OD_BOOT_DISPLAY_WAIT_MS);
+		/* Waited in slices on this (the loop) thread, which owns od_claim_mode: the
+		 * power-cycle count lands at T_ARM / T_CLEAR while the work queue draws, not after
+		 * the refresh (SECURITY_V2 7.2). */
+		while (k_sem_take(&s_boot_display_done, K_MSEC(100)) != 0) {
+			od_claim_mode_tick_count();
+			waited += 100u;
+			if (waited >= OD_BOOT_DISPLAY_WAIT_MS) {
+				od_log_error("boot display: still running after %u ms - advertising anyway",
+					     (unsigned)OD_BOOT_DISPLAY_WAIT_MS);
+				break;
+			}
 		}
 	}
 

@@ -1439,6 +1439,22 @@ sec2_trace_release_off() {
     return $rc
 }
 check "release: SEC2 test trace off in every release configuration" sec2_trace_release_off
+
+# SECURITY_V2 7.2: the power-cycle count is written at T_ARM / T_CLEAR from the loop, and a panel
+# refresh can block that loop for 20-35 s. Every target keeps the count on time from the place it
+# waits for the panel: ESP32 and BG22 from the panel bus delay, Nordic (whose boot screen draws on
+# a work queue) from the loop's sliced wait for it. host claim_mode_test covers the shared half.
+sec2_boot_count_independent_of_screen() {
+    local rc=0 f
+    for f in targets/esp32-idf/src/od_epd_esp.cpp targets/efr32bg22-slc/od_epd_io_silabs.c \
+             targets/nordic-zephyr/src/opendisplay_ble.c; do
+        if ! grep -q 'od_claim_mode_tick_count()' "$f"; then
+            echo "$f: no od_claim_mode_tick_count() -- a refresh would delay the boot count"; rc=1
+        fi
+    done
+    return $rc
+}
+check "sec2: boot count independent of the panel refresh" sec2_boot_count_independent_of_screen
 check "release: in-source version defaults agree" tools/release/version.sh --check
 check "release: artefact collector selftest" bash tools/release/selftest.sh
 
