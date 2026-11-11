@@ -185,6 +185,21 @@ endif()
 # Force the gcc linker command
 set_target_properties(opendisplay-bg22 PROPERTIES LINKER_LANGUAGE C)
 
+# RAM budget gate (docs/BG22_RAM_BUDGET.md): the heap is whatever RAM the statics leave, and the
+# Bluetooth stack allocates its connection state from it at connect time, so a heap that is too
+# small links, boots and advertises, then serves no GATT. Runs before the image artefacts so a
+# failing image produces no .s37/.gbl to flash or OTA (and stale ones from an earlier link are
+# deleted).
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+add_custom_command(TARGET opendisplay-bg22
+    POST_BUILD
+    COMMAND "${Python3_EXECUTABLE}" "${OD_REPO_ROOT}/tools/bg22_ram_budget.py" --fail-removes-artefacts
+      --elf "$<TARGET_FILE:opendisplay-bg22>"
+      --baseline "${CMAKE_CURRENT_LIST_DIR}/../ram_budget.json"
+    COMMENT "BG22 RAM budget (heap floor, stack, static RAM ratchet)"
+    VERBATIM
+)
+
 # Create .bin, .hex and .s37 artifacts after building the project
 add_custom_command(TARGET opendisplay-bg22
     POST_BUILD
