@@ -47,7 +47,7 @@ static bool raw_cause(uint32_t *out)
 			/* CLEAR IT: leaving the register alone makes one watchdog reset visible on every
 			 * later boot, and a pin reset from days ago count as a power-cycle (SECURITY_V2
 			 * 7.2). */
-#if defined(CONFIG_SOC_SERIES_NRF52X)
+#if defined(CONFIG_SOC_SERIES_NRF52)
 			OD_SEC2_TRACE("reset cause: hwinfo=0x%08x RESETREAS=0x%08x (read before clear)",
 				      (unsigned)cause, (unsigned)NRF_POWER->RESETREAS);
 #endif

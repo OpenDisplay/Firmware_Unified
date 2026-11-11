@@ -50,6 +50,9 @@ static inline uint64_t od_sec2_trace_fnv64(const void *p, size_t n)
     }
     return h;
 }
+/* A 64-bit value as two "%08lx" arguments: the Zephyr/BG22 log formatters do not take %llx
+ * (it printed "000000000000000lx" on the nRF52840 console). */
+#define OD_SEC2_TRACE_U64(v) (unsigned long)((uint64_t)(v) >> 32), (unsigned long)((uint64_t)(v) & 0xffffffffu)
 /* Bench fault hooks (panic, interrupt / task watchdog) read from the console; target code. */
 #define OD_SEC2_TRACE_BUILD 1
 #else
