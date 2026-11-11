@@ -184,7 +184,7 @@ bool od_cfg_index_current(void) { return s_gen == od_config_store_generation(); 
 
 bool od_cfg_has_drive_data(uint8_t instance)
 {
-    bool panel = false;
+    const od_cfg_entry_t *panel = NULL;
     bool mode = false;
 
     if (od_cfg_index_build() < 0) {
@@ -196,9 +196,11 @@ bool od_cfg_has_drive_data(uint8_t instance)
         if (e->instance != instance) {
             continue;
         }
-        panel = panel || (e->type == OD_PKT_DISPLAY_PANEL &&
-                          e->len >= sizeof(struct DisplayPanelHead));
+        /* First 0xB1 wins, as everywhere else: a short first copy is not rescued by a later one. */
+        if (e->type == OD_PKT_DISPLAY_PANEL && panel == NULL) {
+            panel = e;
+        }
         mode = mode || (e->type == OD_PKT_DISPLAY_MODE && e->len > sizeof(struct DisplayModeHead));
     }
-    return panel && mode;
+    return panel != NULL && panel->len >= sizeof(struct DisplayPanelHead) && mode;
 }

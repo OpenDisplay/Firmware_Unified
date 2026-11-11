@@ -22,11 +22,9 @@ static void set_in_pass(bool on)
 
 bool od_epd_shim_available(uint8_t display_instance)
 {
-    /* The panel packet is the one that cannot be defaulted: it carries BUSY trust and sense,
-     * the colour code map and the sleep sequence. Modes and waveforms without it are not
-     * drivable, so this is the honest test for "can od_epd drive this device". */
-    const od_cfg_entry_t *e = od_cfg_find(OD_PKT_DISPLAY_PANEL, display_instance);
-    return e != NULL && e->len > 0u;
+    /* Matched by the body's instance_number, first 0xB1 wins -- the same packet
+     * od_epd_desc_from_config() loads. */
+    return od_cfg_has_drive_data(display_instance);
 }
 
 bool od_epd_shim_begin(uint8_t display_instance, uint8_t mode_index,

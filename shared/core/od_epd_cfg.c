@@ -324,8 +324,12 @@ bool od_epd_cfg_load(const struct DisplayConfig *d, const od_epd_cfg_bus_t *bus)
         if (e == NULL) {
             continue;
         }
+        /* First match wins for every duplicated drive packet (0xB1, 0xAE per mode_index, 0xAF
+         * per slot), as in od_cfg_find, the 0xB2 table and BG22. */
         if (e->type == OD_PKT_DISPLAY_PANEL && e->instance == d->instance_number) {
-            panel = e;
+            if (panel == NULL) {
+                panel = e;
+            }
         } else if (e->type == OD_PKT_DISPLAY_MODE && s_desc.mode_count < OD_CFG_INDEX_MAX &&
                    od_cfg_read(e, 0u, &instance, 1u) == 1u && instance == d->instance_number) {
             s_mode_entry[s_desc.mode_count++] = (uint8_t)i;

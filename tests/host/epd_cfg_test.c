@@ -358,7 +358,7 @@ static void test_duplicates_and_identity(void)
     uint8_t sleep_a[] = { 1, 0xA1, 0, 0 };
     uint8_t sleep_b[] = { 1, 0xB2, 0, 0 };
 
-    CASE("DUP-PANEL-ORDER: two 0xB1 for one display -- od_epd_cfg takes the LAST");
+    CASE("two 0xB1 for one display: the FIRST wins, as in od_cfg_find, the 0xB2 table and BG22");
     begin_cfg(&c, 1u);
     fx_cfg_ext(&c, OD_PKT_DISPLAY_PANEL, g_b, panel_body(g_b, 0u, sleep_a, sizeof sleep_a));
     fx_cfg_ext(&c, OD_PKT_DISPLAY_PANEL, g_b, panel_body(g_b, 0u, sleep_b, sizeof sleep_b));
@@ -368,10 +368,19 @@ static void test_duplicates_and_identity(void)
     CHECK(load(&g_d0));
     fx_bus_clear();
     od_epd_cfg_sleep();
-    /* Every other duplicate in the stack resolves first-match (od_cfg_find, the 0xB2 table,
-     * BG22's od_epd_shim_available, find_lut) and this one resolves last-match: a host
-     * appending a corrected 0xB1 gets it here and not on BG22. */
-    KNOWN_BUG("DUP-PANEL-ORDER", strstr(fx_trace, "C a1") != NULL);
+    CHECK(strstr(fx_trace, "C a1") != NULL);
+    CHECK(strstr(fx_trace, "C b2") == NULL);
+
+    CASE("a short first 0xB1 is not rescued by a valid second one");
+    begin_cfg(&c, 1u);
+    (void)panel_body(g_b, 0u, NULL, 0u);
+    fx_cfg_ext(&c, OD_PKT_DISPLAY_PANEL, g_b, 5u);
+    fx_cfg_ext(&c, OD_PKT_DISPLAY_PANEL, g_b, panel_body(g_b, 0u, sleep_b, sizeof sleep_b));
+    add_mode(&c, 0u, 0u, "full", 0, 0, 0, 0xFFu, SEQ_NOLUT, sizeof SEQ_NOLUT);
+    fx_cfg_finish(&c);
+    fx_cfg_store(&c);
+    CHECK(!od_epd_cfg_has_drive_data(&g_d0));
+    CHECK(!load(&g_d0));
 
     CASE("MODE-BY-POSITION: the START mode byte selects by packet order, not 0xAE.mode_index");
     begin_cfg(&c, 1u);
