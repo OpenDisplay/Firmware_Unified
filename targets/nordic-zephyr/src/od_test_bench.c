@@ -130,13 +130,22 @@ bool od_test_bench_hold_feed(void)
 	return s_hold_feed;
 }
 
+#if defined(CONFIG_THREAD_ANALYZER)
+static void stack_cb(struct thread_analyzer_info *info)
+{
+	od_log_warn("[BENCH] stack %-20s used %4u / %4u B (headroom %u)", info->name,
+		    (unsigned)info->stack_used, (unsigned)info->stack_size,
+		    (unsigned)(info->stack_size - info->stack_used));
+}
+#endif
+
 static void print_stats(void)
 {
 	extern struct k_heap _system_heap;
 	struct sys_memory_stats hs;
 
-	od_log_warn("[BENCH] uptime %lld ms, image confirmed=%u, revert armed=%u",
-		    (long long)k_uptime_get(), (unsigned)image_confirmed(), (unsigned)s_revert_armed);
+	od_log_warn("[BENCH] uptime %u ms, image confirmed=%u, revert armed=%u",
+		    (unsigned)k_uptime_get_32(), (unsigned)image_confirmed(), (unsigned)s_revert_armed);
 #if defined(CONFIG_SYS_HEAP_RUNTIME_STATS)
 	if (sys_heap_runtime_stats_get(&_system_heap.heap, &hs) == 0) {
 		od_log_warn("[BENCH] system heap: free %u allocated %u max_allocated %u (pool %u)",
@@ -147,7 +156,7 @@ static void print_stats(void)
 	ARG_UNUSED(hs);
 #endif
 #if defined(CONFIG_THREAD_ANALYZER)
-	thread_analyzer_print(0);
+	thread_analyzer_run(stack_cb, 0);
 #endif
 }
 
