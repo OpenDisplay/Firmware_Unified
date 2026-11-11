@@ -111,12 +111,15 @@ uint8_t od_advert_advance_counter(uint8_t counter);
  * function for every target so no target computes them itself:
  *   status bit 2 CLAIM_MODE        = claim_mode, OR'd onto the caller's connection_requested;
  *   status bit 3 SESSION_REQUIRED  = session_required (CLAIMED or LOCKED), replacing whatever the
- *                                    caller put in encryption_enabled.
+ *                                    caller put in encryption_enabled;
+ *   dynamic[11] = 0xFF x 11        when !display_drivable (protocol 2.2 "no display configured";
+ *                                    its 3.0 meaning is SECURITY_V2 5.3.2).
  * The state is a plain struct so this stays in the PURE tier; od_advert_device_state_now()
  * (od_advert_state.c, APP_IDENT tier) fills it from the live security state and config. */
 struct od_advert_device_state {
     bool claim_mode;         /* od_claim_mode_active() */
     bool session_required;   /* od_sec2_needs_session() */
+    bool display_drivable;   /* od_ident_display_drivable() */
 };
 
 void od_advert_apply_device_state(struct od_advert_inputs *in,
@@ -124,6 +127,13 @@ void od_advert_apply_device_state(struct od_advert_inputs *in,
 
 /* The live state (od_advert_state.c). */
 void od_advert_device_state_now(struct od_advert_device_state *out);
+
+/* SECURITY_V2 5.3.2 (od_advert_state.c): at least one display of `cfg` can be driven -- it has
+ * drive data (0xB1 + mode-0 0xAE, od_cfg_has_drive_data) or a built-in controller driver (0xB3,
+ * OD_IDENT_NATIVE_PANELS). false for NULL, a config that is not loaded, or no display packet.
+ * The one predicate behind the MSD FF x 11, dflags HAS_PANEL and READ_IDENT's display state. */
+struct od_config;
+bool od_ident_display_drivable(const struct od_config *cfg);
 
 /* Encode into out[OD_ADVERT_MSD_LEN]. Writes exactly 16 bytes and touches nothing else.
  *

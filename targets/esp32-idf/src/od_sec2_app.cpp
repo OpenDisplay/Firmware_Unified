@@ -1,5 +1,6 @@
 /* od_sec2_app.cpp -- this target's half of shared/core/od_sec2_app.h, plus od_txq's drop seam. */
 
+#include "od_advert.h"
 #include "od_sec2_app.h"
 #include "od_sec2_wire.h"
 #include "od_txq.h"   /* od_reply_t / od_radio_result_t, for the drop seam at the end */
@@ -39,7 +40,7 @@ extern "C" uint8_t od_sec2_app_dflags(void)
 {
     uint8_t f = 0u;
 
-    if (globalConfig.loaded && globalConfig.display_count > 0u) {
+    if (od_ident_display_drivable(&globalConfig)) {
         f |= OD_SEC2_DFLAG_HAS_PANEL;
     }
     if ((securityConfig.flags & OD_SECURITY_FLAG_RESET_PIN_ENABLED) != 0u) {

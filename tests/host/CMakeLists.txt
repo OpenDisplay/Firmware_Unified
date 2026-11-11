@@ -774,6 +774,8 @@ add_test(NAME cfg_policy_core COMMAND od_cfg_policy_core_test)
 # od_cfg_policy and od_config_store. Its own secret store, medium and inert crypto.
 add_executable(od_claim_mode_test claim_mode_test.c od_log_test_stub.c
     ../../shared/core/od_advert_state.c)
+# od_advert_state.c is the APP_IDENT tier: it takes the target's OD_IDENT_TARGET like od_cmd_ident.c.
+target_compile_definitions(od_claim_mode_test PRIVATE OD_IDENT_TARGET=OD_IDENT_TARGET_ESP32)
 target_link_libraries(od_claim_mode_test od_shared)
 add_test(NAME claim_mode COMMAND od_claim_mode_test)
 
@@ -874,7 +876,9 @@ add_test(NAME esp_crypto_random COMMAND od_esp_crypto_random_test)
 # a different byte selection is a different device to every host. Expectations are hand-written.
 add_executable(od_nordic_sec2_app_test
     nordic_sec2_app_test.c
-    ../../targets/nordic-zephyr/src/od_sec2_app.c)
+    ../../targets/nordic-zephyr/src/od_sec2_app.c
+    ../../shared/core/od_advert_state.c)
+target_compile_definitions(od_nordic_sec2_app_test PRIVATE OD_IDENT_TARGET=OD_IDENT_TARGET_NRF54)
 target_include_directories(od_nordic_sec2_app_test PRIVATE
     ../../targets/nordic-zephyr/src
     ${CMAKE_CURRENT_LIST_DIR}/fake_zephyr)

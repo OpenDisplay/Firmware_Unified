@@ -8,6 +8,7 @@
 #include "od_cfg_policy.h"
 #include "od_claim_app.h"
 #include "od_claim_mode.h"
+#include "od_config.h"
 #include "od_config_store.h"
 #include "od_config_tlv.h"
 #include "od_factory_reset.h"
@@ -1003,16 +1004,43 @@ static void msd_now(uint8_t out[OD_ADVERT_MSD_LEN])
     od_advert_build(&in, out);
 }
 
-static void check_msd(uint8_t bits23)
+/* The config the APP_IDENT seam reports: one display whenever a config record exists, with drive
+ * data unless g_no_drive_data (od_cfg_has_drive_data is the APP_EPD index, not linked here). */
+static bool g_no_drive_data;
+static struct od_config g_ident_cfg;
+
+const struct od_config *od_ident_app_config(void)
+{
+    memset(&g_ident_cfg, 0, sizeof g_ident_cfg);
+    g_ident_cfg.loaded = g_st.rec_present;
+    g_ident_cfg.display_count = g_st.rec_present ? 1u : 0u;
+    return &g_ident_cfg;
+}
+
+bool od_cfg_has_drive_data(uint8_t instance, uint8_t color_scheme)
+{
+    (void)instance;
+    (void)color_scheme;
+    return !g_no_drive_data;
+}
+
+static const uint8_t FF11[OD_ADVERT_DYNAMIC_LEN] = {
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
+};
+
+static void check_msd_dyn(uint8_t bits23, const uint8_t *dyn)
 {
     uint8_t m[OD_ADVERT_MSD_LEN];
 
     msd_now(m);
+    CHECK(memcmp(&m[2], dyn, OD_ADVERT_DYNAMIC_LEN) == 0);
     CHECK(m[0] == 0x46u && m[1] == 0x24u);
     CHECK(m[13] == 120u && m[14] == (uint8_t)300u && (m[15] & 0x01u) == 1u);
     CHECK((m[15] & 0x0Cu) == bits23);
     CHECK((m[15] & 0xF2u) == 0u);
 }
+
+static void check_msd(uint8_t bits23) { check_msd_dyn(bits23, DD); }
 
 /* A 2.x config with a v1 key in force and nothing of 3.0: boot row 4 migrates it. */
 static void provision_v1_key(void)
@@ -1040,7 +1068,7 @@ static void test_msd_states(void)
     wipe_device();
     boot(OD_HAL_RESET_POWER_ON);
     CHECK(od_claim_mode_active() && g_rep.kind == OD_CLAIM_KIND_FRESH);
-    check_msd(OD_MSD_STATUS_CLAIM_MODE);
+    check_msd_dyn(OD_MSD_STATUS_CLAIM_MODE, FF11);   /* claim mode AND unconfigured */
 
     CASE("MSD: unclaimed, normal mode: bits 2 and 3 clear");
     wipe_device();
@@ -1048,6 +1076,9 @@ static void test_msd_states(void)
     boot(OD_HAL_RESET_POWER_ON);
     CHECK(!od_claim_mode_active() && g_rep.state == OD_SEC2_UNCLAIMED);
     check_msd(0u);
+    g_no_drive_data = true;        /* a display packet without drive packets: not drivable */
+    check_msd_dyn(0u, FF11);
+    g_no_drive_data = false;
 
     CASE("MSD: gesture claim mode: bit2 set, bit3 clear");
     wipe_device();
@@ -1075,13 +1106,30 @@ static void test_msd_states(void)
     boot(OD_HAL_RESET_POWER_ON);
     CHECK(g_rep.state == OD_SEC2_LOCKED);
     check_msd(OD_MSD_STATUS_SESSION_REQUIRED);
+    g_no_drive_data = true;
+    check_msd_dyn(OD_MSD_STATUS_SESSION_REQUIRED, FF11);
+    g_no_drive_data = false;
 
-    CASE("MSD: a 2.x v1 key migrated at the first 3.0 boot: bit3 set");
+    CASE("MSD: a 2.x v1 key migrated at the first 3.0 boot: bit3 set, FF x 11 until migrated");
     wipe_device();
     provision_v1_key();
+    g_no_drive_data = true;
     boot(OD_HAL_RESET_POWER_ON);
     CHECK(g_rep.state == OD_SEC2_CLAIMED);
+    check_msd_dyn(OD_MSD_STATUS_SESSION_REQUIRED, FF11);
+    g_no_drive_data = false;
     check_msd(OD_MSD_STATUS_SESSION_REQUIRED);
+
+    CASE("MSD: claim mode after the factory reset: bit2 set, FF x 11 (config erased)");
+    wipe_device();
+    provision(false, false, 0u, 0xFFu);
+    cycle(3000u); cycle(3000u); cycle(3000u); cycle(3000u);
+    boot(OD_HAL_RESET_POWER_ON);
+    for (int k = 0; k < 4 && g_reboots != 0u; k++) {
+        boot(OD_HAL_RESET_SOFTWARE);
+    }
+    CHECK(od_claim_mode_active() && g_rep.kind == OD_CLAIM_KIND_FRESH && !g_st.rec_present);
+    check_msd_dyn(OD_MSD_STATUS_CLAIM_MODE, FF11);
 }
 
 int main(void)

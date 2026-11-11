@@ -61,6 +61,21 @@ static struct od_config g_cfg;
 
 const struct SecurityConfig *od_get_parsed_security(void) { return g_sec_ptr; }
 const struct od_config *opendisplay_get_global_config(void) { return &g_cfg; }
+const struct od_config *od_ident_app_config(void) { return &g_cfg; }
+
+/* od_advert_state.c also holds od_advert_device_state_now(); its security inputs are not what
+ * this suite tests, so they are stubbed rather than pulling od_sec2 and its HALs in. */
+bool od_claim_mode_active(void) { return false; }
+bool od_sec2_needs_session(void) { return false; }
+
+/* The APP_EPD config index is not compiled here: "has drive data" is scripted. */
+static bool g_drive_data = true;
+bool od_cfg_has_drive_data(uint8_t instance, uint8_t color_scheme)
+{
+    (void)instance;
+    (void)color_scheme;
+    return g_drive_data;
+}
 
 /* ----------------------------------------------------------------------------------- cases --- */
 
@@ -101,6 +116,11 @@ static void test_dflags_and_seams(void)
     g_cfg.loaded = true;
     g_cfg.display_count = 1u;
     CHECK(od_sec2_app_dflags() == OD_SEC2_DFLAG_HAS_PANEL);
+
+    CASE("a display without drive packets (needs migration): no HAS_PANEL (SECURITY_V2 5.3.2)");
+    g_drive_data = false;
+    CHECK(od_sec2_app_dflags() == 0u);
+    g_drive_data = true;
 
     CASE("the reset-pin flag: HAS_RESET_PIN");
     memset(&g_sec_cfg, 0, sizeof g_sec_cfg);

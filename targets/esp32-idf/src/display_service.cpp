@@ -1015,16 +1015,14 @@ void updatemsdata(){
     }
     struct od_advert_inputs adv;
     memset(&adv, 0, sizeof adv);
-    // No display configured: the dynamic area is all 0xFF, which hosts read as "unprovisioned".
-    static const uint8_t kDynamicUnconfigured[11] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-                                                     0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-    adv.dynamic = (globalConfig.display_count == 0) ? kDynamicUnconfigured : dynamicreturndata;
+    adv.dynamic = dynamicreturndata;   // FF x 11 when no drivable display: od_advert_apply_device_state
     adv.chip_temperature_c = chipTemperature;
     adv.battery_10mv = batteryVoltage10mv;
     adv.reboot_flag = rebootFlag;
     adv.connection_requested = connectionRequested;
     adv.loop_counter = mloopcounter;
-    // Status bits 2 (CLAIM_MODE) and 3 (SESSION_REQUIRED): SECURITY_V2 5.3, shared.
+    // Status bits 2 (CLAIM_MODE), 3 (SESSION_REQUIRED) and the unconfigured FF x 11: SECURITY_V2
+    // 5.3, shared.
     struct od_advert_device_state st;
     od_advert_device_state_now(&st);
     od_advert_apply_device_state(&adv, &st);
