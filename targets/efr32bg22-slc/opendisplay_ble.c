@@ -1665,6 +1665,7 @@ static void update_msd_payload(bool quick)
                       && ((s_batt_voltage_mv_cache == 0u)
                           || ((now_ms - s_last_batt_measure_ms) > OD_MSD_UPDATE_INTERVAL_MS));
   struct od_advert_inputs adv_in;
+  struct od_advert_device_state adv_st;
   uint32_t sample;
   IADC_Init_t init = IADC_INIT_DEFAULT;
   IADC_AllConfigs_t initAllConfigs = IADC_ALLCONFIGS_DEFAULT;
@@ -1710,9 +1711,11 @@ static void update_msd_payload(bool quick)
   adv_in.chip_temperature_c = chip_temperature;
   adv_in.battery_10mv = od_advert_battery_10mv_from_mv(s_batt_voltage_mv_cache);
   adv_in.reboot_flag = (reboot_flag != 0u);
-  /* SECURITY_V2 5.3: bit 2 is set continuously while in claim mode. */
-  adv_in.connection_requested = (connection_requested != 0u) || od_claim_mode_active();
+  adv_in.connection_requested = (connection_requested != 0u);
   adv_in.loop_counter = msd_loop_counter;
+  /* Status bits 2 (CLAIM_MODE) and 3 (SESSION_REQUIRED): SECURITY_V2 5.3, shared. */
+  od_advert_device_state_now(&adv_st);
+  od_advert_apply_device_state(&adv_in, &adv_st);
   od_advert_build(&adv_in, msd_payload);
 
   msd_loop_counter = od_advert_advance_counter(msd_loop_counter);

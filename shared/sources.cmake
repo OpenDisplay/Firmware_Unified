@@ -301,6 +301,7 @@ set(OD_SHARED_SOURCES_APP_DISPLAY
 # OD_IDENT_TARGET definition. Compiles to nothing unless OD_CAP_READ_IDENT.
 set(OD_SHARED_SOURCES_APP_IDENT
     "${CMAKE_CURRENT_LIST_DIR}/core/od_cmd_ident.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_advert_state.c"
 )
 
 # APP_SPI_RAW is the CMD_SPI_RAW wire handler. Needs the od_spi_raw_app.h seam and

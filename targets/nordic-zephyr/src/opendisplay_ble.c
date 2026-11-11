@@ -510,10 +510,15 @@ static void update_msd_payload(void)
 	adv.chip_temperature_c = s_chip_temperature;
 	adv.battery_10mv = battery_voltage_10mv;
 	adv.reboot_flag = (s_reboot_flag != 0u);
-	/* SECURITY_V2 5.3: bit 2 continuously in claim mode; bit 3 = CLAIMED or LOCKED. */
-	adv.connection_requested = (s_connection_requested != 0u) || od_claim_mode_active();
-	adv.encryption_enabled = od_sec2_needs_session();
+	adv.connection_requested = (s_connection_requested != 0u);
 	adv.loop_counter = s_msd_loop_counter;
+	/* Status bits 2 (CLAIM_MODE) and 3 (SESSION_REQUIRED): SECURITY_V2 5.3, shared. */
+	{
+		struct od_advert_device_state st;
+
+		od_advert_device_state_now(&st);
+		od_advert_apply_device_state(&adv, &st);
+	}
 	od_advert_build(&adv, msd_payload);
 
 	s_msd_loop_counter = od_advert_advance_counter(s_msd_loop_counter);

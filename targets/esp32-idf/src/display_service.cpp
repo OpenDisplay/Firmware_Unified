@@ -1022,15 +1022,13 @@ void updatemsdata(){
     adv.chip_temperature_c = chipTemperature;
     adv.battery_10mv = batteryVoltage10mv;
     adv.reboot_flag = rebootFlag;
-    // SECURITY_V2 5.3: bit 2 is set continuously while in claim mode.
-    adv.connection_requested = connectionRequested || od_claim_mode_active();
+    adv.connection_requested = connectionRequested;
     adv.loop_counter = mloopcounter;
+    // Status bits 2 (CLAIM_MODE) and 3 (SESSION_REQUIRED): SECURITY_V2 5.3, shared.
+    struct od_advert_device_state st;
+    od_advert_device_state_now(&st);
+    od_advert_apply_device_state(&adv, &st);
     od_advert_build(&adv, msd_payload);
-    // Status bit 3 = a session is required (CLAIMED or LOCKED, SECURITY_V2 5.3).
-    // od_advert_build() has no input for it, so it is set here.
-    if (od_sec2_needs_session()) {
-        msd_payload[15] |= OD_MSD_STATUS_ENCRYPTION_ENABLED;
-    }
     // Skip the (relatively expensive) advertisement rebuild when nothing changed;
     // the loop counter still advances so successive advertisements stay
     // distinguishable. Both targets used to keep their own copy of this check

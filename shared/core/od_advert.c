@@ -117,3 +117,13 @@ void od_advert_build(const struct od_advert_inputs *in, uint8_t *out)
 
     out[OD_ADV_OFF_STATUS] = status;
 }
+
+void od_advert_apply_device_state(struct od_advert_inputs *in,
+                                  const struct od_advert_device_state *st)
+{
+    if (in == NULL || st == NULL) {
+        return;
+    }
+    in->connection_requested = in->connection_requested || st->claim_mode;
+    in->encryption_enabled = st->session_required;
+}

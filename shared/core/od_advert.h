@@ -107,6 +107,24 @@ uint16_t od_advert_battery_10mv_from_mv(uint16_t battery_mv);
 /* counter + 1, wrapped to the nibble the status byte carries. */
 uint8_t od_advert_advance_counter(uint8_t counter);
 
+/* THE DEVICE-STATE HALF OF THE STATUS BYTE AND THE UNCONFIGURED RULE (SECURITY_V2 5.3), one
+ * function for every target so no target computes them itself:
+ *   status bit 2 CLAIM_MODE        = claim_mode, OR'd onto the caller's connection_requested;
+ *   status bit 3 SESSION_REQUIRED  = session_required (CLAIMED or LOCKED), replacing whatever the
+ *                                    caller put in encryption_enabled.
+ * The state is a plain struct so this stays in the PURE tier; od_advert_device_state_now()
+ * (od_advert_state.c, APP_IDENT tier) fills it from the live security state and config. */
+struct od_advert_device_state {
+    bool claim_mode;         /* od_claim_mode_active() */
+    bool session_required;   /* od_sec2_needs_session() */
+};
+
+void od_advert_apply_device_state(struct od_advert_inputs *in,
+                                  const struct od_advert_device_state *st);
+
+/* The live state (od_advert_state.c). */
+void od_advert_device_state_now(struct od_advert_device_state *out);
+
 /* Encode into out[OD_ADVERT_MSD_LEN]. Writes exactly 16 bytes and touches nothing else.
  *
  * A NULL out is ignored; a NULL in zeroes the buffer rather than leaving whatever the caller

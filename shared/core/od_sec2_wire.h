@@ -81,6 +81,16 @@
 #define OD_SECURITY_FLAG_NO_RESET_PATTERN (1u << 6)
 #endif
 
+/* MSD status bits 2 and 3 under their 3.0 names (section 5.3; PROVISIONAL names, the bits are
+ * the canonical CONNECTION_REQUESTED / ENCRYPTION_ENABLED). "Waiting to be claimed" = CLAIM_MODE
+ * set and SESSION_REQUIRED clear. */
+#ifndef OD_MSD_STATUS_CLAIM_MODE
+#define OD_MSD_STATUS_CLAIM_MODE       OD_MSD_STATUS_CONNECTION_REQUESTED
+#endif
+#ifndef OD_MSD_STATUS_SESSION_REQUIRED
+#define OD_MSD_STATUS_SESSION_REQUIRED OD_MSD_STATUS_ENCRYPTION_ENABLED
+#endif
+
 /* 0x27 reserved[0] on a claimed device at rest (section 10.2). */
 #define OD_SEC27_AT_REST_SEC2          0x02u
 

@@ -4,6 +4,7 @@
  *
  * The device is simulated boot by boot: storage (secrets + config record) and the retained 16 B
  * persist as the reset cause says they would; everything in RAM is forgotten. Time is uptime. */
+#include "od_advert.h"
 #include "od_cfg_policy.h"
 #include "od_claim_app.h"
 #include "od_claim_mode.h"
@@ -981,8 +982,111 @@ static void test_marker_codec(void)
     CHECK(!od_fr_marker_decode(r, &o));
 }
 
+
+/* ------------------------------------------------------------- MSD in every state --- */
+
+static const uint8_t DD[OD_ADVERT_DYNAMIC_LEN] = { 1,2,3,4,5,6,7,8,9,10,11 };
+
+/* The 16 MSD bytes a target publishes now: its own inputs (dynamic DD, counter 0, no reboot),
+ * then the shared device state, exactly as all three targets compose them. */
+static void msd_now(uint8_t out[OD_ADVERT_MSD_LEN])
+{
+    struct od_advert_inputs in;
+    struct od_advert_device_state st;
+
+    memset(&in, 0, sizeof in);
+    in.dynamic = DD;
+    in.chip_temperature_c = 20.0f;
+    in.battery_10mv = 300u;
+    od_advert_device_state_now(&st);
+    od_advert_apply_device_state(&in, &st);
+    od_advert_build(&in, out);
+}
+
+static void check_msd(uint8_t bits23)
+{
+    uint8_t m[OD_ADVERT_MSD_LEN];
+
+    msd_now(m);
+    CHECK(m[0] == 0x46u && m[1] == 0x24u);
+    CHECK(m[13] == 120u && m[14] == (uint8_t)300u && (m[15] & 0x01u) == 1u);
+    CHECK((m[15] & 0x0Cu) == bits23);
+    CHECK((m[15] & 0xF2u) == 0u);
+}
+
+/* A 2.x config with a v1 key in force and nothing of 3.0: boot row 4 migrates it. */
+static void provision_v1_key(void)
+{
+    uint8_t b[200];
+    uint32_t n = 3u;
+    uint16_t c;
+    static uint8_t ws[OD_CONFIG_STORE_MAX_RECORD];
+
+    memset(b, 0, sizeof b);
+    b[2] = 1u;
+    b[n++] = 0u; b[n++] = 0x27u;
+    b[n] = 1u;
+    memcpy(b + n + 1u, K1, 16u);
+    n += 64u;
+    c = od_config_tlv_crc16(od_span_make(b, n));
+    b[n++] = (uint8_t)c;
+    b[n++] = (uint8_t)(c >> 8);
+    CHECK(od_config_store_save(ws, sizeof ws, b, n) == OD_CONFIG_STORE_OK);
+}
+
+static void test_msd_states(void)
+{
+    CASE("MSD: virgin device = FRESH claim mode, bit2 set, bit3 clear");
+    wipe_device();
+    boot(OD_HAL_RESET_POWER_ON);
+    CHECK(od_claim_mode_active() && g_rep.kind == OD_CLAIM_KIND_FRESH);
+    check_msd(OD_MSD_STATUS_CLAIM_MODE);
+
+    CASE("MSD: unclaimed, normal mode: bits 2 and 3 clear");
+    wipe_device();
+    provision(false, false, 0u, 0xFFu);
+    boot(OD_HAL_RESET_POWER_ON);
+    CHECK(!od_claim_mode_active() && g_rep.state == OD_SEC2_UNCLAIMED);
+    check_msd(0u);
+
+    CASE("MSD: gesture claim mode: bit2 set, bit3 clear");
+    wipe_device();
+    provision(false, false, 0u, 0xFFu);
+    cycle(3000u);
+    boot(OD_HAL_RESET_POWER_ON);
+    CHECK(od_claim_mode_active() && g_rep.kind == OD_CLAIM_KIND_GESTURE);
+    check_msd(OD_MSD_STATUS_CLAIM_MODE);
+
+    CASE("MSD: claimed: bit3 set, bit2 clear (also after the gesture)");
+    wipe_device();
+    provision(true, true, 0u, 0xFFu);
+    boot(OD_HAL_RESET_POWER_ON);
+    CHECK(g_rep.state == OD_SEC2_CLAIMED);
+    check_msd(OD_MSD_STATUS_SESSION_REQUIRED);
+    cycle(3000u);
+    boot(OD_HAL_RESET_POWER_ON);
+    CHECK(!od_claim_mode_active());
+    check_msd(OD_MSD_STATUS_SESSION_REQUIRED);
+
+    CASE("MSD: LOCKED (claim marker, key record gone): bit3 set, bit2 clear");
+    wipe_device();
+    provision(true, true, 0u, 0xFFu);
+    g_st.sec[0].present = false;
+    boot(OD_HAL_RESET_POWER_ON);
+    CHECK(g_rep.state == OD_SEC2_LOCKED);
+    check_msd(OD_MSD_STATUS_SESSION_REQUIRED);
+
+    CASE("MSD: a 2.x v1 key migrated at the first 3.0 boot: bit3 set");
+    wipe_device();
+    provision_v1_key();
+    boot(OD_HAL_RESET_POWER_ON);
+    CHECK(g_rep.state == OD_SEC2_CLAIMED);
+    check_msd(OD_MSD_STATUS_SESSION_REQUIRED);
+}
+
 int main(void)
 {
+    test_msd_states();
     test_causes();
     test_history_edges();
     test_gesture_claimed();

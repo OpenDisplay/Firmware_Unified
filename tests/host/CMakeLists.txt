@@ -772,7 +772,8 @@ add_test(NAME cfg_policy_core COMMAND od_cfg_policy_core_test)
 # claim_mode: od_security_boot, the boot history (gesture + five-cycle factory reset), the claim
 # session and the factory reset with a power cut at every storage mutation, over the real od_sec2,
 # od_cfg_policy and od_config_store. Its own secret store, medium and inert crypto.
-add_executable(od_claim_mode_test claim_mode_test.c od_log_test_stub.c)
+add_executable(od_claim_mode_test claim_mode_test.c od_log_test_stub.c
+    ../../shared/core/od_advert_state.c)
 target_link_libraries(od_claim_mode_test od_shared)
 add_test(NAME claim_mode COMMAND od_claim_mode_test)
 
