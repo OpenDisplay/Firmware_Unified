@@ -34,7 +34,10 @@ enum od_hal_crypto_status {
     /* Decrypt only: the tag did not verify. This is never an engine/resource fault. */
     OD_HAL_CRYPTO_AUTH_FAILED,
     OD_HAL_CRYPTO_UNSUPPORTED,
-    OD_HAL_CRYPTO_ERROR
+    OD_HAL_CRYPTO_ERROR,
+    /* ECDH only: the backend refused the peer point. Shared code validates every point first
+     * (od_sec2_point_valid), so this is the backend agreeing, not the check of record. */
+    OD_HAL_CRYPTO_BAD_POINT
 };
 
 /* The tag length belongs to the slot policy, not to an individual operation. PSA imports the
@@ -42,8 +45,9 @@ enum od_hal_crypto_status {
  * create different contracts on PSA and mbedTLS. */
 #define OD_HAL_CRYPTO_TAG_LEN 12u
 
+/* SEC2 holds one CCM key per direction (k_h2d, k_d2h). */
 #ifndef OD_HAL_CRYPTO_KEY_SLOTS
-#define OD_HAL_CRYPTO_KEY_SLOTS 1u
+#define OD_HAL_CRYPTO_KEY_SLOTS 2u
 #endif
 
 typedef uint8_t od_hal_crypto_slot_t;
@@ -61,7 +65,8 @@ enum od_hal_crypto_status od_hal_crypto_ccm_encrypt(od_hal_crypto_slot_t slot,
         const uint8_t *plain, uint16_t plain_len,
         uint8_t *ct, uint16_t ct_cap, uint16_t *ct_len);
 
-/* ct is ciphertext || tag and must contain at least one ciphertext byte. AUTH_FAILED means only
+/* ct is ciphertext || tag; ct_len == OD_HAL_CRYPTO_TAG_LEN (an empty plaintext) is legal, and so
+ * is plain_len == 0 on encrypt. AUTH_FAILED means only
  * that the tag mismatched. ON ANY NON-OK RETURN plain IS UNDEFINED AND MUST NOT BE READ: CCM is
  * decrypt-then-verify. plain_len is set to ct_len - OD_HAL_CRYPTO_TAG_LEN only on success. */
 enum od_hal_crypto_status od_hal_crypto_ccm_decrypt(od_hal_crypto_slot_t slot,
@@ -80,6 +85,18 @@ enum od_hal_crypto_status od_hal_crypto_aes_ecb(const uint8_t key[16], const uin
 /* A CSPRNG is mandatory because this fills the server nonce. Return ERROR if the backend cannot
  * provide cryptographically secure bytes; never substitute a weak source. */
 enum od_hal_crypto_status od_hal_crypto_random(uint8_t *buf, uint16_t len);
+
+/* P-256 ECDH with ONE ephemeral key pair, held inside the target (a PSA volatile key, or an
+ * mbedTLS scalar). Points cross this boundary as 64 bytes X || Y, big-endian, without the SEC1
+ * 0x04 prefix; the shared secret is the 32-byte big-endian x-coordinate.
+ *
+ * keygen replaces (destroys) any ephemeral key already held. agree destroys the private key on
+ * EVERY outcome, success included, so a scalar is used for exactly one agreement. discard is
+ * idempotent. The caller MUST have validated `peer` with od_sec2_point_valid() first; a backend
+ * that refuses the point anyway returns BAD_POINT. */
+enum od_hal_crypto_status od_hal_crypto_ecdh_keygen(uint8_t pub[64]);
+enum od_hal_crypto_status od_hal_crypto_ecdh_agree(const uint8_t peer[64], uint8_t z[32]);
+void od_hal_crypto_ecdh_discard(void);
 
 /* OD_CRYPTO_SOFT_CCM is deferred until a target lacks native CCM or native CCM has an
  * unacceptable flash cost. That implementation must add od_hal_crypto_ecb_prepared() so its

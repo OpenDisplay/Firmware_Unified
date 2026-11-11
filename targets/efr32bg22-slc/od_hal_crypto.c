@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <string.h>
 
 #define OD_PSA_CCM_ALG PSA_ALG_AEAD_WITH_SHORTENED_TAG(PSA_ALG_CCM, OD_HAL_CRYPTO_TAG_LEN)
 
@@ -115,7 +116,8 @@ enum od_hal_crypto_status od_hal_crypto_ccm_decrypt(od_hal_crypto_slot_t slot,
 
   if (!init_once() || !valid_slot(slot) || !s_ready[slot] || nonce == NULL ||
       nonce_len < 7u || nonce_len > 13u || (aad == NULL && aad_len != 0u) ||
-      ct == NULL || ct_len <= OD_HAL_CRYPTO_TAG_LEN || plain == NULL || plain_len == NULL) {
+      ct == NULL || ct_len < OD_HAL_CRYPTO_TAG_LEN ||
+      (plain == NULL && ct_len != OD_HAL_CRYPTO_TAG_LEN) || plain_len == NULL) {
     return OD_HAL_CRYPTO_ERROR;
   }
   expected = (uint16_t)(ct_len - OD_HAL_CRYPTO_TAG_LEN);
@@ -192,4 +194,73 @@ enum od_hal_crypto_status od_hal_crypto_random(uint8_t *buf, uint16_t len)
     return OD_HAL_CRYPTO_ERROR;
   }
   return OD_HAL_CRYPTO_OK;
+}
+
+/* ---- P-256 ECDH: one volatile key pair, generated per handshake and destroyed by agree ---- */
+
+static psa_key_id_t s_ecdh;
+static bool s_ecdh_ready;
+
+void od_hal_crypto_ecdh_discard(void)
+{
+  if (s_ecdh_ready) {
+    const psa_key_id_t id = s_ecdh;
+
+    s_ecdh = 0;
+    s_ecdh_ready = false;
+    if (!destroy_key(id)) {
+      printf("[OD] PSA ECDH key destroy failed; key slot leaked\r\n");
+    }
+  }
+}
+
+enum od_hal_crypto_status od_hal_crypto_ecdh_keygen(uint8_t pub[64])
+{
+  psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
+  uint8_t raw[65];
+  size_t n = 0;
+  psa_status_t ps;
+
+  if (!init_once() || pub == NULL) {
+    return OD_HAL_CRYPTO_ERROR;
+  }
+  od_hal_crypto_ecdh_discard();
+  psa_set_key_type(&attr, PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
+  psa_set_key_bits(&attr, 256);
+  psa_set_key_algorithm(&attr, PSA_ALG_ECDH);
+  psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_DERIVE);
+  ps = psa_generate_key(&attr, &s_ecdh);
+  psa_reset_key_attributes(&attr);
+  if (ps != PSA_SUCCESS) {
+    printf("[OD] PSA ECDH keygen failed: %ld\r\n", (long)ps);
+    return OD_HAL_CRYPTO_ERROR;
+  }
+  s_ecdh_ready = true;
+  ps = psa_export_public_key(s_ecdh, raw, sizeof raw, &n);
+  if (ps != PSA_SUCCESS || n != sizeof raw || raw[0] != 0x04u) {
+    od_hal_crypto_ecdh_discard();
+    return OD_HAL_CRYPTO_ERROR;
+  }
+  memcpy(pub, &raw[1], 64u);
+  return OD_HAL_CRYPTO_OK;
+}
+
+enum od_hal_crypto_status od_hal_crypto_ecdh_agree(const uint8_t peer[64], uint8_t z[32])
+{
+  uint8_t raw[65];
+  size_t n = 0;
+  psa_status_t ps;
+
+  if (!s_ecdh_ready || peer == NULL || z == NULL) {
+    od_hal_crypto_ecdh_discard();
+    return OD_HAL_CRYPTO_ERROR;
+  }
+  raw[0] = 0x04u;
+  memcpy(&raw[1], peer, 64u);
+  ps = psa_raw_key_agreement(PSA_ALG_ECDH, s_ecdh, raw, sizeof raw, z, 32u, &n);
+  od_hal_crypto_ecdh_discard();
+  if (ps == PSA_ERROR_INVALID_ARGUMENT) {
+    return OD_HAL_CRYPTO_BAD_POINT;
+  }
+  return (ps == PSA_SUCCESS && n == 32u) ? OD_HAL_CRYPTO_OK : OD_HAL_CRYPTO_ERROR;
 }
