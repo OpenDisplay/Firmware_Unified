@@ -253,6 +253,7 @@ static enum od_fr_result run(struct od_fr_marker m)
             return m.stage == OD_FR_STAGE_KEY_FAILED ? OD_FR_LOCKED : OD_FR_REBOOT;
         }
         OD_SEC2_TRACE("factory reset R1b: secrets scrubbed");
+        OD_SEC2_TRACE_PAUSE("factory reset R1b");
         /* R2 */
         if (!erase_key()) {
             ++m.erase_attempts;
@@ -267,6 +268,7 @@ static enum od_fr_result run(struct od_fr_marker m)
             return OD_FR_REBOOT;
         }
         OD_SEC2_TRACE("factory reset R2: key record erased");
+        OD_SEC2_TRACE_PAUSE("factory reset R2");
         m.stage = OD_FR_STAGE_DRAW;
     }
     if (m.stage == OD_FR_STAGE_DRAW) {
@@ -282,6 +284,7 @@ static enum od_fr_result run(struct od_fr_marker m)
             const bool drawn = od_claim_app_draw(OD_SETUP_SCREEN_RESET, 0u);
 
             OD_SEC2_TRACE("factory reset R3: draw RESET screen -> %s", drawn ? "drawn" : "not drawn");
+            OD_SEC2_TRACE_PAUSE("factory reset R3 drawn");
             (void)drawn;
         }
         /* R4 */
@@ -306,6 +309,7 @@ static enum od_fr_result run(struct od_fr_marker m)
         od_log_error("factory reset: config erase failed, continuing");
     }
     OD_SEC2_TRACE("factory reset R5c: config record erased");
+    OD_SEC2_TRACE_PAUSE("factory reset R5c");
     /* R6 */
     (void)os2s_read(&st);
     st.flags = (uint8_t)(OD_SEC2_OS2S_FRESH | OD_SEC2_OS2S_MIGRATED);
@@ -315,6 +319,7 @@ static enum od_fr_result run(struct od_fr_marker m)
         return OD_FR_REBOOT;
     }
     OD_SEC2_TRACE("factory reset R6: OS2S FRESH, key_gen %u", (unsigned)st.key_gen);
+    OD_SEC2_TRACE_PAUSE("factory reset R6");
     /* R7, R8 */
     (void)od_hal_secret_erase(OD_HAL_SECRET_MARKER);
     OD_SEC2_TRACE("factory reset R7: marker deleted; R8: reboot into fresh claim mode");
@@ -332,6 +337,7 @@ enum od_fr_result od_fr_start(void)
         return OD_FR_NONE;
     }
     OD_SEC2_TRACE("factory reset R1: marker written (stage 1)");
+    OD_SEC2_TRACE_PAUSE("factory reset R1");
     return run(m);
 }
 

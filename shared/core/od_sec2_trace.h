@@ -10,6 +10,7 @@
 #define OD_SEC2_TRACE_H
 
 #include "od_log.h"
+#include "od_hal_time.h"
 
 #ifndef OD_SEC2_TEST_TRACE
 #define OD_SEC2_TEST_TRACE 0
@@ -25,7 +26,18 @@
         od_log_raw("##  The claim code and security state are printed on this port. ##\r\n"); \
         od_log_raw("################################################################\r\n"); \
     } while (0)
+/* A fixed stall right after a traced storage step, so a bench reset (EN pulse) can land between
+ * two steps on purpose: the power-cut tests of SECURITY_V2 § 11 and FACTORY_RESET.md R1-R8. */
+#define OD_SEC2_TRACE_PAUSE(what)                                                            \
+    do {                                                                                     \
+        const uint32_t od_t0_ = od_hal_uptime_ms();                                          \
+        _od_log(OD_LOG_WARN, "[SEC2-TEST] PAUSE %s: 3000 ms window for a reset", (what));    \
+        while ((uint32_t)(od_hal_uptime_ms() - od_t0_) < 3000u) {                            \
+        }                                                                                    \
+        _od_log(OD_LOG_WARN, "[SEC2-TEST] PAUSE %s: over", (what));                          \
+    } while (0)
 #else
+#define OD_SEC2_TRACE_PAUSE(what) do { } while (0)
 #define OD_SEC2_TRACE(fmt, ...) do { } while (0)
 #define OD_SEC2_TRACE_BANNER()  do { } while (0)
 #endif

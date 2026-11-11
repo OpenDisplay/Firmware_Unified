@@ -384,7 +384,7 @@ void od_security_boot(const struct SecurityConfig *sec, bool config_present,
         }
     }
     rep.kind = c.active ? c.kind : OD_CLAIM_KIND_NONE;
-    OD_SEC2_TRACE("boot decision: state=%u (0 UNCLAIMED 2 CLAIMED 3 LOCKED) os2s_valid=%u flags=0x%02x "
+    OD_SEC2_TRACE("boot decision: state=%u (0 UNCLAIMED 1 CLAIMED 2 LOCKED) os2s_valid=%u flags=0x%02x "
                   "key_gen=%u fr=%u claim_kind=%u history=%u arm_due=%u",
                   (unsigned)rep.state, (unsigned)st_valid, (unsigned)st.flags, (unsigned)st.key_gen,
                   (unsigned)fr, (unsigned)rep.kind, (unsigned)c.history, (unsigned)c.arm_due);
