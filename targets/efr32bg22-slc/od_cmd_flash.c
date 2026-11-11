@@ -1,6 +1,7 @@
 /* od_cmd_flash -- image-store management over BLE.
  *
- * Opcodes 0x0047-0x004D are canonical at protocol 2.4.
+ * Opcodes 0x0047-0x004B are canonical at protocol 2.4; 0x004C / 0x004D (actions) are answered by
+ * shared/core/od_cmd_action.c.
  *
  * PRELOAD ARMS THE EXISTING UPLOAD PATH rather than adding a parallel one. Chunking,
  * compression, inflate, acknowledgement and abort are identical whether the bytes end at the
@@ -11,7 +12,6 @@
 
 #include <string.h>
 
-#include "od_action.h"
 #include "od_imgstore.h"
 #include "od_log.h"
 #include "od_reply.h"
@@ -172,41 +172,4 @@ od_cmd_result_t od_cmd_app_flash_display(const od_cmd_ctx_t *ctx, od_span_t body
     r[2] = idx;
     (void)reply(ctx, r, sizeof r);
     return ok ? OD_CMD_OK : OD_CMD_NACK;
-}
-
-od_cmd_result_t od_cmd_app_action_info(const od_cmd_ctx_t *ctx, od_span_t body)
-{
-    const od_action_stats_t *st = od_action_stats();
-    /* r[9] `tables` extends the 9-byte frame of protocol 2.4: the number of 0xB2 packets in
-     * the config, of which only the first runs. Appended so a reader of the 9-byte form is
-     * unaffected; the canonical ActionInfoResponse does not carry it yet. */
-    uint8_t r[10];
-
-    (void)body;
-    r[0] = RESP_ACK;
-    r[1] = (uint8_t)CMD_ACTION_INFO;
-    r[2] = st->entries;
-    r[3] = st->active;
-    r[4] = st->inactive;
-    r[5] = st->rejected;
-    r[6] = st->last_trigger;
-    r[7] = st->fire_count;
-    r[8] = (uint8_t)st->last_temp_c;
-    r[9] = st->tables;
-    return reply(ctx, r, sizeof r) == OD_TXQ_OK ? OD_CMD_OK : OD_CMD_NACK;
-}
-
-od_cmd_result_t od_cmd_app_action_fire(const od_cmd_ctx_t *ctx, od_span_t body)
-{
-    uint8_t r[3];
-    const uint8_t arg = (od_span_valid(body) && body.n >= 1u) ? body.p[0] : 0u;
-
-    /* OD_TRIG_HOST exists so a table can be exercised without the physical event
-     * it is really for. The runner picks it up on the next service pass -- firing
-     * it here would run effects inside a command handler. */
-    od_action_trigger(OD_TRIG_HOST, arg);
-    r[0] = RESP_ACK;
-    r[1] = (uint8_t)CMD_ACTION_FIRE;
-    r[2] = arg;
-    return reply(ctx, r, sizeof r) == OD_TXQ_OK ? OD_CMD_OK : OD_CMD_NACK;
 }

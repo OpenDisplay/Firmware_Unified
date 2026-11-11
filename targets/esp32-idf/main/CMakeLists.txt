@@ -55,6 +55,9 @@ list(APPEND OD_APP_SOURCES ${OD_SHARED_SOURCES})
 list(APPEND OD_APP_SOURCES ${OD_SHARED_SOURCES_APP_EPD} ${OD_SHARED_SOURCES_APP_DRIVE}
                            ${OD_SHARED_SOURCES_APP_DISPLAY} ${OD_SHARED_SOURCES_APP_IDENT}
                            ${OD_SHARED_SOURCES_APP_SPI_RAW})
+# The 0xB2 action table (od_action + CMD_ACTION_INFO / CMD_ACTION_FIRE); effects in
+# src/od_action_app_esp.cpp.
+list(APPEND OD_APP_SOURCES ${OD_SHARED_SOURCES_APP_ACTION})
 
 # ble/od_ble_rx.cpp is GONE, not forgotten. It held od_ble_on_write(): the bounds check,
 # the RX hex log and the enqueue. All three now live in src/command_queue.cpp's
@@ -272,6 +275,8 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     OD_CAP_DRIVE_WRITE=1
     OD_CAP_SPI_RAW=1
     OD_CAP_READ_IDENT=1
+    # 0xB2 action table without an image store: DISPLAY_SLOT entries load as inactive.
+    OD_CAP_ACTION=1
     OD_IDENT_TARGET=OD_IDENT_TARGET_ESP32
     # IT8951 / FastEPD-parallel panels are driven by a built-in driver: no NEEDS_MIGRATION.
     OD_IDENT_NATIVE_PANELS=1

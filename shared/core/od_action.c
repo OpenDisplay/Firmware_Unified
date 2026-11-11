@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "od_action_app.h"
+#include "od_caps.h"
 #include "od_cfg_index.h"
 #include "od_log.h"
 
@@ -61,8 +62,9 @@ static bool effect_known(uint8_t e)
     case OD_EFF_NONE:
     case OD_EFF_LED:
     case OD_EFF_LED_STOP:
-    case OD_EFF_DISPLAY_SLOT:
         return true;
+    case OD_EFF_DISPLAY_SLOT:
+        return OD_CAP_IMGSTORE != 0;   /* no image store, no slot to show */
     case OD_EFF_BUZZER:
         return od_action_app_has_buzzer();
     default:

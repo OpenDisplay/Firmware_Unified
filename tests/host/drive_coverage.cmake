@@ -35,11 +35,22 @@ target_compile_definitions(od_epd_cfg_test PRIVATE
 add_test(NAME epd_cfg COMMAND od_epd_cfg_test)
 
 # od_action over a stored 0xB2 table: every trigger, temperature edges, validator vs runner,
-# uptime wrap. No other suite links od_action.c.
-add_executable(od_action_test action_test.c od_log_test_stub.c
-    ${OD_SHARED_CORE}/od_action.c ${OD_SHARED_CORE}/od_cfg_index.c)
-target_link_libraries(od_action_test od_shared)
-add_test(NAME action COMMAND od_action_test)
+# uptime wrap, and the shared CMD_ACTION_INFO / CMD_ACTION_FIRE handlers. Twice: with an image
+# store (BG22), and without one (ESP32), where DISPLAY_SLOT entries load as inactive. No other
+# suite links od_action.c.
+foreach(img IN ITEMS 1 0)
+    if(img)
+        set(sfx "")
+    else()
+        set(sfx _no_imgstore)
+    endif()
+    add_executable(od_action${sfx}_test action_test.c od_log_test_stub.c
+        ${OD_SHARED_CORE}/od_action.c ${OD_SHARED_CORE}/od_cmd_action.c
+        ${OD_SHARED_CORE}/od_cfg_index.c)
+    target_link_libraries(od_action${sfx}_test od_shared)
+    target_compile_definitions(od_action${sfx}_test PRIVATE OD_CAP_IMGSTORE=${img} OD_CAP_ACTION=1)
+    add_test(NAME action${sfx} COMMAND od_action${sfx}_test)
+endforeach()
 
 # od_imgstore + od_flash_nor over a simulated SPI NOR (the od_hal_spi seam), both header
 # layouts: default, and the write-once layout the Nordic XIAO (Puya P25Q16H) build uses.

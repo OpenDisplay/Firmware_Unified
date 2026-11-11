@@ -7,7 +7,12 @@
 
 #include "od_action.h"
 #include "od_action_app.h"
+#include "od_caps.h"
 #include "od_cfg_index.h"
+#include "od_cmd_app.h"
+#include "od_cmd_test_ctx.h"
+#include "od_reply.h"
+#include "opendisplay_protocol.h"
 
 #include <limits.h>
 
@@ -117,6 +122,7 @@ static const uint8_t ST_SLOT[1][4] = { { OD_EFF_DISPLAY_SLOT, 3, 0, 0 } };
 
 /* -------------------------------------------------------------------------------- tests -- */
 
+#if OD_CAP_IMGSTORE   /* these tables name DISPLAY_SLOT steps */
 static void test_each_trigger(void)
 {
     tbl_t t = { .n = 0u };
@@ -443,15 +449,115 @@ static void test_wrap(void)
     CHECK(poll_at(0xFFFFF000u + 2000u, 30) == 0u);
     CHECK(poll_at(0xFFFFF000u + 4000u, 22) == 1u);   /* now = 0x0000_0BA0 */
 }
+#endif
+
+/* ------------------------------------------------------------ CMD_ACTION_INFO / _FIRE -- */
+
+static uint8_t  g_rep[16];
+static uint16_t g_rep_n;
+
+od_txq_status_t od_reply(od_tx_reservation_t *r, const od_reply_t *rp, const uint8_t *frame,
+                         uint16_t len)
+{
+    (void)r; (void)rp;
+    g_rep_n = len < sizeof g_rep ? len : (uint16_t)sizeof g_rep;
+    memcpy(g_rep, frame, g_rep_n);
+    return OD_TXQ_OK;
+}
+
+static od_cmd_result_t cmd(od_cmd_result_t (*fn)(const od_cmd_ctx_t *, od_span_t),
+                           const uint8_t *b, size_t n)
+{
+    static od_tx_reservation_t res;
+    const od_cmd_ctx_t ctx = od_test_cmd_ctx((od_reply_t){ OD_ORIGIN_BLE, 1u }, &res,
+                                             (uint16_t)(n + 2u), false);
+    g_rep_n = 0u;
+    return fn(&ctx, od_span_make(b, n));
+}
+
+static void test_cmd_handlers(void)
+{
+    tbl_t t = { .n = 0u };
+    static const uint8_t st_host[1][4] = { { OD_EFF_LED, 0x30, 2, 0 } };
+
+    ent(&t, OD_TRIG_HOST, 5u, true, 1u, st_host);
+    ent(&t, OD_TRIG_BUTTON_PRESS, 0u, true, 1u, ST_SLOT);
+    {   /* malformed: entry_len 6 claims no steps, step_count says 1 -- rejected, walk goes on */
+        static const uint8_t bad[6] = { 6u, OD_TRIG_BOOT, 0u, 0u, 1u, 1u };
+        memcpy(&t.b[t.n], bad, sizeof bad);
+        t.n += sizeof bad;
+    }
+    store(&t);
+
+    CASE("ACTION_INFO: 10 bytes, [ACK][0x4C] + ActionInfoResponse incl. `tables`");
+    {
+        CHECK(cmd(od_cmd_app_action_info, NULL, 0u) == OD_CMD_OK);
+        const uint8_t want[10] = { RESP_ACK, (uint8_t)CMD_ACTION_INFO, 2u,
+                                   OD_CAP_IMGSTORE ? 2u : 1u, OD_CAP_IMGSTORE ? 0u : 1u,
+                                   1u, 0u, 0u, (uint8_t)od_action_stats()->last_temp_c, 1u };
+        CHECK(g_rep_n == sizeof want && memcmp(g_rep, want, sizeof want) == 0);
+    }
+
+    CASE("ACTION_FIRE echoes host_id and only records the trigger");
+    {
+        const uint8_t id = 5u;
+        CHECK(cmd(od_cmd_app_action_fire, &id, 1u) == OD_CMD_OK);
+        const uint8_t want[3] = { RESP_ACK, (uint8_t)CMD_ACTION_FIRE, 5u };
+        CHECK(g_rep_n == 3u && memcmp(g_rep, want, 3u) == 0);
+        CHECK(g_led == 0u && od_action_stats()->fire_count == 0u);
+        (void)run(10000u, 10u);
+        CHECK(strcmp(g_fx, "L30/2 ") == 0);
+        CHECK(od_action_stats()->last_trigger == OD_TRIG_HOST &&
+              od_action_stats()->fire_count == 1u);
+    }
+
+    CASE("ACTION_FIRE with no body fires host_id 0, which matches no entry with arg 5");
+    {
+        fx_reset();
+        CHECK(cmd(od_cmd_app_action_fire, NULL, 0u) == OD_CMD_OK);
+        CHECK(g_rep_n == 3u && g_rep[2] == 0u);
+        (void)run(20000u, 10u);
+        CHECK(g_led == 0u && od_action_stats()->fire_count == 1u);
+    }
+}
+
+#if !OD_CAP_IMGSTORE
+/* Without an image store (ESP32) a DISPLAY_SLOT step makes its entry inactive: it loads, is
+ * counted, and never runs. */
+static void test_no_image_store(void)
+{
+    tbl_t t = { .n = 0u };
+
+    ent(&t, OD_TRIG_BUTTON_PRESS, 0u, true, 1u, ST_SLOT);
+    ent(&t, OD_TRIG_BOOT, 0u, true, 1u, ST_LED);
+    store(&t);
+
+    CASE("no image store: the DISPLAY_SLOT entry is inactive, the LED entry active");
+    CHECK(od_action_stats()->entries == 2u && od_action_stats()->active == 1u);
+    CHECK(od_action_stats()->inactive == 1u && od_action_stats()->rejected == 0u);
+
+    /* "Inactive" is what ACTION_INFO reports; the runner does not consult it, so the entry
+     * still starts and the step reaches the seam, which on ESP32 does nothing. Pinned. */
+    CASE("no image store: a press still starts the inactive entry; the slot step hits the seam");
+    od_action_trigger(OD_TRIG_BUTTON_PRESS, 1u);
+    (void)run(1000u, 10u);
+    CHECK(g_slot == 1u && od_action_stats()->fire_count == 1u);
+}
+#endif
 
 int main(void)
 {
+#if OD_CAP_IMGSTORE
     test_each_trigger();
     test_button_mask();
     test_enable_live();
     test_validator_vs_runner();
     test_temperature();
     test_wrap();
+#else
+    test_no_image_store();
+#endif
+    test_cmd_handlers();
     printf("action: %u known bugs\n", fx_xfail_count);
-    return OD_CHECK_REPORT_NONEMPTY("action", 50);
+    return OD_CHECK_REPORT_NONEMPTY("action", OD_CAP_IMGSTORE ? 50 : 8);
 }

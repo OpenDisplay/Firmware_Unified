@@ -39,6 +39,14 @@
 #define OD_CAP_IMGSTORE 0
 #endif
 
+/* The 0xB2 action table: CMD_ACTION_INFO / CMD_ACTION_FIRE routed, od_action.c and
+ * od_cmd_action.c linked (APP_ACTION). Defaults to the image store's setting, so a target with an
+ * image store keeps routing both opcodes; ESP32 sets it without one, and there an entry naming
+ * OD_EFF_DISPLAY_SLOT loads as inactive. */
+#ifndef OD_CAP_ACTION
+#define OD_CAP_ACTION OD_CAP_IMGSTORE
+#endif
+
 /* CMD_DRIVE_WRITE_START (0x0085): full-frame write naming a config-declared drive mode.
  *
  * DEFAULT OFF for the same reason as OD_CAP_IMGSTORE: it is answerable only by a target whose

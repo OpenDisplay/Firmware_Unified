@@ -7,9 +7,10 @@
  * LedFlags' four spare bits, and the pair needed a documented override rule
  * because flag bits cannot express precedence.
  *
- * Those bits are DEAD on this target -- defined in the contract, acted on nowhere --
- * so this does not change any shipped behaviour. It is the mechanism they should
- * have been, and the reason the next such request does not cost another bit.
+ * This is the mechanism they should have been, and the reason the next such request
+ * does not cost another bit. BG22 acts on none of the bits. ESP32 keeps its LED and
+ * buzzer press feedback for a config without a 0xB2 table; with a table, the table
+ * owns the press.
  *
  * NOT A VM. A table of triggers, each with an ordered list of effects and a delay
  * after each. No jumps, no loops, no addressing, no conditionals. Worst-case

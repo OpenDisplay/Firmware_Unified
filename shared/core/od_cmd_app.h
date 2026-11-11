@@ -85,13 +85,15 @@ od_cmd_result_t od_cmd_app_spi_raw(const od_cmd_ctx_t *ctx, od_span_t body);    
 /* Declared here rather than beside the target that implements them, because od_dispatch_ops.h
  * names them from SHARED code and shared/ never includes a target header. Gated on the same
  * capability as the dispatch rows, so only a build that routes these opcodes owes definitions.
- * The values, and why they are not yet in shared/protocol/, are in od_dispatch_ops.h. */
+ * The two CMD_ACTION_* hooks are implemented once, in od_cmd_action.c. */
 #if OD_CAP_IMGSTORE
 od_cmd_result_t od_cmd_app_flash_info(const od_cmd_ctx_t *ctx, od_span_t body);        /* 0x0047 */
 od_cmd_result_t od_cmd_app_flash_list(const od_cmd_ctx_t *ctx, od_span_t body);        /* 0x0048 */
 od_cmd_result_t od_cmd_app_flash_erase(const od_cmd_ctx_t *ctx, od_span_t body);       /* 0x0049 */
 od_cmd_result_t od_cmd_app_flash_preload(const od_cmd_ctx_t *ctx, od_span_t body);     /* 0x004A */
 od_cmd_result_t od_cmd_app_flash_display(const od_cmd_ctx_t *ctx, od_span_t body);     /* 0x004B */
+#endif
+#if OD_CAP_ACTION
 od_cmd_result_t od_cmd_app_action_info(const od_cmd_ctx_t *ctx, od_span_t body);       /* 0x004C */
 od_cmd_result_t od_cmd_app_action_fire(const od_cmd_ctx_t *ctx, od_span_t body);       /* 0x004D */
 #endif

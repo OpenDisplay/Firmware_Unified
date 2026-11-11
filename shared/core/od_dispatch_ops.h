@@ -14,20 +14,27 @@
 #include "od_caps.h"
 
 /* Image-store and action opcodes: canonical at protocol 2.4 (CMD_FLASH_* / CMD_ACTION_* in
- * shared/protocol/opendisplay_protocol.h). Routing is gated because they need an image store; a
- * target without OD_CAP_IMGSTORE leaves them unrouted, which is SILENCE rather than a NACK
- * (od_dispatch's OD_FRAME_UNKNOWN_OPCODE logs and emits nothing). */
+ * shared/protocol/opendisplay_protocol.h). The CMD_FLASH_* rows need an image store and the
+ * CMD_ACTION_* rows the action runner; a target without OD_CAP_IMGSTORE / OD_CAP_ACTION leaves
+ * them unrouted, which is SILENCE rather than a NACK (od_dispatch's OD_FRAME_UNKNOWN_OPCODE logs
+ * and emits nothing). */
 #if OD_CAP_IMGSTORE
 #define OD_DISPATCH_IMGSTORE_ROWS(X)                                                 \
     X(CMD_FLASH_INFO,       od_cmd_app_flash_info,      1u)                       \
     X(CMD_FLASH_LIST,       od_cmd_app_flash_list,      1u)                       \
     X(CMD_FLASH_ERASE,      od_cmd_app_flash_erase,     1u)                       \
     X(CMD_FLASH_PRELOAD,    od_cmd_app_flash_preload,   1u)                       \
-    X(CMD_FLASH_DISPLAY,    od_cmd_app_flash_display,   1u)                       \
+    X(CMD_FLASH_DISPLAY,    od_cmd_app_flash_display,   1u)
+#else
+#define OD_DISPATCH_IMGSTORE_ROWS(X)
+#endif
+
+#if OD_CAP_ACTION
+#define OD_DISPATCH_ACTION_ROWS(X)                                                   \
     X(CMD_ACTION_INFO,      od_cmd_app_action_info,     1u)                       \
     X(CMD_ACTION_FIRE,      od_cmd_app_action_fire,     1u)
 #else
-#define OD_DISPATCH_IMGSTORE_ROWS(X)
+#define OD_DISPATCH_ACTION_ROWS(X)
 #endif
 
 /* CMD_DRIVE_WRITE_START is specified in shared/protocol/opendisplay_protocol.h at 2.3 with its own OD_ERR_DRIVE_* namespace. Only the
@@ -73,6 +80,7 @@
     X(CMD_NFC_ENDPOINT,        od_nfc_frame,               1u)                       \
     OD_DISPATCH_SPI_RAW_ROWS(X)                                                      \
     OD_DISPATCH_DRIVE_ROWS(X)                                                        \
-    OD_DISPATCH_IMGSTORE_ROWS(X)
+    OD_DISPATCH_IMGSTORE_ROWS(X)                                                     \
+    OD_DISPATCH_ACTION_ROWS(X)
 
 #endif /* OD_DISPATCH_OPS_H */

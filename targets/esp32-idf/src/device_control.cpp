@@ -15,6 +15,7 @@ void enterDeepSleep(bool force = false, uint16_t overrideSleepSeconds = 0);
 #include "driver/gpio.h"
 #include "od_hal_adc.h"
 #include "od_hal_gpio.h"
+#include "od_action.h"
 #include "od_led.h"
 #include "od_led_app.h"
 #include "od_hal_time.h"
@@ -229,7 +230,7 @@ static void pollAdcButtons() {
         if (l->byte_index < 11) dynamicreturndata[l->byte_index] = data;
         if (state != 0u) od_adv_app_boost();   // before the publish, which picks the interval
         updatemsdata();
-        if (state != 0u) buttonPressFeedback();
+        if (state != 0u) buttonPressFeedback(l->last_button_id);
         od_log_debug("ADC btn pin %u adc=%d idx=%d id=%u cnt=%u state=%u",
                     l->pin, adc, btn, l->last_button_id, l->press_count, state);
     }
@@ -429,9 +430,57 @@ static void ledButtonPressAlert(void) {
     }
 }
 
-void buttonPressFeedback(void) {
+void buttonPressFeedback(uint8_t button_id) {
+    // A config carrying a 0xB2 table owns the press: the table's BUTTON_PRESS entry is the
+    // feedback, and the flag bits would double it. Without a table the flag bits apply.
+    if (od_action_stats()->tables != 0u) {
+        od_action_trigger(OD_TRIG_BUTTON_PRESS, (uint16_t)(1u << (button_id & 0x07u)));
+        return;
+    }
     ledButtonPressAlert();
     passiveBuzzerButtonPressAlert();
+}
+
+/* od_action's LED effect: one flash on the first RGB instance, as a LED_ACTIVATE run so it is
+ * non-blocking and LED_STOP / a later LED_ACTIVATE displace it the usual way. The pattern is
+ * the 12-byte LedFlashPattern: mode 1 | (brightness-1) << 4, colour, one loop, one repeat. */
+void ledActionFlash(uint8_t colour, uint8_t brightness) {
+    uint8_t instance = 0xFF;
+    for (uint8_t i = 0; i < globalConfig.led_count; i++) {
+        if (globalConfig.leds[i].led_type == 1) {
+            instance = i;
+            break;
+        }
+    }
+    struct LedConfig* led = led_instance(instance);
+    if (led == nullptr) {
+        return;
+    }
+    const uint8_t b = (brightness == 0u) ? 1u : (brightness > 16u ? 16u : brightness);
+    uint8_t pat[OD_LED_PATTERN_LEN] = {0};
+    pat[0] = (uint8_t)(0x01u | ((uint8_t)(b - 1u) << 4));
+    pat[1] = colour;
+    pat[2] = 0x11u;   // stage 1: one loop, shortest on-time
+    pat[3] = 0x02u;   // inter-loop delay
+    pat[10] = 1u;     // group_repeats
+    memcpy(led->reserved, pat, OD_LED_PATTERN_LEN);
+
+    struct od_led_pins pins;
+    pins.r = led->led_1_r;
+    pins.g = led->led_2_g;
+    pins.b = led->led_3_b;
+    pins.flags = led->led_flags;
+    if (od_led_activate(instance, &pins, led->reserved, od_hal_uptime_ms()) == 0) {
+        s_led_running = true;
+        activeLedInstance = instance;
+        led_pump();
+    }
+}
+
+void ledActionStop(void) {
+    (void)od_led_stop(0, false);
+    s_led_running = false;
+    activeLedInstance = 0xFF;
 }
 
 // Boost first, publish second: on a target with interval states the publish picks the interval,
@@ -457,7 +506,7 @@ void buttonWakeDeliverSyntheticClick(void) {
     btn->press_count = (uint8_t)((btn->press_count + 1u) & 0x0Fu);
     od_log_info("Button wake: synthetic click id=%u pin=%u", btn->button_id, btn->pin);
     publishButtonMsd(btn, 1u);   // before the blocking feedback, so scanners see it first
-    buttonPressFeedback();
+    buttonPressFeedback(btn->button_id);
     // Still held: leave current_state=1 so the real release edge fires the ISR. Released during
     // boot: publish the release, or a host never sees the lift.
     const bool pinState = (od_hal_gpio_read(btn->pin) != 0);
@@ -490,7 +539,7 @@ void processButtonEvents() {
             // Publish before feedback: the LED/buzzer delays would postpone the advertisement.
             publishButtonMsd(btn, logicalState);
             if (logicalState != 0u) {
-                buttonPressFeedback();
+                buttonPressFeedback(btn->button_id);
             }
         }
     }

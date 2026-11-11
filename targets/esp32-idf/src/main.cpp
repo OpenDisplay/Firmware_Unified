@@ -15,6 +15,7 @@
 #include "link_owner.h"
 #include "session_guard.h"
 #include "od_log.h"
+#include "od_action.h"
 #include "od_watchdog_app.h"
 #include "od_config_read.h"
 #include "od_txq.h"
@@ -269,6 +270,9 @@ void setup() {
         minWakeWindowActive = true;
         minWakeWindowStartMs = od_hal_uptime_ms();
     }
+    // BOOT fires on a power-on or reset, not on a deep-sleep wake: every timer wake re-runs
+    // setup(), and a BOOT entry repeated on each one would cost battery for a "once" trigger.
+    if (!is_deep_sleep_wake) od_action_trigger(OD_TRIG_BOOT, 0u);
     // Both sleep paths measure quiet time from here, not from power-on.
     lastActivityMs = od_hal_uptime_ms();
     od_log_info("=== Setup completed successfully ===");
@@ -891,6 +895,7 @@ void loop() {
     od_watchdog_app_service();
     serviceBleEvents();
     processLedFlash();
+    (void)od_action_service(od_hal_uptime_ms());   // at most one step; every step yields
     epdSessionTick();   // od_hal_uptime_ms()-poll: power the panel down screen_timeout_seconds after last release
     displayServiceDeferredBoot();   // boot screen owed by a config write that brought drive packets
     buzzerService();
@@ -1051,6 +1056,7 @@ void idleDelay(uint32_t delayMs) {
         processButtonEvents();
         processTouchInput();
         processLedFlash();
+        (void)od_action_service(od_hal_uptime_ms());
         epdSessionTick();   // expire the keep-alive window while a long idleDelay blocks
         buzzerService();
         // Keep responses moving: loop() is the queue's only drainer, so a long

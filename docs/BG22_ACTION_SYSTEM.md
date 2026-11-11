@@ -27,6 +27,13 @@ the reason the fifth such request does not cost another bit.
 The bits stay reserved rather than being reused. A device whose config happens
 to set one gets the same nothing it got before.
 
+**ESP32 runs the same table** (`OD_CAP_ACTION`, `src/od_action_app_esp.cpp`) and
+does act on the two canonical bits. There the table takes precedence: a config
+carrying a `0xB2` routes a button press to the table's `BUTTON_PRESS` entry, and
+the LED/buzzer flag bits apply only to a config without one. `DISPLAY_SLOT`
+(no image store) and `BUZZER` (no melody table) entries load as inactive there;
+`BOOT` fires on power-on or reset, not on a deep-sleep wake.
+
 ## Shape
 
 One length-prefixed config packet, **`0xB2`**, holding a sequence of entries:
