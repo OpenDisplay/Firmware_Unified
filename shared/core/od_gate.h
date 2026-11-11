@@ -38,8 +38,10 @@ typedef struct {
     bool               sealed;   /* the body came out of a verified record */
 } od_gate_result_t;
 
-/* The claim-mode allow-list (section 6): may `cmd` run while claim mode is active? */
-bool od_gate_claim_mode_allows(uint16_t cmd, bool fresh, bool config_locked);
+/* The claim-mode allow-list (section 6): may `cmd` run while claim mode is active? `claimed` is
+ * the claiming connection's sealed frame after the claim (section 7.3: config writes are allowed
+ * in that session, secrets included; every other CM refusal still applies). */
+bool od_gate_claim_mode_allows(uint16_t cmd, bool fresh, bool config_locked, bool claimed);
 
 /* No response is ever sent for these, so record-layer refusals are silent too (section 9.5
  * "no-ack frames"). */

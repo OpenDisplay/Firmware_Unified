@@ -51,7 +51,7 @@ static od_gate_result_t silent(void)
     return g;
 }
 
-bool od_gate_claim_mode_allows(uint16_t cmd, bool fresh, bool config_locked)
+bool od_gate_claim_mode_allows(uint16_t cmd, bool fresh, bool config_locked, bool claimed)
 {
     switch (cmd) {
     case CMD_REBOOT:
@@ -66,7 +66,7 @@ bool od_gate_claim_mode_allows(uint16_t cmd, bool fresh, bool config_locked)
     case CMD_CONFIG_WRITE:
     case CMD_CONFIG_CHUNK:
     case CMD_CONFIG_CLEAR:
-        return fresh && !config_locked;
+        return claimed || (fresh && !config_locked);
     default:
         return false;
     }
@@ -85,7 +85,8 @@ static od_gate_result_t admit(od_tx_reservation_t *r, const od_reply_t *rp, uint
     od_gate_result_t g;
 
     od_sec2_app_claim_mode(&cm);
-    if (cm.active && !od_gate_claim_mode_allows(cmd, cm.fresh, cm.config_locked)) {
+    if (cm.active && !od_gate_claim_mode_allows(cmd, cm.fresh, cm.config_locked,
+                                                sealed && od_sec2_state() == OD_SEC2_CLAIMED)) {
         return refuse(r, rp, cmd, OD_GATE_CLAIM_MODE, OD_FRAME_HANDLER_NACK);
     }
     g.outcome = OD_FRAME_ACCEPTED;

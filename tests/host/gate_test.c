@@ -282,6 +282,16 @@ static void test_open_ok(void)
     g = admit_sealed(0x0071u);
     CHECK(g.outcome == OD_FRAME_HANDLER_NACK);
     CHECK(g_sent_n == 1u && sent_sealed_nack(0u, 0x0071u, OD_GATE_CLAIM_MODE));
+
+    CASE("a live session in claim mode after the claim: a SEALED CONFIG_WRITE runs, even locked");
+    setup(LIVE);
+    g_cm.active = true;
+    g_cm.config_locked = true;
+    g = admit_sealed(CMD_CONFIG_WRITE);
+    CHECK(g.outcome == OD_FRAME_ACCEPTED && g.sealed);
+    CHECK(g_sent_n == 0u);
+    g = admit_sealed(CMD_SEC_KEY);
+    CHECK(g.outcome == OD_FRAME_HANDLER_NACK);
 }
 
 static void test_open_record(void)
@@ -430,22 +440,33 @@ static void test_no_ack_opcodes_are_silent(void)
 static void test_claim_mode_allow_list(void)
 {
     CASE("claim mode always admits the discovery and handshake set");
-    CHECK(od_gate_claim_mode_allows(CMD_REBOOT, false, true));
-    CHECK(od_gate_claim_mode_allows(CMD_CONFIG_READ, false, true));
-    CHECK(od_gate_claim_mode_allows(CMD_SEC_STATUS, false, true));
-    CHECK(od_gate_claim_mode_allows(CMD_SEC_CLAIM, false, true));
+    CHECK(od_gate_claim_mode_allows(CMD_REBOOT, false, true, false));
+    CHECK(od_gate_claim_mode_allows(CMD_CONFIG_READ, false, true, false));
+    CHECK(od_gate_claim_mode_allows(CMD_SEC_STATUS, false, true, false));
+    CHECK(od_gate_claim_mode_allows(CMD_SEC_CLAIM, false, true, false));
 
     CASE("config writes only in a FRESH claim mode before a code is rendered");
-    CHECK(od_gate_claim_mode_allows(CMD_CONFIG_WRITE, true, false));
-    CHECK(od_gate_claim_mode_allows(CMD_CONFIG_CHUNK, true, false));
-    CHECK(od_gate_claim_mode_allows(CMD_CONFIG_CLEAR, true, false));
-    CHECK(!od_gate_claim_mode_allows(CMD_CONFIG_WRITE, true, true));
-    CHECK(!od_gate_claim_mode_allows(CMD_CONFIG_WRITE, false, false));
+    CHECK(od_gate_claim_mode_allows(CMD_CONFIG_WRITE, true, false, false));
+    CHECK(od_gate_claim_mode_allows(CMD_CONFIG_CHUNK, true, false, false));
+    CHECK(od_gate_claim_mode_allows(CMD_CONFIG_CLEAR, true, false, false));
+    CHECK(!od_gate_claim_mode_allows(CMD_CONFIG_WRITE, true, true, false));
+    CHECK(!od_gate_claim_mode_allows(CMD_CONFIG_WRITE, false, false, false));
 
     CASE("everything else is refused");
-    CHECK(!od_gate_claim_mode_allows(CMD_DIRECT_WRITE_START, true, false));
-    CHECK(!od_gate_claim_mode_allows(CMD_SEC_KEY, true, false));
-    CHECK(!od_gate_claim_mode_allows(CMD_PIPE_WRITE_DATA, true, false));
+    CHECK(!od_gate_claim_mode_allows(CMD_DIRECT_WRITE_START, true, false, false));
+    CHECK(!od_gate_claim_mode_allows(CMD_SEC_KEY, true, false, false));
+    CHECK(!od_gate_claim_mode_allows(CMD_PIPE_WRITE_DATA, true, false, false));
+
+    CASE("after the claim, in the claiming session: config writes, in any kind (7.3, 13.1 step 9)");
+    CHECK(od_gate_claim_mode_allows(CMD_CONFIG_WRITE, false, true, true));
+    CHECK(od_gate_claim_mode_allows(CMD_CONFIG_CHUNK, false, true, true));
+    CHECK(od_gate_claim_mode_allows(CMD_CONFIG_CLEAR, true, true, true));
+    CHECK(od_gate_claim_mode_allows(CMD_REBOOT, false, true, true));
+    CASE("after the claim, the other CM refusals still apply");
+    CHECK(!od_gate_claim_mode_allows(CMD_SEC_KEY, false, true, true));
+    CHECK(!od_gate_claim_mode_allows(CMD_DIRECT_WRITE_START, false, true, true));
+    CHECK(!od_gate_claim_mode_allows(CMD_ENTER_DFU, false, true, true));
+    CHECK(!od_gate_claim_mode_allows(CMD_LED_ACTIVATE, false, true, true));
 }
 
 int main(void)
