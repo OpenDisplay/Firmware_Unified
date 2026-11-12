@@ -43,6 +43,7 @@ static void cfg_ack(const od_cmd_ctx_t *ctx, const uint8_t *ack, uint16_t len, c
                 (unsigned)s_cfg_chunk.received_chunks, (unsigned)s_cfg_chunk.expected_chunks,
                 (unsigned)s_cfg_chunk.received_size, (unsigned)s_cfg_chunk.total_size);
   (void)q;
+  (void)where;   /* the trace compiles out of release and host builds */
 }
 
 void od_cmd_config_reset(void)
