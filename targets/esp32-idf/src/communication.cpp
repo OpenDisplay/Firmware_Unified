@@ -1,3 +1,4 @@
+#include "od_sec2_trace.h"
 #include "od_claim_mode.h"
 #include "od_smp.h"
 #include "communication.h"
@@ -532,9 +533,13 @@ od_cmd_result_t handleWriteConfigChunk(const od_cmd_ctx_t *ctx, uint8_t* data, u
     }
 
     switch (od_config_asm_chunk(&g_configAsm, od_span_make(data, len))) {
-    case OD_CONFIG_ASM_ACCEPTED:
-        (void)od_cmd_reply(ctx, ok_resp, sizeof(ok_resp));
+    case OD_CONFIG_ASM_ACCEPTED: {
+        const od_txq_status_t rc = od_cmd_reply(ctx, ok_resp, sizeof(ok_resp));
+        OD_SEC2_TRACE("CONFIG_CHUNK accepted (%u B, %u of %u) ack rc=%d", (unsigned)len,
+                      (unsigned)g_configAsm.received, (unsigned)g_configAsm.total_size, (int)rc);
+        (void)rc;
         return OD_CMD_OK;
+    }
     case OD_CONFIG_ASM_COMPLETE: {
         /* Committed on an EXACT byte count, never a chunk count -- the F3 fix. */
         const bool saved = saveConfig(g_configAsm.buffer, (uint16_t)g_configAsm.total_size);
