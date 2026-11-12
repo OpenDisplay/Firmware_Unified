@@ -7,8 +7,8 @@
 #include <stdint.h>
 
 #if defined(OD_SEC2_BENCH_BUILD) && OD_SEC2_BENCH_BUILD
-/* Replaces main()'s boot_write_img_confirmed(): confirms (no revert switch) or arms the
- * no-touch revert. */
+/* With OD_SEC2_TEST_REVERT_S: arms the no-touch revert timer on an unconfirmed image (the
+ * evidence rule in od_health_app.c still confirms it on a served write). */
 void od_test_bench_image_boot(void);
 /* From the main loop: notices an SMP/console confirm, arms the watchdog backstop. */
 void od_test_bench_tick(void);

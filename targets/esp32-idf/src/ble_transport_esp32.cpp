@@ -28,6 +28,7 @@
 
 #include <string.h>
 
+#include "od_health_app.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -210,6 +211,7 @@ void od_ble_evt_connect(uint16_t conn_handle) {
     // corrupt the heap if run here on the NimBLE host task. loop() consumes the
     // event instead. The claim is exempt because it is one CAS on one word.
     __atomic_store_n(&s_connectedEvent, true, __ATOMIC_RELEASE);
+    od_health_app_link_opened();
 }
 
 void od_ble_evt_disconnect(uint16_t conn_handle, uint16_t reason) {
@@ -239,12 +241,14 @@ void od_ble_evt_disconnect(uint16_t conn_handle, uint16_t reason) {
     // processing. loop() consumes the event and applies its own deferral
     // policy (see serviceBleDisconnectCleanup in main.cpp).
     __atomic_store_n(&s_disconnectedEvent, true, __ATOMIC_RELEASE);
+    od_health_app_link_closed();
 }
 
 void od_ble_evt_subscribe(uint16_t conn_handle, bool enabled) {
     // Requirement 2: per-link subscribe state. This used to (void) its connInfo and
     // write one global, so a contender's subscribe cleared or overwrote the
     // incumbent's apparent notify-readiness and stalled its TX.
+    od_health_app_att_seen();   /* a CCC write is ATT traffic */
     const int idx = instanceIndexOf(conn_handle);
     if (idx < 0) return;
     __atomic_store_n(&s_instances[idx].subscribed, (uint8_t)(enabled ? 1 : 0), __ATOMIC_RELAXED);
@@ -266,8 +270,10 @@ void od_ble_evt_write(uint16_t conn_handle, const uint8_t* data, uint16_t len) {
     const uint32_t word = (idx >= 0) ? __atomic_load_n(&s_instances[idx].word, __ATOMIC_ACQUIRE) : 0;
     if (word == 0 || word != linkOwnerWord()) {
         od_log_debug("Dropped write from non-owner h=%u", (unsigned)conn_handle);
+        od_health_app_att_seen();   /* ATT works; nothing was served */
         return;
     }
+    od_health_app_served();   /* evidence that this image serves GATT: confirms an OTA image */
     // The payload is the flattened mbuf od_ble handed us, still binary: converting
     // it to a string uses the C-string (strlen) constructor, which truncates at the
     // first 0x00 byte, and pipe-write frames start with 0x00 (00 70 / 00 71 /

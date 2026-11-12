@@ -2,6 +2,7 @@
 #include "od_sec2_trace.h"
 #include "config_parser.h"
 #include "od_smp.h"
+#include "od_health_app.h"
 #include "main.h"
 #include "od_display_esp.h"
 #include "boot_screen.h"
@@ -281,6 +282,9 @@ void setup() {
     }
     // Full BLE after display: ESP32 queues commands for loop() until setup returns.
     if (is_deep_sleep_wake) { od_log_info("[wake] >> ble_begin"); od_log_flush(); }
+    /* An OTA image stays PENDING_VERIFY until it serves a GATT write (shared/core/od_health.h);
+     * one whose links carry no ATT is reverted. Before the radio, so no link predates it. */
+    od_health_app_boot();
     {
         char bleDeviceName[3 + OD_CHIP_ID_HEX_LEN + 1] = "OD";
         getChipIdHex(bleDeviceName + 2, sizeof(bleDeviceName) - 2);
@@ -291,7 +295,6 @@ void setup() {
             updatemsdata();
             ble.startAdvertising();
             od_log_info("Device ready: %s", bleDeviceName);
-            od_smp_confirm_running();
             od_log_info("Waiting for BLE connections...");
         }
     }
@@ -966,6 +969,7 @@ void loop() {
         initDisplay();
     }
     serviceBleEvents();
+    od_health_app_tick();
     processLedFlash();
     // Claim mode runs none of the device's own content sources (SECURITY_V2 7.4).
     if (!od_claim_mode_active()) {
@@ -1207,6 +1211,13 @@ void enterDeepSleep(bool force, uint16_t overrideSleepSeconds) {
     // Claim mode stays awake; otherwise an armed power-cycle count ends here (SECURITY_V2 7.2).
     if (!od_claim_mode_before_sleep()) {
         od_log_debug("Skipping deep sleep - claim mode");
+        return;
+    }
+    // A wake boot would roll back an image still PENDING_VERIFY: stay awake while it can still be
+    // proven (od_health_app.h). Re-arming the idle clock spaces the retries one idle window apart.
+    if (!od_health_app_before_sleep()) {
+        od_log_info("Skipping deep sleep - updated image not yet confirmed");
+        lastActivityMs = od_hal_uptime_ms();
         return;
     }
     // Panel power-down MUST sit below every early-return above (including the

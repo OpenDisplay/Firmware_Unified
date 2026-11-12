@@ -7,10 +7,9 @@
  *
  * Two jobs, both for a bench where nobody can touch the board:
  *
- * 1. A NO-TOUCH WAY BACK for a test image (OD_SEC2_TEST_REVERT_S > 0). The release image confirms
- *    itself in main() right after opendisplay_ble_init(), so an image whose GATT server never
- *    answers is confirmed and can only be recovered with a double-tap. A bench image built
- *    with OD_SEC2_TEST_REVERT_S does NOT confirm itself. While it is unconfirmed:
+ * 1. A NO-TOUCH WAY BACK for a test image (OD_SEC2_TEST_REVERT_S > 0), on top of the evidence
+ *    rule (od_health_app.c), for a bench image that might break before GATT ever runs. While it
+ *    is unconfirmed:
  *      - a k_timer resets the SoC after OD_SEC2_TEST_REVERT_S seconds (MCUboot then reverts);
  *      - from OD_SEC2_TEST_REVERT_S + 30 s the main-loop watchdog feed is withheld, so the hardware
  *        watchdog (300 s) resets it even if the timer path were broken;

@@ -436,6 +436,28 @@ PY
     fi
 }
 check "silabs: BG22 RAM budget gate" bg22_ram_budget
+# PERMANENT. One image-trust rule on every target (shared/core/od_health.h): an image is trusted
+# only after a link has carried GATT traffic. A confirm at boot or at advertising start is how a
+# GATT-dead image made itself permanent; only the od_health adapters (and an explicit SMP confirm
+# command or bench console) may confirm.
+image_trust_evidence_only() {
+    local rc=0 hits
+    hits=$(git grep -n 'boot_write_img_confirmed' -- targets/nordic-zephyr/src \
+        ':!targets/nordic-zephyr/src/od_health_app.c' ':!targets/nordic-zephyr/src/od_test_bench.c')
+    [ -n "$hits" ] && { echo "$hits"; echo "nordic: an MCUboot confirm outside od_health_app.c"; rc=1; }
+    hits=$(git grep -n 'esp_ota_mark_app_valid_cancel_rollback' -- targets/esp32-idf/src targets/esp32-idf/ble \
+        ':!targets/esp32-idf/src/od_health_app.cpp' ':!targets/esp32-idf/src/od_smp.cpp')
+    [ -n "$hits" ] && { echo "$hits"; echo "esp32: a rollback cancel outside od_health_app.cpp / the SMP command"; rc=1; }
+    if git grep -n 'od_smp_confirm_running()' -- targets/esp32-idf/src/main.cpp; then
+        echo "esp32 main.cpp confirms the image at boot again"; rc=1
+    fi
+    grep -q 'od_health_app_boot();' targets/esp32-idf/src/main.cpp || { echo "esp32: od_health_app_boot() not called"; rc=1; }
+    grep -q 'od_health_app_boot();' targets/nordic-zephyr/src/main.c || { echo "nordic: od_health_app_boot() not called"; rc=1; }
+    grep -q 'od_health_app_before_sleep()' targets/esp32-idf/src/main.cpp || { echo "esp32: deep sleep ignores the image hold"; rc=1; }
+    grep -q 'od_health_link_closed' targets/efr32bg22-slc/opendisplay_ble.c || { echo "bg22: health gate unwired"; rc=1; }
+    return $rc
+}
+check "health: image trusted only on GATT evidence (every target)" image_trust_evidence_only
 # PERMANENT. One entry point for "advertise sooner, something happened".
 #
 # THE FIRST VERSION OF THIS RULE LISTED TWO RETIRED NAMES AND PASSED WHILE A THIRD SURVIVED --

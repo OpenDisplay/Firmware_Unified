@@ -8,6 +8,7 @@
  * NimBLE's C API has no equivalent of NimBLEServer::getConnectedCount().
  */
 
+#include "od_health_app.h"
 #include "../src/od_smp.h"
 #include "od_ble.h"
 
@@ -350,6 +351,7 @@ static int od_smp_access(uint16_t conn_handle, uint16_t attr_handle,
     if (ble_hs_mbuf_to_flat(ctxt->om, s_smp_rx, sizeof(s_smp_rx), &len) != 0) {
         return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
     }
+    od_health_app_att_seen();
     od_smp_rx(conn_handle, s_smp_rx, len);
     return 0;
 }
@@ -508,6 +510,7 @@ static int od_gap_event(struct ble_gap_event *event, void *arg)
         return 0;
 
     case BLE_GAP_EVENT_MTU:
+        od_health_app_att_seen();   /* ATT traffic: evidence for od_health (flag-only) */
         od_ble_evt_link_negotiated(event->mtu.conn_handle, "MTU exchange");
         return 0;
 

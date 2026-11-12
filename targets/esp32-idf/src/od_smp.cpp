@@ -6,6 +6,7 @@
  */
 #include "od_claim_mode.h"
 #include "od_smp.h"
+#include "od_health_app.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -548,5 +549,6 @@ void od_smp_unlock(void)
 
 void od_smp_confirm_running(void)
 {
+    od_health_app_confirmed_externally();
     (void)esp_ota_mark_app_valid_cancel_rollback();
 }
