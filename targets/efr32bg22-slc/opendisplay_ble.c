@@ -209,12 +209,19 @@ static bool s_adv_paused;
 static bool s_pending_dfu;
 
 /* GATT health gate (shared/core/od_health.h, docs/BG22_RAM_BUDGET.md section 4). The verdict
- * state is a named global so a debugger can read it. The forced-entry count must survive the
- * reset into the AppLoader and back, so it sits in .noinit behind a check word: a power-on
- * reset (or a bootloader that reused the RAM) reads as zero. */
+ * state is a named global so a debugger can read it. The retained record sits in .noinit behind
+ * a check word, so it survives a soft reset (an ENTER_DFU / health entry into the AppLoader and
+ * back, a fault reset) and a power-on reset (or a bootloader that reused the RAM) reads as zero:
+ *   forced     forced updater entries this power-on (bits 0-7) and the last reason (bits 8-15)
+ *   exhausted  the Bluetooth stack's sl_bt_evt_system_resource_exhausted reports since power-on,
+ *              saturating: heap-allocation failures (bits 0-15), buffer + message allocation
+ *              failures and discarded buffers (bits 16-31)
+ * Clients cannot read it (no wire field carries it in 3.0, docs/BG22_RAM_BUDGET.md section 4.5);
+ * a debugger reads s_health_ret and tools/bg22_ram_dump.py decodes it. */
 struct od_bg22_health_retained {
   uint32_t magic;
   uint32_t forced;
+  uint32_t exhausted;
   uint32_t check;
 };
 #define OD_BG22_HEALTH_MAGIC 0x4F444847u
@@ -235,21 +242,48 @@ static bool s_boot_unclaimed;
 static bool s_pattern_checked;
 #endif
 
-static uint8_t health_retained_forced(void)
+static uint32_t health_ret_check(void)
 {
-  if (s_health_ret.magic != OD_BG22_HEALTH_MAGIC ||
-      s_health_ret.check != (s_health_ret.forced ^ ~OD_BG22_HEALTH_MAGIC) ||
-      s_health_ret.forced > 255u) {
-    return 0u;
-  }
-  return (uint8_t)s_health_ret.forced;
+  return s_health_ret.forced ^ (s_health_ret.exhausted * 0x9E3779B1u) ^ ~OD_BG22_HEALTH_MAGIC;
 }
 
-static void health_retain(uint8_t forced)
+static void health_ret_seal(void)
 {
   s_health_ret.magic = OD_BG22_HEALTH_MAGIC;
-  s_health_ret.forced = forced;
-  s_health_ret.check = (uint32_t)forced ^ ~OD_BG22_HEALTH_MAGIC;
+  s_health_ret.check = health_ret_check();
+}
+
+/* Validates the record once per boot; an invalid one restarts from zero. Returns the forced
+ * count for od_health_init(). */
+static uint8_t health_retained_load(void)
+{
+  if (s_health_ret.magic != OD_BG22_HEALTH_MAGIC || s_health_ret.check != health_ret_check() ||
+      (s_health_ret.forced & 0xFFu) > OD_HEALTH_FORCED_MAX) {
+    s_health_ret.forced = 0u;
+    s_health_ret.exhausted = 0u;
+    health_ret_seal();
+  }
+  return (uint8_t)(s_health_ret.forced & 0xFFu);
+}
+
+static void health_retain(uint8_t forced, uint8_t reason)
+{
+  s_health_ret.forced = (uint32_t)forced | ((uint32_t)reason << 8);
+  health_ret_seal();
+}
+
+static uint32_t sat_add16(uint32_t field, uint32_t n)
+{
+  return (field + n > 0xFFFFu || n > 0xFFFFu) ? 0xFFFFu : field + n;
+}
+
+/* Counts one stack resource-exhausted report into the retained record. */
+static void health_retain_exhausted(uint32_t heap, uint32_t other)
+{
+  const uint32_t e = s_health_ret.exhausted;
+
+  s_health_ret.exhausted = sat_add16(e & 0xFFFFu, heap) | (sat_add16(e >> 16, other) << 16);
+  health_ret_seal();
 }
 
 /* Any gatt (class 0x09) or gatt_server (class 0x0a) event means ATT traffic reached the
@@ -1901,7 +1935,14 @@ void opendisplay_ble_on_boot(uint8_t advertising_set_handle)
   sl_status_t sc;
   uint16_t selected_mtu = 0u;
 
-  od_health_init(&od_bg22_health, health_retained_forced());
+  od_health_init(&od_bg22_health, health_retained_load());
+  if (s_health_ret.forced != 0u || s_health_ret.exhausted != 0u) {
+    OD_DIAG("[OD] since power-on: %u forced updater entries (last reason %u), stack heap "
+            "failures %lu, other stack resource failures %lu\r\n",
+            (unsigned)(s_health_ret.forced & 0xFFu), (unsigned)((s_health_ret.forced >> 8) & 0xFFu),
+            (unsigned long)(s_health_ret.exhausted & 0xFFFFu),
+            (unsigned long)(s_health_ret.exhausted >> 16));
+  }
 
   /* An API failure and a smaller selected maximum are different outcomes. The first means the
    * application cannot establish what the stack supports, so hand control to the independently
@@ -2076,7 +2117,7 @@ static bool opendisplay_ble_restart_advertising(uint8_t advertising_set_handle)
 
 static void health_enter_update(void)
 {
-  health_retain(od_bg22_health.forced);
+  health_retain(od_bg22_health.forced, od_bg22_health.reason);
   OD_DIAG("[OD] HEALTH: GATT not served (reason %u, %u dead links, %lu stack heap failures): "
           "entering the AppLoader\r\n", (unsigned)od_bg22_health.reason,
           (unsigned)od_bg22_health.dead_links, (unsigned long)od_bg22_health.heap_failures);
@@ -2094,8 +2135,15 @@ void opendisplay_ble_on_event(sl_bt_msg_t *evt)
   }
   switch (id) {
     case sl_bt_evt_system_resource_exhausted_id:
+      /* Handled, not ignored: it feeds the health gate (a heap failure on a link that carries
+       * no ATT is the stranding) and the retained counters a debugger reads. */
       od_health_stack_heap_failure(
           &od_bg22_health, evt->data.evt_system_resource_exhausted.num_heap_allocation_failures);
+      health_retain_exhausted(
+          evt->data.evt_system_resource_exhausted.num_heap_allocation_failures,
+          (uint32_t)evt->data.evt_system_resource_exhausted.num_buffers_discarded +
+              evt->data.evt_system_resource_exhausted.num_buffer_allocation_failures +
+              evt->data.evt_system_resource_exhausted.num_message_allocation_failures);
       OD_DIAG("[OD] stack resource exhausted: discarded=%u buf_fail=%u heap_fail=%u msg_fail=%u\r\n",
               (unsigned)evt->data.evt_system_resource_exhausted.num_buffers_discarded,
               (unsigned)evt->data.evt_system_resource_exhausted.num_buffer_allocation_failures,

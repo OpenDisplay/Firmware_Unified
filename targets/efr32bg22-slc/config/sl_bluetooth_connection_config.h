@@ -35,7 +35,12 @@
 // <o SL_BT_CONFIG_MAX_CONNECTIONS> Max number of connections reserved for user <0-32>
 // <i> Default: 4
 // <i> Define the number of connections the application needs.
-#define SL_BT_CONFIG_MAX_CONNECTIONS     (4)
+// OpenDisplay: set by the CMake cache variable OD_BG22_MAX_CONNECTIONS (cmake_gcc/CMakeLists.txt),
+// the one place the connection count is decided; see docs/BG22_RAM_BUDGET.md section 3.1.
+#ifndef OD_BG22_MAX_CONNECTIONS
+#error "OD_BG22_MAX_CONNECTIONS is set by cmake_gcc/CMakeLists.txt"
+#endif
+#define SL_BT_CONFIG_MAX_CONNECTIONS     (OD_BG22_MAX_CONNECTIONS)
 
 // <o SL_BT_CONFIG_CONNECTION_DATA_LENGTH> Preferred maximum TX payload octets <27-251>
 // <i> Default: 251

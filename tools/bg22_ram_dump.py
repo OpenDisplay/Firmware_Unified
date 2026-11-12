@@ -95,6 +95,17 @@ def main(argv):
             v, sz = syms[name]
             print("%s @0x%08x: %s" % (name, v, rd(v, max(sz, 1)).hex(" ")))
 
+    if "s_health_ret" in syms:
+        v, sz = syms["s_health_ret"]
+        if sz >= 16:
+            magic, forced, exhausted, check = struct.unpack("<IIII", rd(v, 16))
+            ok = magic == 0x4F444847 and check == (forced ^ ((exhausted * 0x9E3779B1) & 0xFFFFFFFF)
+                                                  ^ (~0x4F444847 & 0xFFFFFFFF))
+            print("retained health record: %s; forced entries %d (last reason %d), stack heap "
+                  "failures %d, other stack resource failures %d (since power-on)"
+                  % ("valid" if ok else "INVALID (power-on or overwritten)", forced & 0xFF,
+                     (forced >> 8) & 0xFF, exhausted & 0xFFFF, exhausted >> 16))
+
     if "s_tr" in syms:
         v, _ = syms["s_tr"]
         magic, head, boots, check = struct.unpack("<IIII", rd(v, 16))

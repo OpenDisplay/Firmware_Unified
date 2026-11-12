@@ -2,10 +2,10 @@
   "doc": "docs/BG22_RAM_BUDGET.md. Checked by tools/bg22_ram_budget.py after every BG22 link. heap_min_bytes is the justified floor and changes only with a hardware heap measurement; stack_bytes and static_ram_max_bytes are a ratchet (--update-baseline rewrites them, never the floor).",
   "heap_min_bytes": 9600,
   "stack_bytes": 2752,
-  "static_ram_max_bytes": 20324,
+  "static_ram_max_bytes": 20328,
   "recorded": {
     "heap": 9664,
-    "static": 20324,
+    "static": 20328,
     "stack": 2752
   }
 }

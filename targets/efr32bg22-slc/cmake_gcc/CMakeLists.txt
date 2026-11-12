@@ -21,6 +21,26 @@ if(NOT OD_BG22_DIAG MATCHES "^[012]$")
   message(FATAL_ERROR "OD_BG22_DIAG must be 0, 1 or 2 (got '${OD_BG22_DIAG}')")
 endif()
 
+# THE CONNECTION-COUNT DECISION (docs/BG22_RAM_BUDGET.md section 3.1). The Bluetooth stack takes
+# every connection's tables from the heap at init (about 468 B each: LL 328 + host 140), whether
+# or not a link ever uses them, and this firmware serves one link at a time. 4 is the Simplicity
+# default and what every hardware test so far ran; 2 leaves about 936 B more heap at the one-link
+# peak. Changing OD_BG22_MAX_CONNECTIONS_DEFAULT is the whole change; it needs the D11/D12 rows.
+# Not cached: a one-off -DOD_BG22_MAX_CONNECTIONS=<n> (a measurement build) must not stick to the
+# next release build in the same directory.
+set(OD_BG22_MAX_CONNECTIONS_DEFAULT 4)
+if(DEFINED OD_BG22_MAX_CONNECTIONS)
+  set(od_bg22_max_conn "${OD_BG22_MAX_CONNECTIONS}")
+  unset(OD_BG22_MAX_CONNECTIONS CACHE)
+  set(OD_BG22_MAX_CONNECTIONS "${od_bg22_max_conn}")
+else()
+  set(OD_BG22_MAX_CONNECTIONS ${OD_BG22_MAX_CONNECTIONS_DEFAULT})
+endif()
+if(NOT OD_BG22_MAX_CONNECTIONS MATCHES "^[1-4]$")
+  message(FATAL_ERROR "OD_BG22_MAX_CONNECTIONS must be 1..4 (got '${OD_BG22_MAX_CONNECTIONS}')")
+endif()
+message(STATUS "OD_BG22_MAX_CONNECTIONS: ${OD_BG22_MAX_CONNECTIONS}")
+
 set(OD_APP_VERSION "0x0300" CACHE STRING "16-bit BLE app version (hex, high byte=major, low=minor); ignored when OD_FW_VERSION is set")
 set(OD_FW_VERSION "" CACHE STRING "App version string major.minor[.patch] (optional leading v); drives BLE 0x43 + boot screen")
 set(OPENDISPLAY_BUILD_ID "bg22-dev" CACHE STRING "Firmware version string (GATT 0x0043 / build id)")
@@ -55,6 +75,7 @@ target_compile_definitions(slc PUBLIC
 	"OD_TNB132M_NDEF_TEXT=\"${OD_TNB132M_NDEF_TEXT}\""
 	SL_APP_PROPERTIES=1
 	"OD_BG22_DIAG=${OD_BG22_DIAG}"
+	"OD_BG22_MAX_CONNECTIONS=${OD_BG22_MAX_CONNECTIONS}"
 	"OD_APP_VERSION=${OD_APP_VERSION}"
 	"OPENDISPLAY_BUILD_ID=\"${OPENDISPLAY_BUILD_ID}\""
 )

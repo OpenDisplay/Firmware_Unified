@@ -75,7 +75,7 @@ Usage: $0 [options]
        SWD_SPEED, JLINK_GDB_SERVER, JLINKEXE, JLINK_RTT_CLIENT,
        RTT_BACKEND (gdbserver | exe, default gdbserver), RTT_GDBSERVER_ARGS,
        RTT_TELNET_PORT (default 19021), RTT_ARGS (extra args for JLinkRTTClient).
-       Optional CMake (-D) when set: OPENDISPLAY_BUILD_ID, OD_APP_VERSION,
+       Optional CMake (-D) when set: OPENDISPLAY_BUILD_ID, OD_APP_VERSION, OD_BG22_MAX_CONNECTIONS,
        OD_FW_VERSION, OD_SL_APPLICATION_VERSION, OD_GENERATE_GBL_OTA,
        OD_TNB132M_BOOT_PROBE, OD_TNB132M_WRITE_NDEF, OD_TNB132M_NDEF_TEXT
 
@@ -539,6 +539,7 @@ if [[ "$DO_BUILD" -eq 1 ]]; then
   [[ -n "${OD_FW_VERSION:-}" ]] && cfg+=(-DOD_FW_VERSION="${OD_FW_VERSION}")
   [[ -n "${OD_SL_APPLICATION_VERSION:-}" ]] && cfg+=(-DOD_SL_APPLICATION_VERSION="${OD_SL_APPLICATION_VERSION}")
   [[ -n "${OD_GENERATE_GBL_OTA:-}" ]] && cfg+=(-DOD_GENERATE_GBL_OTA="${OD_GENERATE_GBL_OTA}")
+  [[ -n "${OD_BG22_MAX_CONNECTIONS:-}" ]] && cfg+=(-DOD_BG22_MAX_CONNECTIONS="${OD_BG22_MAX_CONNECTIONS}")
   (cd "$CMAKE_DIR" && cmake "${cfg[@]}" && cmake --build --preset default_config)
 fi
 
