@@ -19,6 +19,8 @@
 #include "od_advert.h"
 #include "od_adv_app.h"
 #include "od_hal_time.h"
+#include "od_health.h"
+#include "sl_memory_manager.h"
 #include "app.h"
 #include "app_assert.h"
 #include "gatt_db.h"
@@ -205,6 +207,58 @@ static uint32_t s_adv_boost_until_ms;
 /* Connectable advertising held off by opendisplay_ble_set_connectable(false). */
 static bool s_adv_paused;
 static bool s_pending_dfu;
+
+/* GATT health gate (shared/core/od_health.h, docs/BG22_RAM_BUDGET.md section 4). The verdict
+ * state is a named global so a debugger can read it. The forced-entry count must survive the
+ * reset into the AppLoader and back, so it sits in .noinit behind a check word: a power-on
+ * reset (or a bootloader that reused the RAM) reads as zero. */
+struct od_bg22_health_retained {
+  uint32_t magic;
+  uint32_t forced;
+  uint32_t check;
+};
+#define OD_BG22_HEALTH_MAGIC 0x4F444847u
+static struct od_bg22_health_retained s_health_ret __attribute__((section(".noinit")));
+struct od_health od_bg22_health __attribute__((used));
+/* Free heap and the memory manager's high-water mark once boot is complete, for the debugger
+ * and the RAM budget (docs/BG22_RAM_BUDGET.md section 3). Volatile and used: nothing reads them
+ * but a debugger, and LTO drops write-only globals. */
+volatile uint32_t od_bg22_heap_free_at_boot __attribute__((used));
+volatile uint32_t od_bg22_heap_hwm_at_boot __attribute__((used));
+#if OD_HEALTH_UPDATE_PATTERN_SHORT_BOOTS != 0u
+#if OD_HEALTH_UPDATE_PATTERN_SHORT_BOOTS <= OD_CM_GESTURE_SHORT_BOOTS || \
+    (OD_FR_PATTERN_SHORT_BOOTS != 0u && OD_HEALTH_UPDATE_PATTERN_SHORT_BOOTS >= OD_FR_PATTERN_SHORT_BOOTS)
+#error "the update pattern must sit strictly between the claim gesture and the factory reset"
+#endif
+static uint8_t s_boot_short_boots;
+static bool s_boot_unclaimed;
+static bool s_pattern_checked;
+#endif
+
+static uint8_t health_retained_forced(void)
+{
+  if (s_health_ret.magic != OD_BG22_HEALTH_MAGIC ||
+      s_health_ret.check != (s_health_ret.forced ^ ~OD_BG22_HEALTH_MAGIC) ||
+      s_health_ret.forced > 255u) {
+    return 0u;
+  }
+  return (uint8_t)s_health_ret.forced;
+}
+
+static void health_retain(uint8_t forced)
+{
+  s_health_ret.magic = OD_BG22_HEALTH_MAGIC;
+  s_health_ret.forced = forced;
+  s_health_ret.check = (uint32_t)forced ^ ~OD_BG22_HEALTH_MAGIC;
+}
+
+/* Any gatt (class 0x09) or gatt_server (class 0x0a) event means ATT traffic reached the
+ * application on this link: the MTU exchange the stack requests at every connect is one. */
+static bool health_is_gatt_event(uint32_t id)
+{
+  const uint32_t cls = (id >> 16) & 0xFFu;
+  return (id & 0xFFu) == 0xA0u && (cls == 0x09u || cls == 0x0Au);
+}
 static bool s_pending_deep_sleep;
 static uint32_t s_connection_open_ms;
 static bool s_connection_timeout_close_requested;
@@ -1847,6 +1901,8 @@ void opendisplay_ble_on_boot(uint8_t advertising_set_handle)
   sl_status_t sc;
   uint16_t selected_mtu = 0u;
 
+  od_health_init(&od_bg22_health, health_retained_forced());
+
   /* An API failure and a smaller selected maximum are different outcomes. The first means the
    * application cannot establish what the stack supports, so hand control to the independently
    * installed Gecko AppLoader. The second is a valid stack result: continue with the selected
@@ -1888,6 +1944,10 @@ void opendisplay_ble_on_boot(uint8_t advertising_set_handle)
     struct od_security_boot_report rep;
 
     od_security_boot(config_loaded ? od_get_parsed_security() : NULL, config_loaded, false, &rep);
+#if OD_HEALTH_UPDATE_PATTERN_SHORT_BOOTS != 0u
+    s_boot_short_boots = rep.short_boots;
+    s_boot_unclaimed = rep.state == OD_SEC2_UNCLAIMED;
+#endif
     OD_DIAG("[OD] sec2: cause=0x%03lX k=%u state=%u claim=%u\r\n", (unsigned long)rep.cause,
             (unsigned)rep.short_boots, (unsigned)rep.state, (unsigned)rep.kind);
   }
@@ -1987,6 +2047,10 @@ void opendisplay_ble_on_boot(uint8_t advertising_set_handle)
     return;
   }
   OD_DIAG("[OD] advertising started (~1 s interval while idle)\r\n");
+  od_bg22_heap_free_at_boot = (uint32_t)sl_memory_get_free_heap_size();
+  od_bg22_heap_hwm_at_boot = (uint32_t)sl_memory_get_heap_high_watermark();
+  OD_DIAG("[OD] heap after boot: free=%lu high-water=%lu\r\n",
+          (unsigned long)od_bg22_heap_free_at_boot, (unsigned long)od_bg22_heap_hwm_at_boot);
 }
 
 static bool opendisplay_ble_restart_advertising(uint8_t advertising_set_handle)
@@ -2010,12 +2074,36 @@ static bool opendisplay_ble_restart_advertising(uint8_t advertising_set_handle)
   return true;
 }
 
+static void health_enter_update(void)
+{
+  health_retain(od_bg22_health.forced);
+  OD_DIAG("[OD] HEALTH: GATT not served (reason %u, %u dead links, %lu stack heap failures): "
+          "entering the AppLoader\r\n", (unsigned)od_bg22_health.reason,
+          (unsigned)od_bg22_health.dead_links, (unsigned long)od_bg22_health.heap_failures);
+  opendisplay_ble_schedule_dfu();
+}
+
 void opendisplay_ble_on_event(sl_bt_msg_t *evt)
 {
+  const uint32_t id = SL_BT_MSG_ID(evt->header);
+
   opendisplay_pipe_handle_gatt_event(evt);
 
-  switch (SL_BT_MSG_ID(evt->header)) {
+  if (health_is_gatt_event(id)) {
+    od_health_att_seen(&od_bg22_health);
+  }
+  switch (id) {
+    case sl_bt_evt_system_resource_exhausted_id:
+      od_health_stack_heap_failure(
+          &od_bg22_health, evt->data.evt_system_resource_exhausted.num_heap_allocation_failures);
+      OD_DIAG("[OD] stack resource exhausted: discarded=%u buf_fail=%u heap_fail=%u msg_fail=%u\r\n",
+              (unsigned)evt->data.evt_system_resource_exhausted.num_buffers_discarded,
+              (unsigned)evt->data.evt_system_resource_exhausted.num_buffer_allocation_failures,
+              (unsigned)evt->data.evt_system_resource_exhausted.num_heap_allocation_failures,
+              (unsigned)evt->data.evt_system_resource_exhausted.num_message_allocation_failures);
+      break;
     case sl_bt_evt_connection_opened_id:
+      od_health_link_opened(&od_bg22_health, od_hal_uptime_ms());
       g_connection = evt->data.evt_connection_opened.connection;
       s_connection_open_ms = od_hal_uptime_ms();
       s_connection_timeout_close_requested = false;
@@ -2024,6 +2112,9 @@ void opendisplay_ble_on_event(sl_bt_msg_t *evt)
       /* Connectable advertising stops automatically when this event is generated. */
       break;
     case sl_bt_evt_connection_closed_id:
+      if (od_health_link_closed(&od_bg22_health, od_hal_uptime_ms()) == OD_HEALTH_ENTER_UPDATE) {
+        health_enter_update();
+      }
       g_connection = 0xFF;
       s_connection_open_ms = 0u;
       s_connection_timeout_close_requested = false;
@@ -2117,6 +2208,14 @@ void opendisplay_ble_process(void)
     }
   }
 
+#if OD_HEALTH_UPDATE_PATTERN_SHORT_BOOTS != 0u
+  if (!s_pattern_checked && now_ms >= OD_CM_T_CLEAR_MS) {
+    s_pattern_checked = true;
+    if (od_health_update_pattern(&od_bg22_health, s_boot_short_boots, s_boot_unclaimed)) {
+      health_enter_update();
+    }
+  }
+#endif
   if (s_pending_dfu || s_pending_deep_sleep) {
     if (g_connection != 0xFFu) {
       (void)sl_bt_connection_close(g_connection);

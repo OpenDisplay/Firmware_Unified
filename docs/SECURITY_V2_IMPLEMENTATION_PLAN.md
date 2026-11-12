@@ -55,6 +55,12 @@ HA must not offer the 3.0 OTA to a device unless its bundled py-opendisplay spea
 Rule for every WP: host-tested ≠ hardware-verified. Every hardware row goes into
 `docs/HARDWARE_VERIFICATION_CHECKLIST.md` as **open**.
 
+BG22 RAM rule for every WP (docs/BG22_RAM_BUDGET.md): anything that grows BG22 static RAM, or
+allocates from the heap at runtime (PSA key slots, ECDH contexts, advertising sets created on
+demand), re-runs the heap budget, and the image passes the build's heap gate before any OTA. A
+test or trace build must not grow RAM. Below the floor, a BG22 unit still boots and advertises,
+but its GATT server is dead, and it can only be recovered by SWD.
+
 ## 2. WP0 — spec gate
 
 - **Cryptographer** (SECURITY_V2 § 19): E1 (the extractor assumption), **E2: adopt the

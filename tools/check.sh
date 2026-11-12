@@ -410,6 +410,32 @@ bg22_has_no_buzzer_runner() {
     fi
 }
 check "silabs: BG22 has no buzzer runner" bg22_has_no_buzzer_runner
+# PERMANENT. The BG22 heap is whatever RAM the statics leave (linkerfile.ld), and the Bluetooth
+# stack allocates each connection's ATT bearer from it at connect time: an image whose heap is
+# too small links, boots and advertises, then serves no GATT and cannot be commanded into the
+# AppLoader. docs/BG22_RAM_BUDGET.md has the budget and the floor. The CMake post-build step is
+# the gate; this proves it is still wired, still self-consistent, and that the last image built
+# here passes it. The floor in ram_budget.json changes only with a hardware heap measurement.
+bg22_ram_budget() {
+    local img=targets/efr32bg22-slc/cmake_gcc/build/base/opendisplay-bg22.out
+    local base=targets/efr32bg22-slc/ram_budget.json
+    python3 tools/bg22_ram_budget.py --selftest || return 1
+    grep -q 'tools/bg22_ram_budget.py' targets/efr32bg22-slc/cmake_gcc/CMakeLists.txt || {
+        echo "the BG22 build no longer runs tools/bg22_ram_budget.py after the link"; return 1; }
+    python3 - "$base" <<'PY' || return 1
+import json, sys
+b = json.load(open(sys.argv[1]))
+assert b["heap_min_bytes"] >= 9600, "heap floor lowered below 9600 B without a measurement"
+assert b["stack_bytes"] == 2752, "stack baseline changed; SL_STACK_SIZE is 2752"
+assert b["stack_bytes"] + b["static_ram_max_bytes"] + b["heap_min_bytes"] <= 32768, "baseline cannot fit"
+PY
+    if [ -f "$img" ]; then
+        python3 tools/bg22_ram_budget.py --elf "$img" --baseline "$base"
+    else
+        echo "no BG22 image at $img: wiring and baseline checked, image not evaluated"
+    fi
+}
+check "silabs: BG22 RAM budget gate" bg22_ram_budget
 # PERMANENT. One entry point for "advertise sooner, something happened".
 #
 # THE FIRST VERSION OF THIS RULE LISTED TWO RETIRED NAMES AND PASSED WHILE A THIRD SURVIVED --

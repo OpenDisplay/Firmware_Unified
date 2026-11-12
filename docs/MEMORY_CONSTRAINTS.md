@@ -7,6 +7,9 @@ builds, not estimated.
 
 ## The BG22 budget (measured)
 
+**Current numbers, the heap floor and what the Bluetooth stack takes from the heap:
+docs/BG22_RAM_BUDGET.md** (the figures below are from an earlier image).
+
 From `arm-none-eabi-size` on the shipped `cmake_gcc/build/base/opendisplay-bg22.out` and the
 `.map`:
 
