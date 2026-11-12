@@ -9,6 +9,7 @@
 #include "od_runtime_types.h"
 #include "od_watchdog_app.h"
 #include "od_test_bench.h"
+#include "od_epd_nordic.h"
 #include "od_img_confirm_app.h"
 #include "od_sec2_trace.h"
 
@@ -97,6 +98,8 @@ int main(void)
 	 * unrecoverable over the air -- the BG22 stranding. Without the image manager (one slot,
 	 * nothing to revert to) this is a no-op. */
 	od_img_confirm_app_boot();   /* before the radio: no link can predate its callbacks */
+	/* A setup screen drawn on this thread must keep the power-cycle count on time. */
+	od_epd_nordic_bind_loop_thread();
 	opendisplay_ble_init();
 #if defined(OD_TEST_BENCH) && OD_TEST_BENCH
 	/* Bench image: the no-touch revert timer on top (src/od_test_bench.c). */

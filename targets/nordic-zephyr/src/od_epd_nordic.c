@@ -1,6 +1,7 @@
 /* See od_epd_nordic.h. */
 #include "od_epd_nordic.h"
 
+#include "od_claim_mode.h"
 #include "od_epd_spi.h"
 #include "od_gpio.h"
 #include "od_hal_time.h"
@@ -8,6 +9,8 @@
 #include "opendisplay_structs.h"
 
 #include <stddef.h>
+
+#include <zephyr/kernel.h>
 
 #define PIN_UNUSED 0xFFu
 
@@ -58,9 +61,34 @@ static int bus_busy_read(void)
     return s_busy == PIN_UNUSED ? -1 : (od_gpio_read(s_busy) != 0 ? 1 : 0);
 }
 
+/* The thread that owns od_claim_mode (main.c's superloop). Set once, before the radio. */
+static k_tid_t s_loop_tid;
+
+void od_epd_nordic_bind_loop_thread(void)
+{
+    s_loop_tid = k_current_get();
+}
+
+/* Every BUSY poll and fixed refresh delay of a pass ends up here. A setup screen is drawn ON the
+ * loop thread (od_claim_mode_tick -> od_claim_app_draw) and blocks it for ~20 s, past T_ARM and
+ * T_CLEAR: without a count tick in that wait, a claim-mode boot (k = 1) never writes k + 1, so the
+ * five-cycle factory reset of an unclaimed device stalls at k = 1 forever (observed on EN04
+ * OD114608). Same remedy as ESP32 / Silabs: 100 ms slices, each followed by the writes-only
+ * od_claim_mode_tick_count(). od_claim_mode is not thread-safe, so the tick runs only when the
+ * caller IS the loop thread; the boot-screen work queue already has its own ticks (opendisplay_ble.c). */
 static void bus_delay_ms(uint32_t ms)
 {
-    od_msleep((int32_t)ms);
+    const bool tick = s_loop_tid != NULL && k_current_get() == s_loop_tid;
+
+    while (ms > 0u) {
+        const uint32_t step = ms > 100u ? 100u : ms;
+
+        od_msleep((int32_t)step);
+        ms -= step;
+        if (tick) {
+            od_claim_mode_tick_count();
+        }
+    }
 }
 
 static bool bus_pin_write(uint8_t pin, uint8_t level)
