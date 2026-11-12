@@ -2,6 +2,7 @@
 #include "od_boot_app.h"
 #include "od_boot_payload.h"
 #include "od_color.h"
+#include "od_sec2_trace.h"
 #include "qrcode/qrcode.h"
 #include "boot_logo/logo_bitmap.h"
 #include <stdio.h>
@@ -561,6 +562,24 @@ bool od_boot_screen_render(const struct od_config *cfg,
     const bool urlOk = od_boot_url_build(cfg->displays[0].legacy_tag_type, last3,
                                          keyState == OD_BOOT_KEY_SHOWN ? key : NULL,
                                          cfg->manufacturer_data.manufacturer_id, url, sizeof(url));
+#if OD_SEC2_TRACE_BUILD
+    {
+        char kt[48];
+        const int ktLen = snprintf(kt, sizeof kt, "%s|%s", k1, k2);
+        OD_SEC2_TRACE("NORMAL screen key: state=%u (0 NOT_SET 1 HIDDEN 2 SHOWN) zone=%u "
+                      "key_fnv64=%08lx%08lx text_fnv64=%08lx%08lx text_len=%u lines=%u+%u "
+                      "url_fnv64=%08lx%08lx url_len=%u tag=0x%04x mfr=0x%04x",
+                      (unsigned)keyState, (unsigned)useZoneLayout,
+                      OD_SEC2_TRACE_U64(od_sec2_trace_fnv64(key, sizeof key)),
+                      OD_SEC2_TRACE_U64(od_sec2_trace_fnv64(kt, ktLen > 0 ? (size_t)ktLen : 0u)),
+                      (unsigned)(ktLen > 0 ? ktLen : 0), (unsigned)strlen(k1), (unsigned)strlen(k2),
+                      OD_SEC2_TRACE_U64(od_sec2_trace_fnv64(url, urlOk ? strlen(url) : 0u)),
+                      (unsigned)(urlOk ? strlen(url) : 0u),
+                      (unsigned)cfg->displays[0].legacy_tag_type,
+                      (unsigned)cfg->manufacturer_data.manufacturer_id);
+        memset(kt, 0, sizeof kt);
+    }
+#endif
     memset(key, 0, sizeof key);
     if (!urlOk) return false;
 
@@ -1120,6 +1139,9 @@ bool od_boot_screen_render_setup(const struct od_config *cfg, enum od_setup_scre
                                 cfg->manufacturer_data.simple_config_power_index, &content)) {
         return false;
     }
+    OD_SEC2_TRACE("setup screen kind=%u (1 SETUP 2 CODE 3 RESET) full=%u qr=%u url_len=%u url=%s",
+                  (unsigned)kind, (unsigned)full, (unsigned)content.qr,
+                  (unsigned)strlen(content.url), content.qr ? content.url : "-");
     uint16_t qrModules = 0;
     uint8_t qrSize = 0;
     if (content.qr) {

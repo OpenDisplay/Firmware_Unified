@@ -55,6 +55,48 @@ elseif(OD_DEBUG_BUILD OR (DEFINED PROFILE AND PROFILE STREQUAL "debug"))
   set(OD_DEBUG_BUILD ON)
 endif()
 
+# ------------------------------------------------------------- TEST-ONLY bench build ---
+# Two bench switches, read from the ENVIRONMENT only (never a cache variable, never a board
+# file), so a reconfigure without them builds a release image again:
+#   OD_SEC2_TEST_TRACE=I_ACCEPT_CLAIM_CODE_ON_SERIAL   print the SEC2 trace (claim code, screen
+#                                                       kinds, boot-history decisions) on the
+#                                                       USB console (shared/core/od_sec2_trace.h)
+#   OD_TEST_REVERT_S=<seconds>                          the image does NOT confirm itself in
+#                                                       MCUboot; unconfirmed, it resets after
+#                                                       <seconds> so MCUboot reverts it
+#                                                       (src/od_test_bench.c)
+# Either one adds src/od_test_bench.c (console commands: od stat|confirm|reboot|dfu|panic|hang)
+# and prj_test_bench.conf. Both are refused in a versioned (OD_FW_VERSION) or CI build, like the
+# ESP32 trace in targets/esp32-idf/main/CMakeLists.txt.
+set(OD_BENCH_DEFINES "")
+set(od_bench_build OFF)
+if(DEFINED ENV{OD_SEC2_TEST_TRACE} AND NOT "$ENV{OD_SEC2_TEST_TRACE}" MATCHES "^(|0|OFF|[Nn][Oo])$")
+  if(NOT "$ENV{OD_SEC2_TEST_TRACE}" STREQUAL "I_ACCEPT_CLAIM_CODE_ON_SERIAL")
+    message(FATAL_ERROR "od: OD_SEC2_TEST_TRACE must be I_ACCEPT_CLAIM_CODE_ON_SERIAL "
+                        "(a test-only build that prints the claim code)")
+  endif()
+  list(APPEND OD_BENCH_DEFINES OD_SEC2_TEST_TRACE=1)
+  set(od_bench_build ON)
+  message(WARNING "od: SEC2 TEST-TRACE BUILD -- prints the claim code on the console. NOT FOR RELEASE.")
+endif()
+if(DEFINED ENV{OD_TEST_REVERT_S} AND NOT "$ENV{OD_TEST_REVERT_S}" STREQUAL "")
+  if(NOT "$ENV{OD_TEST_REVERT_S}" MATCHES "^[1-9][0-9]*$")
+    message(FATAL_ERROR "od: OD_TEST_REVERT_S must be a positive number of seconds")
+  endif()
+  list(APPEND OD_BENCH_DEFINES OD_TEST_REVERT_S=$ENV{OD_TEST_REVERT_S}u)
+  set(od_bench_build ON)
+  message(WARNING "od: TEST IMAGE -- does not confirm itself; resets for an MCUboot revert after "
+                  "$ENV{OD_TEST_REVERT_S} s unless confirmed. NOT FOR RELEASE.")
+endif()
+if(od_bench_build)
+  if(DEFINED ENV{OD_FW_VERSION} OR DEFINED ENV{CI})
+    message(FATAL_ERROR "od: bench build (OD_SEC2_TEST_TRACE / OD_TEST_REVERT_S) refused in a "
+                        "release/CI build")
+  endif()
+  list(APPEND OD_BENCH_DEFINES OD_TEST_BENCH=1)
+  list(APPEND EXTRA_CONF_FILE ${CMAKE_CURRENT_LIST_DIR}/prj_test_bench.conf)
+endif()
+
 list(APPEND BOARD_ROOT ${CMAKE_CURRENT_LIST_DIR}/..)
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
@@ -170,6 +212,10 @@ else()
   target_compile_definitions(app PRIVATE OD_LOG_LEVEL=OD_LOG_INFO)
 endif()
 target_compile_definitions(app PRIVATE OD_LOG_TEXT_MAX=253u OD_LOG_RAW_TEXT_MAX=255u)
+if(od_bench_build)
+  target_compile_definitions(app PRIVATE ${OD_BENCH_DEFINES})
+  target_sources(app PRIVATE ${SRC_DIR}/od_test_bench.c)
+endif()
 
 # Default BLE TX power in dBm, used when the stored config leaves PowerOption.tx_power at 0.
 #
@@ -257,6 +303,7 @@ target_sources(app PRIVATE
   ${SRC_DIR}/od_cmd_config.c
   ${SRC_DIR}/od_rxq_app.c
   ${SRC_DIR}/od_sec2_app.c
+  ${SRC_DIR}/od_img_confirm_app.c
   ${SRC_DIR}/od_claim_app_nordic.c
   ${SRC_DIR}/od_hal_secret.c
   ${SRC_DIR}/od_hal_radio.c

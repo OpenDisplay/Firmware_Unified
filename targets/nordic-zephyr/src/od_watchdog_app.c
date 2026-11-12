@@ -10,6 +10,7 @@
  */
 
 #include "od_watchdog_app.h"
+#include "od_test_bench.h"
 
 #include "od_log.h"
 #include "od_watchdog.h"
@@ -152,6 +153,11 @@ void od_watchdog_app_service(void)
 {
 	bool cleared = false;
 
+	/* Bench test image past its revert deadline: let the hardware watchdog reset it (MCUboot
+	 * then reverts). A release build compiles this to nothing (src/od_test_bench.h). */
+	if (od_test_bench_hold_feed()) {
+		return;
+	}
 	K_SPINLOCK(&s_lock) {
 		bool pending_before = s_wdt.strikes_to_clear;
 

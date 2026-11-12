@@ -36,7 +36,27 @@
         }                                                                                    \
         _od_log(OD_LOG_WARN, "[SEC2-TEST] PAUSE %s: over", (what));                          \
     } while (0)
+/* FNV-1a 64 of a buffer: the trace names what a screen rendered (a key, a URL) by a hash the
+ * bench recomputes from its own copy, never by the bytes themselves. */
+#include <stddef.h>
+#include <stdint.h>
+static inline uint64_t od_sec2_trace_fnv64(const void *p, size_t n)
+{
+    const uint8_t *b = (const uint8_t *)p;
+    uint64_t h = 0xcbf29ce484222325ull;
+    while (n-- > 0u) {
+        h ^= *b++;
+        h *= 0x100000001b3ull;
+    }
+    return h;
+}
+/* A 64-bit value as two "%08lx" arguments: the Zephyr/BG22 log formatters do not take %llx
+ * (it printed "000000000000000lx" on the nRF52840 console). */
+#define OD_SEC2_TRACE_U64(v) (unsigned long)((uint64_t)(v) >> 32), (unsigned long)((uint64_t)(v) & 0xffffffffu)
+/* Bench fault hooks (panic, interrupt / task watchdog) read from the console; target code. */
+#define OD_SEC2_TRACE_BUILD 1
 #else
+#define OD_SEC2_TRACE_BUILD 0
 #define OD_SEC2_TRACE_PAUSE(what) do { } while (0)
 #define OD_SEC2_TRACE(fmt, ...) do { } while (0)
 #define OD_SEC2_TRACE_BANNER()  do { } while (0)

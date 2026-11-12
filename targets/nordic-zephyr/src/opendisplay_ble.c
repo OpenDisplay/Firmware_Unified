@@ -1,5 +1,6 @@
 #include "od_sec2.h"
 #include "opendisplay_ble.h"
+#include "od_img_confirm_app.h"
 #include "opendisplay_idle_wake.h"
 #include "od_log.h"
 #include "od_caps.h"
@@ -565,6 +566,8 @@ static ssize_t od_gatt_write(struct bt_conn *conn, const struct bt_gatt_attr *at
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
 	}
 	opendisplay_pipe_on_write(buf, len, (flags & BT_GATT_WRITE_FLAG_CMD) != 0);
+	/* Evidence that this image serves GATT: confirms a freshly swapped-in MCUboot image. */
+	od_img_confirm_app_served();
 	return len;
 }
 
@@ -572,6 +575,7 @@ static void od_ccc_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value)
 {
 	ARG_UNUSED(attr);
 	s_notify_enabled = (value == BT_GATT_CCC_NOTIFY);
+	od_img_confirm_app_att_seen();
 	opendisplay_pipe_on_notify_changed(s_notify_enabled);
 }
 
@@ -643,6 +647,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 	}
 	s_conn = bt_conn_ref(conn);
 	s_reboot_flag = 0;
+	od_img_confirm_app_link_opened();
 	request_fast_link(conn);
 	if (opendisplay_cs_config_enabled(&s_od_global_config)) {
 		opendisplay_cs_on_connected(conn);
@@ -663,6 +668,7 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
 	ARG_UNUSED(conn);
 	od_log_info("disconnected reason=%u", (unsigned)reason);
+	od_img_confirm_app_link_closed();
 	opendisplay_cs_on_disconnected(conn);
 	opendisplay_pipe_on_connection_closed();
 	if (s_conn != NULL) {
@@ -1219,6 +1225,7 @@ void opendisplay_ble_process(void)
 	 * behavior. */
 	(void)ble_service_advertising(true);
 	opendisplay_display_service();
+	od_img_confirm_app_tick();
 }
 
 bool opendisplay_ble_advertising_active(void)

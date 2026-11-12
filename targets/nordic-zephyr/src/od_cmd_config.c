@@ -17,6 +17,7 @@
 #include "opendisplay_config_storage.h"
 #include "opendisplay_constants.h"
 #include "opendisplay_protocol.h"
+#include "od_sec2_trace.h"
 
 #include <string.h>
 
@@ -30,6 +31,20 @@ typedef struct {
 } od_chunked_config_t;
 
 static od_chunked_config_t s_cfg_chunk;
+
+/* Test-trace builds: name every config ACK and whether it was queued, so a lost 0x0041/0x0042
+ * acknowledgement on the host can be told apart from one the device never sent. */
+static void cfg_ack(const od_cmd_ctx_t *ctx, const uint8_t *ack, uint16_t len, const char *where)
+{
+  const od_txq_status_t q = od_cmd_reply(ctx, ack, len);
+
+  OD_SEC2_TRACE("config ACK %02x%02x %s: queued rc=%d (chunks %u/%u, %u/%u B)",
+                (unsigned)ack[0], (unsigned)ack[1], where, (int)q,
+                (unsigned)s_cfg_chunk.received_chunks, (unsigned)s_cfg_chunk.expected_chunks,
+                (unsigned)s_cfg_chunk.received_size, (unsigned)s_cfg_chunk.total_size);
+  (void)q;
+  (void)where;   /* the trace compiles out of release and host builds */
+}
 
 void od_cmd_config_reset(void)
 {
@@ -159,7 +174,7 @@ od_cmd_result_t od_cmd_app_config_write(const od_cmd_ctx_t *ctx, od_span_t body)
     if (s_cfg_chunk.received_size >= s_cfg_chunk.total_size) {
       if (saveConfig(s_cfg_chunk.buffer, s_cfg_chunk.received_size)) {
         /* The ack is queued before the reload, so it is final before the config changes. */
-        (void)od_cmd_reply(ctx, ack, sizeof(ack));
+        cfg_ack(ctx, ack, sizeof(ack), "write");
         opendisplay_ble_reload_config_from_nvm();
         rc = OD_CMD_OK;
       } else {
@@ -180,13 +195,13 @@ od_cmd_result_t od_cmd_app_config_write(const od_cmd_ctx_t *ctx, od_span_t body)
         (uint16_t)(1u + (rem + CONFIG_CHUNK_SIZE - 1u) / CONFIG_CHUNK_SIZE);
     }
 
-    (void)od_cmd_reply(ctx, ack, sizeof(ack));
+    cfg_ack(ctx, ack, sizeof(ack), "write");
     return OD_CMD_OK;
   }
 
   if (saveConfig((uint8_t *)(void *)data, len)) {
     /* Sealed and queued before the reload -- see the note on the chunked branch above. */
-    (void)od_cmd_reply(ctx, ack, sizeof(ack));
+    cfg_ack(ctx, ack, sizeof(ack), "write");
     opendisplay_ble_reload_config_from_nvm();
   } else {
     err[2] = od_config_store_save_error();
@@ -245,7 +260,7 @@ od_cmd_result_t od_cmd_app_config_chunk(const od_cmd_ctx_t *ctx, od_span_t body)
     }
     if (saveConfig(s_cfg_chunk.buffer, s_cfg_chunk.received_size)) {
       /* Sealed and queued before the reload -- see the note on od_cmd_app_config_write(). */
-      (void)od_cmd_reply(ctx, ack, sizeof(ack));
+      cfg_ack(ctx, ack, sizeof(ack), "chunk");
       opendisplay_ble_reload_config_from_nvm();
       rc = OD_CMD_OK;
     } else {
@@ -257,7 +272,7 @@ od_cmd_result_t od_cmd_app_config_chunk(const od_cmd_ctx_t *ctx, od_span_t body)
     return rc;
   }
   /* An intermediate chunk: accepted, and the transfer continues. */
-  (void)od_cmd_reply(ctx, ack, sizeof(ack));
+  cfg_ack(ctx, ack, sizeof(ack), "chunk");
   return OD_CMD_OK;
 }
 

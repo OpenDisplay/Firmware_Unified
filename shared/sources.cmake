@@ -131,6 +131,7 @@ set(OD_SHARED_SOURCES_PURE
     "${CMAKE_CURRENT_LIST_DIR}/core/od_config.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_config_log.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_health.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_img_confirm.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_zlib_inflate.c"
 )
 

@@ -5,6 +5,7 @@
  * boot-time policy (safe mode, CLEAR_ON_BOOT, two attempts). Every panel command comes from the
  * drive packets; a config without them draws nothing and says "needs migration".
  */
+#include "od_sec2_trace.h"
 #include "opendisplay_display.h"
 
 #include "od_board.h"
@@ -350,8 +351,11 @@ bool opendisplay_display_boot_apply(void)
   }
 
   for (unsigned attempt = 1; attempt <= 2; attempt++) {
+    OD_SEC2_TRACE("draw NORMAL boot screen (attempt %u) at %u ms", attempt,
+                  (unsigned)od_hal_uptime_ms());
     const od_display_rc_t rc = od_display_boot(opendisplay_get_global_config(),
                                                od_get_parsed_security(), &bufs);
+    OD_SEC2_TRACE("NORMAL boot screen rc=%d at %u ms", (int)rc, (unsigned)od_hal_uptime_ms());
 
     od_epd_spi_deinit();
     (void)od_epd_spi_fault_reset();
@@ -386,7 +390,11 @@ bool od_claim_app_draw(enum od_setup_screen kind, uint32_t code)
 	    od_watchdog_app_safe_mode() || od_display_needs_migration()) {
 		return false;
 	}
+	OD_SEC2_TRACE("od_claim_app_draw(kind=%d) start at %u ms", (int)kind,
+		      (unsigned)od_hal_uptime_ms());
 	rc = od_display_setup_screen(opendisplay_get_global_config(), kind, code, &bufs);
+	OD_SEC2_TRACE("od_claim_app_draw(kind=%d) rc=%d at %u ms", (int)kind, (int)rc,
+		      (unsigned)od_hal_uptime_ms());
 	od_epd_spi_deinit();
 	(void)od_epd_spi_fault_reset();
 	if (rc != OD_DISPLAY_OK) {
