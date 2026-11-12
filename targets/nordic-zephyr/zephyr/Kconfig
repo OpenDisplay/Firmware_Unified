@@ -1,5 +1,13 @@
 mainmenu "OpenDisplay Nordic firmware"
 
+# Log processing thread: Zephyr's default 768 B left 136 B unused on the nRF52840 with the USB-CDC
+# backend (thread analyzer, EN04 bench, 632 / 768 B). 1280 B keeps about half of it free for paths
+# the bench did not exercise (fault dumps, BT host warnings with hex); 512 B of RAM. A default
+# here, not a prj.conf line, so a CONFIG_LOG=n profile (prj_quiet.conf) gets no Kconfig warning.
+config LOG_PROCESS_THREAD_STACK_SIZE
+	int
+	default 1280
+
 source "Kconfig.zephyr"
 
 menu "OpenDisplay platform"
