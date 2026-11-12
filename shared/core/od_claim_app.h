@@ -20,9 +20,9 @@ extern "C" {
  * boot screen and is never requested through this header. */
 enum od_setup_screen {
     OD_SETUP_SCREEN_NORMAL = 0,
-    OD_SETUP_SCREEN_SETUP  = 1,   /* claim mode, no claim yet: "SETUP MODE", id, QR k=s */
+    OD_SETUP_SCREEN_SETUP  = 1,   /* claim mode, no claim yet: "SETUP MODE", id, QR /l/?f=1&k=1 */
     OD_SETUP_SCREEN_CODE   = 2,   /* a claim is pending: "CLAIM CODE", the 6 digits, id */
-    OD_SETUP_SCREEN_RESET  = 3    /* factory reset, before the erase: "FACTORY RESET", QR k=r */
+    OD_SETUP_SCREEN_RESET  = 3    /* factory reset, before the erase: "FACTORY RESET", QR /l/?f=1&k=2 */
 };
 
 /* Draw one screen of the family through the boot-screen path in display mode 0, from the config

@@ -29,6 +29,32 @@ code under development versions (`9.9.x`, `f012ca3`).
 3. **Old updaters will not offer 3.0.** It is published under different names in a different
    repository on purpose, so they cannot move a device by accident.
 
+## Image trust: how a bad update undoes itself
+
+Every 3.0 target applies one rule (`shared/core/od_health.h`): **an image is trusted only after a
+link has carried GATT traffic; a link that cannot serve is a failure.**
+
+| Target | A new image is confirmed when | It undoes itself when | Evidence |
+|---|---|---|---|
+| nRF52840 / nRF54 (MCUboot test swap) | the first GATT write it serves, an SMP confirm, or 24 h uptime with no dead link | three ≥ 8 s links with no ATT while unconfirmed: reset, MCUboot reverts | VERIFIED 2026-11-12 on the EN04 (OD114608) |
+| ESP32 (OTA rollback) | the same; on a battery config, also at the end of a 15 min deep-sleep hold if no dead link was seen | the same: marked invalid and rebooted, the bootloader boots the previous slot; also at the end of the sleep hold if a dead link was seen | UNTESTED (host-tested, builds) |
+| BG22 (no rollback slot) | — (no confirmation step) | the stack reports a heap failure on a link with no ATT, or three ≥ 8 s dead links: the device enters the AppLoader (advertises as `OTA`) and takes a `.gbl` | UNTESTED (host-tested, builds) |
+
+So **after an OTA, connect once and send any command** (reading the identity is enough): that
+confirms the image. On ESP32 and nRF, a reset before that (power cut, battery swap) boots the
+previous image again.
+
+**Two rules for anyone sending an OTA** (the release checklist has the reasoning):
+
+1. Never OTA an image to a device unless that image's no-touch recovery path is proven on that
+   target. Until the table above says VERIFIED, keep the wired way back at hand: USB serial on
+   ESP32, a debugger on BG22.
+2. On BG22, never OTA an image that has not passed the RAM gate (`tools/bg22_ram_budget.py`,
+   [BG22_RAM_BUDGET.md](BG22_RAM_BUDGET.md)). A failing image can come up advertising with a GATT
+   server that never answers, and then only a debugger recovers it.
+
+Versions must increase from release to release (no target enforces it today).
+
 ## ESP32 (all boards)
 
 ### From `Firmware` 2.x (Arduino): fresh install

@@ -21,6 +21,31 @@ have no drive packets, and those panels would go dark. `tools/release/collect.py
 legacy names, and `release.yml` publishes only from this repository. Do not hand-upload
 around them.
 
+## Rules for every image that goes over the air (learned 2026-11-11)
+
+A BG22 unit was stranded by a test image whose GATT server never answered, and only a wired
+debugger can recover it. These hold for release images **and** for every bench or test image:
+
+1. **Never OTA an image to a device without a proven no-touch recovery path for that image.**
+   "Proven" means shown on hardware for that target, not argued. Today:
+   - nRF52840 (MCUboot test swap + the evidence rule, `shared/core/od_health.h`): proven on the
+     EN04 (revert by three dead links, confirm on the first served write).
+   - ESP32 (bootloader rollback + the same rule): host-tested and built only. Until D13 passes,
+     an ESP32 OTA goes to a unit whose USB serial is at hand.
+   - BG22 (health gate → AppLoader): never run on hardware. Until D12 passes, a BG22 OTA goes to
+     a unit with a debugger attached ([BG22_RAM_BUDGET.md](BG22_RAM_BUDGET.md) § 1 rule 5).
+2. **A BG22 image must pass the RAM gate** before it is OTA'd or flashed:
+   `tools/bg22_ram_budget.py` (every CMake build runs it and deletes the artefacts on failure;
+   an image built any other way is checked by hand). The budget, the floor and the recovery
+   procedure are [BG22_RAM_BUDGET.md](BG22_RAM_BUDGET.md).
+3. **The application version increases from image to image.** Every test image on 2026-11-11
+   carried the same app version and installed only because no target enforces anti-rollback
+   (MCUboot downgrade prevention off, ESP32 `CONFIG_BOOTLOADER_APP_ANTI_ROLLBACK` off, BG22
+   `BOOTLOADER_ROLLBACK_PROTECTION 0`). Each release carries a higher version than the last,
+   and bench/test images carry a version **below** the release they lead up to (development
+   images numbered 9.9.x sort above 3.0.0, so a unit that ran one would refuse 3.0.0 the day
+   anti-rollback is switched on). Turning anti-rollback on is only possible if this holds.
+
 ## A. Branches into `feat/silabs-config-driven-driver`
 
 An in-memory trial merge (`git merge-tree`, 2026-11-10) applied every branch below in this order
@@ -57,6 +82,7 @@ checklist cites build SHAs.
 | C3 | The nRF52840 ships dual-slot MCUboot (now the `build.sh` default). Adafruit-only remains an unreleased opt-in. Confirm. | needs maintainer | [ ] |
 | C4 | ESP32 2.x → 3.0 erases config and key, by decision. Confirm it is acceptable with the backup/migrate CLI as the mitigation. | needs maintainer | [ ] |
 | C5 | Action system and image store: supported, or "experimental" in the notes. CHANGELOG says experimental. | needs maintainer | [ ] |
+| C7 | **BG22 connection count** 4 (shipped default) or 2 (≈ 936 B more free heap at the one-link peak, estimate). One line: `OD_BG22_MAX_CONNECTIONS_DEFAULT` in `targets/efr32bg22-slc/cmake_gcc/CMakeLists.txt`; table in [BG22_RAM_BUDGET.md](BG22_RAM_BUDGET.md) § 3.1. 2 needs D11 + D12 with that image. | needs maintainer | [ ] |
 | C6 | `third_party/boot_logo` is OpenDisplay artwork under the repository GPL-3.0; `third_party/qrcode` carries its MIT `LICENSE` (decided 2026-11-11, `third_party/NOTICE.md`). Still open: uzlib/tinf notice in `od_zlib_inflate.c` | agent-done (qrcode, boot_logo); uzlib open | [~] |
 
 ## D. Hardware pass at the release SHA
@@ -77,6 +103,8 @@ HARDWARE_VERIFICATION_CHECKLIST.md.
 | D9 | BG22 virgin part: `-bootloader.s37` then `-app.s37` over SWD (needs A5). | needs hardware | [ ] |
 | D11 | BG22 RAM: the release image passes the heap gate (`tools/bg22_ram_budget.py`, run by every CMake build; heap ≥ 9,600 B), and **no BG22 image is OTA'd that has not passed it**. Measure the heap high-water mark on hardware once (BG22_RAM_BUDGET.md § 5) and record it. | needs hardware (measurement) | [ ] |
 | D12 | BG22 health gate (BG22_RAM_BUDGET.md § 4), on a unit with a debugger: (a) a healthy image with 20 connect/disconnect cycles, phone + BlueZ, is never forced into the AppLoader; (b) an image built with the heap starved (gate bypassed by hand) enters the AppLoader after the first link and accepts a `.gbl` there. | needs hardware | [ ] |
+| D13 | ESP32 image trust (`src/od_health_app.cpp`): (a) an SMP-uploaded test image logs `image confirmed (GATT write served)` on the first client write and survives a reset; (b) an image whose GATT writes are dropped (bench build) reverts after three ≥ 8 s links; (c) a battery config does not deep-sleep for up to 15 min while unconfirmed. | needs hardware | [ ] |
+| D14 | nRF52840: re-run the EN04 revert proof on the release image (three dead links → MCUboot reverts; a served write confirms), since `od_health_app.c` replaced `od_img_confirm_app.c`. | needs hardware | [ ] |
 | D10 | Update the release matrix in HARDWARE_VERIFICATION_CHECKLIST.md (`:742-760`). It still says "Adafruit UF2" and "Not started". | needs hardware | [ ] |
 
 ## E. Clients (outside this repo)

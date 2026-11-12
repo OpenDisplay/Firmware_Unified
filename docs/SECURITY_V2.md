@@ -1115,11 +1115,18 @@ windows are compile-time constants (`OD_CM_T_ARM_MS`, `OD_CM_T_CLEAR_MS`,
   boot MUST NOT delay the T_ARM write: every blocking panel wait calls
   `od_claim_mode_tick_count()` at least every 100 ms (ESP32 the EPD busy-wait; BG22 `io_delay_ms`;
   Nordic the boot-display wait). On the ESP32-S3 Sticky the boot-screen refresh had moved the
-  T_ARM write to 5.66 s, so a 4.25 s on-period failed. With the tick, T_ARM lands at 2.9 s
-  (about 0.9 s of display init does not pass through the busy-wait) and a 4.25 s on-period opens
-  claim mode. **Measured effective window there: an on-period of about 2.9 s to 10 s.** BG22 and
-  Nordic have the tick and a host test (a 5.6 s refresh still arms at 2.0 s), not a hardware
-  measurement.
+  T_ARM write to 5.66 s, so a 4.25 s on-period failed. With the tick, T_ARM lands at 2.9 s of
+  firmware uptime (about 0.9 s of display init does not pass through the busy-wait) and a 4.25 s
+  on-period opens claim mode. **Measured window there, two clocks** (round-5 Sticky bench, H6):
+  - *firmware uptime* (what T_ARM / T_CLEAR count): the T_ARM write lands at 2.92 s and T_CLEAR
+    at 10.0 s;
+  - *what the user experiences* (power applied to power removed): an on-period of about
+    **3.9 s to 10.9 s** counts (counted from 3.87 s to 10.90 s; not counted at 3.25 s or
+    11.31 s), because about 1 s passes between power-on and the start of firmware uptime
+    (bootloader, flash, init).
+  The user instruction below ("wait about 5 seconds") sits inside both. BG22 and Nordic have the
+  tick and a host test (a 5.6 s refresh still arms at 2.0 s), not a hardware measurement of the
+  user-visible window.
 - **Measured reset causes, ESP32-S3 (reTerminal Sticky, CH343 USB-serial):** the EN pin (which
   the USB-serial RTS line drives, and the reset button) reports `ESP_RST_POWERON` and counts; so
   does esptool's default reset (bench only). REBOOT, claim-mode END and esptool's hard reset

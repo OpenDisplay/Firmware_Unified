@@ -99,9 +99,30 @@ not traced. Nothing below 9,728 B has ever been shown to work, so the floor sits
 release figure and leaves this branch 64 B. It comes down only when a high-water mark measured on
 hardware (section 5) justifies it.
 
-**The cheapest real margin** is the connection count: `SL_BT_CONFIG_MAX_CONNECTIONS` is 4, but the
-firmware never has more than one link. 2 would free ≈ 940 B of heap, 1 ≈ 1,400 B. That changes the
-stack configuration and needs a hardware test before it ships; it is not made on this branch.
+### 3.1 The connection count (a maintainer decision, prepared as one line)
+
+**The cheapest real margin** is the connection count. The stack reserves every connection's tables
+from the heap at init (LL ≈ 328 B + host ≈ 140 B each), whether or not a link ever uses them, and
+the firmware never serves more than one link at a time.
+
+The count is set in exactly one place: `OD_BG22_MAX_CONNECTIONS_DEFAULT` in
+`targets/efr32bg22-slc/cmake_gcc/CMakeLists.txt` (it feeds `SL_BT_CONFIG_MAX_CONNECTIONS` through
+`config/sl_bluetooth_connection_config.h`). A one-off measurement build takes
+`OD_BG22_MAX_CONNECTIONS=<1..4>` in the environment of `build-and-flash.sh`; it is not cached.
+
+| `OD_BG22_MAX_CONNECTIONS` | heap section (build) | stack init reservation for connections (traced sizes) | free heap at the one-link peak (estimate) | status |
+|---:|---:|---:|---:|---|
+| **4** (default, shipped) | 9,664 B | ≈ 1,872 B | ≈ 0.9–1.7 KB | every hardware run so far |
+| 2 | 9,664 B (identical) | ≈ 936 B | ≈ 1.8–2.6 KB (**+≈ 936 B**) | builds (`v3/head2`); never run |
+
+The build-time heap section is identical (the reservation happens at run time); the two images
+differ in exactly the two configuration bytes the controller and host read at init. The run-time
+effect is an estimate from the traced allocation sizes, **not a measurement**: measure it by
+reading `od_bg22_heap_free_at_boot` (section 5) on both images on one unit. Switching to 2 needs
+release-checklist rows D11 and D12 on hardware with that image.
+
+**The release image** (`v3/head2`, 4 connections): heap 9,664 B against the 9,600 B floor
+(+64 B), stack 2,752 B, static 20,328 B (+4 B for the retained counters of section 4.5).
 
 ## 4. The runtime health gate
 
@@ -175,6 +196,21 @@ Why it is off:
 Recommendation: leave it off. The health gate covers the unattended case. A claimed device that
 needs an escape without GATT should get one only together with signed upgrades in the bootloader.
 
+### 4.5 The stack's resource-exhausted report is counted, not ignored
+
+`sl_bt_evt_system_resource_exhausted` feeds the gate (its heap count) and a retained record,
+`s_health_ret` in `.noinit` behind a check word: forced updater entries this power-on and the last
+reason, plus saturating 16-bit counts of stack heap-allocation failures and of buffer/message
+failures since power-on. It survives a soft reset and the AppLoader round trip, and a power-on
+clears it. A diagnostic build prints it at boot; `tools/bg22_ram_dump.py` decodes it from a dump.
+
+**Not client-readable in 3.0, on purpose.** The MSD has no free bit or byte, and the READ_IDENT
+tail could grow by one byte (clients read it by length, and py-opendisplay already tolerates it),
+but that is a wire change the website and HA clients would have to be checked against, for a value
+that in the failure case cannot be read anyway (GATT is what failed; the device is then in the
+AppLoader, which advertises as `OTA` — that is the client-visible signal). Proposal for the
+maintainer: READ_IDENT tail byte 7 = saturating stack heap-failure count since power-on.
+
 ## 5. Recovering a stranded unit, and what to capture first
 
 Do the captures **before** reflashing. A reflash erases the evidence.
@@ -219,14 +255,17 @@ connect from a phone. Within the 30 s before the peer gives up, do `h`, then
 Recover by flashing the application only, so the config and keys in NVM3 survive:
 `JLinkExe … loadfile <release>.s37` or `commander flash <release>.s37`. No mass erase.
 
-## 6. Other targets
+## 6. Other targets: the same rule
 
-- **Nordic (Zephyr):** the BT host's buffers and connection objects are static (net_buf pools,
-  `CONFIG_BT_MAX_CONN`). A build that grows too far fails to link instead of shrinking a heap, so
-  this exact class does not exist there. But `main.c` calls `boot_write_img_confirmed()`
-  unconditionally right after `opendisplay_ble_init()`. An image whose BLE comes up broken is
-  therefore confirmed and never reverted. Proposed: confirm on the first link that carries ATT, using
-  the same od_health evidence. Not changed here, because another stream works on that file.
-- **ESP32:** rollback is enabled (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`), but `main.cpp`
-  calls `od_smp_confirm_running()` (`esp_ota_mark_app_valid_cancel_rollback`) as soon as
-  advertising starts. Same weakness, same proposal.
+`shared/core/od_health.h` is one module for all three targets. BG22 uses the updater kind (this
+section 4). Nordic and ESP32 use the rollback kind: an MCUboot test image / an ESP32 OTA image that
+is still PENDING_VERIFY is confirmed only on the first GATT write it serves (or after 24 h with no
+dead link, or by an explicit SMP confirm), and reverted after three ≥ 8 s links with no ATT.
+
+- **Nordic (Zephyr):** `src/od_health_app.c`; proven on the EN04 (revert by three dead links,
+  confirm on the first served write). The BT host's buffers are static, so the heap class itself
+  cannot occur; the rule covers every other way BLE can come up broken.
+- **ESP32:** `src/od_health_app.cpp`; host-tested and built, not run on hardware. NimBLE has no
+  heap-failure event, so only the dead-link arm exists. Every deep-sleep wake runs the bootloader,
+  which would roll back an image still PENDING_VERIFY, so an unconfirmed image holds deep sleep for
+  up to 15 min of uptime, then confirms if no dead link was seen, else reverts.
