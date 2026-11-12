@@ -7,7 +7,7 @@
 #include <stdint.h>
 
 #if defined(OD_SEC2_BENCH_BUILD) && OD_SEC2_BENCH_BUILD
-/* With OD_SEC2_TEST_REVERT_S: arms the no-touch revert timer on an unconfirmed image (the
+/* With the bench revert switch (zephyr/CMakeLists.txt): arms the no-touch revert timer on an unconfirmed image (the
  * evidence rule in od_health_app.c still confirms it on a served write). */
 void od_test_bench_image_boot(void);
 /* From the main loop: notices an SMP/console confirm, arms the watchdog backstop. */
