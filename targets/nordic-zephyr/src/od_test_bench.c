@@ -2,17 +2,17 @@
  *
  * Compiled only when targets/nordic-zephyr/zephyr/CMakeLists.txt sees an explicit bench
  * acknowledgement in the environment (the SEC2 trace switch and/or
- * OD_TEST_REVERT_S=<seconds>), and never in a versioned or CI build: the configure step refuses
+ * OD_SEC2_TEST_REVERT_S=<seconds>), and never in a versioned or CI build: the configure step refuses
  * both. A release build does not contain this file.
  *
  * Two jobs, both for a bench where nobody can touch the board:
  *
- * 1. A NO-TOUCH WAY BACK for a test image (OD_TEST_REVERT_S > 0). The release image confirms
+ * 1. A NO-TOUCH WAY BACK for a test image (OD_SEC2_TEST_REVERT_S > 0). The release image confirms
  *    itself in main() right after opendisplay_ble_init(), so an image whose GATT server never
  *    answers is confirmed and can only be recovered with a double-tap. A bench image built
- *    with OD_TEST_REVERT_S does NOT confirm itself. While it is unconfirmed:
- *      - a k_timer resets the SoC after OD_TEST_REVERT_S seconds (MCUboot then reverts);
- *      - from OD_TEST_REVERT_S + 30 s the main-loop watchdog feed is withheld, so the hardware
+ *    with OD_SEC2_TEST_REVERT_S does NOT confirm itself. While it is unconfirmed:
+ *      - a k_timer resets the SoC after OD_SEC2_TEST_REVERT_S seconds (MCUboot then reverts);
+ *      - from OD_SEC2_TEST_REVERT_S + 30 s the main-loop watchdog feed is withheld, so the hardware
  *        watchdog (300 s) resets it even if the timer path were broken;
  *      - a fatal error resets it (CONFIG_RESET_ON_FATAL_ERROR), which MCUboot also reverts.
  *    Confirming (SMP image confirm over BLE, or `od confirm` on the console) cancels both.
@@ -20,7 +20,7 @@
  * 2. A line-based console on the USB CDC port, which the release image never reads:
  *      od stat     uptime, image confirmed?, heap + thread stack headroom
  *      od confirm  boot_write_img_confirmed()
- *      od blind    ignore GATT evidence in od_img_confirm_app (dead-GATT simulation)
+ *      od blind    ignore GATT evidence in od_health_app (dead-GATT simulation)
  *      od reboot   software reset (SREQ)
  *      od por|pin  software reset that the next boot reads as power-on / pin reset
  *      od dfu      GPREGRET1 = 0x4E + reset: Adafruit SERIAL DFU (BLE-independent recovery;
@@ -50,8 +50,8 @@
 #include <zephyr/dfu/mcuboot.h>
 #endif
 
-#ifndef OD_TEST_REVERT_S
-#define OD_TEST_REVERT_S 0u
+#ifndef OD_SEC2_TEST_REVERT_S
+#define OD_SEC2_TEST_REVERT_S 0u
 #endif
 
 static volatile bool s_hold_feed;
@@ -120,20 +120,23 @@ static void do_confirm(const char *by)
 
 void od_test_bench_image_boot(void)
 {
+	/* Carries the tag tools/release/collect.py refuses, so a bench image without the trace
+	 * (OD_SEC2_TEST_REVERT_S alone) can never be collected as a release artefact either. */
+	od_log_warn("[SEC2-TEST] BENCH IMAGE -- NOT FOR RELEASE");
 #if defined(CONFIG_MCUBOOT_IMG_MANAGER)
-	if (OD_TEST_REVERT_S == 0u) {
-		return;   /* od_img_confirm_app decides alone */
+	if (OD_SEC2_TEST_REVERT_S == 0u) {
+		return;   /* od_health_app decides alone */
 	}
 	if (image_confirmed()) {
 		od_log_warn("[BENCH] image already confirmed; no revert timer");
 		return;
 	}
-	s_feed_deadline_ms = k_uptime_get() + (int64_t)(OD_TEST_REVERT_S + 30u) * 1000;
-	k_timer_start(&s_revert_timer, K_SECONDS(OD_TEST_REVERT_S), K_NO_WAIT);
+	s_feed_deadline_ms = k_uptime_get() + (int64_t)(OD_SEC2_TEST_REVERT_S + 30u) * 1000;
+	k_timer_start(&s_revert_timer, K_SECONDS(OD_SEC2_TEST_REVERT_S), K_NO_WAIT);
 	s_revert_armed = true;
 	od_log_warn("[BENCH] UNCONFIRMED test image: reset in %u s unless confirmed "
-		    "(watchdog backstop from %u s)", (unsigned)OD_TEST_REVERT_S,
-		    (unsigned)(OD_TEST_REVERT_S + 30u));
+		    "(watchdog backstop from %u s)", (unsigned)OD_SEC2_TEST_REVERT_S,
+		    (unsigned)(OD_SEC2_TEST_REVERT_S + 30u));
 #endif
 }
 
@@ -223,8 +226,8 @@ static void run_line(const char *l)
 	} else if (strcmp(l, "pin") == 0) {
 		fake_reset(OD_BENCH_FAKE_PIN, "PIN RESET");
 	} else if (strcmp(l, "blind") == 0) {
-		extern void od_img_confirm_app_bench_blind(void);
-		od_img_confirm_app_bench_blind();
+		extern void od_health_app_bench_blind(void);
+		od_health_app_bench_blind();
 	} else if (strcmp(l, "reboot") == 0) {
 		od_log_warn("[BENCH] software reset");
 		k_sleep(K_MSEC(300));

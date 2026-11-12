@@ -2112,7 +2112,7 @@ void opendisplay_ble_on_event(sl_bt_msg_t *evt)
       /* Connectable advertising stops automatically when this event is generated. */
       break;
     case sl_bt_evt_connection_closed_id:
-      if (od_health_link_closed(&od_bg22_health, od_hal_uptime_ms()) == OD_HEALTH_ENTER_UPDATE) {
+      if (od_health_link_closed(&od_bg22_health, od_hal_uptime_ms()) == OD_HEALTH_RECOVER) {
         health_enter_update();
       }
       g_connection = 0xFF;

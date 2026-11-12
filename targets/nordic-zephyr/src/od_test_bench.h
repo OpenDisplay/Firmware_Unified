@@ -1,12 +1,12 @@
 /* od_test_bench.h -- TEST-ONLY bench aids (src/od_test_bench.c). Every call compiles to the
- * release behaviour unless the bench build defines OD_TEST_BENCH (zephyr/CMakeLists.txt). */
+ * release behaviour unless the bench build defines OD_SEC2_BENCH_BUILD (zephyr/CMakeLists.txt). */
 #ifndef OD_TEST_BENCH_H
 #define OD_TEST_BENCH_H
 
 #include <stdbool.h>
 #include <stdint.h>
 
-#if defined(OD_TEST_BENCH) && OD_TEST_BENCH
+#if defined(OD_SEC2_BENCH_BUILD) && OD_SEC2_BENCH_BUILD
 /* Replaces main()'s boot_write_img_confirmed(): confirms (no revert switch) or arms the
  * no-touch revert. */
 void od_test_bench_image_boot(void);

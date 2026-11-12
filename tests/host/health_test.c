@@ -40,7 +40,7 @@ static void test_dead_links_force_update_on_the_third(void)
     CHECK(link(&h, 1000u, 33000u, false, 0u) == OD_HEALTH_NONE);
     CHECK(link(&h, 40000u, 33000u, false, 0u) == OD_HEALTH_NONE);
     CHECK(h.dead_links == 2u);
-    CHECK(link(&h, 80000u, 33000u, false, 0u) == OD_HEALTH_ENTER_UPDATE);
+    CHECK(link(&h, 80000u, 33000u, false, 0u) == OD_HEALTH_RECOVER);
     CHECK(h.reason == OD_HEALTH_REASON_DEAD_LINKS && h.forced == 1u);
 }
 
@@ -50,7 +50,7 @@ static void test_stack_heap_failure_forces_update_at_first_close(void)
     struct od_health h;
 
     od_health_init(&h, 0u);
-    CHECK(link(&h, 1000u, 200u, false, 1u) == OD_HEALTH_ENTER_UPDATE);
+    CHECK(link(&h, 1000u, 200u, false, 1u) == OD_HEALTH_RECOVER);
     CHECK(h.reason == OD_HEALTH_REASON_STACK_HEAP && h.heap_failures == 1u);
 }
 
@@ -73,7 +73,7 @@ static void test_heap_failure_after_proven_needs_the_threshold(void)
     CHECK(link(&h, 0u, 5000u, true, 0u) == OD_HEALTH_NONE);
     CHECK(link(&h, 10000u, 100u, false, 1u) == OD_HEALTH_NONE);
     CHECK(link(&h, 20000u, 100u, false, 1u) == OD_HEALTH_NONE);
-    CHECK(link(&h, 30000u, 100u, false, 1u) == OD_HEALTH_ENTER_UPDATE);
+    CHECK(link(&h, 30000u, 100u, false, 1u) == OD_HEALTH_RECOVER);
     CHECK(h.reason == OD_HEALTH_REASON_DEAD_LINKS);
 }
 
@@ -152,7 +152,7 @@ static void test_forced_entries_are_bounded(void)
 
         od_health_init(&h, retained);
         for (i = 0; i < 5; ++i) {
-            if (link(&h, (uint32_t)i * 60000u, 33000u, false, 1u) == OD_HEALTH_ENTER_UPDATE) {
+            if (link(&h, (uint32_t)i * 60000u, 33000u, false, 1u) == OD_HEALTH_RECOVER) {
                 entered++;
                 break;
             }
@@ -161,7 +161,7 @@ static void test_forced_entries_are_bounded(void)
     }
     CHECK(entered == OD_HEALTH_FORCED_MAX);
     od_health_init(&h, 0u);                      /* a power cycle: allowed again */
-    CHECK(link(&h, 0u, 100u, false, 1u) == OD_HEALTH_ENTER_UPDATE);
+    CHECK(link(&h, 0u, 100u, false, 1u) == OD_HEALTH_RECOVER);
 }
 
 /* Overlapping links are not judged, and the counters stay consistent. */
@@ -179,7 +179,7 @@ static void test_overlap_not_judged(void)
     CHECK(od_health_link_closed(&h, 60000u) == OD_HEALTH_NONE);   /* stray close */
     CHECK(h.open_links == 0u);
     /* the next single link is judged normally */
-    CHECK(link(&h, 70000u, 100u, false, 1u) == OD_HEALTH_ENTER_UPDATE);
+    CHECK(link(&h, 70000u, 100u, false, 1u) == OD_HEALTH_RECOVER);
 }
 
 static void test_pattern(void)

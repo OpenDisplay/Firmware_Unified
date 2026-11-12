@@ -56,18 +56,21 @@ elseif(OD_DEBUG_BUILD OR (DEFINED PROFILE AND PROFILE STREQUAL "debug"))
 endif()
 
 # ------------------------------------------------------------- TEST-ONLY bench build ---
-# Two bench switches, read from the ENVIRONMENT only (never a cache variable, never a board
-# file), so a reconfigure without them builds a release image again:
+# Test-only build options share ONE naming scheme on every target, OD_SEC2_TEST_<what>, and one
+# ratchet (tools/check.sh "release: test-only builds off in every release configuration"). Here
+# they are read from the ENVIRONMENT only (sysbuild does not forward a plain -D to the app image;
+# never a cache variable, never a board file), so a reconfigure without them builds a release
+# image again:
 #   OD_SEC2_TEST_TRACE=I_ACCEPT_CLAIM_CODE_ON_SERIAL   print the SEC2 trace (claim code, screen
 #                                                       kinds, boot-history decisions) on the
 #                                                       USB console (shared/core/od_sec2_trace.h)
-#   OD_TEST_REVERT_S=<seconds>                          the image does NOT confirm itself in
-#                                                       MCUboot; unconfirmed, it resets after
-#                                                       <seconds> so MCUboot reverts it
-#                                                       (src/od_test_bench.c)
-# Either one adds src/od_test_bench.c (console commands: od stat|confirm|reboot|dfu|panic|hang)
-# and prj_test_bench.conf. Both are refused in a versioned (OD_FW_VERSION) or CI build, like the
-# ESP32 trace in targets/esp32-idf/main/CMakeLists.txt.
+#   OD_SEC2_TEST_REVERT_S=<seconds>                     no-touch way back: an unconfirmed image
+#                                                       resets after <seconds> so MCUboot
+#                                                       reverts it (src/od_test_bench.c)
+# Either one adds src/od_test_bench.c (console commands: od stat|confirm|blind|reboot|por|pin|dfu|
+# panic|hang), prj_test_bench.conf and the derived define OD_SEC2_BENCH_BUILD. Both are refused in
+# a versioned (OD_FW_VERSION) or CI build, like the ESP32 options in
+# targets/esp32-idf/main/CMakeLists.txt.
 set(OD_BENCH_DEFINES "")
 set(od_bench_build OFF)
 if(DEFINED ENV{OD_SEC2_TEST_TRACE} AND NOT "$ENV{OD_SEC2_TEST_TRACE}" MATCHES "^(|0|OFF|[Nn][Oo])$")
@@ -79,21 +82,21 @@ if(DEFINED ENV{OD_SEC2_TEST_TRACE} AND NOT "$ENV{OD_SEC2_TEST_TRACE}" MATCHES "^
   set(od_bench_build ON)
   message(WARNING "od: SEC2 TEST-TRACE BUILD -- prints the claim code on the console. NOT FOR RELEASE.")
 endif()
-if(DEFINED ENV{OD_TEST_REVERT_S} AND NOT "$ENV{OD_TEST_REVERT_S}" STREQUAL "")
-  if(NOT "$ENV{OD_TEST_REVERT_S}" MATCHES "^[1-9][0-9]*$")
-    message(FATAL_ERROR "od: OD_TEST_REVERT_S must be a positive number of seconds")
+if(DEFINED ENV{OD_SEC2_TEST_REVERT_S} AND NOT "$ENV{OD_SEC2_TEST_REVERT_S}" STREQUAL "")
+  if(NOT "$ENV{OD_SEC2_TEST_REVERT_S}" MATCHES "^[1-9][0-9]*$")
+    message(FATAL_ERROR "od: OD_SEC2_TEST_REVERT_S must be a positive number of seconds")
   endif()
-  list(APPEND OD_BENCH_DEFINES OD_TEST_REVERT_S=$ENV{OD_TEST_REVERT_S}u)
+  list(APPEND OD_BENCH_DEFINES OD_SEC2_TEST_REVERT_S=$ENV{OD_SEC2_TEST_REVERT_S}u)
   set(od_bench_build ON)
   message(WARNING "od: TEST IMAGE -- does not confirm itself; resets for an MCUboot revert after "
-                  "$ENV{OD_TEST_REVERT_S} s unless confirmed. NOT FOR RELEASE.")
+                  "$ENV{OD_SEC2_TEST_REVERT_S} s unless confirmed. NOT FOR RELEASE.")
 endif()
 if(od_bench_build)
   if(DEFINED ENV{OD_FW_VERSION} OR DEFINED ENV{CI})
-    message(FATAL_ERROR "od: bench build (OD_SEC2_TEST_TRACE / OD_TEST_REVERT_S) refused in a "
+    message(FATAL_ERROR "od: bench build (OD_SEC2_TEST_TRACE / OD_SEC2_TEST_REVERT_S) refused in a "
                         "release/CI build")
   endif()
-  list(APPEND OD_BENCH_DEFINES OD_TEST_BENCH=1)
+  list(APPEND OD_BENCH_DEFINES OD_SEC2_BENCH_BUILD=1)
   list(APPEND EXTRA_CONF_FILE ${CMAKE_CURRENT_LIST_DIR}/prj_test_bench.conf)
 endif()
 
@@ -303,7 +306,7 @@ target_sources(app PRIVATE
   ${SRC_DIR}/od_cmd_config.c
   ${SRC_DIR}/od_rxq_app.c
   ${SRC_DIR}/od_sec2_app.c
-  ${SRC_DIR}/od_img_confirm_app.c
+  ${SRC_DIR}/od_health_app.c
   ${SRC_DIR}/od_claim_app_nordic.c
   ${SRC_DIR}/od_hal_secret.c
   ${SRC_DIR}/od_hal_radio.c

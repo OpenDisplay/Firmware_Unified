@@ -10,7 +10,7 @@
 #include "od_watchdog_app.h"
 #include "od_test_bench.h"
 #include "od_epd_nordic.h"
-#include "od_img_confirm_app.h"
+#include "od_health_app.h"
 #include "od_sec2_trace.h"
 
 #include <stdio.h>
@@ -91,17 +91,17 @@ int main(void)
 	od_watchdog_app_arm();
 
 	od_board_early_init();
-	/* MCUboot image confirmation is EVIDENCE-BASED (shared/core/od_img_confirm.h): a swapped-in
+	/* MCUboot image confirmation is EVIDENCE-BASED (shared/core/od_health.h): a swapped-in
 	 * image confirms on the first GATT write it serves (or after 24 h with no dead link), and
 	 * one whose links carry no ATT resets so MCUboot reverts it. Confirming here, before any
 	 * link had carried GATT, let an image with a dead GATT server confirm itself and become
 	 * unrecoverable over the air -- the BG22 stranding. Without the image manager (one slot,
 	 * nothing to revert to) this is a no-op. */
-	od_img_confirm_app_boot();   /* before the radio: no link can predate its callbacks */
+	od_health_app_boot();   /* before the radio: no link can predate its callbacks */
 	/* A setup screen drawn on this thread must keep the power-cycle count on time. */
 	od_epd_nordic_bind_loop_thread();
 	opendisplay_ble_init();
-#if defined(OD_TEST_BENCH) && OD_TEST_BENCH
+#if defined(OD_SEC2_BENCH_BUILD) && OD_SEC2_BENCH_BUILD
 	/* Bench image: the no-touch revert timer on top (src/od_test_bench.c). */
 	od_test_bench_image_boot();
 #endif

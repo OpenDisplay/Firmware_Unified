@@ -2,8 +2,10 @@
  * factory-reset steps) to the log console.
  *
  * OD_SEC2_TEST_TRACE is never set by a board fragment or a release script. A target build sets
- * it only behind an explicit acknowledgement (ESP32: -DOD_SEC2_TEST_TRACE=I_ACCEPT_CLAIM_CODE_ON_SERIAL,
- * targets/esp32-idf/main/CMakeLists.txt). The claim code is the one secret claim mode keeps
+ * it only behind an explicit acknowledgement, OD_SEC2_TEST_TRACE=I_ACCEPT_CLAIM_CODE_ON_SERIAL in
+ * the environment (both targets) or as -D (ESP32): targets/esp32-idf/main/CMakeLists.txt,
+ * targets/nordic-zephyr/zephyr/CMakeLists.txt. Every test-only option is named OD_SEC2_TEST_*
+ * and sits under one ratchet in tools/check.sh. The claim code is the one secret claim mode keeps
  * off the radio; a build that prints it to a serial port is for a bench with the port attached
  * and must never reach a user. Off, every macro compiles to nothing. */
 #ifndef OD_SEC2_TRACE_H

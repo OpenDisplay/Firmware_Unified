@@ -193,6 +193,13 @@ endif()
 #                                                           shorter claim-mode window)
 # Not kept in the cache, like the factory switches above: a reconfigure without the flag builds a
 # normal image. Refused when OD_FW_VERSION or CI is set (build-release.sh, release.yml).
+# The same names are also read from the environment (the form the Nordic target takes, see
+# targets/nordic-zephyr/zephyr/CMakeLists.txt), so one bench recipe builds both targets.
+foreach(od_test_opt OD_SEC2_TEST_TRACE OD_SEC2_TEST_CM_WINDOW_MS)
+    if(NOT DEFINED ${od_test_opt} AND DEFINED ENV{${od_test_opt}})
+        set(${od_test_opt} "$ENV{${od_test_opt}}")
+    endif()
+endforeach()
 set(OD_SEC2_TRACE_DEFINES "")
 if(NOT CMAKE_BUILD_EARLY_EXPANSION AND DEFINED OD_SEC2_TEST_TRACE)
     set(od_sec2_trace "${OD_SEC2_TEST_TRACE}")
