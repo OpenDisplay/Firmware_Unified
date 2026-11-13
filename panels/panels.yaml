@@ -31,10 +31,12 @@ panels:
     colour:
       scheme: BWRY            # OD_COLOR_SCHEME_BWRY = 3
       plane_format: 2bpp_packed
-      # bb_epaper u8Colors_4clr. HARDWARE ORDER IS black,white,RED,YELLOW while
-      # BBEP_YELLOW==2 / BBEP_RED==3, which is why the lab firmware had a
-      # yellow/red swap: the enum order and the panel order disagree.
-      code_map: [0, 1, 3, 2]  # index = logical BWRY, value = panel 2-bit code
+      # index = logical colour in the dither-palette order black=0, white=1,
+      # yellow=2, red=3 (what py-opendisplay encodes); value = panel 2-bit code.
+      # Measured on glass through the full (OTP) mode: raw 2 -> yellow, 3 -> red,
+      # so the map is the identity. The colour16 LUT slots assign their own
+      # codes; those live in 0xB0 and never pass through this map.
+      code_map: [0, 1, 2, 3]
     busy:
       usable: true
       idle_level: 1           # BBEP_CHIP_UC81xx in bb_ep.inl: idles HIGH
@@ -139,11 +141,9 @@ panels:
   # TRES: 184 = 0x00B8 wide, 360 = 0x0168 tall -> "61 00 B8 01 68"
   #       (0x001E is 168 = 0x00A8 / 384 = 0x0180 -> "61 00 A8 01 80")
   #
-  # code_map IS THE SAME [0,1,3,2], but for the opposite reason. The 2.6"
-  # natively uses bb_epaper's u8Colors_4clr_v2, which already crosses
-  # yellow/red; the 2.9" is listed as u8Colors_4clr and had to be patched to
-  # match. Both therefore end up at the same mapping -- do not "fix" this one by
-  # copying the 2.9"'s comment, which describes a bug this panel does not have.
+  # code_map is the identity, as on the 2.9": measured on glass through the
+  # full (OTP) mode, raw 2 -> yellow, 3 -> red. bb_epaper's u8Colors_4clr_v2
+  # table does not describe this drive sequence.
   #
   # WHAT IS NOT ESTABLISHED HERE: the waveforms. wave_colour/wave_edit were
   # derived on the 2.9". Same controller and same 535-byte slot format, so they
@@ -159,7 +159,7 @@ panels:
     colour:
       scheme: BWRY            # OD_COLOR_SCHEME_BWRY = 3
       plane_format: 2bpp_packed
-      code_map: [0, 1, 3, 2]  # bb_epaper u8Colors_4clr_v2, native on this part
+      code_map: [0, 1, 2, 3]  # glass, full mode (see 0x001E)
     busy:
       usable: true
       idle_level: 1           # BBEP_CHIP_UC81xx in bb_ep.inl: idles HIGH
@@ -245,7 +245,7 @@ panels:
     colour:
       scheme: BWRY
       plane_format: 2bpp_packed
-      code_map: [0, 1, 3, 2]   # u8Colors_4clr_v2
+      code_map: [0, 1, 2, 3]   # glass, full mode: raw 2 -> yellow, 3 -> red (see 0x001E)
     busy:
       # MEASURED UNUSABLE: reads busy immediately after power-up with nothing
       # sent, and never releases after DRF. bb_epaper flags this
@@ -342,9 +342,10 @@ panels:
     colour:
       scheme: BWRY
       plane_format: 2bpp_packed
-      code_map: [0, 1, 3, 2]   # u8Colors_4clr_v2
       # MEASURED ON GLASS 2026-11-03, one-pass raw-code strip through mode 0:
-      # raw code 0 -> black, 1 -> white, 2 -> YELLOW, 3 -> RED.
+      # raw code 0 -> black, 1 -> white, 2 -> YELLOW, 3 -> RED. Logical order is
+      # black, white, yellow, red (see 0x001E), so the map is the identity.
+      code_map: [0, 1, 2, 3]
       #
       # palette16_measured.json was measured on the 2.9" (ODBB1B76), whose raw
       # order is the other one (2 -> red, 3 -> yellow; visible in the reference
@@ -467,7 +468,7 @@ panels:
     colour:
       scheme: BWRY
       plane_format: 2bpp_packed
-      code_map: [0, 1, 3, 2]   # u8Colors_4clr_v2, native on this part
+      code_map: [0, 1, 2, 3]   # glass, full mode: raw 2 -> yellow, 3 -> red (see 0x001E)
     busy:
       usable: true
       idle_level: 1            # BBEP_CHIP_UC81xx: idles HIGH
@@ -561,7 +562,7 @@ panels:
     colour:
       scheme: BWRY
       plane_format: 2bpp_packed
-      code_map: [0, 1, 3, 2]   # u8Colors_4clr_v2, native on this part
+      code_map: [0, 1, 2, 3]   # glass, full mode: raw 2 -> yellow, 3 -> red (see 0x001E)
     busy:
       usable: true
       idle_level: 1
