@@ -74,4 +74,17 @@ static_assert((int)OD_PANEL_IC_ED103TC2_1872X1404_4GRAY == 3001,
               "the FastEPD panel-IC range moved; protocol_pending.h's 3002/3003 are no longer "
               "safe to assume -- re-derive them from opendisplay-protocol before building");
 
+/* Third of the same kind, added the other way round: the value landed in the canonical header
+ * FIRST (opendisplay-protocol "structs: add BatterySenseFlags bit1 CALIBRATED_MV"), and only the
+ * shared/protocol/ freeze keeps it out of the vendored copy. readBatteryVoltageUncached() tests
+ * it, so the battery path can read millivolts through od_hal_adc_read_mv() when a board's config
+ * opts in. Same deletion rule as above: it goes when shared/protocol/ is next synced.
+ *
+ * Spelled 0x02u, not canonical's (1u << 1), on purpose: an IDENTICAL redefinition is legal C and
+ * would sync down silently, while a differently-spelled one is a redefinition diagnostic -- the
+ * loud signal this file relies on to force its own deletion. The assert pins the value. */
+#define OD_BATTERY_SENSE_FLAG_CALIBRATED_MV 0x02u  /* ESP32: read the sense pin in calibrated mV; voltage_scaling_factor = divider ratio x1000 */
+static_assert(OD_BATTERY_SENSE_FLAG_CALIBRATED_MV == 0x02u,
+              "BatterySenseFlags bit1 moved; re-derive CALIBRATED_MV from opendisplay-protocol");
+
 #endif /* PROTOCOL_PENDING_H */

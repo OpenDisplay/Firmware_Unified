@@ -1538,18 +1538,35 @@ static float readBatteryVoltageUncached() {
         od_hal_gpio_config_output(enablePin, true);
         od_hal_delay_ms(10);
     }
+    // CALIBRATED_MV: average millivolts at the pin through the chip's eFuse ADC calibration;
+    // voltage_scaling_factor is then the divider ratio x1000. Otherwise raw counts, scaled by
+    // a per-board factor that also absorbs that chip's ADC error.
+    const bool calibrated =
+        (globalConfig.power_option.battery_sense_flags & OD_BATTERY_SENSE_FLAG_CALIBRATED_MV) != 0;
     const int numSamples = 10;
     uint32_t adcSum = 0;
+    bool readFailed = false;
     for (int i = 0; i < numSamples; i++) {
-        adcSum += od_hal_adc_read(sensePin);
+        if (calibrated) {
+            const int mv = od_hal_adc_read_mv(sensePin);
+            if (mv < 0) {
+                readFailed = true;
+                break;
+            }
+            adcSum += (uint32_t)mv;
+        } else {
+            adcSum += od_hal_adc_read(sensePin);
+        }
         od_hal_delay_ms(2);
     }
-    uint32_t adcAverage = adcSum / numSamples;
     if (enablePin != 0xFF) {
         od_hal_gpio_write(enablePin, false);
     }
-    if (scalingFactor > 0) return (adcAverage * scalingFactor) / (100000.0);
-    return -1.0;
+    // A failed calibrated read reports "unknown", not a plausible 0.0 V (see od_hal_adc.h).
+    if (readFailed || scalingFactor == 0) return -1.0;
+    uint32_t adcAverage = adcSum / numSamples;
+    if (calibrated) return (adcAverage * scalingFactor) / (1000000.0);
+    return (adcAverage * scalingFactor) / (100000.0);
 }
 
 static constexpr uint32_t kBatteryVoltageTtlMs = 30000u;
