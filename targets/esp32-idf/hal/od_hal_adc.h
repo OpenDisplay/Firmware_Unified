@@ -52,6 +52,14 @@ void od_hal_adc_set_resolution(uint8_t bits);
  * refresh, so per-sample warnings buried the rest of the log. */
 int od_hal_adc_read(uint8_t pin);
 
+/* Millivolts at the pin through IDF's eFuse ADC calibration (curve fitting on S3/C3/C6, line
+ * fitting on classic ESP32), or -1 if the pin is not readable, the driver failed, or the chip
+ * has no calibration data for the pin's attenuation. -1, not 0, for the reason in the header
+ * note: the battery path publishes what it computes, and 0 mV would read as a dead battery.
+ * Uses the same channel configuration, attenuation and warn-once handling as
+ * od_hal_adc_read(); the resolution setting does not apply. */
+int od_hal_adc_read_mv(uint8_t pin);
+
 /* Die temperature in degrees Celsius, or -999.0f when this part has no usable sensor or the
  * driver refuses. It lives with the ADC because it IS an on-chip analog read, and because the
  * same "one owner of the peripheral" rule applies: IDF's temperature_sensor driver installs a

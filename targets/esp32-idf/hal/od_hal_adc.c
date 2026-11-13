@@ -12,12 +12,18 @@
 #include "od_log.h"
 
 #include "esp_adc/adc_oneshot.h"
+#include "esp_adc/adc_cali.h"
+#include "esp_adc/adc_cali_scheme.h"
 
 static adc_oneshot_unit_handle_t s_adc1 = NULL;
 static int  s_adc_bits = 12;                        /* the SoC's native width */
 static uint8_t s_atten[SOC_ADC_CHANNEL_NUM(0)];     /* per-channel, indexed by channel */
 static bool s_atten_set[SOC_ADC_CHANNEL_NUM(0)];
 static bool s_configured[SOC_ADC_CHANNEL_NUM(0)];
+/* One calibration handle per attenuation, created on first use: IDF calibrates a (unit,
+ * attenuation) pair, not a channel. [0] = 0 dB, [1] = 12 dB. */
+static adc_cali_handle_t s_cali[2];
+static bool s_cali_tried[2];
 
 static bool adc_unit_ready(void)
 {
@@ -78,7 +84,11 @@ void od_hal_adc_set_resolution(uint8_t bits)
     }
 }
 
-int od_hal_adc_read(uint8_t pin)
+/* Native-width raw count for an ADC1 pin, configuring the channel on first use. False if the
+ * pin is not readable or the driver failed; *chan_out names the channel either way it is
+ * known. Shared by od_hal_adc_read() and od_hal_adc_read_mv() so both see the same channel
+ * configuration and the same warn-once. */
+static bool adc_read_native(uint8_t pin, adc_channel_t *chan_out, int *raw_out)
 {
     adc_channel_t chan;
     if (!adc_channel_for_pin(pin, &chan)) {
@@ -91,14 +101,14 @@ int od_hal_adc_read(uint8_t pin)
         static uint64_t s_warned = 0;   /* bitmap, one bit per GPIO */
         if (pin < 64 && !(s_warned & (1ULL << pin))) {
             s_warned |= (1ULL << pin);
-            od_log_warn("GPIO %u is not an ADC1 input; read returns 0 "
+            od_log_warn("GPIO %u is not an ADC1 input; reads return 0 (-1 calibrated) "
                         "(pin 0 usually means no battery_sense_pin is configured)",
                         (unsigned)pin);
         }
-        return 0;
+        return false;
     }
     if (!adc_unit_ready()) {
-        return 0;
+        return false;
     }
     if (!s_configured[chan]) {
         adc_oneshot_chan_cfg_t ccfg = {
@@ -106,12 +116,22 @@ int od_hal_adc_read(uint8_t pin)
             .bitwidth = ADC_BITWIDTH_DEFAULT,
         };
         if (adc_oneshot_config_channel(s_adc1, chan, &ccfg) != ESP_OK) {
-            return 0;
+            return false;
         }
         s_configured[chan] = true;
     }
+    if (adc_oneshot_read(s_adc1, chan, raw_out) != ESP_OK) {
+        return false;
+    }
+    *chan_out = chan;
+    return true;
+}
+
+int od_hal_adc_read(uint8_t pin)
+{
+    adc_channel_t chan;
     int raw = 0;
-    if (adc_oneshot_read(s_adc1, chan, &raw) != ESP_OK) {
+    if (!adc_read_native(pin, &chan, &raw)) {
         return 0;
     }
     /* The driver yields the SoC's native width; a lower requested resolution is a shift.
@@ -120,6 +140,54 @@ int od_hal_adc_read(uint8_t pin)
         raw >>= (12 - s_adc_bits);
     }
     return raw;
+}
+
+static adc_cali_handle_t cali_for(adc_atten_t atten)
+{
+    const int i = (atten == ADC_ATTEN_DB_0) ? 0 : 1;
+    if (s_cali_tried[i]) {
+        return s_cali[i];
+    }
+    s_cali_tried[i] = true;
+    esp_err_t err = ESP_ERR_NOT_SUPPORTED;
+#if ADC_CALI_SCHEME_CURVE_FITTING_SUPPORTED
+    adc_cali_curve_fitting_config_t cfg = {
+        .unit_id  = ADC_UNIT_1,
+        .atten    = atten,
+        .bitwidth = ADC_BITWIDTH_DEFAULT,
+    };
+    err = adc_cali_create_scheme_curve_fitting(&cfg, &s_cali[i]);
+#elif ADC_CALI_SCHEME_LINE_FITTING_SUPPORTED
+    adc_cali_line_fitting_config_t cfg = {
+        .unit_id  = ADC_UNIT_1,
+        .atten    = atten,
+        .bitwidth = ADC_BITWIDTH_DEFAULT,
+    };
+    err = adc_cali_create_scheme_line_fitting(&cfg, &s_cali[i]);
+#endif
+    if (err != ESP_OK) {
+        /* Once per attenuation: tried is set above, so this path is not re-entered. */
+        s_cali[i] = NULL;
+        od_log_warn("ADC calibration unavailable for %s (err %d); calibrated reads return -1",
+                    i ? "12 dB" : "0 dB", (int)err);
+    }
+    return s_cali[i];
+}
+
+int od_hal_adc_read_mv(uint8_t pin)
+{
+    adc_channel_t chan;
+    int raw = 0;
+    if (!adc_read_native(pin, &chan, &raw)) {
+        return -1;
+    }
+    const adc_atten_t atten = s_atten_set[chan] ? (adc_atten_t)s_atten[chan] : ADC_ATTEN_DB_12;
+    adc_cali_handle_t cali = cali_for(atten);
+    int mv = 0;
+    if (!cali || adc_cali_raw_to_voltage(cali, raw, &mv) != ESP_OK) {
+        return -1;
+    }
+    return mv;
 }
 
 /* ------------------------------------------------------------------ die temperature
