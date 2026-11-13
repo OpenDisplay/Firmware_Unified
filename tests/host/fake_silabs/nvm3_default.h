@@ -22,6 +22,9 @@ typedef uint32_t nvm3_ObjectKey_t;
  * usable (nvm3_generic.h:239). Modelled that way here: a fake whose "unmounted" state is a null
  * pointer would validate an adapter that cannot work on silicon. */
 typedef struct nvm3_Handle {
+    size_t nvmSize;           /* the ring fields od_nvm3_purge.c reads (nvm3_generic.h) */
+    size_t totalNvmPageCnt;
+    size_t fifoFirstIdx;
     bool hasBeenOpened;
 } nvm3_Handle_t;
 
@@ -38,6 +41,9 @@ sl_status_t nvm3_getObjectInfo(nvm3_Handle_t *h, nvm3_ObjectKey_t key,
                                uint32_t *type, size_t *len);
 sl_status_t nvm3_deleteObject(nvm3_Handle_t *h, nvm3_ObjectKey_t key);
 sl_status_t nvm3_initDefault(void);
+/* Declared for od_nvm3_purge.c's tests, which define them; nvm3_fake.c does not. */
+sl_status_t nvm3_repack(nvm3_Handle_t *h);
+bool nvm3_repackNeeded(nvm3_Handle_t *h);
 
 /* ---- test control ---- */
 

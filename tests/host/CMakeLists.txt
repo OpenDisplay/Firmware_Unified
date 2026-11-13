@@ -437,6 +437,17 @@ target_include_directories(od_silabs_storage_test PRIVATE
 target_link_libraries(od_silabs_storage_test od_shared_silabs)
 add_test(NAME silabs_storage COMMAND od_silabs_storage_test)
 
+# silabs_purge: the BG22 storage purge over a ring-model NVM3 in which repackNeeded() never
+# clears (the real soft threshold on this layout). Proves the purge ends, turns the ring once and
+# never calls nvm3_repack().
+add_executable(od_silabs_purge_test
+    silabs_purge_test.c
+    ../../targets/efr32bg22-slc/od_nvm3_purge.c)
+target_include_directories(od_silabs_purge_test PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/fake_silabs
+    ../../shared/core)
+add_test(NAME silabs_purge COMMAND od_silabs_purge_test)
+
 # time_silabs: compile the production BG22 adapter over fake sleeptimer/udelay primitives. The
 # load-bearing case crosses the underlying 32-bit tick rollover and proves conversion happens in
 # 64 bits before the public millisecond result is narrowed.

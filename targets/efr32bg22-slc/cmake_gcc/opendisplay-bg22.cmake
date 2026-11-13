@@ -284,6 +284,7 @@ add_library(slc OBJECT
     "../od_hal_time.c"
     "../od_sec2_app.c"
     "../od_claim_app_silabs.c"
+    "../od_nvm3_purge.c"
     "../od_hal_secret.c"
     "../od_cmd_silabs.c"
     "../od_link_policy.c"
