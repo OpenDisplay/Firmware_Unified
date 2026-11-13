@@ -69,6 +69,11 @@ unit runs unconfigured until a host writes a config ≤ 3120 B, which replaces i
 Nothing in any of these paths corrupts NVM3 itself or bricks the unit: OTA (`.gbl`) and
 config write keep working, so every case is recoverable from the host.
 
+**Observed, row 2 (ODBF064E, 2026-11-13).** A config written and read back on 0.25 without its
+0x27 was gone after the OTA; the older encrypted config came back, and 3.0 migrated its key into
+SEC2 (CLAIMED). OD507E22, the other prototype in that run, kept its config. Checklist
+§ "3.0 rollout on six units".
+
 ## Procedure for the prototype units (no firmware guard)
 
 A guard was considered and not added: the loss happens in the AppLoader, before 3.0 runs, and
@@ -81,6 +86,10 @@ Instead, for every unit that ran `feat/od-epd-driver` (at least ODBB1B76, ODBF21
    py-opendisplay `packets_for_displays()`).
 3. OTA to 3.0, then **always** write the saved (≤ 3120 B) config back, even if the unit looks
    configured — a resurrected older config looks configured.
+4. Read SEC_STATUS after the OTA. A key removed on the prototype can come back with an older
+   config (above); 3.0 then holds it in SEC2, and only SEC_KEY UNCLAIM removes it — on an image
+   that carries the `od_nvm3_purge.c` fix, since the purge the next boot runs looped forever
+   before it.
 
 2.3.0 units need none of this beyond the drive-packet migration.
 

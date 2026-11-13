@@ -46,6 +46,51 @@ Nordic's 0x0085 was on glass before the move to shared code; nothing below has r
 - [ ] ESP32: CMD_SPI_RAW sub-opcodes, and refusal on a FastEPD/IT8951 board
 - [ ] ESP32: ordinary bb_epaper upload still works after a drive or raw session
 
+### EFR32BG22 (`efr32bg22-slc`) — 3.0 rollout on six units, 2026-11-13
+
+Release image `v3/head2` `3c5e1f7` (gbl sha256 `5366fdf2…`, RAM gate heap 9,664 B), delivered by
+BLE OTA through the AppLoader. Each unit then got a fresh website-preset config (board + panel +
+power, BG22 drive class), left open and unclaimed. Evidence: `reports/silabs_validation/`
+(`LOG.md`, `REPORT.md`, per-unit logs) outside the repo. "Glass" = Jonas looked at the panel.
+
+| Unit | Board | Panel | Update from |
+|---|---|---|---|
+| ODF4DA34 | M3 Pro | 0x001E EP29YR 2.9in | 2.2.1 |
+| OD1F9C0E | M3 Pro | 0x0038 EP154YR 1.54in | 2.2.1 |
+| OD01AAA9 | M3 Pro | 0x003A EP42YR 4.2in (BUSY unusable) | 2.2.1 |
+| OD6FACF2 | M3 Pro | 0x001C EP266YR 2.66in | 2.2.1 |
+| OD507E22 | M3 Core | 0x0036 EP35YR 3.5in | 0.25 bg22-dev (4-page NVM3 prototype) |
+| ODBF064E | M3 Pro | 0x0040 EP75YR 7.5in | 0.25 bg22-dev, encrypted |
+
+- [x] **2.2.1 -> 3.0 keeps the config**: 289 B (x3) and 579 B byte-identical after the OTA, on four
+      units; READ_IDENT flags 0x0B (NEEDS_MIGRATION), SEC2 UNCLAIMED.
+- [x] **0.25 -> 3.0 keeps the config on OD507E22**: 1772 B with display modes/LUT packets,
+      byte-identical.
+- [x] **0.25 -> 3.0 brought back an OLDER config on ODBF064E**: `BG22_NVM3_OTA_LAYOUT.md` case (b)
+      row 2, now observed. The 2072 B open config written and read back on 0.25 was gone; the
+      2138 B encrypted one it replaced came back, and 3.0 migrated its key into SEC2 (CLAIMED).
+- [x] Same-image re-flash after every update (six units) - the units stay updatable.
+- [x] Fresh config write + byte-identical read-back (2032-2110 B), six units.
+- [x] Compressed, raw and 0x0085 colour16 uploads ACKed on all six panels (4.2in: START ACK
+      only after panel power-on, beyond the client's 10 s; colour16 221 s).
+- [x] Image store mounts after a reboot (not after the config write) and serves FLASH_PRELOAD /
+      FLASH_DISPLAY slot 0 on all six (16/12/32/20/20/96 KiB slots).
+- [x] **Glass: yellow and red were swapped** with `code_map` [0,1,3,2] on all six BWRY panels;
+      **correct on all six** after the identity map (fixed panel data, config rewritten). Only the
+      4-colour full mode was looked at; colour16 output was not checked by eye on any unit.
+- [x] Health gate on ODF4DA34: 24 links (incl. 4 consecutive quiet 15 s links), no AppLoader
+      entry. Counters not read (RTT only).
+- [x] **SEC_KEY UNCLAIM on BG22 (ODBF064E)**: accepted, unit UNCLAIMED, 0x27 disabled and zeroed.
+      **Its next boot never advertised**: the storage purge looped in `nvm3_repack`
+      (SWD PC samples + stack), NVM3 pages ended at ~29,200 erases each (spec 10k). Recovered
+      by erasing 0x50000-0x56000 over SWD; the unit then booted factory-fresh into claim mode,
+      the 10-minute window timed out unclaimed, and it was configured normally.
+- [ ] **Purge fix (`od_nvm3_purge.c`) on hardware**: UNCLAIM or factory reset on a configured BG22
+      running the fixed image, reboot watched under J-Link: must advertise within seconds, erase
+      counts up by about one per page. Not run.
+- [ ] Factory reset (R6 sets the same purge flag) on BG22: not run.
+- [ ] colour16 output on glass; the 4.2in colour16 palette is still the 2.9in copy.
+
 ### EFR32BG22 (`efr32bg22-slc`) — link starvation after a config write, 2026-11-11
 
 Unit **OD13FA1E** (M3 Silabs Pro, EP29YR 2.9in BWRY, 168x384), encrypted, FMDN + FindMy on,
