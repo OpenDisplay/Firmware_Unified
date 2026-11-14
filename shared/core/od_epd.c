@@ -5,6 +5,7 @@
  * every byte it writes came out of the device config.
  */
 #include "od_epd.h"
+#include "opendisplay_structs.h" /* OD_STATIC_ASSERT only */
 
 #include <string.h>
 
@@ -113,7 +114,7 @@ static void seq_start(od_epd_t *e)
 #define SRC_MODE  0u
 #define SRC_SLEEP 1u
 
-_Static_assert(OD_EPD_SEQ_WINDOW >= 64u && OD_EPD_SEQ_WINDOW <= 0xFFFFu,
+OD_STATIC_ASSERT(OD_EPD_SEQ_WINDOW >= 64u && OD_EPD_SEQ_WINDOW <= 0xFFFFu,
                "the window must hold the largest escape argument run (32 SUBST/WINDOW pairs)");
 
 static void seq_open(od_epd_t *e, uint8_t src, uint8_t mode, uint16_t len)

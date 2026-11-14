@@ -31,14 +31,14 @@
 #define PANEL_OFF_SLEEPLEN  12u
 #define PANEL_OFF_SLEEPSEQ  13u
 
-_Static_assert(sizeof(struct DisplayModeHead) == MODE_OFF_SEQ, "0xAE head size");
-_Static_assert(offsetof(struct DisplayModeHead, seq_len) == MODE_OFF_SEQLEN, "0xAE seq_len");
-_Static_assert(offsetof(struct DisplayModeHead, color_scheme) == MODE_OFF_SCHEME, "0xAE scheme");
-_Static_assert(sizeof(struct DisplayLutHead) == LUT_OFF_DATA, "0xAF head size");
-_Static_assert(offsetof(struct DisplayLutHead, crc16) == LUT_OFF_CRC, "0xAF crc");
-_Static_assert(sizeof(struct DisplayPanelHead) == PANEL_OFF_SLEEPSEQ, "0xB1 head size");
-_Static_assert(OD_EPD_ESC_WINDOW == OD_SEQ_ESC_WINDOW, "WINDOW escape value");
-_Static_assert(OD_EPD_ESC_FILL == OD_SEQ_ESC_FILL, "FILL escape value");
+OD_STATIC_ASSERT(sizeof(struct DisplayModeHead) == MODE_OFF_SEQ, "0xAE head size");
+OD_STATIC_ASSERT(offsetof(struct DisplayModeHead, seq_len) == MODE_OFF_SEQLEN, "0xAE seq_len");
+OD_STATIC_ASSERT(offsetof(struct DisplayModeHead, color_scheme) == MODE_OFF_SCHEME, "0xAE scheme");
+OD_STATIC_ASSERT(sizeof(struct DisplayLutHead) == LUT_OFF_DATA, "0xAF head size");
+OD_STATIC_ASSERT(offsetof(struct DisplayLutHead, crc16) == LUT_OFF_CRC, "0xAF crc");
+OD_STATIC_ASSERT(sizeof(struct DisplayPanelHead) == PANEL_OFF_SLEEPSEQ, "0xB1 head size");
+OD_STATIC_ASSERT(OD_EPD_ESC_WINDOW == OD_SEQ_ESC_WINDOW, "WINDOW escape value");
+OD_STATIC_ASSERT(OD_EPD_ESC_FILL == OD_SEQ_ESC_FILL, "FILL escape value");
 
 #define RAW_BUSY_POLL_MS 2u
 

@@ -14,7 +14,7 @@
 #include "opendisplay_structs.h"
 
 /* [ACK][0x4C] + ActionInfoResponse. */
-_Static_assert(sizeof(struct ActionInfoResponse) == 8u, "ACTION_INFO data is 8 bytes");
+OD_STATIC_ASSERT(sizeof(struct ActionInfoResponse) == 8u, "ACTION_INFO data is 8 bytes");
 
 od_cmd_result_t od_cmd_app_action_info(const od_cmd_ctx_t *ctx, od_span_t body)
 {
