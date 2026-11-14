@@ -102,11 +102,16 @@ jobs:
           west update --narrow -o=--depth=1
 
       # The version the OpenDisplay/Firmware release uses for its NRF52840.zip, in its own venv
-      # so it shares nothing with the NCS toolchain's Python.
+      # so it shares nothing with the NCS toolchain's Python. The toolchain image exports a
+      # PYTHONPATH, so without --ignore-installed and a cleared PYTHONPATH pip counts the image's
+      # own click as satisfying the dependency and leaves the venv without one; the tool then
+      # fails to start once ncs-env.sh has changed the environment.
       - name: Install adafruit-nrfutil
         run: |
           python3 -m venv "$RUNNER_TEMP/nrfutil"
-          "$RUNNER_TEMP/nrfutil/bin/pip" install --quiet adafruit-nrfutil==0.5.3.post16
+          env -u PYTHONPATH -u PYTHONHOME "$RUNNER_TEMP/nrfutil/bin/pip" install --quiet \
+            --ignore-installed adafruit-nrfutil==0.5.3.post16
+          env -u PYTHONPATH -u PYTHONHOME "$RUNNER_TEMP/nrfutil/bin/python" -I -c 'import click, nordicsemi'
           echo "ADAFRUIT_NRFUTIL=$RUNNER_TEMP/nrfutil/bin/adafruit-nrfutil" >> "$GITHUB_ENV"
 
       # Both keys or neither: build.sh refuses a key directory that lacks the file a board

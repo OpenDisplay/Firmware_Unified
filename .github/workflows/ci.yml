@@ -42,6 +42,17 @@ jobs:
       # it needs). Without it that check SKIPs, which ci_check.sh rightly refuses.
       - uses: astral-sh/setup-uv@v6
 
+      # The panel-data check regenerates panels/generated from bb_epaper at the reference
+      # revision (panels/tools/pdlib.py BBEP_REF_REV) and reads it from a clone with git archive.
+      # Without the clone the check fails; it is fetched by full commit id so a moved branch
+      # cannot change what is compared.
+      - name: Fetch bb_epaper reference revision
+        run: |
+          git init -q "$RUNNER_TEMP/bb_epaper"
+          git -C "$RUNNER_TEMP/bb_epaper" fetch -q --depth=1 \
+            https://github.com/bitbank2/bb_epaper.git 4edfa7fe9f86aaf7211dddb06103db69fad2adcc
+          echo "OD_BBEP_UPSTREAM=$RUNNER_TEMP/bb_epaper" >> "$GITHUB_ENV"
+
       - name: check.sh (boundary, host suites, sanitizers, fuzz, wire corpus)
         run: tools/ci_check.sh --fuzz-time 120
 
