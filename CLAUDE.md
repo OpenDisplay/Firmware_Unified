@@ -92,6 +92,10 @@ test-scope narrative in this file, it belongs in the checklist instead.
 - **nRF52840 idle power:** USB is enabled only while VBUS is present (PR #90). Battery idle current
   measured at 40 µA, down from ~2 mA (`../Firmware`: ~55 µA), and the USB console still enumerates
   (checklist § nRF52840 USB power gating has the remaining open rows).
+- **`telink-tlsr` (fork addition): running on four ATC boards** (Hanshow 2.66" BWR, 2.0" BWY, 3.5" BWY; a 9.7" dual-controller BWR) — BLE install
+  from ATC firmware, config write/read, boot screen, correct direct image uploads, battery and panel
+  temperature in the MSD, and wireless updates of its own (gated by ENTER_DFU). tc32 must not build at `-Os` (broken jump tables; the build checks).
+  Checklist § `telink-tlsr` has the rows.
 - **Never hardware-verified:** the WiFi/LAN transport, and the F4/F7 correctness fixes.
 - Arduino shim fully removed from `esp32-idf` (docs/ARCHIVE_esp32_arduino_shim.md);
   `targets/esp32-idf/vendor/fastepd/` is its permanent (non-shim) FastEPD adapter.

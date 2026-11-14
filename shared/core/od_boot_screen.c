@@ -335,7 +335,8 @@ static void bootPickHeaderScales(int headerH, int headerMaxX, int pad,
     *manufScaleOut = manufS;
 }
 
-static bool bootLayoutFit(uint16_t w, uint16_t h, uint16_t h_full, int blockH, int pad, int qrModules, int* modulePxOut,
+static bool bootLayoutFit(uint16_t w, uint16_t h, uint16_t h_full, int blockH, int pad, int qrModules,
+                          int minModulePx, int* modulePxOut,
                           int* qrPxOut, bool* qrRightOut, int* qrXOut, int* qrYOut, int* availWOut,
                           int* textYOut, uint16_t maxTextW) {
     int textGap = pad;
@@ -348,7 +349,7 @@ static bool bootLayoutFit(uint16_t w, uint16_t h, uint16_t h_full, int blockH, i
     const int moduleMax = bootQrModuleMax(w, h_full);
     if (moduleIdeal > moduleMax) moduleIdeal = moduleMax;
 
-    for (modulePx = moduleIdeal; modulePx >= 1; modulePx--) {
+    for (modulePx = moduleIdeal; modulePx >= minModulePx; modulePx--) {
         qrPx = modulePx * qrModules;
         if (qrPx > (int)w - pad * 2) continue;
         // Landscape: text left, QR right — both vertically centered in the taller of the two
@@ -636,16 +637,28 @@ bool od_boot_screen_render(const struct od_config *cfg,
         fwKey1Gap = 0;
 
         const int scaleHi = bootMiddleScaleHi(w_log, h_log, useHighResLayout);
-        for (tryScale = useZoneLayout ? scaleHi : 1; tryScale >= 1 && !layoutOk; tryScale--) {
-            middleScaleText = ultraHiResPanel ? (tryScale > 2 ? tryScale - 2 : 1) : tryScale;
-            pad = bootMiddlePad(middleScaleText, w_log, h_log, useZoneLayout);
-            fwKey1Gap = useZoneLayout ? middleScaleText * 6 : 0;
-            maxTextW = bootMaxTextWidth(bootLines, numBootLines, middleScaleText);
-            int contentH = useZoneLayout
-                ? (4 * bootLineStep(middleScaleText) + fwKey1Gap + 7 * middleScaleText)
-                : (((int)numBootLines - 1) * bootLineStep(middleScaleText) + 7 * middleScaleText);
-            layoutOk = bootLayoutFit(w_log, (uint16_t)middleH, h_log, contentH, pad, (int)qrModules, &modulePx, &qrPx, &qrRight, &qrX,
-                                     &qrY, &availW, &textY, maxTextW);
+        /* Largest text first, as the authority does -- but on panels whose QR cap is 8 or more
+         * (>= 800x600), the first pass only accepts a QR of at least half that cap. Without it the
+         * search took the largest text that fit beside ANY QR, and a large panel with a short
+         * middle zone (960x672) got scale-8 text next to a 1-pixel-module QR no phone could read.
+         * Smaller panels are already balanced and skip the floor (on 400x300 it only shrank the
+         * text); the second pass is the authority's search unchanged. */
+        const int qrModuleCap = bootQrModuleMax(w_log, h_log);
+        const int qrModuleFloor = qrModuleCap >= 8 ? (qrModuleCap + 1) / 2 : 1;
+        for (int pass = 0; pass < 2 && !layoutOk; pass++) {
+            const int minModulePx = pass == 0 ? qrModuleFloor : 1;
+            for (tryScale = useZoneLayout ? scaleHi : 1; tryScale >= 1 && !layoutOk; tryScale--) {
+                middleScaleText = ultraHiResPanel ? (tryScale > 2 ? tryScale - 2 : 1) : tryScale;
+                pad = bootMiddlePad(middleScaleText, w_log, h_log, useZoneLayout);
+                fwKey1Gap = useZoneLayout ? middleScaleText * 6 : 0;
+                maxTextW = bootMaxTextWidth(bootLines, numBootLines, middleScaleText);
+                int contentH = useZoneLayout
+                    ? (4 * bootLineStep(middleScaleText) + fwKey1Gap + 7 * middleScaleText)
+                    : (((int)numBootLines - 1) * bootLineStep(middleScaleText) + 7 * middleScaleText);
+                layoutOk = bootLayoutFit(w_log, (uint16_t)middleH, h_log, contentH, pad, (int)qrModules,
+                                         minModulePx, &modulePx, &qrPx, &qrRight, &qrX,
+                                         &qrY, &availW, &textY, maxTextW);
+            }
         }
         if (!layoutOk) {
             middleScaleText = 1;

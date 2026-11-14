@@ -339,7 +339,16 @@ int main(void)
   cfg.displays[0].rotation = 1;   /* landscape: w_log 1600, h_log 1200 */
   assert(render(&cfg, &sec, row_wide, sizeof(row_wide), qr, sizeof(qr)));
   assert(g_begin_planes == 2 && g_writes == 3200 && g_end_frames == 1);
-  assert(g_hash == 0x3ABB8622u);
+  /* Moved when large panels got a QR floor (od_boot_screen.c): the QR here was 3-pixel modules
+   * beside scale-8 text, and is now larger with smaller text. */
+  assert(g_hash == 0x2670EA32u);
+  /* 960x672 (the Telink 9.7" dual-controller BWR): the geometry that exposed the missing QR
+   * floor -- scale-8 text left the QR 1-pixel modules. */
+  reset_fake();
+  make_case(&cfg, &sec, 960, 672, OD_COLOR_SCHEME_BWR);
+  assert(render(&cfg, &sec, row, sizeof(row), qr, sizeof(qr)));
+  assert(g_begin_planes == 2 && g_writes == 1344);
+  assert(g_hash == 0xF80EDB48u);
   /* One byte short of the full pitch is refused, not silently half-rendered. */
   reset_fake();
   g_segments = 2;

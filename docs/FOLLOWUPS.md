@@ -1583,3 +1583,11 @@ on targets that cannot sleep. That is a wire-behaviour change needing its own pl
 update in step, so it is filed rather than done here.
 
 **Sequencing:** answer Q3 before py-opendisplay moves to `0x0053`, not after.
+
+## 28. `Firmware` — the boot-screen QR shrinks to 1-pixel modules on large panels
+
+`src/boot_screen.cpp` picks the largest middle-zone text scale that fits beside a QR of any
+module size, so on panels >= 800x600 with a short middle zone the QR ends up unreadable (960x672:
+scale-8 text, 1-pixel modules). `Firmware_Unified` adds a first pass requiring modules of at least
+half the panel's QR cap on those panels, with the existing search as the fallback; smaller panels
+are untouched. DIVERGENCE_MATRIX § 29 has the before/after survey. Port upstream when convenient.

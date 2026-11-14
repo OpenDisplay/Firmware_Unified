@@ -1279,3 +1279,21 @@ the stream has completed. Failures before finalization continue measuring to cap
 
 Host refresh fakes advance the clock by 30 seconds. Direct, partial, and PIPE assertions pin `t=`
 and `r=` to the pre-refresh interval, including PIPE's DATA-driven auto-END path.
+
+## 29. Boot-screen QR floor on large panels (2026-09-30)
+
+`Firmware`'s layout (`src/boot_screen.cpp`, `bootLayoutFit` and its caller) tries the middle-zone
+text scale from the largest down and takes the first that fits beside a QR of *any* module size.
+On a large panel with a short middle zone the largest text wins and the QR shrinks to nothing:
+960x672 rendered scale-8 text beside a QR of 1-pixel modules (~49 px), which no phone reads --
+found on the Telink 9.7" board. Every panel whose QR cap (`bootQrModuleMax`) is 8 or more,
+i.e. >= 800x600, is exposed.
+
+Here a first pass requires modules of at least half that cap; the authority's search is the
+fallback, unchanged. Panels with a cap below 8 skip the floor: a floor there only shrank already
+balanced text (400x300 and 600x448 went to scale 1). Measured on 26 geometries (128x296 to
+1872x1404, several rotations): the seven with a speck-sized QR change -- 960x640, 960x672,
+1024x758, 1200x825, 1304x984, 1600x1200 -- and the other 19 render byte-identical, 800x480
+included. `tests/host/boot_screen_test.c` pins 960x672 and the moved 1600x1200 hash.
+
+Reported upstream as FOLLOWUPS § 28.

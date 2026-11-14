@@ -1125,3 +1125,129 @@ Merged in PR #90 (`4a61a7a`). Baseline before the change: ~2 mA idle while adver
       (2026-09-17, same test.)
 - [ ] Plug/unplug during BLE upload does not interrupt the upload; a serial-monitor log burst may
       drop characters but does not block firmware work; UF2 drag-and-drop remains functional.
+
+## `telink-tlsr` — Hanshow 2.66" BWR ATC tag (2026-09-29)
+
+First silicon for this target: a Hanshow ESL (ATC type 9, "266 HS BWR SSD") previously running
+ATC_BLE_OEPL fw 105, TLSR825x, powered from 3.3 V USB. Build `tlsr825x-diag2` (OD side `-O2`,
+watchdog, breadcrumbs in MSD bytes 0..3). Evidence: the session transcript of 2026-09-29.
+
+- [x] **Install via ATC_BLE_OEPL's BLE OTA** — accepted once the image carried Telink's CRC32 tail
+      (`tools/finish_image.py`); without it ATC ACKs the download (`00C9`) and keeps its own firmware.
+- [x] **Install via SWS, write-only** (`tools/sws_flash.py`, adapter TX through a resistor to PA7, no RX).
+- [x] **Boot, advertise** as `OD80A992`, MSD company `0x2446`, service UUID `0x2446`; re-advertises
+      after every disconnect.
+- [x] **Connect**: ATT MTU 247, DLE request after 1 s, subscribe to notifications.
+- [x] **`0x0043` FIRMWARE_VERSION** answered, plaintext.
+- [x] **`0x0040` CONFIG_READ** on a blank device → `ff 40 00 00`.
+- [x] **CONFIG_WRITE + CONFIG_READ round trip** (py-opendisplay `write_config` with `config=` to
+      skip interrogation): PanelIC 1031, 152x296, BWR, all six SPI pins, `pwr_pin` 21 read back intact;
+      config survives a firmware reflash (own sector at `0x7A000`).
+- [x] **Direct image upload + refresh**, `opendisplay upload --rotate 90`, zlib: correct image —
+      orientation, black/white polarity, red plane, 8-pixel source offset — after two model settings
+      for this glass (Y-increment scan, B/W RAM not inverted).
+- [x] **Active-low panel power** (PC5) switches the panel.
+- [x] **No reset after upload** (two uploads, one forcing a refresh, advertising logged throughout,
+      counter unchanged). The earlier "watchdog after every upload" was a false positive: an SWS
+      flash halts and resets the MCU mid-loop, leaving breadcrumb `0x10`, which the next boot counted
+      as a hang. `sws_flash.py` now clears the breadcrumb (analog `0x3b`) before its reset; verified.
+- [x] **Boot screen** drawn on power-up (MSD byte 4 = `0xb2`), then replaced by an upload; the uploaded
+      image persists until the next power cycle. Needed the MCU held out of suspend while the panel is
+      driven: with suspend allowed, every stack-servicing call during render/refresh napped until the
+      next advertising event (500 ms), and the boot render never finished.
+- [x] **No boot screen after a watchdog reset** (policy; the reset path is unit-level, not provoked on silicon).
+- [x] **Wireless update** (`tools/ble_ota.py`: OD ENTER_DFU `0x0051` arms the Telink OTA service, then
+      Telink's legacy OTA): seven updates, both banks (new image at `0x40000`, 192 KB banks), ~40 s for
+      100 KB; the tag reports the new build tag afterwards and draws the boot screen.
+- [x] **Failed updates are harmless**: six aborted attempts, the running firmware kept every time.
+- [x] **Unarmed OTA is ignored**: a full upload without `0x0051` left the build unchanged.
+- [x] Found: the OTA server aborts on the first packet when the image length is a multiple of 16; Telink
+      images are body-padded to 16 bytes, so the length is 4 mod 16. `finish_image.py` pads accordingly
+      and both it and `ble_ota.py` refuse any other length.
+- [x] **Battery voltage and temperature in the MSD**: with `battery_sense_pin` 11 (PB3) the advert
+      carried 3.00-3.02 V on the adapter's 3.3 V rail, and 21.0 C from the SSD16xx sensor read during
+      the boot-screen refresh. Not yet checked on a coin cell or against a meter.
+- [ ] Encrypted session (auth + CCM) — the AES engine known-answer test has not run on silicon; `ble_ota.py`
+      sends ENTER_DFU in plaintext, so updating a keyed tag is not supported yet.
+- [ ] **One unexplained loss of the tag** (2026-09-29): after a boot screen, a failed connect, then no
+      advertising and no reaction to SWS resets until the USB adapter was replugged. Not reproduced;
+      a brown-out on the adapter's 3.3 V is suspected. Note for this wiring: replugging only the 3.3 V
+      wire does not power-cycle the chip — the idle-high TX line feeds it through the SWS resistor.
+- [ ] Any other ATC panel type; any other tag.
+
+### Second tag: Hanshow BWY, ATC type 5 (2026-09-29)
+
+ATC_04D611 (ATC fw 107, "200 HS BWY SSD", same pins as the 2.66"), on its own battery; now `ODED5A7C`.
+
+- [x] **Install from ATC over BLE with `tools/atc_install.py`** (no web page, no wires): `00C9`, boots
+      and advertises.
+- [x] **Config write + read back**: PanelIC 1032, 200x152, BWY, rotation 3.
+- [x] **Image upload, all four edges and both colours correct**, portrait image with no `--rotate`.
+      Took three rounds: driven as ATC's 152x200 the image was mirrored across a diagonal; with the
+      gate scan reversed it was a plain rotation but cropped to 152x152 with stale RAM below --
+      the glass is 200 sources x 152 gates.
+- [x] **Boot screen** upright and complete (MSD byte 4 `0xb2`).
+- [x] **Battery and temperature in the MSD** on a coin cell: 2.98-2.99 V, 23.0 C.
+- [x] **Wireless updates** (`ble_ota.py`), three.
+- [x] **LED patterns (`0x0073`)** on both tags, firmware 1.0.0 through py-opendisplay's stock
+      `activate_led`: red, green, blue in sequence, repeated. The LEDs are active-low: with
+      `led_flags` 0 a pattern lit all three (white) for its whole run; with 0x7 the colours are
+      right. The converter now emits 0x7 for ATC's "not inverted".
+- [ ] **SWS after a blue LED pattern** (PA7 handed back to SWS): unit-tested only; needs one
+      `sws_flash.py` run on the wired 2.66" after a pattern.
+- [ ] Boot blink (green) seen on the tags -- not confirmed by eye yet.
+### Third tag: Hanshow Nebular 350Y-N, ATC type 1 (2026-09-29)
+
+A tag whose coin cell had died, cell disconnected and powered from the adapter's 3.3 V; now `OD4D1AC2`.
+
+- [x] **Revived over SWS**: it neither redrew nor advertised on power-up. `sws_flash.py` wrote ATC's
+      firmware back and it advertised as ATC_02AF11 -- with its stored settings empty (type 0, no
+      pins). Setting ATC type 1 (0x0004) restored the type's pins and ATC drew on the glass.
+- [x] Found: this ATC build inserts a GUI-rotation byte before the pinouts; py-atc-ble-oepl read every
+      pin one byte off (reset and cs both 0x1000). Fixed there; the pins match the other Hanshow tags.
+- [x] **Install from ATC with `tools/atc_install.py`** (its first run from the repo): `00C9`.
+- [x] **Config + image**: PanelIC 1033, 184x384, BWY on the imported UC8151 settings; colours,
+      mirroring and all edges correct first time. Held landscape: rotation 1.
+- [x] **Boot screen** (`0xb2`), **battery / temperature** in the MSD (3.23 V on 3.3 V, 21.0 C),
+      **LED pattern** red/green/blue.
+### Fourth board: 9.7" TC097SC1B8 BWR on an "OEPL - ATC1441 TLSR Port" board, ATC type 14 (2026-09-30)
+
+Ai-Thinker TB-03F (TLSR8253, 512 KB), two panel controllers; was ATC_331C41 (fw 111), now `OD3E3DE5`.
+ATC config and the generated OpenDisplay config backed up before the install.
+
+- [x] **Install from ATC** with `tools/atc_install.py` (first attempt timed out mid-transfer; ATC kept
+      its firmware; the second went through).
+- [x] **Boot screen** drawn through both controllers (`0xb2`, ~20 s from boot).
+- [x] **Image upload**, both halves and both colours correct; upright at rotation 2. OTP read on the
+      real panel (not the fallback path -- the image is not bit-reversed).
+- [x] Found and fixed: a compressed upload of a mostly blank frame reset the board every time at
+      ~55 %: one frame inflated to tens of KB, and bit-banging that into the panel inside a single
+      dispatch outlasted the 4 s watchdog. The panel write now services the stack every 2 KB.
+- [x] Timing (test image, 161 KB -> 1.4 KB zlib): ~20 s transfer, almost all of it bit-banged SPI
+      (~8 KB/s); ~33 s refresh.
+- [x] **Faster panel SPI**: the TLSR825x SPI master only exists on PA2/3/4 and PB7/PB6/PD7; the ATC
+      boards clock on PB5 and send on PB6, so it cannot be used. `tlsr_port_spi_out()` instead
+      bit-bangs from RAM with direct register stores (two per bit when clock and data share a
+      port, as on all four boards). Same test image: transfer ~20 s -> ~7 s, image correct.
+- [x] Boot-screen status 0xB1 is now advertised while drawing (the 9.7" takes ~110 s at 16 MHz).
+- [x] **CPU at 48 MHz** (was 16): same test upload transfers in ~2-3 s, boot screen start-to-drawn
+      ~55 s instead of ~112 s (the panel's own refresh is ~33 s of both); image correct with the
+      faster software SPI.
+- [ ] Battery cost of 48 MHz not measured (more current awake, less time awake; the PLL may
+      re-lock at every wake). 24 / 32 MHz are the fallbacks.
+- [x] 48 MHz on the 2.66" and the 2.0" BWY (updated with the identity-strings build); the
+      Nebular is still on the 16 MHz build.
+- [x] **Identity strings (DataExtended 0x2C)**: written and read back on the 2.66", the 2.0" BWY and
+      the 9.7"; the 9.7" boot screen shows manufacturer and model in its header. The smaller panels'
+      layout has no header, so there they are stored only.
+- [x] Boot screen QR: was 1-pixel modules at 960 x 672 (shared layout, DIVERGENCE_MATRIX § 29); now
+      a readable QR beside large text, confirmed on the glass.
+- [x] Battery reading on PB0 (2.93 V on the board's batteries).
+- [ ] The second busy line (PC0) is unused, as in ATC; not seen to matter.
+- [ ] Rollback to ATC over BLE (`ble_ota.py` with ATC's image) or SWS (`--invalidate-bank2`): not exercised.
+- [ ] 2.66" with rotation 1 in its config (converter emits it; the tag still has rotation 0 and
+      takes `--rotate 90`).
+
+Found on the way, fixed, and guarded: tc32 at `-Os` emits broken switch jump tables (the first
+command hung the chip) — the OD side builds at `-O2` and `tools/check_jump_tables.py` fails the build
+on a table that points outside its function.
