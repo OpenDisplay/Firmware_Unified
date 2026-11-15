@@ -65,9 +65,6 @@ static uint8_t s_boot_qr[256];
 #define pin_valid od_tlsr_pin_valid
 #define pin_sdk   od_tlsr_pin_sdk
 
-/* PA7 is SWS, the only wired way back into a tag whose image is broken: never touched. */
-#define PIN_SWS 7u
-
 static void pin_out(uint8_t p, bool high)
 {
     if (!pin_valid(p)) {
@@ -578,10 +575,10 @@ void od_sec2_app_key_screen_changed(void)
     s_key_redraw = true;
 }
 
-/* The 0x27 reset pin, in the config pin encoding. PIN_SWS is refused, as for raw GPIO. */
+/* The 0x27 reset pin, in the config pin encoding. PA7 (SWS) is refused (od_tlsr_pins.h). */
 bool od_claim_app_pin_input(uint8_t pin, bool pull_up, bool pull_down)
 {
-    if (!pin_valid(pin) || pin == PIN_SWS) {
+    if (!pin_valid(pin)) {
         return false;
     }
     pin_in(pin, pull_up ? PM_PIN_PULLUP_10K : pull_down ? PM_PIN_PULLDOWN_100K : PM_PIN_UP_DOWN_FLOAT);
@@ -590,7 +587,7 @@ bool od_claim_app_pin_input(uint8_t pin, bool pull_up, bool pull_down)
 
 int od_claim_app_pin_read(uint8_t pin)
 {
-    if (!pin_valid(pin) || pin == PIN_SWS) {
+    if (!pin_valid(pin)) {
         return -1;
     }
     return gpio_read(pin_sdk(pin)) ? 1 : 0;
@@ -641,7 +638,7 @@ int opendisplay_display_spi_raw_gpio(uint8_t pin, uint8_t mode, uint8_t *level_o
     }
 #endif
 
-    if (!pin_valid(pin) || pin == PIN_SWS || level_out == NULL) {
+    if (!pin_valid(pin) || level_out == NULL) {
         return -(int)OD_ERR_SPI_RAW_BAD_ARGS;
     }
     switch (mode) {

@@ -54,12 +54,12 @@ There is no LED. The setup-family screens and the key-state redraw are not wired
 ### Pins and rail
 
 A config pin byte is `group * 8 + bit`: PA0 = 0 … PD7 = 31; 0xFF is "not present". Port E is
-refused: PE0..PE3 are the internal flash bus. These tags
+refused: PE0..PE3 are the internal flash bus. So is PA7, which is SWS: a config pin naming
+it is treated as not present. These tags
 switch the panel rail with a P-MOSFET, on when `pwr_pin` is LOW, which the config declares with
 the provisional DeviceFlags bit 6 `OD_DEVICE_FLAG_PWR_PIN_ACTIVE_LOW`. OD05B911's panel:
 RESET PD4 (28), BUSY PA1 (1), DC PB7 (15), CS PD2 (26), MOSI PB6 (14), CLK PD7 (31), rail PB5
-(13), on panel id 0xF001 (`panels/panels.yaml`, provisional). PA7 is SWS: no config should name
-it.
+(13), on panel id 0xF001 (`panels/panels.yaml`, provisional).
 
 OD060F40 (3.5" BWY, legacy screen type 1): RESET PD4 (28), BUSY PA1 (1), DC PD7 (31), CS PB4
 (12), MOSI PB6 (14), CLK PB5 (13), panel power PB7 (15) driven high (no active-low flag), battery

@@ -1295,6 +1295,11 @@ target_compile_definitions(od_tlsr_install_test PRIVATE OD_TLSR_INSTALL_HOST=1)
 target_link_libraries(od_tlsr_install_test od_fake_tlsr_flash)
 add_test(NAME tlsr_install COMMAND od_tlsr_install_test)
 
+# tlsr_pins: config pin encoding; port E and PA7 (SWS) are refused (L7).
+add_executable(od_tlsr_pins_test tlsr_pins_test.c)
+target_include_directories(od_tlsr_pins_test PRIVATE ${OD_TLSR_SRC})
+add_test(NAME tlsr_pins COMMAND od_tlsr_pins_test)
+
 # tlsr_reset_state: only a reset inside a boot-screen render stops the boot screen (L1).
 add_executable(od_tlsr_reset_state_test tlsr_reset_state_test.c)
 target_include_directories(od_tlsr_reset_state_test PRIVATE ${OD_TLSR_SRC})
