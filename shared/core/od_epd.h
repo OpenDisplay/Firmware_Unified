@@ -335,9 +335,9 @@ int  od_epd_validate(od_epd_t *e);
  * caller then streams the frame with od_epd_write_image_chunk and calls
  * od_epd_finish_pass to run the tail (power-on, refresh, BUSY wait). */
 int  od_epd_begin_pass(od_epd_t *e, uint8_t pass);
-/* A storage read that fails (IO) or finds the config changed (STALE) after the panel has seen
- * I/O ends the pass: the sleep sequence (held in the descriptor, not in storage) runs at once,
- * the next od_epd_sleep() is absorbed, and every resume returns OD_EPD_RC_STATE. */
+/* Any failure after the panel has seen I/O (reset onwards) ends the pass: the sleep sequence
+ * (held in the descriptor, not in storage) runs at once, the next od_epd_sleep() is absorbed,
+ * and every resume returns OD_EPD_RC_STATE. A sequence refused before I/O sends nothing. */
 int  od_epd_write_image_chunk(od_epd_t *e, const uint8_t *buf, size_t n);
 /* Advance to the next image marker, for panels that take two 1bpp planes. */
 int  od_epd_next_plane(od_epd_t *e);
