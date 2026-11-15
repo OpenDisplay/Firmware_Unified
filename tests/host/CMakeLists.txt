@@ -1328,3 +1328,10 @@ add_executable(od_nordic_adv_watch_test nordic_adv_watch_test.c
 target_include_directories(od_nordic_adv_watch_test PRIVATE
     ../../targets/nordic-zephyr/src ${OD_SHARED_INCLUDE_DIRS})
 add_test(NAME nordic_adv_watch COMMAND od_nordic_adv_watch_test)
+
+# nordic_smp_lock: H3 (b) -- an ENTER_DFU unlock of SMP lasts one session: it ends when the link
+# opened after the unlock closes, or when none opens in time, and never cuts an open session.
+add_executable(od_nordic_smp_lock_test nordic_smp_lock_test.c
+    ../../targets/nordic-zephyr/src/od_smp_lock.c)
+target_include_directories(od_nordic_smp_lock_test PRIVATE ../../targets/nordic-zephyr/src)
+add_test(NAME nordic_smp_lock COMMAND od_nordic_smp_lock_test)

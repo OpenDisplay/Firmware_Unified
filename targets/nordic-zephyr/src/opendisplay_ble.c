@@ -37,6 +37,7 @@
 #include "od_hal_adv.h"
 #include "od_adv_control.h"
 #include "od_adv_watch.h"
+#include "od_smp_lock.h"
 #include "od_boot_render_gate.h"
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/gatt.h>
@@ -230,9 +231,18 @@ static bool s_display_wq_started;
 /* Gives once the boot-display work item returns, success or failure. opendisplay_ble_init()
  * blocks on this before od_adv_request_start() -- see its call site for why. */
 static struct k_sem s_boot_display_done;
-/* When encryption is on, SMP stays hidden until CMD_ENTER_DFU unlocks it
- * for this boot (Adafruit bledfu.begin() gating). */
+/* When encryption is on, SMP stays hidden until CMD_ENTER_DFU unlocks it for one session
+ * (od_smp_lock.h). Set by dfu_work, cleared only by the loop thread. */
 static bool s_ota_unlocked;
+/* Links opened/closed, counted by the BT callbacks; the unlock edge carries `opens` at the
+ * moment SMP became visible. Drained into s_smp_lock on the loop thread. */
+static uint32_t s_link_opens;
+static uint32_t s_link_closes;
+static uint32_t s_unlock_opens;
+static volatile uint8_t s_unlock_pending;
+static struct od_smp_lock s_smp_lock;  /* loop thread only */
+/* The k-th close ends the k-th open only with one link at a time. */
+BUILD_ASSERT(CONFIG_BT_MAX_CONN == 1, "od_smp_lock counts links; it needs one at a time");
 
 /* The facts a callback may publish about advertising/MSD: edges, drained on the loop thread. */
 static volatile uint8_t s_adv_ended_pending = 0;
@@ -383,6 +393,9 @@ static void dfu_work_handler(struct k_work *work)
 {
 	ARG_UNUSED(work);
 	s_ota_unlocked = true;
+	__atomic_store_n(&s_unlock_opens, __atomic_load_n(&s_link_opens, __ATOMIC_ACQUIRE),
+			 __ATOMIC_RELAXED);
+	__atomic_store_n(&s_unlock_pending, (uint8_t)1, __ATOMIC_RELEASE);
 	od_smp_sync();
 	if (s_conn != NULL) {
 		(void)bt_conn_disconnect(s_conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
@@ -652,6 +665,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 		return;
 	}
 	s_conn = bt_conn_ref(conn);
+	__atomic_fetch_add(&s_link_opens, 1u, __ATOMIC_RELEASE);
 	s_reboot_flag = 0;
 	od_health_app_link_opened();
 	request_fast_link(conn);
@@ -674,6 +688,7 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
 	ARG_UNUSED(conn);
 	od_log_info("disconnected reason=%u", (unsigned)reason);
+	__atomic_fetch_add(&s_link_closes, 1u, __ATOMIC_RELEASE);
 	od_health_app_link_closed();
 	opendisplay_cs_on_disconnected(conn);
 	opendisplay_pipe_on_connection_closed();
@@ -1238,6 +1253,28 @@ void opendisplay_ble_security_tick(void)
 	}
 }
 
+/* H3 (b): an ENTER_DFU unlock lasts one session, not the rest of the boot. */
+static void smp_lock_service(void)
+{
+	const uint32_t now = k_uptime_get_32();
+
+	if (__atomic_exchange_n(&s_unlock_pending, (uint8_t)0, __ATOMIC_ACQUIRE) != 0u) {
+		od_smp_lock_unlock(&s_smp_lock, __atomic_load_n(&s_unlock_opens, __ATOMIC_RELAXED),
+				   now);
+	}
+	if (od_smp_lock_step(&s_smp_lock, __atomic_load_n(&s_link_opens, __ATOMIC_ACQUIRE),
+			     __atomic_load_n(&s_link_closes, __ATOMIC_ACQUIRE), now)) {
+		/* A second ENTER_DFU raced this pass: its edge is pending, keep it unlocked. */
+		if (__atomic_load_n(&s_unlock_pending, __ATOMIC_ACQUIRE) != 0u) {
+			return;
+		}
+		s_ota_unlocked = false;
+		od_log_info("SMP unlock ended (session closed or no reconnect in %u s)",
+			    (unsigned)(OD_SMP_UNLOCK_CONNECT_MS / 1000u));
+		od_smp_sync();
+	}
+}
+
 void opendisplay_ble_process(void)
 {
 	opendisplay_pipe_process();
@@ -1259,6 +1296,7 @@ void opendisplay_ble_process(void)
 		k_sleep(K_MSEC(300));
 		NVIC_SystemReset();
 	}
+	smp_lock_service();
 	opendisplay_display_service();
 	od_health_app_tick();
 }
