@@ -128,20 +128,28 @@ jobs:
             notes.md
           if-no-files-found: error
 
-      # Draft only. Re-running against an existing draft replaces its assets; a release that
-      # is already published is never touched from here.
-      - name: Create or update the draft release
+      # Re-running against an existing draft replaces its assets. A PUBLISHED release that
+      # already carries assets is never touched from here: people may have downloaded them.
+      # A published release with NO assets is the "created by hand in the GitHub UI, which also
+      # made the tag" case: the binaries are attached and its title and notes are left alone.
+      - name: Create or update the release
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft -q .isDraft > draft.txt 2>/dev/null; then
-            if [ "$(cat draft.txt)" != "true" ]; then
-              echo "::error::release $TAG is already published; refusing to change its assets"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,assets \
+               -q '"\(.isDraft) \(.assets | length)"' > state.txt 2>/dev/null; then
+            read -r draft assets < state.txt
+            if [ "$draft" = "true" ]; then
+              gh release upload "$TAG" out/* --repo "$GITHUB_REPOSITORY" --clobber
+              gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
+            elif [ "$assets" = "0" ]; then
+              echo "::notice::release $TAG is already published without assets; attaching them, title and notes unchanged"
+              gh release upload "$TAG" out/* --repo "$GITHUB_REPOSITORY"
+            else
+              echo "::error::release $TAG is already published with $assets assets; refusing to change them"
               exit 1
             fi
-            gh release upload "$TAG" out/* --repo "$GITHUB_REPOSITORY" --clobber
-            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
           else
             gh release create "$TAG" out/* --repo "$GITHUB_REPOSITORY" --draft \
               --title "OpenDisplay firmware $V" --notes-file notes.md

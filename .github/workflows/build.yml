@@ -33,11 +33,34 @@ permissions:
   contents: read
 
 jobs:
-  esp32:
-    name: esp32-idf
+  # ESP32 is one job per board. Built in sequence the boards took about 26 minutes and set the
+  # length of every CI and release run; a board builds in about 2. esp32-boards asks build.sh
+  # for the list, so a new board fragment gets a job without editing this file, and esp32
+  # (the job the others wait for) refuses to collect unless every listed board delivered.
+  esp32-boards:
+    name: esp32-idf / list boards
+    runs-on: ubuntu-24.04
+    outputs:
+      boards: ${{ steps.list.outputs.boards }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        run: |
+          boards="$(targets/esp32-idf/build.sh --list | jq -R . | jq -sc .)"
+          [ "$boards" != "[]" ] || { echo "::error::build.sh --list printed no boards"; exit 1; }
+          echo "boards=$boards" >> "$GITHUB_OUTPUT"
+          echo "boards: $boards"
+
+  esp32-build:
+    name: esp32-idf / ${{ matrix.board }}
+    needs: esp32-boards
     runs-on: ubuntu-24.04
     # The version docs/TOOLCHAINS.md pins. build.sh sources ESP-IDF itself from $IDF_PATH.
     container: espressif/idf:v5.5.4
+    strategy:
+      fail-fast: false
+      matrix:
+        board: ${{ fromJSON(needs.esp32-boards.outputs.boards) }}
     steps:
       - uses: actions/checkout@v4
         with: { submodules: recursive }
@@ -48,18 +71,46 @@ jobs:
           IN_VERSION: ${{ inputs.version }}
         run: echo "OD_FW_VERSION=$(tools/release/version.sh "$IN_VERSION")" >> "$GITHUB_ENV"
 
-      # Every board, -debug ones included, so CI covers them. collect.py drops the -debug images
-      # from the artifact: they are bench builds, not release assets.
-      - name: Build every board fragment + sdkconfig baseline
+      # -debug boards too, so CI covers them. collect.py drops their images from the artifact:
+      # they are bench builds, not release assets.
+      - name: Build ${{ matrix.board }} + sdkconfig baseline
         shell: bash
+        env:
+          BOARD: ${{ matrix.board }}
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           . "$IDF_PATH/export.sh"
-          ( cd targets/esp32-idf && ./build.sh )
-          targets/esp32-idf/tools/sdkconfig_baseline.sh
+          ( cd targets/esp32-idf && ./build.sh "$BOARD" )
+          targets/esp32-idf/tools/sdkconfig_baseline.sh "$BOARD"
+          # Every board writes the same manifest name; keep them apart until esp32 joins them.
+          mv release/MANIFEST-esp32-idf.txt "release/MANIFEST-esp32-idf.$BOARD.part"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: esp32-board-${{ matrix.board }}
+          path: release/
+          if-no-files-found: error
+          retention-days: 1
+
+  esp32:
+    name: esp32-idf
+    needs: [esp32-boards, esp32-build]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: esp32-board-*
+          path: release
+          merge-multiple: true
+
+      - name: Join the per-board results
+        env:
+          BOARDS: ${{ needs.esp32-boards.outputs.boards }}
+        run: tools/release/esp32_join.sh release "$BOARDS"
 
       - name: Collect release assets
-        shell: bash
         run: python3 tools/release/collect.py fragment --target esp32-idf release
 
       - uses: actions/upload-artifact@v4
