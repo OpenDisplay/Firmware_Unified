@@ -36,7 +36,7 @@ link has carried GATT traffic; a link that cannot serve is a failure.**
 
 | Target | A new image is confirmed when | It undoes itself when | Evidence |
 |---|---|---|---|
-| nRF52840 / nRF54 (MCUboot test swap) | the first GATT write it serves, an SMP confirm, or 24 h uptime with no dead link | three ≥ 8 s links with no ATT while unconfirmed: reset, MCUboot reverts | VERIFIED 2026-11-12 on the EN04 (OD114608) |
+| nRF52840 / nRF54 (MCUboot test swap) | the first GATT write it serves, an SMP confirm, or 24 h uptime with no dead link once it has advertised (an image that never got on the air never confirms; a `bt_enable` failure resets) | three ≥ 8 s links with no ATT while unconfirmed: reset, MCUboot reverts | VERIFIED 2026-11-12 on the EN04 (OD114608) |
 | ESP32 (OTA rollback) | the same; on a battery config, also at the end of a 15 min deep-sleep hold if no dead link was seen | the same: marked invalid and rebooted, the bootloader boots the previous slot; also at the end of the sleep hold if a dead link was seen | UNTESTED (host-tested, builds) |
 | BG22 (no rollback slot) | — (no confirmation step) | the stack reports a heap failure on a link with no ATT, or three ≥ 8 s dead links: the device enters the AppLoader (advertises as `OTA`) and takes a `.gbl` | UNTESTED (host-tested, builds) |
 
@@ -210,4 +210,7 @@ A 2.3.0 `.gbl` works as an OTA, but a 3.0 config larger than 2048 B may be unrea
 - `esp32: unsigned` and `bg22: unsigned` mean the same, permanently, for those targets.
 
 A later change to a project MCUboot key needs a USB (nRF52840) or SWD (nRF54) visit per
-device, because MCUboot checks only against the key it was built with.
+device, because MCUboot checks only against the key it was built with. 3.0 ships with the debug key and
+with MCUboot downgrade prevention off, by decision (RELEASE_CHECKLIST_3.0.md C2, C8). Under a
+public key, downgrade prevention would let one hostile upload of a high version number block every
+later genuine update. The two are revisited together.

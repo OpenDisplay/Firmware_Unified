@@ -103,7 +103,7 @@ Appendix A answers every review finding, including the ones I disagree with.
 | Claim attempts are capped at 3 code renders per claim-mode session (§ 7.5). G5 is restated per session (§ 1.3) | A7 |
 | New firmware-drawn **setup screen family** (SETUP, CODE, RESET), with no config-supplied text on it. One setup URL `opendisplay.org/s/` replaces `/r/` (§ 7.8) | maintainer; A1 (0x2C strings were a drawing vector) |
 | A fresh-install reference flow, its unhappy paths, and the 2.x upgrade, re-claim and old-client flows (§ 13). A table of every earlier decision the gesture touches (§ 14). A unified setup proposal for the website, HA and py-opendisplay, kept separate from the decisions (§ 15) | maintainer request |
-| DFU: after a sealed ENTER_DFU the update service stays unlocked for any peer until reboot, **as today**. The connection binding is removed. No firmware signing in 3.0 (§ 6.1) | maintainer Q5/Q6; A6 |
+| DFU: after a sealed ENTER_DFU the update service is unlocked for any peer, until reboot on ESP32 and for one session on Nordic (§ 6.1). The connection binding is removed. No firmware signing in 3.0 (§ 6.1) | maintainer Q5/Q6, Nordic revised 2026-11-15; A6 |
 | No button press to accept a claim. First claimer wins (§ 8.5, § 1.5) | maintainer Q8 |
 | 2.x v1 key: **migrated as the device key (B2)**. Rotation is optional in firmware. Website, HA and py-opendisplay rotate by default on the first SEC2 connection, with an opt-out. Sealed NACK 0xF4 and the forced-rotation allow-list are deleted; 0xF4 is reserved (§ 10.5) | maintainer Q10; A6; residual R4 |
 | 2.x secrets without a key keep working and are flagged (A1 option), so clients prompt to claim. Claiming them needs the gesture (§ 10.5) | maintainer Q10 |
@@ -258,7 +258,8 @@ does. § 1.5 says the same in plain language.
    automatic OTA) sends a sealed ENTER_DFU, the update path is open to **any** peer until reboot
    (decision 11):
    - BG22: the Gecko AppLoader accepts any peer;
-   - ESP32 / Nordic: SMP stays unlocked until reboot.
+   - ESP32: SMP stays unlocked until reboot;
+   - Nordic: SMP stays unlocked for the next connection, or 120 s if none opens (§ 6.1).
 
    Firmware pushed through it reads K_dev and the WiFi password from plaintext NVS/NVM3, answers
    SEC_AUTH correctly, and impersonates the device indefinitely. On an open device the update
@@ -1004,12 +1005,15 @@ Rules:
 ### 6.1 DFU (decided: as today)
 
 - **Claimed device**: DFU is reachable only after a **sealed** ENTER_DFU.
-  - nordic-zephyr SMP and esp32-idf SMP then stay unlocked for **any peer until reboot**, as
-    today (`targets/esp32-idf/src/od_smp.cpp:445`, `od_smp_unlock` `:542`;
-    `targets/nordic-zephyr/src/opendisplay_ble.c`).
+  - esp32-idf SMP then stays unlocked for **any peer until reboot**, as today
+    (`targets/esp32-idf/src/od_smp.cpp:445`, `od_smp_unlock` `:542`).
+  - nordic-zephyr SMP is unlocked for **any peer, for one session** (maintainer, 2026-11-15,
+    revising Q6 for Nordic: review H3 option (b)). ENTER_DFU drops the link that sent it, so
+    the unlock covers the next connection. It ends when that link closes, or after 120 s if no
+    link opens. An open session is never cut. `targets/nordic-zephyr/src/od_smp_lock.h`.
   - efr32bg22-slc reboots into the Gecko AppLoader, which accepts any peer and any unsigned GBL.
-  - No connection binding and no time limit (maintainer Q6 = (a)). Residual: § 1.4 item 2,
-    review R2.
+  - No connection binding (maintainer Q6 = (a)), and no time limit on ESP32 and BG22.
+    Residual: § 1.4 item 2, review R2.
 - **Unclaimed device in normal mode**: every DFU path is open, as today. ESP32 `od_smp.cpp:445`
   refuses SMP only when `od_smp_encryption_on()`. On 3.0 that predicate means "claimed", taken
   from the security state, never from the 0x27 bytes at rest.

@@ -1337,6 +1337,27 @@ Open:
 
 ---
 
+## ESP32-S3 reTerminal Sticky — executor fixes S1 / S3 (2026-11-15)
+
+One board, the reTerminal Sticky (OD6C79FC, EP397 800x480 SSD16xx, config-driven), image
+`s3-n32r8-extuart` from `fix/esp32-display-review` at `89ddb5b`, ESP-IDF 5.5.5, plaintext,
+unclaimed. A/B against origin/main `a519151` on the same board and config. S1/S3 bus evidence
+is from a test-only build that logs each panel command byte (not committed). No camera: "refresh"
+below means the command bytes on the bus, not the glass.
+
+- [x] Config with the board's drive packets written over BLE; boot screen, full upload (0x0070)
+      and 0x0085 mode 0 refresh on the fix build.
+- [x] **S1, extra image marker in mode 0.** Base: frame sent (`24`), no refresh command, only the
+      sleep sequence, and the host gets a success ACK. Fix: the same bus traffic, then
+      "refresh did not complete" and 0x74 to the host, on both 0x0085 and 0x0070.
+- [x] **S3, BUSY never idle after the reset (inverted idle level, 3 s timeout), 0x0085.** Both
+      builds answer PANEL_BUSY after 4.0 s. Base sends no command after the reset; the fix sends
+      the sleep sequence (`3f 22 20 10`) once, twice repeated.
+- [ ] The native-driver fixes (N1-N5): this board has no FastEPD/IT8951, so they are not on
+      hardware. Needs an E1003 or a parallel board.
+- [ ] S3 on the ESP32 SPI_RAW open path; the inverted-BUSY trick also makes the sleep sequence's
+      own BUSY step return early, so the sleep's timing was not checked.
+
 ## ESP32-S3 reTerminal E1003 — FastEPD 16-gray (2026-11-08)
 
 One board: ESP32-S3R8, 32 MB flash, ED103TC2 1872x1404, panel 3001. Image `s3-n16r8-extuart` at
@@ -1649,6 +1670,7 @@ while advertising only, from 60 s after a boot with no unplanned reset since pow
 | Retention on OD05B911, detected without a meter: PA2 (floating) set pull-down + output high over the GPIO sub-op, link closed, 90 s idle, read back | **PASS**: read 1 before, 0 after, while STATUS stayed `power-on, 0` (no reboot): only a retention wake resets the digital GPIO registers |
 | Two uploads with retention between them (active-low rail PB5, pull-up while off) | **PASS**: both refreshes complete at ~22 s, no reset; MSD 2960 mV, 25 °C. The rail being off *during* sleep is not measured on this tag (no meter) |
 | Boot screen on the fix image (0ff7a43 + no boot screen after an unplanned reset; sha256 644164c4…); config already without CLEAR_ON_BOOT | **PASS**: boots and stays up, STATUS `planned, 0`; MSD temperature 23 °C with no upload since the install, so the panel ran at boot. Glass not checked. Does **not** prove the watchdog fix: this 200×152 panel renders under 4 s, and it booted the boot screen on earlier images too. Legacy v108 staged again |
+| Review-fix image @ 3b81ebd (M1 supply floor, M2 install read-back, L1 reset byte, L3-L5, L7, L8 bring-up caps off; 158,548 B, sha256 1dd4ca03…), from STATUS `verified, planned, 0` with legacy v108 staged (2026-11-15) | **PASS**: staged and verified at MTU 247, installed with the new read-back install routine; STATUS after reboot `idle, ok, planned, 0` at FA:FB:3E:05:B9:11; legacy v108 staged and verified again (BEGIN passed the supply check), left staged. Only the updater ran: no config read, upload, glass, SEC2, reset-pin or power-cut row on this image |
 | Not run: hours-long soak (deferred by Jonas) | **OPEN** |
 
 ### OD060F40 — factory reset and SEC2 claim (2026-11-14)

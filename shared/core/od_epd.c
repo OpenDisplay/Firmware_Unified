@@ -25,6 +25,9 @@
  * RAM held permanently for bytes that are only ever clocked straight out. */
 #define LUT_CHUNK 64u
 
+/* Post-reset settle for a panel whose BUSY line is unusable (begin_pass). */
+#define OD_EPD_RESET_SETTLE_MS 200u
+
 /* ------------------------------------------------------------------ helpers */
 
 bool od_epd_is_busy(od_epd_t *e)
@@ -639,14 +642,14 @@ static bool window_is_panel(const od_epd_t *e)
 }
 #endif
 
-/* A storage failure once the panel has seen I/O: put it to sleep from the descriptor's copy of
- * the sleep sequence (RAM, so it cannot fail the same way), then report the failure. The
- * caller's own od_epd_sleep() that normally follows a failed pass is absorbed, so the panel
- * sees the sleep sequence once. */
+/* Any failure once the panel has seen I/O: put it to sleep from the descriptor's copy of the
+ * sleep sequence (RAM, so a storage fault cannot fail it the same way), then report the
+ * failure. Not every caller follows a failed pass with od_epd_sleep(); one that does is
+ * absorbed, so the panel sees the sleep sequence once. */
 static int pass_failed(od_epd_t *e, int rc)
 {
     e->paused = false;
-    if ((rc == OD_ERR_IO || rc == OD_ERR_STALE) && e->io_started) {
+    if (e->io_started) {
         (void)od_epd_sleep(e);
         e->slept_on_fail = true;
     }
@@ -695,8 +698,13 @@ int od_epd_begin_pass(od_epd_t *e, uint8_t pass)
 
     e->io_started = true;
     e->io->reset(10);
-    if (!od_epd_wait_idle(e, e->desc->busy_timeout_ms)) {
-        return OD_ERR_BUSY;
+    /* A panel with a lying BUSY line gets a short post-reset settle, not busy_fixed_delay_ms:
+     * that value is sized for a refresh (35 s on the GDEM042F52) and would be spent once per
+     * pass before the first command. 200 ms is bb_epaper's BBEP_SKIP_BUSY_WAIT wake delay. */
+    if (!e->desc->busy_usable) {
+        e->io->delay_ms(OD_EPD_RESET_SETTLE_MS);
+    } else if (!od_epd_wait_idle(e, e->desc->busy_timeout_ms)) {
+        return pass_failed(e, OD_ERR_BUSY);
     }
 
     int rc = run_sequence(e);
@@ -709,7 +717,7 @@ int od_epd_begin_pass(od_epd_t *e, uint8_t pass)
     }
     /* A sequence with no image marker is a programming error in the config,
      * not something to paper over: the frame would have nowhere to go. */
-    return OD_ERR_SEQ;
+    return pass_failed(e, OD_ERR_SEQ);
 }
 
 int od_epd_write_image_chunk(od_epd_t *e, const uint8_t *buf, size_t n)
@@ -769,6 +777,9 @@ int od_epd_finish_pass(od_epd_t *e)
      * the same sequence. A panel needing a different refresh command or an
      * extra register poke after the frame needs no code change here. */
     int rc = resume(e);
+    if (rc == 1) {
+        return pass_failed(e, OD_ERR_SEQ);   /* paused on another image marker: no tail ran */
+    }
     return (rc < 0) ? rc : OD_OK;
 }
 
@@ -793,16 +804,16 @@ int od_epd_finish_with_tail(od_epd_t *e, uint8_t mode)
         return pass_failed(e, rc);
     }
     if (e->seq_tail == 0u) {
-        return OD_ERR_SEQ;      /* a tail is defined by the image marker it follows */
+        return pass_failed(e, OD_ERR_SEQ);   /* a tail is defined by the marker it follows */
     }
     rc = resolve_lut(e, m.lut_slot[0], m.vsn1[0]);
     if (rc != OD_OK) {
-        return rc;
+        return pass_failed(e, rc);
     }
     e->seq_pos = e->seq_tail;
     rc = run_sequence(e);
     if (rc == 1) {
-        return OD_ERR_SEQ;      /* only the last marker's tail may run here */
+        return pass_failed(e, OD_ERR_SEQ);   /* only the last marker's tail may run here */
     }
     return (rc < 0) ? pass_failed(e, rc) : OD_OK;
 }

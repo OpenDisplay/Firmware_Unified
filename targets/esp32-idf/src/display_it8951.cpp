@@ -79,6 +79,10 @@ static int s_temp_c = TEMP_DEFAULT_C;
 
 static uint8_t *s_row;          /* DMA-capable, one panel row */
 static uint8_t *s_fb;           /* 1-bit only, in PSRAM */
+/* Bytes behind s_row / s_fb. A config write changes the geometry without a reboot, so every
+ * entry point that writes them checks the current geometry against these first. */
+static size_t s_row_cap;
+static size_t s_fb_cap;
 static uint32_t s_row_fill;
 static uint32_t s_rows_sent;
 static bool s_streaming;
@@ -299,15 +303,40 @@ static bool init_controller(void)
     return set_clock(SPI_RUN_HZ);
 }
 
+static size_t fb_need(void)
+{
+    return s_gray16 ? 0u : (size_t)s_pitch * s_h;
+}
+
+static bool buffers_fit(void)
+{
+    return s_row != NULL && s_row_cap >= s_pitch && (s_gray16 || (s_fb != NULL && s_fb_cap >= fb_need()));
+}
+
+/* Grows a buffer the current geometry has outgrown. The old contents are not kept: a geometry
+ * change means the next frame is a new one. */
 static bool ensure_buffers(void)
 {
-    if (s_row == NULL) {
+    if (s_row == NULL || s_row_cap < s_pitch) {
+        heap_caps_free(s_row);
         s_row = (uint8_t *)heap_caps_malloc(s_pitch, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+        s_row_cap = s_row != NULL ? s_pitch : 0u;
     }
-    if (!s_gray16 && s_fb == NULL) {
-        s_fb = (uint8_t *)heap_caps_malloc((size_t)s_pitch * s_h, MALLOC_CAP_SPIRAM);
+    if (!s_gray16 && (s_fb == NULL || s_fb_cap < fb_need())) {
+        heap_caps_free(s_fb);
+        s_fb = (uint8_t *)heap_caps_malloc(fb_need(), MALLOC_CAP_SPIRAM);
+        s_fb_cap = s_fb != NULL ? fb_need() : 0u;
     }
-    return s_row != NULL && (s_gray16 || s_fb != NULL);
+    return buffers_fit();
+}
+
+/* After a failed init nothing else switches the supplies off: power_down() needs a ready
+ * controller, and the callers only mark the hardware uninitialised. */
+static void supplies_off(void)
+{
+    pin_level(s_en, 0);
+    pin_level(s_ite_en, 0);
+    pin_level(s_cs, 1);
 }
 
 static bool hw_ready(void)
@@ -315,6 +344,12 @@ static bool hw_ready(void)
     if (!s_hw_ready) {
         s_failed = !init_controller() || !ensure_buffers();
         s_hw_ready = !s_failed;
+    } else if (!ensure_buffers()) {
+        s_failed = true;
+        s_hw_ready = false;
+    }
+    if (s_failed) {
+        supplies_off();
     }
     return s_hw_ready;
 }
@@ -494,10 +529,19 @@ extern "C" void od_it8951_set_panel(int8_t mosi, int8_t miso, int8_t sclk, int8_
     s_rst = rst;
     s_en = en;
     s_ite_en = ite_en;
+    const uint16_t pitch = gray16 ? (uint16_t)((width + 1u) / 2u) : (uint16_t)((width + 7u) / 8u);
+
+    if (width != s_w || height != s_h || gray16 != s_gray16) {
+        /* A stream opened for the old geometry cannot be finished with the new one. */
+        s_streaming = false;
+        s_row_fill = 0u;
+        s_fb_off = 0u;
+        s_pwritten = s_pexpected = 0u;
+    }
     s_w = width;
     s_h = height;
     s_gray16 = gray16;
-    s_pitch = gray16 ? (uint16_t)((width + 1u) / 2u) : (uint16_t)((width + 7u) / 8u);
+    s_pitch = pitch;
 }
 
 extern "C" void od_it8951_set_layout(bool mirrored, uint16_t vcom_mv)
@@ -530,7 +574,7 @@ extern "C" void od_it8951_epaper_begin(void)
 
 extern "C" void od_it8951_full_update(void)
 {
-    if (!s_hw_ready) {
+    if (!s_hw_ready || !buffers_fit()) {
         return;
     }
     if (s_gray16) {
@@ -564,7 +608,7 @@ extern "C" void od_it8951_direct_sleep(void) { power_down(); }
 
 extern "C" void od_it8951_boot_write_row(uint16_t y, const uint8_t *row, unsigned pitch)
 {
-    if (!s_hw_ready || row == NULL || pitch < s_pitch) {
+    if (!s_hw_ready || row == NULL || pitch < s_pitch || y >= s_h || !buffers_fit()) {
         return;
     }
     if (!s_gray16) {
@@ -592,27 +636,32 @@ extern "C" void od_it8951_direct_write_reset(void)
     }
 }
 
-extern "C" void od_it8951_direct_write_chunk(const uint8_t *data, uint32_t len)
+extern "C" bool od_it8951_direct_write_chunk(const uint8_t *data, uint32_t len)
 {
-    if (data == NULL || len == 0u || !s_hw_ready) {
-        return;
+    if (data == NULL || len == 0u) {
+        return true;
+    }
+    if (!s_hw_ready || !buffers_fit()) {
+        return false;
     }
     if (s_gray16) {
-        if (s_streaming) {
-            gray_append(data, len);
+        if (!s_streaming) {
+            return false;
         }
-        return;
+        gray_append(data, len);
+        return true;
     }
     const uint32_t size = (uint32_t)s_pitch * s_h;
     const uint32_t n = s_fb_off >= size ? 0u : (len > size - s_fb_off ? size - s_fb_off : len);
 
     memcpy(s_fb + s_fb_off, data, n);
     s_fb_off += n;
+    return n == len;
 }
 
 extern "C" void od_it8951_direct_refresh(int refresh_mode)
 {
-    if (!s_hw_ready) {
+    if (!s_hw_ready || !buffers_fit()) {
         return;
     }
     if (s_gray16) {
@@ -650,7 +699,8 @@ extern "C" bool od_it8951_partial_write_chunk(const uint8_t *data, uint32_t len)
     if (data == NULL || len == 0u) {
         return true;
     }
-    if (s_gray16 || s_fb == NULL || len > s_pexpected - s_pwritten || rect_pitch == 0u) {
+    if (!s_hw_ready || s_gray16 || !buffers_fit() || len > s_pexpected - s_pwritten ||
+        rect_pitch == 0u) {
         return false;
     }
     /* The first plane is the old image, which the framebuffer already holds. */
@@ -678,7 +728,7 @@ extern "C" bool od_it8951_partial_write_chunk(const uint8_t *data, uint32_t len)
 
 extern "C" bool od_it8951_partial_refresh(int refresh_mode)
 {
-    if (s_pwritten != s_pexpected || s_fb == NULL || !s_hw_ready) {
+    if (s_pwritten != s_pexpected || !s_hw_ready || !buffers_fit()) {
         return false;
     }
     refresh_mono(refresh_mode == 0 ? MODE_GC16 : MODE_DU);

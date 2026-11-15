@@ -210,8 +210,9 @@ static bool s_pending_dfu;
 
 /* GATT health gate (shared/core/od_health.h, docs/BG22_RAM_BUDGET.md section 4). The verdict
  * state is a named global so a debugger can read it. The retained record sits in .noinit behind
- * a check word, so it survives a soft reset (an ENTER_DFU / health entry into the AppLoader and
- * back, a fault reset) and a power-on reset (or a bootloader that reused the RAM) reads as zero:
+ * a check word, so it survives a soft reset (a fault reset) and a power-on reset reads as zero.
+ * Whether the AppLoader leaves this RAM alone is unproven (docs/BG22_RAM_BUDGET.md section 4.2):
+ * if it does not, the record reads as zero after every AppLoader round trip.
  *   forced     forced updater entries this power-on (bits 0-7) and the last reason (bits 8-15)
  *   exhausted  the Bluetooth stack's sl_bt_evt_system_resource_exhausted reports since power-on,
  *              saturating: heap-allocation failures (bits 0-15), buffer + message allocation

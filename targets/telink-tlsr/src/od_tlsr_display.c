@@ -53,6 +53,7 @@ static uint8_t s_mosi = PIN_UNUSED;
 static bool s_boot_applied;
 static bool s_spi_raw_open;
 static bool s_boot_pending;
+static bool s_key_redraw;      /* the pending boot screen is the SECURITY_V2 10.7 redraw */
 static uint8_t s_inflate[INFLATE_CHUNK];
 /* One native row: 400 px at 4 bpp, or a 2 bpp row plus its plane row, covers this fleet's
  * glass. The QR module bitmap as on the other targets. */
@@ -63,9 +64,6 @@ static uint8_t s_boot_qr[256];
 
 #define pin_valid od_tlsr_pin_valid
 #define pin_sdk   od_tlsr_pin_sdk
-
-/* PA7 is SWS, the only wired way back into a tag whose image is broken: never touched. */
-#define PIN_SWS 7u
 
 static void pin_out(uint8_t p, bool high)
 {
@@ -466,6 +464,9 @@ bool od_drive_app_adopt(const od_color_geometry_t *frame, uint8_t passes, bool c
     return od_display_adopt_drive(frame, passes, compressed, tail);
 }
 
+/* Single-threaded superloop: nothing drives the panel behind the handler's back. */
+bool od_drive_app_panel_busy(void) { return false; }
+
 /* The glass reading from the last panel-up, while it is under an hour old. */
 int8_t od_drive_app_temp_c(void)
 {
@@ -518,10 +519,11 @@ static bool boot_apply(void)
         s_boot_applied = true;
         return true;
     }
-    /* After an unplanned reset since power-on, no boot screen until the next power-on: a render
-     * that resets the chip would otherwise do so on every boot, before the radio or the
-     * power-cycle count can reach it. */
-    if (od_tlsr_hal_unplanned() != 0u) {
+    /* Once a boot-screen render has ended in a reset, none at boot until the next power-on: a
+     * render that resets the chip would otherwise do so on every boot, before the radio or the
+     * power-cycle count can reach it. The key-state redraw still runs: a host asked for it,
+     * and if it resets the next boot skips the screen as before. */
+    if (od_tlsr_hal_render_died() && !s_key_redraw) {
         s_boot_applied = true;
         return true;
     }
@@ -529,7 +531,10 @@ static bool boot_apply(void)
     if (od_display_needs_migration()) {
         return true;
     }
+    od_tlsr_hal_render_mark(true);
     rc = od_display_boot(config(), od_sec2_app_security(), &bufs);
+    od_tlsr_hal_render_mark(false);
+    s_key_redraw = false;
     s_boot_applied = rc == OD_DISPLAY_OK;
     return s_boot_applied;
 }
@@ -570,12 +575,13 @@ void od_sec2_app_key_screen_changed(void)
     }
     s_boot_applied = false;
     s_boot_pending = true;
+    s_key_redraw = true;
 }
 
-/* The 0x27 reset pin, in the config pin encoding. PIN_SWS is refused, as for raw GPIO. */
+/* The 0x27 reset pin, in the config pin encoding. PA7 (SWS) is refused (od_tlsr_pins.h). */
 bool od_claim_app_pin_input(uint8_t pin, bool pull_up, bool pull_down)
 {
-    if (!pin_valid(pin) || pin == PIN_SWS) {
+    if (!pin_valid(pin)) {
         return false;
     }
     pin_in(pin, pull_up ? PM_PIN_PULLUP_10K : pull_down ? PM_PIN_PULLDOWN_100K : PM_PIN_UP_DOWN_FLOAT);
@@ -584,7 +590,7 @@ bool od_claim_app_pin_input(uint8_t pin, bool pull_up, bool pull_down)
 
 int od_claim_app_pin_read(uint8_t pin)
 {
-    if (!pin_valid(pin) || pin == PIN_SWS) {
+    if (!pin_valid(pin)) {
         return -1;
     }
     return gpio_read(pin_sdk(pin)) ? 1 : 0;
@@ -635,7 +641,7 @@ int opendisplay_display_spi_raw_gpio(uint8_t pin, uint8_t mode, uint8_t *level_o
     }
 #endif
 
-    if (!pin_valid(pin) || pin == PIN_SWS || level_out == NULL) {
+    if (!pin_valid(pin) || level_out == NULL) {
         return -(int)OD_ERR_SPI_RAW_BAD_ARGS;
     }
     switch (mode) {

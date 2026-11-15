@@ -56,6 +56,7 @@ static uint32_t g_offsets[16];
 static uint32_t g_lengths[16];
 static uint32_t g_consume_limit;
 static uint32_t g_etag;
+static bool g_refresh_stores;   /* the target stored the frame (image-store preload), not shown */
 static unsigned g_callback_sequence;
 static unsigned g_etag_clear_sequence;
 static unsigned g_abort_sequence;
@@ -271,6 +272,9 @@ bool od_xfer_app_refresh(uint8_t mode, bool *completed)
     if (completed != NULL) {
         *completed = g_refresh_completed;
     }
+    if (g_refresh_stores) {
+        od_xfer_note_refresh_stored();
+    }
     return g_refresh_call_ok;
 }
 
@@ -320,6 +324,7 @@ static void setup(void)
     g_pipe_active = false;
     g_consume_limit = UINT32_MAX;
     g_etag = 0x11223344u;
+    g_refresh_stores = false;
     g_callback_sequence = 0u;
     g_etag_clear_sequence = 0u;
     g_abort_sequence = 0u;
@@ -908,8 +913,36 @@ static void test_admission_warning_budget(void)
           "Direct write START failed: panel geometry unavailable") == 1u);
 }
 
+/* H5: a direct write that the target STORED (Nordic image-store preload) rather than drew must
+ * leave the displayed etag alone -- the glass still shows the previous image. The next transfer
+ * that does draw is back to the ordinary rule. */
+static void test_stored_refresh_keeps_displayed_etag(void)
+{
+    od_cmd_ctx_t owner = od_test_cmd_ctx(OWNER, &g_reservation, 2u, false);
+    uint8_t start[1] = { 0u };
+    uint8_t data[4] = { 1u, 2u, 3u, 4u };
+    uint8_t end[5] = { 1u, 0xAAu, 0xBBu, 0xCCu, 0xDDu };
+
+    CASE("stored (preload) END keeps the displayed etag");
+    setup();
+    g_refresh_stores = true;
+    CHECK(od_xfer_direct_start(&owner, od_span_make(start, sizeof start)) == OD_CMD_OK);
+    CHECK(od_xfer_data(&owner, od_span_make(data, sizeof data)) == OD_CMD_OK);
+    CHECK(od_xfer_end(&owner, od_span_make(end, sizeof end)) == OD_CMD_OK);
+    CHECK(g_refresh_calls == 1u && !od_xfer_active());
+    CHECK(g_etag == 0x11223344u);
+
+    CASE("the next drawn END sets the etag again");
+    setup();
+    CHECK(od_xfer_direct_start(&owner, od_span_make(start, sizeof start)) == OD_CMD_OK);
+    CHECK(od_xfer_data(&owner, od_span_make(data, sizeof data)) == OD_CMD_OK);
+    CHECK(od_xfer_end(&owner, od_span_make(end, sizeof end)) == OD_CMD_OK);
+    CHECK(g_etag == 0xAABBCCDDu);
+}
+
 int main(void)
 {
+    test_stored_refresh_keeps_displayed_etag();
     test_raw_direct();
     test_transfer_logging();
     test_start_boundaries();

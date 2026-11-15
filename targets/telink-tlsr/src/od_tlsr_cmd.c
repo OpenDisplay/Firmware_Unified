@@ -177,13 +177,16 @@ od_cmd_result_t od_cmd_app_reboot(const od_cmd_ctx_t *ctx, od_span_t body)
     return OD_CMD_OK;
 }
 
-/* No separate DFU mode: ENTER_DFU opens the updater's SEC2 gate (od_tlsr_ota.h) for this link.
- * The dispatcher has already required a session where the device needs one. */
+/* No separate DFU mode: ENTER_DFU opens the updater's SEC2 gate (od_tlsr_ota.h) for this link
+ * and this session. The dispatcher has already required a session where the device needs one. */
+static od_reply_t s_dfu_rp;
+
 od_cmd_result_t od_cmd_app_enter_dfu(const od_cmd_ctx_t *ctx, od_span_t body)
 {
-    const uint8_t ok[] = { 0x00u, RESP_ENTER_DFU };
+    const uint8_t ok[] = { RESP_ACK, RESP_ENTER_DFU };
 
     (void)body;
+    s_dfu_rp = ctx->rp;
     od_tlsr_ota_unlock();
     (void)od_reply(ctx->r, &ctx->rp, ok, sizeof ok);
     return OD_CMD_OK;
@@ -194,13 +197,18 @@ bool od_tlsr_ota_app_needs_unlock(void)
     return od_sec2_dfu_needs_unlock();
 }
 
+bool od_tlsr_ota_app_unlock_live(void)
+{
+    return od_sec2_session_live(&s_dfu_rp);
+}
+
 od_cmd_result_t od_cmd_app_power_off(const od_cmd_ctx_t *ctx, od_span_t body)
 {
     (void)body;
     return nack(ctx, RESP_POWER_OFF, OD_ERR_POWER_OFF_UNSUPPORTED);
 }
 
-/* Deep sleep arrives with the power design (REPORT.md § sleep); refused until then. */
+/* CMD_DEEP_SLEEP is not implemented on this target: refused. */
 od_cmd_result_t od_cmd_app_deep_sleep(const od_cmd_ctx_t *ctx, od_span_t body)
 {
     (void)body;

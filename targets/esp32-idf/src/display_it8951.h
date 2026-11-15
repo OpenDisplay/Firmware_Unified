@@ -26,7 +26,8 @@ void od_it8951_sleep_after_refresh(void);
 void od_it8951_boot_write_row(uint16_t y, const uint8_t *row, unsigned pitch);
 void od_it8951_boot_skip_planes(void);
 void od_it8951_direct_write_reset(void);
-void od_it8951_direct_write_chunk(const uint8_t *data, uint32_t len);
+/* False when the bytes did not land: init failed, or no frame is open, or past its end. */
+bool od_it8951_direct_write_chunk(const uint8_t *data, uint32_t len);
 void od_it8951_direct_refresh(int refresh_mode);
 void od_it8951_direct_sleep(void);
 void od_it8951_mark_hw_deinitialized(void);

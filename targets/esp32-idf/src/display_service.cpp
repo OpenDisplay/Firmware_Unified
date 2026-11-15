@@ -1176,6 +1176,21 @@ static bool displayStarted(od_display_rc_t rc, const char *what) {
     return true;
 }
 
+#if defined(OPENDISPLAY_FASTEPD)
+/* A built-in driver whose init failed takes no frame: refuse the START instead of ACKing a
+ * stream that would be dropped, and drop the rail the begin just took. */
+static bool nativeStarted(const char *what) {
+    if (!fastepd_init_failed()) {
+        return true;
+    }
+    od_log_error("display: %s refused, built-in driver init failed", what);
+    memset(&nativeXfer, 0, sizeof(nativeXfer));
+    displayRailRelease(false);
+    touchResumeAfterUpload();
+    return false;
+}
+#endif
+
 extern "C" bool od_xfer_app_begin_full(const od_color_geometry_t *geometry) {
     if (geometry == nullptr || geometry->total_bytes == 0u) return false;
     touchSuspendForUpload();
@@ -1186,7 +1201,7 @@ extern "C" bool od_xfer_app_begin_full(const od_color_geometry_t *geometry) {
         fastepd_prepare_hardware();
         displayRailAcquire();
         fastepd_direct_write_reset();
-        return true;
+        return nativeStarted("full upload");
     }
 #endif
     return displayStarted(od_display_begin_full(geometry), "full upload");
@@ -1206,7 +1221,7 @@ extern "C" bool od_xfer_app_begin_partial(uint16_t x, uint16_t y, uint16_t width
         nativeXfer.height = height;
         displayRailAcquire();
         fastepd_partial_prepare(x, y, width, height);
-        return true;
+        return nativeStarted("partial upload");
     }
 #endif
     return displayStarted(od_display_begin_partial(x, y, width, height, planeBytes),
@@ -1222,8 +1237,7 @@ extern "C" uint32_t od_xfer_app_write(uint32_t streamOffset, od_span_t data) {
             return 0u;
         }
         if (nativeXfer.mode == NATIVE_XFER_FULL) {
-            fastepd_direct_write_chunk(data.p, (uint32_t)data.n);
-            return (uint32_t)data.n;
+            return fastepd_direct_write_chunk(data.p, (uint32_t)data.n) ? (uint32_t)data.n : 0u;
         }
         return fastepd_partial_write_chunk(data.p, (uint32_t)data.n) ? (uint32_t)data.n : 0u;
     }

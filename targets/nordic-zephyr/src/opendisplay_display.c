@@ -37,6 +37,7 @@
 #include "opendisplay_config_parser.h"
 #include "opendisplay_protocol.h"
 #include "opendisplay_touch.h"
+#include "od_boot_render_gate.h"
 #if OD_CAP_IMGSTORE
 #include "od_cmd_flash.h"
 #include "od_imgstore.h"
@@ -53,6 +54,10 @@ static bool s_boot_pending;
 static uint8_t s_decompression_chunk[OPENDISPLAY_DECOMPRESSION_CHUNK_SIZE];
 #if OD_CAP_PARTIAL
 static uint32_t s_displayed_etag;
+#endif
+#if OD_CAP_IMGSTORE
+/* -1 = nothing queued. Set by FLASH_DISPLAY, consumed by the loop, dropped by a newer upload. */
+static int16_t s_pending_slot = -1;
 #endif
 static bool s_epd_rail_conditioned;
 static bool s_spi_raw_open;
@@ -216,6 +221,11 @@ void od_display_app_phase(od_display_phase_t phase)
   }
 }
 
+bool od_drive_app_panel_busy(void)
+{
+  return od_boot_render_gate_busy();
+}
+
 const struct DisplayConfig *od_drive_app_display(void)
 {
   return display_cfg();
@@ -226,6 +236,15 @@ const od_epd_cfg_bus_t *od_drive_app_bus(void)
   return od_epd_nordic_bus();
 }
 
+/* A redraw that is not an od_xfer transfer leaves an image no host etag describes, so a 0x76
+ * partial must not diff against it. */
+static void displayed_etag_forget(void)
+{
+#if OD_CAP_PARTIAL
+  s_displayed_etag = 0u;
+#endif
+}
+
 static void xfer_app_clear(void)
 {
 #if OD_CAP_IMGSTORE
@@ -234,7 +253,13 @@ static void xfer_app_clear(void)
   }
   s_to_flash = false;
   od_cmd_flash_clear_arm();
+  s_pending_slot = -1;
 #endif
+  /* The boot render owns the panel from its own thread: tearing SPIM down under it is the race
+   * the gate exists for. Nothing of an upload's is on the panel while it is held. */
+  if (od_boot_render_gate_busy()) {
+    return;
+  }
   od_display_abort();
   od_epd_spi_deinit();
   (void)od_epd_spi_fault_reset();
@@ -350,6 +375,7 @@ bool opendisplay_display_boot_apply(void)
     return true;
   }
 
+  displayed_etag_forget();
   for (unsigned attempt = 1; attempt <= 2; attempt++) {
     OD_SEC2_TRACE("draw NORMAL boot screen (attempt %u) at %u ms", attempt,
                   (unsigned)od_hal_uptime_ms());
@@ -386,12 +412,13 @@ bool od_claim_app_draw(enum od_setup_screen kind, uint32_t code)
 					   s_boot_qr, sizeof(s_boot_qr) };
 	od_display_rc_t rc;
 
-	if (kind == OD_SETUP_SCREEN_NORMAL || display_cfg() == NULL ||
+	if (kind == OD_SETUP_SCREEN_NORMAL || display_cfg() == NULL || od_boot_render_gate_busy() ||
 	    od_watchdog_app_safe_mode() || od_display_needs_migration()) {
 		return false;
 	}
 	OD_SEC2_TRACE("od_claim_app_draw(kind=%d) start at %u ms", (int)kind,
 		      (unsigned)od_hal_uptime_ms());
+	displayed_etag_forget();
 	rc = od_display_setup_screen(opendisplay_get_global_config(), kind, code, &bufs);
 	OD_SEC2_TRACE("od_claim_app_draw(kind=%d) rc=%d at %u ms", (int)kind, (int)rc,
 		      (unsigned)od_hal_uptime_ms());
@@ -425,9 +452,9 @@ void od_sec2_app_key_screen_changed(void)
 
 /* --- CMD_SPI_RAW ------------------------------------------------------------------------------
  *
- * The session owns the panel: OPEN aborts any transfer, and the transfer abort path (which a BLE
- * disconnect reaches) closes the session, so bytes never go to an unpowered panel. Needs drive
- * packets: without them there is no BUSY sense and no init sequence. */
+ * The session owns the panel: OPEN aborts any transfer, and a transfer start or the drive abort
+ * path (which a BLE disconnect reaches) closes the session, so bytes never go to an unpowered
+ * panel. Needs drive packets: without them there is no BUSY sense and no init sequence. */
 
 bool opendisplay_display_spi_raw_is_open(void)
 {
@@ -438,10 +465,14 @@ int opendisplay_display_spi_raw_open(bool run_panel_init)
 {
   const struct DisplayConfig *d = display_cfg();
 
+  if (od_boot_render_gate_busy()) {
+    return -OD_ERR_SPI_RAW_PANEL;
+  }
   od_drive_app_abort();
   if (d == NULL || !od_epd_cfg_load(d, od_epd_nordic_bus())) {
     return -OD_ERR_SPI_RAW_NO_CONFIG;
   }
+  displayed_etag_forget();
   if (!od_drive_app_panel_up(d)) {
     return -OD_ERR_SPI_RAW_PANEL;
   }
@@ -532,6 +563,15 @@ static bool xfer_app_busy(void)
 
 void od_xfer_app_prepare_start(void)
 {
+  /* An upload owns the panel from here: a raw session left open would keep answering success
+   * into a powered-down bus and hold the display service off until disconnect, and a queued
+   * FLASH_DISPLAY would paint an older image over this one. */
+  if (s_spi_raw_open) {
+    opendisplay_display_spi_raw_close();
+  }
+#if OD_CAP_IMGSTORE
+  s_pending_slot = -1;
+#endif
   if (xfer_app_busy()) {
     xfer_app_clear();
   }
@@ -595,6 +635,11 @@ bool od_xfer_app_begin_full(const od_color_geometry_t *geometry)
     }
   }
 #endif
+  if (od_boot_render_gate_busy()) {
+    od_xfer_app_note_start_error(OD_ERR_PANEL_BUSY);
+    od_log_warn("display: full upload refused, boot render in flight");
+    return false;
+  }
   return display_started(od_display_begin_full(geometry), "full upload");
 }
 
@@ -602,6 +647,11 @@ bool od_xfer_app_begin_full(const od_color_geometry_t *geometry)
 bool od_xfer_app_begin_partial(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
                                uint32_t plane_bytes)
 {
+  if (od_boot_render_gate_busy()) {
+    od_xfer_app_note_start_error(OD_ERR_PANEL_BUSY);
+    od_log_warn("display: partial upload refused, boot render in flight");
+    return false;
+  }
   return display_started(od_display_begin_partial(x, y, width, height, plane_bytes),
                          "partial upload");
 }
@@ -657,6 +707,7 @@ bool od_xfer_app_refresh(uint8_t mode, bool *completed)
   if (completed != NULL && s_to_flash) {
     s_to_flash = false;
     *completed = od_flash_store_finish();
+    od_xfer_note_refresh_stored();   /* stored, not shown: the displayed etag stands */
     return true;
   }
 #endif
@@ -691,9 +742,6 @@ uint32_t od_xfer_app_now_ms(void)
 /* --- loop service: stored-image display and the deferred boot screen ------------------------ */
 
 #if OD_CAP_IMGSTORE
-/* -1 = nothing queued. Set by a command, consumed by the loop. */
-static int16_t s_pending_slot = -1;
-
 bool od_display_from_slot_arm(uint8_t index)
 {
   const struct DisplayConfig *d = display_cfg();
@@ -736,6 +784,7 @@ static void display_pending_slot(void)
       && slot.payload_len == geometry.total_bytes;
   if (ok) {
     od_cmd_flash_clear_arm();
+    displayed_etag_forget();
     ok = od_xfer_app_begin_full(&geometry);
   }
   while (ok && off < slot.payload_len) {
@@ -762,7 +811,8 @@ static void display_pending_slot(void)
 
 void opendisplay_display_service(void)
 {
-  if (od_txq_depth() != 0u || od_xfer_active() || xfer_app_busy() || s_spi_raw_open) {
+  if (od_txq_depth() != 0u || od_xfer_active() || xfer_app_busy() || s_spi_raw_open ||
+      od_boot_render_gate_busy()) {
     return;
   }
 #if OD_CAP_IMGSTORE

@@ -91,6 +91,8 @@ bool od_drive_app_adopt(const od_color_geometry_t *frame, uint8_t passes, bool c
     return g_streaming;
 }
 int8_t od_drive_app_temp_c(void) { return g_temp; }
+static bool g_panel_busy;
+bool od_drive_app_panel_busy(void) { return g_panel_busy; }
 
 /* od_xfer's target seam: DATA lands in the drive stream, as on Nordic. */
 void od_inflate_app_reset(uint32_t expected) { od_zlib_stream_reset(expected); }
@@ -210,6 +212,7 @@ static od_cmd_result_t raw(const uint8_t *b, size_t n)
 }
 
 static uint8_t g_b[700];
+static bool g_with_sleep;   /* store_cfg: give the panel a sleep sequence [2][0x07][0xA5] END */
 
 /* 16x4 MONO display 0 with modes: 0 "full" [10..30 REJECT], 1 "cold" [-20..0 SUBSTITUTE],
  * 2 "pins" (SET_PIN: unsupported by FX_BUS), 3 "busy" (waits on BUSY before the image). */
@@ -218,14 +221,15 @@ static void store_cfg(bool with_drive)
     static const uint8_t seq_ok[] = { 1, 0x12, 0, 3, 2, 0x22, 0xF7, 0, 1 };
     static const uint8_t seq_pin[] = { 0, 6, 0, 1, 0, 3 };
     static const uint8_t seq_busy[] = { 1, 0x12, 0, 1, 0, 3 };
-    static const uint8_t panel[13] = { 0, 0x01, 0x01, 0x64, 0x00, 0, 0, 0, 1, 2, 3, 0, 0 };
+    static const uint8_t panel[18] = { 0, 0x01, 0x01, 0x64, 0x00, 0, 0, 0, 1, 2, 3, 0, 5,
+                                       2, 0x07, 0xA5, 0, 0 };
     fx_cfg_t c;
 
     g_disp = fx_display(0u, 16u, 4u, 0u);
     fx_cfg_begin(&c, 1u);
     fx_cfg_legacy_head(&c, &g_disp);
     if (with_drive) {
-        fx_cfg_ext(&c, OD_PKT_DISPLAY_PANEL, panel, sizeof panel);
+        fx_cfg_ext(&c, OD_PKT_DISPLAY_PANEL, panel, g_with_sleep ? 18u : 13u);
         const struct { const char *name; int8_t lo, hi; uint8_t pol; const uint8_t *s; uint16_t n; }
         m[] = {
             { "full", 10, 30, OD_DRIVE_TEMP_REJECT, seq_ok, sizeof seq_ok },
@@ -390,6 +394,41 @@ static void test_start_panel_failures(void)
         CHECK(reply_is(NACK(OD_ERR_DRIVE_PANEL_BUSY, 3u)));
         CHECK(od_config_store_save(ws, sizeof ws, payload, sizeof payload) == OD_CONFIG_STORE_OK);
         store_cfg(true);
+    }
+    CASE("BUSY never releasing after the reset: the controller gets its sleep sequence once");
+    {
+        const uint8_t b[5] = { 3, 0, 0, 0, 0 };
+        g_with_sleep = true;
+        store_cfg(true);
+        fx_bus_clear();
+        g_stuck_busy = true;
+        const od_cmd_result_t r = start(b, 5u);
+        g_stuck_busy = false;
+        CHECK(r == OD_CMD_NACK && reply_is(NACK(OD_ERR_DRIVE_PANEL_BUSY, 3u)));
+        const char *slp = strstr(fx_trace, "C 07\nD a5\n");
+        CHECK(fx_reset_count == 1u && slp != NULL);
+        CHECK(slp == NULL || strstr(slp + 1, "C 07") == NULL);
+        CHECK(!g_up && !od_xfer_active());
+        g_with_sleep = false;
+        store_cfg(true);
+    }
+    CASE("panel driven from another thread: PANEL_BUSY, nothing aborted, loaded or raised");
+    {
+        const uint8_t b[5] = { 0, 0, 0, 0, 0 };
+        unsigned aborts, ups;
+
+        CHECK(start(b, 5u) == OD_CMD_OK && od_xfer_active());
+        aborts = g_aborts;
+        ups = g_ups;
+        fx_cmd_count = 0u;
+        fx_reset_count = 0u;
+        g_panel_busy = true;
+        const od_cmd_result_t r = start(b, 5u);
+        g_panel_busy = false;
+        CHECK(r == OD_CMD_NACK && reply_is(NACK(OD_ERR_DRIVE_PANEL_BUSY, 0u)));
+        CHECK(g_aborts == aborts && g_ups == ups && od_xfer_active());
+        CHECK(fx_cmd_count == 0u && fx_reset_count == 0u);
+        od_xfer_reset();
     }
 }
 

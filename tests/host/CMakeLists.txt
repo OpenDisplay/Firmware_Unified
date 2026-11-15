@@ -445,8 +445,33 @@ add_executable(od_silabs_purge_test
     ../../targets/efr32bg22-slc/od_nvm3_purge.c)
 target_include_directories(od_silabs_purge_test PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/fake_silabs
-    ../../shared/core)
+    ../../shared/core
+    ../../targets/efr32bg22-slc)
+target_compile_definitions(od_silabs_purge_test PRIVATE OD_BG22_DIAG=2)
 add_test(NAME silabs_purge COMMAND od_silabs_purge_test)
+
+# silabs_slot_draw: the production BG22 display file's draw from a stored image slot (0x004B)
+# over a recording panel shim and a one-slot image store. Proves a two-plane frame (BWR, BWY,
+# GRAY4) reaches the panel as two planes, split where a 0x0070 upload splits it, and that a
+# single-plane frame streams unchanged.
+add_executable(od_silabs_slot_draw_test
+    silabs_slot_draw_test.c
+    silabs_slot_draw_stubs.c
+    nvs_empty_test_stub.c
+    session_fake.c
+    aes128.c
+    fake_silabs/em_gpio.c
+    ../../targets/efr32bg22-slc/od_link_policy.c
+    ../../targets/efr32bg22-slc/od_inflate_app.c
+    ../../third_party/qrcode/qrcode.c
+    ../../targets/efr32bg22-slc/opendisplay_display.cpp)
+target_include_directories(od_silabs_slot_draw_test PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/fake_silabs
+    ../../targets/efr32bg22-slc
+    ../../third_party)
+target_compile_definitions(od_silabs_slot_draw_test PRIVATE OD_BG22_DIAG=0)
+target_link_libraries(od_silabs_slot_draw_test od_shared_silabs OpenSSL::Crypto)
+add_test(NAME silabs_slot_draw COMMAND od_silabs_slot_draw_test)
 
 # time_silabs: compile the production BG22 adapter over fake sleeptimer/udelay primitives. The
 # load-bearing case crosses the underlying 32-bit tick rollover and proves conversion happens in
@@ -602,6 +627,32 @@ add_executable(od_xfer_split_test xfer_split_test.c boot_key_stub.c
     ${CMAKE_CURRENT_LIST_DIR}/../../third_party/qrcode/qrcode.c)
 target_link_libraries(od_xfer_split_test od_xfer_split od_shared)
 add_test(NAME xfer_split COMMAND od_xfer_split_test)
+
+# ee02_spectra: the 7.09in dual-controller Spectra 6 on EE02 through 0x70/0x71/0x72 (raw and zlib)
+# into od_display on a recorded bus, compared byte for byte with the lab firmware's init table,
+# per-chip targeting and DTM halves; plus the 60 s BUSY cap. Same composition as xfer_split.
+add_executable(od_ee02_spectra_test ee02_spectra_test.c boot_key_stub.c
+    ../../shared/core/od_display.c
+    ../../shared/core/od_epd_cfg.c
+    ../../shared/core/od_epd.c
+    ../../shared/core/od_cfg_index.c
+    od_log_test_stub.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../third_party/qrcode/qrcode.c)
+target_link_libraries(od_ee02_spectra_test od_xfer_split od_shared)
+add_test(NAME ee02_spectra COMMAND od_ee02_spectra_test)
+# The same suite with OD_EPD_LUT_BYTES raised to 1024 (the 0x20 register's ceiling on that
+# controller): the multi-pass custom-waveform design of the EE02 report runs end to end. No target
+# builds with this value; it is the evidence for a proposal, not a configuration.
+add_executable(od_ee02_spectra_lut1k_test ee02_spectra_test.c boot_key_stub.c
+    ../../shared/core/od_display.c
+    ../../shared/core/od_epd_cfg.c
+    ../../shared/core/od_epd.c
+    ../../shared/core/od_cfg_index.c
+    od_log_test_stub.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../third_party/qrcode/qrcode.c)
+target_compile_definitions(od_ee02_spectra_lut1k_test PRIVATE OD_EPD_LUT_BYTES=1024u)
+target_link_libraries(od_ee02_spectra_lut1k_test od_xfer_split od_shared)
+add_test(NAME ee02_spectra_lut1k COMMAND od_ee02_spectra_lut1k_test)
 
 # legacy_upload: what py-opendisplay 7.14.0 (no drive modes) sends for an upload -- 0x70/0x71/0x72
 # compressed and not, and PIPE -- for one panel of every colour class, replayed into od_display:
@@ -903,6 +954,7 @@ add_test(NAME esp_crypto_random COMMAND od_esp_crypto_random_test)
 add_executable(od_nordic_sec2_app_test
     nordic_sec2_app_test.c
     ../../targets/nordic-zephyr/src/od_sec2_app.c
+    ../../targets/nordic-zephyr/src/od_boot_render_gate.c
     ../../shared/core/od_advert_state.c)
 target_compile_definitions(od_nordic_sec2_app_test PRIVATE OD_IDENT_TARGET=OD_IDENT_TARGET_NRF54)
 target_include_directories(od_nordic_sec2_app_test PRIVATE
@@ -1288,7 +1340,25 @@ add_executable(od_tlsr_ota_test tlsr_ota_test.c od_log_test_stub.c nvs_empty_tes
 target_link_libraries(od_tlsr_ota_test od_fake_tlsr_flash)
 add_test(NAME tlsr_ota COMMAND od_tlsr_ota_test)
 
-# tlsr_mac: the flash UID gives the legacy firmware's address; then the MAC record; then a per-boot random one.
+# tlsr_install: the RAM install routine, built for the host; a power cut at every operation and
+# page programs that do not take leave a boot flag only on a complete image.
+add_executable(od_tlsr_install_test tlsr_install_test.c ${OD_TLSR_SRC}/od_tlsr_install.c)
+target_compile_definitions(od_tlsr_install_test PRIVATE OD_TLSR_INSTALL_HOST=1)
+target_link_libraries(od_tlsr_install_test od_fake_tlsr_flash)
+add_test(NAME tlsr_install COMMAND od_tlsr_install_test)
+
+# tlsr_pins: config pin encoding; port E and PA7 (SWS) are refused (L7).
+add_executable(od_tlsr_pins_test tlsr_pins_test.c)
+target_include_directories(od_tlsr_pins_test PRIVATE ${OD_TLSR_SRC})
+add_test(NAME tlsr_pins COMMAND od_tlsr_pins_test)
+
+# tlsr_reset_state: only a reset inside a boot-screen render stops the boot screen (L1).
+add_executable(od_tlsr_reset_state_test tlsr_reset_state_test.c)
+target_include_directories(od_tlsr_reset_state_test PRIVATE ${OD_TLSR_SRC})
+add_test(NAME tlsr_reset_state COMMAND od_tlsr_reset_state_test)
+
+# tlsr_mac: the flash UID gives the legacy firmware's address; then the MAC record; then a random
+# one, made once and kept.
 add_executable(od_tlsr_mac_test tlsr_mac_test.c od_log_test_stub.c)
 target_link_libraries(od_tlsr_mac_test od_fake_tlsr_flash)
 add_test(NAME tlsr_mac COMMAND od_tlsr_mac_test)
@@ -1319,3 +1389,51 @@ else()
     message(STATUS "od: fuzz targets NOT built (needs Clang); the pre-auth surface is "
                    "UNFUZZED in this build")
 endif()
+
+# esp32_it8951: targets/esp32-idf/src/display_it8951.cpp on host fakes of the ESP-IDF calls it
+# makes (fake_esp32/). Panel geometry changes between transfers must never write past an
+# allocation, and a failed init must switch the panel supplies off.
+add_executable(od_esp32_it8951_test esp32_it8951_test.cpp fake_esp32/fake_esp32.c
+    ../../targets/esp32-idf/src/display_it8951.cpp
+    od_log_test_stub.c)
+target_include_directories(od_esp32_it8951_test PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/fake_esp32
+    ../../targets/esp32-idf/src
+    ../../shared/core)
+target_compile_definitions(od_esp32_it8951_test PRIVATE OPENDISPLAY_FASTEPD=1)
+target_compile_options(od_esp32_it8951_test PRIVATE
+    $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti>)
+add_test(NAME esp32_it8951 COMMAND od_esp32_it8951_test)
+
+add_executable(od_esp32_fastepd_test esp32_fastepd_test.cpp
+    fake_fastepd/fake_fastepd.cpp fake_esp32/fake_esp32.c
+    ../../targets/esp32-idf/src/display_fastepd.cpp
+    ../../targets/esp32-idf/src/display_it8951.cpp
+    od_log_test_stub.c)
+target_include_directories(od_esp32_fastepd_test PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/fake_fastepd
+    ${CMAKE_CURRENT_LIST_DIR}/fake_esp32
+    ../../third_party/FastEPD/src
+    ../../targets/esp32-idf/src
+    ../../shared/core
+    ../../shared/hal
+    ../../shared/protocol)
+target_compile_definitions(od_esp32_fastepd_test PRIVATE OPENDISPLAY_FASTEPD=1)
+target_compile_options(od_esp32_fastepd_test PRIVATE
+    $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti>)
+add_test(NAME esp32_fastepd COMMAND od_esp32_fastepd_test)
+
+# nordic_adv_watch: H2 -- a Nordic advertiser that stays down (latched od_adv_control fault, or
+# wanted and not running with nobody connected) resets after a bound; transients never do.
+add_executable(od_nordic_adv_watch_test nordic_adv_watch_test.c
+    ../../targets/nordic-zephyr/src/od_adv_watch.c)
+target_include_directories(od_nordic_adv_watch_test PRIVATE
+    ../../targets/nordic-zephyr/src ${OD_SHARED_INCLUDE_DIRS})
+add_test(NAME nordic_adv_watch COMMAND od_nordic_adv_watch_test)
+
+# nordic_smp_lock: H3 (b) -- an ENTER_DFU unlock of SMP lasts one session: it ends when the link
+# opened after the unlock closes, or when none opens in time, and never cuts an open session.
+add_executable(od_nordic_smp_lock_test nordic_smp_lock_test.c
+    ../../targets/nordic-zephyr/src/od_smp_lock.c)
+target_include_directories(od_nordic_smp_lock_test PRIVATE ../../targets/nordic-zephyr/src)
+add_test(NAME nordic_smp_lock COMMAND od_nordic_smp_lock_test)

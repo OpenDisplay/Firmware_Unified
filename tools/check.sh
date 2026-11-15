@@ -1695,7 +1695,8 @@ fi
 
 # ===================================================================================== silabs ==
 silabs_bg22() {
-    targets/efr32bg22-slc/build-and-flash.sh --clean --no-flash
+    # --release: the gated image is the shipped configuration (no RTT, real build id).
+    targets/efr32bg22-slc/build-and-flash.sh --clean --no-flash --release
 }
 if [ "$DO_SILABS" = 1 ]; then
     check "silabs: BG22 headless build" silabs_bg22
@@ -1705,6 +1706,8 @@ fi
 
 # ===================================================================================== telink ==
 # Provisional target. The image check and the RAM-resident install check run inside its build.
+# The image checker's own rules (CRC, cap, no boot flag at a multi-boot slot) need no toolchain.
+check "host: telink image checker selftest" python3 -I targets/telink-tlsr/tools/tlsr_image.py selftest
 telink_tlsr() {
     BUILD_DIR="$BUILD_ROOT/telink" targets/telink-tlsr/build.sh
 }

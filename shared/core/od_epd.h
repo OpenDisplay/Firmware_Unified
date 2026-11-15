@@ -68,7 +68,12 @@ extern "C" {
  * how long a malformed sequence can keep the panel (each step may be a 65 s DELAY or a BUSY wait).
  * The largest real sequence has 79 steps (panels/generated, 0x0042 dual-controller Spectra 6). */
 #define OD_EPD_MAX_SEQ_STEPS  128u
+/* Largest 0xAF slot a pass accepts (od_epd_cfg lut_info; a larger slot reads as absent). Not a
+ * buffer: slots are streamed. Published to hosts as drive_presets.json caps.lut_max, so a build
+ * that overrides it diverges from what hosts assume; only host tests do. */
+#ifndef OD_EPD_LUT_BYTES
 #define OD_EPD_LUT_BYTES      535u   /* 7-byte analog header + 528-byte body */
+#endif
 /* 20: the longest sleep sequence is the 4.2in SSD16xx's discharge plus its 200 ms bleed DELAY
  * (19 B; panels/tools/pdlib.py POST_SLEEP_BLEED). */
 #define OD_EPD_SLEEP_SEQ_MAX   20u
@@ -335,9 +340,9 @@ int  od_epd_validate(od_epd_t *e);
  * caller then streams the frame with od_epd_write_image_chunk and calls
  * od_epd_finish_pass to run the tail (power-on, refresh, BUSY wait). */
 int  od_epd_begin_pass(od_epd_t *e, uint8_t pass);
-/* A storage read that fails (IO) or finds the config changed (STALE) after the panel has seen
- * I/O ends the pass: the sleep sequence (held in the descriptor, not in storage) runs at once,
- * the next od_epd_sleep() is absorbed, and every resume returns OD_EPD_RC_STATE. */
+/* Any failure after the panel has seen I/O (reset onwards) ends the pass: the sleep sequence
+ * (held in the descriptor, not in storage) runs at once, the next od_epd_sleep() is absorbed,
+ * and every resume returns OD_EPD_RC_STATE. A sequence refused before I/O sends nothing. */
 int  od_epd_write_image_chunk(od_epd_t *e, const uint8_t *buf, size_t n);
 /* Advance to the next image marker, for panels that take two 1bpp planes. */
 int  od_epd_next_plane(od_epd_t *e);

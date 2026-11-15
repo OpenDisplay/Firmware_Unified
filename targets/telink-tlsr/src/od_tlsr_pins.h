@@ -2,7 +2,9 @@
  * (group << 8) | BIT(bit). 0xFF is "not present"; anything else is refused. Port E is not
  * usable: PE0..PE3 are the internal flash bus (MSDO, MCLK, MSCN, MSDI), and taking one as a
  * GPIO cuts the chip off from its own code -- a reset, or a reset loop if a stored config
- * names one. Include after od_tlsr_sdk.h. */
+ * names one. PA7 is not usable either: it is SWS, the only wired way back into a tag whose
+ * image is broken, and a config naming it as a panel or rail pin would drive it. Include after
+ * od_tlsr_sdk.h. */
 #ifndef OD_TLSR_PINS_H
 #define OD_TLSR_PINS_H
 
@@ -10,10 +12,11 @@
 #include <stdint.h>
 
 #define OD_TLSR_PIN_COUNT 32u
+#define OD_TLSR_PIN_SWS   7u
 
 static inline bool od_tlsr_pin_valid(uint8_t p)
 {
-    return p < OD_TLSR_PIN_COUNT;
+    return p < OD_TLSR_PIN_COUNT && p != OD_TLSR_PIN_SWS;
 }
 
 static inline GPIO_PinTypeDef od_tlsr_pin_sdk(uint8_t p)

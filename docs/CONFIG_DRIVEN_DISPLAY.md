@@ -295,7 +295,7 @@ driver and parameterises it**, which is what a board-id switch did before:
 | 3 | flags | bit 0 MIRRORED (rows reversed), bit 1 GRAY16 (4 bpp frame whatever the scheme), bit 2 TEMP_SENSOR (refresh temperature from the configured sensor) |
 | 4-5 | vcom_mv LE | IT8951; 0 keeps the controller's stored VCOM |
 | 6 | default_temp_c | int8, used without a sensor reading; 0x7F = the driver's default |
-| 7 | parallel_panel | class 2: 1 Inkplate 5 V2, 2 Inkplate 10, 3 M5Stack PaperS3 (the board's bus/PMIC wiring, which FastEPD owns) |
+| 7 | parallel_panel | class 2: 1 Inkplate 5 V2, 2 Inkplate 10, 3 M5Stack PaperS3 (the board's bus/PMIC wiring, which FastEPD owns); any other value: the 0xB3 is ignored, like an unknown class |
 | 8 | miso_pin | IT8951 read line, 0xFF none |
 | 9 | en_pin | IT8951 board supply enable, 0xFF none |
 | 10 | ite_en_pin | IT8951 controller enable, 0xFF none |

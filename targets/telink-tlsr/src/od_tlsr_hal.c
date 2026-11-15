@@ -8,6 +8,8 @@
 #include "od_tlsr_mac.h"
 #include "od_tlsr_ota.h"
 #include "od_tlsr_pins.h"
+#include "od_tlsr_reset_state.h"
+#include "od_tlsr_store.h"
 
 #include "od_config.h"
 
@@ -43,49 +45,40 @@ void od_tlsr_feed_watchdog(void)
     wd_clear();
 }
 
-/* ---- reset cause ----
+/* ---- reset cause (od_tlsr_reset_state.h) ----
  * DEEP_ANA_REG1 is the one analog register that only a power cycle clears and that the SDK
  * leaves to the application (REG0 is USED_DEEP_ANA_REG and holds a ROM flag; REG2 is the SDK's
- * SYS_DEEP_ANA_REG). Its layout:
- *   [7:4] 0xA, written on every boot, so anything else means power was applied (a brownout
- *         included: this part cannot tell the two apart)
- *   [3]   set by od_hal_reset_reboot() just before a planned reboot
- *   [2:0] unplanned resets (watchdog, reset pin) since power was applied, saturating at 7
- * An unplanned reset is reported as OTHER, which never counts toward a boot gesture. */
+ * SYS_DEEP_ANA_REG). An unplanned reset is reported as OTHER, which never counts toward a boot
+ * gesture. */
 
-#define ANA_STATE_REG     DEEP_ANA_REG1
-#define ANA_BOOT_MARK     0xA0u
-#define ANA_BOOT_MASK     0xF0u
-#define ANA_PLANNED       0x08u
-#define ANA_COUNT_MASK    0x07u
+#define ANA_STATE_REG DEEP_ANA_REG1
 
 static uint32_t s_cause;
-static uint8_t s_unplanned;
+static struct od_tlsr_rs s_rs;
 
 void od_tlsr_hal_boot(void)
 {
-    uint8_t st = analog_read(ANA_STATE_REG);
-
-    s_unplanned = 0u;
-    if ((st & ANA_BOOT_MASK) != ANA_BOOT_MARK) {
-        s_cause = OD_HAL_RESET_POWER_ON;
-    } else if ((st & ANA_PLANNED) != 0u) {
-        s_cause = OD_HAL_RESET_SOFTWARE;
-        s_unplanned = st & ANA_COUNT_MASK;
-    } else {
-        s_cause = OD_HAL_RESET_OTHER;
-        s_unplanned = st & ANA_COUNT_MASK;
-        if (s_unplanned < ANA_COUNT_MASK) {
-            s_unplanned++;
-        }
-    }
-    analog_write(ANA_STATE_REG, (uint8_t)(ANA_BOOT_MARK | s_unplanned));
+    od_tlsr_rs_decode(analog_read(ANA_STATE_REG), &s_rs);
+    s_cause = s_rs.cause == OD_TLSR_RS_POWER_ON  ? OD_HAL_RESET_POWER_ON
+            : s_rs.cause == OD_TLSR_RS_PLANNED_BOOT ? OD_HAL_RESET_SOFTWARE
+                                                 : OD_HAL_RESET_OTHER;
+    analog_write(ANA_STATE_REG, od_tlsr_rs_encode(&s_rs, false, false));
     s_last_tick = clock_time();
+}
+
+void od_tlsr_hal_render_mark(bool rendering)
+{
+    analog_write(ANA_STATE_REG, od_tlsr_rs_encode(&s_rs, rendering, false));
+}
+
+bool od_tlsr_hal_render_died(void)
+{
+    return s_rs.render_died;
 }
 
 uint8_t od_tlsr_hal_unplanned(void)
 {
-    return s_unplanned;
+    return s_rs.unplanned;
 }
 
 void od_tlsr_ota_app_boot_info(uint8_t info[2])
@@ -93,12 +86,12 @@ void od_tlsr_ota_app_boot_info(uint8_t info[2])
     info[0] = s_cause == OD_HAL_RESET_POWER_ON ? OD_TLSR_BOOT_POWER_ON
             : s_cause == OD_HAL_RESET_SOFTWARE ? OD_TLSR_BOOT_PLANNED
                                                : OD_TLSR_BOOT_UNPLANNED;
-    info[1] = s_unplanned;
+    info[1] = s_rs.unplanned;
 }
 
 void od_tlsr_ota_app_before_install(void)
 {
-    analog_write(ANA_STATE_REG, (uint8_t)(ANA_BOOT_MARK | ANA_PLANNED | s_unplanned));
+    analog_write(ANA_STATE_REG, od_tlsr_rs_encode(&s_rs, false, true));
     wd_clear();
 }
 
@@ -127,13 +120,23 @@ void od_hal_retained_clear(void)
 
 void od_hal_reset_reboot(void)
 {
-    analog_write(ANA_STATE_REG, (uint8_t)(ANA_BOOT_MARK | ANA_PLANNED | s_unplanned));
+    analog_write(ANA_STATE_REG, od_tlsr_rs_encode(&s_rs, false, true));
     start_reboot();
     for (;;) {
     }
 }
 
 /* ---- the tag's address (od_tlsr_mac.h), read once ---- */
+
+bool od_tlsr_mac_app_load(unsigned char mac[6])
+{
+    return od_tlsr_store_mac_read(mac);
+}
+
+void od_tlsr_mac_app_save(const unsigned char mac[6])
+{
+    (void)od_tlsr_store_mac_write(mac);
+}
 
 static uint8_t s_mac[6];
 static bool s_mac_ready;
@@ -160,15 +163,18 @@ float od_tlsr_chip_temperature_c(void)
 
 /* Supply voltage, the B85 way: PowerOption.battery_sense_pin, an otherwise unused ADC-capable
  * pin, is driven HIGH and sampled through the 1/8 prescaler, so it reads the rail it is driven
- * from. No divider and no enable pin; voltage_scaling_factor is not used. The legacy firmware does the
- * same on the pin its config names (PB3 on OD05B911). Sampled at most once a minute. */
+ * from. No divider and no enable pin; voltage_scaling_factor is not used. The legacy firmware
+ * does the same on the pin its config names (PB3 on OD05B911). The MSD reads it at most once a
+ * minute; the flash guard at most once a second, since an erase under load is what sags it. */
 #define BATTERY_TTL_MS 60000u
+#define SUPPLY_TTL_MS  1000u
 
 static uint16_t s_batt_mv;
 static uint32_t s_batt_at;
 static bool s_batt_valid;
 
-uint16_t od_tlsr_battery_mv(void)
+/* 0 when the config names no ADC-capable sense pin. */
+static uint16_t supply_mv(uint32_t max_age_ms)
 {
     const struct od_config *c = od_tlsr_config_loaded() ? od_tlsr_config() : NULL;
     const uint8_t p = c != NULL ? c->power_option.battery_sense_pin : 0xFFu;
@@ -178,7 +184,7 @@ uint16_t od_tlsr_battery_mv(void)
     if (!od_tlsr_pin_adc(p)) {
         return 0u;
     }
-    if (s_batt_valid && (uint32_t)(now - s_batt_at) < BATTERY_TTL_MS) {
+    if (s_batt_valid && (uint32_t)(now - s_batt_at) < max_age_ms) {
         return s_batt_mv;
     }
     pin = od_tlsr_pin_sdk(p);
@@ -192,6 +198,18 @@ uint16_t od_tlsr_battery_mv(void)
     s_batt_at = now;
     s_batt_valid = true;
     return s_batt_mv;
+}
+
+uint16_t od_tlsr_battery_mv(void)
+{
+    return supply_mv(BATTERY_TTL_MS);
+}
+
+bool od_tlsr_flash_supply_ok(void)
+{
+    const uint16_t mv = supply_mv(SUPPLY_TTL_MS);
+
+    return mv == 0u || mv >= OD_TLSR_FLASH_MIN_MV;
 }
 
 bool od_tlsr_reboot_flag(void)

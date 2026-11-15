@@ -189,6 +189,15 @@ fi
 # PROFILE=quiet is picked up from the environment in CMakeLists.txt
 # (prj_quiet.conf + OD_LOW_POWER_QUIET).
 FW_VER="${OD_FW_VERSION:-${BUILD_VERSION:-}}"
+# The MCUboot image header carries the version SMP clients and any future downgrade protection
+# read. Left unset NCS signs 0.0.0+0, so every release looks the same in the field; take it from
+# the one place versions are decided (tools/release/version.sh: the given X.Y.Z, or the
+# in-source default for an unversioned build). collect.py refuses a 0.0.0 image.
+OD_SIGN_VER="$("${REPO_ROOT}/tools/release/version.sh" ${FW_VER:+"${FW_VER}"})" || {
+  echo "build.sh: version '${FW_VER}' rejected by tools/release/version.sh" >&2; exit 2; }
+if [[ "${OD_USES_MCUBOOT}" == 1 ]]; then
+  CMAKE_ARGS+=("-Dzephyr_CONFIG_MCUBOOT_IMGTOOL_SIGN_VERSION=\"${OD_SIGN_VER}+0\"")
+fi
 if [[ -n "${FW_VER}" ]]; then
   # Export for app CMakeLists (sysbuild-safe). Also pass cmake arg for completeness.
   export OD_FW_VERSION="${FW_VER}"

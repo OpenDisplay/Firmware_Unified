@@ -1069,6 +1069,18 @@ extern "C" bool od_xfer_app_panel_info(od_xfer_panel_info_t *out)
   return true;
 }
 
+/* The panel is up in mode 0: stream a full frame of `geometry` through xfer_app_write_full,
+ * which owns the plane split. Shared by a 0x0070 upload and a draw from a stored slot. */
+static void xfer_app_adopt_full(const od_color_geometry_t *geometry)
+{
+  s_xfer_app.mode = XFER_APP_FULL;
+  s_xfer_app.geometry = *geometry;
+  s_xfer_app.plane_size = geometry->layout == OD_COLOR_LAYOUT_CONTROLLER_PLANES
+      ? geometry->part_bytes[0] : 0u;
+  s_xfer_app.current_plane = geometry->initial_plane == OD_COLOR_PLANE_0 ? 0u : 1u;
+  s_xfer_app.panel_up = true;
+}
+
 extern "C" bool od_xfer_app_begin_full(const od_color_geometry_t *geometry)
 {
   const struct DisplayConfig *d = display_cfg();
@@ -1111,12 +1123,7 @@ extern "C" bool od_xfer_app_begin_full(const od_color_geometry_t *geometry)
     display_power_set(false);
     return false;
   }
-  s_xfer_app.mode = XFER_APP_FULL;
-  s_xfer_app.geometry = *geometry;
-  s_xfer_app.plane_size = geometry->layout == OD_COLOR_LAYOUT_CONTROLLER_PLANES
-      ? geometry->part_bytes[0] : 0u;
-  s_xfer_app.current_plane = geometry->initial_plane == OD_COLOR_PLANE_0 ? 0u : 1u;
-  s_xfer_app.panel_up = true;
+  xfer_app_adopt_full(geometry);
   return true;
 }
 
@@ -1250,7 +1257,17 @@ extern "C" void opendisplay_display_service(void)
 
   const struct DisplayConfig *d = display_cfg();
   od_imgstore_slot_t slot;
-  if (d == nullptr || !od_imgstore_slot(index, &slot) || slot.state != OD_SLOT_VALID) {
+  od_color_geometry_t geometry;
+  if (d == nullptr || !od_imgstore_slot(index, &slot) || slot.state != OD_SLOT_VALID
+      || s_xfer_app.mode != XFER_APP_IDLE) {
+    return;
+  }
+  /* The stored bytes are a 0x0070 frame for this panel, planes included; the arm already
+   * checked width, height and scheme. */
+  if (od_color_direct_geometry(d->color_scheme, d->pixel_width, d->pixel_height, &geometry)
+          != OD_COLOR_OK
+      || geometry.layout == OD_COLOR_LAYOUT_SPLIT_HALVES
+      || geometry.total_bytes != slot.payload_len) {
     return;
   }
 
@@ -1261,9 +1278,11 @@ extern "C" void opendisplay_display_service(void)
     display_power_set(false);
     return;
   }
-  /* Streamed in the same 256-byte steps the transport uses. The decompression scratch is
-   * reused as the read buffer: this path owns the panel, so no transfer can be in flight
-   * competing for it, and a second buffer is RAM this part does not have. */
+  xfer_app_adopt_full(&geometry);
+  /* Streamed in the same 256-byte steps the transport uses, through the same plane split. The
+   * decompression scratch is reused as the read buffer: this path owns the panel, so no
+   * transfer can be in flight competing for it, and a second buffer is RAM this part does not
+   * have. */
   uint32_t off = 0u;
   bool ok = true;
   while (off < slot.payload_len && ok) {
@@ -1272,7 +1291,7 @@ extern "C" void opendisplay_display_service(void)
       n = OPENDISPLAY_DECOMPRESSION_CHUNK_SIZE;
     }
     ok = od_imgstore_read(index, off, s_decompression_chunk, n)
-      && od_epd_shim_write(s_decompression_chunk, n);
+      && xfer_app_write_full(off, od_span_make(s_decompression_chunk, n));
     off += n;
   }
   if (ok) {
@@ -1280,4 +1299,5 @@ extern "C" void opendisplay_display_service(void)
   }
   od_epd_shim_sleep();
   display_power_set(false);
+  memset(&s_xfer_app, 0, sizeof(s_xfer_app));
 }

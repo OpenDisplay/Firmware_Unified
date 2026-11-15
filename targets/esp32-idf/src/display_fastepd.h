@@ -30,7 +30,8 @@ void fastepd_boot_write_row(uint16_t y, const uint8_t* row, unsigned pitch);
 void fastepd_boot_skip_planes(void);
 
 void fastepd_direct_write_reset(void);
-void fastepd_direct_write_chunk(const uint8_t* data, uint32_t len);
+/* False when the bytes did not land: init failed, or past the end of the frame. */
+bool fastepd_direct_write_chunk(const uint8_t* data, uint32_t len);
 /** refresh_mode: 0 = REFRESH_FULL, 1 = REFRESH_FAST, 2 = REFRESH_PARTIAL. */
 void fastepd_direct_refresh(int refresh_mode);
 void fastepd_direct_sleep(void);

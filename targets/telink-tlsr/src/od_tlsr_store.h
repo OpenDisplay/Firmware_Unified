@@ -38,6 +38,10 @@ int od_tlsr_store_read(struct od_tlsr_store *s, uint32_t off, void *buf, uint32_
 int od_tlsr_store_write(struct od_tlsr_store *s, const void *data, uint32_t len);
 /* Overwrite the superseded copy (SECURITY_V2 10.4a); the live record is kept. */
 int od_tlsr_store_purge(struct od_tlsr_store *s);
+/* The tag's random fallback address (od_tlsr_mac.h), kept in the secrets record. The record
+ * carries it only once one has been made, so on every other tag it is unchanged. */
+bool od_tlsr_store_mac_read(uint8_t mac[6]);
+bool od_tlsr_store_mac_write(const uint8_t mac[6]);
 /* Both stores this target has: the config record and the secrets. */
 int od_tlsr_store_purge_all(void);
 
