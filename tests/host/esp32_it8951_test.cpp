@@ -116,7 +116,28 @@ static void test_failed_init_powers_down(void)
     CHECK(fake_esp32_pin_level(EN) == 0);
     CHECK(fake_esp32_pin_level(ITE_EN) == 0);
     CHECK(fake_esp32_pin_level(CS) == 1);
+
+    /* A transfer on the failed controller: the bytes are refused, not swallowed. */
+    od_it8951_direct_write_reset();
+    memset(g_data, 0x5A, 64u);
+    CHECK(!od_it8951_direct_write_chunk(g_data, 64u));
+    od_it8951_partial_prepare(0u, 0u, 64u, 8u);
+    CHECK(!od_it8951_partial_write_chunk(g_data, 64u));
     od_it8951_mark_hw_deinitialized();
+}
+
+/* A working mono frame takes exactly its size; one byte past it is refused. */
+static void test_write_reports_overrun(void)
+{
+    fake_esp32_reset();
+    panel(64u, 8u, false);               /* 8 B rows, 64 B frame */
+    begin();
+    od_it8951_direct_write_reset();
+    memset(g_data, 0x5A, 65u);
+    CHECK(od_it8951_direct_write_chunk(g_data, 64u));
+    CHECK(!od_it8951_direct_write_chunk(g_data, 1u));
+    CHECK(fake_esp32_guards_intact());
+    power_cycle();
 }
 
 int main(void)
@@ -125,6 +146,7 @@ int main(void)
     test_mono_grows();
     test_boot_row_after_growth();
     test_failed_init_powers_down();
+    test_write_reports_overrun();
     printf("esp32_it8951: %u checks, %u failures\n", g_checks, g_failures);
     return g_failures == 0u ? 0 : 1;
 }

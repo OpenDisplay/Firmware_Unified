@@ -327,11 +327,11 @@ void fastepd_direct_write_reset(void) {
     }
 }
 
-void fastepd_direct_write_chunk(const uint8_t* data, uint32_t len) {
-    if (panel_is_it8951()) { od_it8951_direct_write_chunk(data, len); return; }
-    if (!data || len == 0) return;
+bool fastepd_direct_write_chunk(const uint8_t* data, uint32_t len) {
+    if (panel_is_it8951()) return od_it8951_direct_write_chunk(data, len);
+    if (!data || len == 0) return true;
     uint8_t* base = fb();
-    if (!base) return;
+    if (!base || s_init_failed || !s_hw_initialized) return false;
     size_t maxb = fb_byte_size();
     size_t room = (s_direct_offset < maxb) ? (maxb - s_direct_offset) : 0;
     size_t n = (len > room) ? room : (size_t)len;
@@ -339,6 +339,7 @@ void fastepd_direct_write_chunk(const uint8_t* data, uint32_t len) {
         memcpy(base + s_direct_offset, data, n);
         s_direct_offset += n;
     }
+    return n == len;
 }
 
 void fastepd_direct_refresh(int refresh_mode) {

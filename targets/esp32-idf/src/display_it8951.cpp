@@ -636,22 +636,27 @@ extern "C" void od_it8951_direct_write_reset(void)
     }
 }
 
-extern "C" void od_it8951_direct_write_chunk(const uint8_t *data, uint32_t len)
+extern "C" bool od_it8951_direct_write_chunk(const uint8_t *data, uint32_t len)
 {
-    if (data == NULL || len == 0u || !s_hw_ready || !buffers_fit()) {
-        return;
+    if (data == NULL || len == 0u) {
+        return true;
+    }
+    if (!s_hw_ready || !buffers_fit()) {
+        return false;
     }
     if (s_gray16) {
-        if (s_streaming) {
-            gray_append(data, len);
+        if (!s_streaming) {
+            return false;
         }
-        return;
+        gray_append(data, len);
+        return true;
     }
     const uint32_t size = (uint32_t)s_pitch * s_h;
     const uint32_t n = s_fb_off >= size ? 0u : (len > size - s_fb_off ? size - s_fb_off : len);
 
     memcpy(s_fb + s_fb_off, data, n);
     s_fb_off += n;
+    return n == len;
 }
 
 extern "C" void od_it8951_direct_refresh(int refresh_mode)
@@ -694,7 +699,8 @@ extern "C" bool od_it8951_partial_write_chunk(const uint8_t *data, uint32_t len)
     if (data == NULL || len == 0u) {
         return true;
     }
-    if (s_gray16 || !buffers_fit() || len > s_pexpected - s_pwritten || rect_pitch == 0u) {
+    if (!s_hw_ready || s_gray16 || !buffers_fit() || len > s_pexpected - s_pwritten ||
+        rect_pitch == 0u) {
         return false;
     }
     /* The first plane is the old image, which the framebuffer already holds. */

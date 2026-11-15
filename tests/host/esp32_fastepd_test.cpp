@@ -55,17 +55,21 @@ static void config(uint8_t parallel, uint16_t w, uint16_t h, bool gray16)
     globalConfig.displays[0].color_scheme = (uint8_t)(gray16 ? (unsigned)OD_COLOR_SCHEME_GRAY16 : 0u);
 }
 
-/* One direct transfer of `bytes` and a full refresh, the way display_service drives it. */
-static void upload(size_t bytes)
+/* One direct transfer of `bytes` and a full refresh, the way display_service drives it.
+ * Returns whether every chunk was accepted (display_service ACKs a chunk only then). */
+static bool upload(size_t bytes)
 {
+    bool all = true;
+
     fastepd_direct_write_reset();
     memset(g_data, 0x5A, sizeof g_data);
     for (size_t done = 0; done < bytes;) {
         size_t n = bytes - done < sizeof g_data ? bytes - done : sizeof g_data;
-        fastepd_direct_write_chunk(g_data, (uint32_t)n);
+        all = fastepd_direct_write_chunk(g_data, (uint32_t)n) && all;
         done += n;
     }
     fastepd_direct_refresh(0);
+    return all;
 }
 
 static void sleep_panel(void)
@@ -83,12 +87,13 @@ static void test_native_size_works(void)
     CHECK(fake_fastepd_init_panel_calls == 1);      /* the buffer from the cold case is kept */
 
     int before = fake_fastepd_updates;
-    upload(120u * 540u);
+    CHECK(upload(120u * 540u));
     CHECK(fake_fastepd_updates == before + 1);
     CHECK(fake_esp32_guards_intact());
+    CHECK(!fastepd_direct_write_chunk(g_data, 1u));          /* one byte past the frame */
 
     config(OD_CTRL_PARALLEL_M5PAPERS3, 960u, 540u, true);   /* GRAY16: the whole buffer */
-    upload(480u * 540u);
+    CHECK(upload(480u * 540u));
     CHECK(!fastepd_init_failed());
     CHECK(fake_esp32_guards_intact());
     sleep_panel();
@@ -101,7 +106,7 @@ static void test_panel_changes_with_buffer(void)
     int before = fake_fastepd_updates;
     fastepd_epaper_begin();
     CHECK(fastepd_init_failed());
-    upload(600u * 825u);
+    CHECK(!upload(600u * 825u));                    /* refused, not swallowed */
     CHECK(fake_esp32_guards_intact());
     CHECK(fake_fastepd_updates == before);          /* the M5PaperS3 bus is never driven */
     CHECK(fake_fastepd_init_panel_calls == 1);      /* and FastEPD is not re-initialised */
@@ -112,7 +117,7 @@ static void test_panel_changes_with_buffer(void)
     CHECK(!fastepd_init_failed());
     config(OD_CTRL_PARALLEL_INKPLATE10, 1200u, 825u, true);
     before = fake_fastepd_updates;
-    upload(600u * 825u);
+    CHECK(!upload(600u * 825u));
     CHECK(fake_esp32_guards_intact());
     CHECK(fake_fastepd_updates == before);
     CHECK(fastepd_init_failed());
@@ -129,7 +134,7 @@ static void test_config_size_differs(void)
     fastepd_epaper_begin();
     CHECK(fake_fastepd_init_panel_calls == 1);
     CHECK(fastepd_init_failed());
-    upload(234u * 1404u);
+    CHECK(!upload(234u * 1404u));
     CHECK(fake_esp32_guards_intact());
     CHECK(fake_fastepd_updates == before);
 
@@ -160,7 +165,7 @@ static void test_unknown_parallel_panel(void)
         fastepd_epaper_begin();
         CHECK(fake_fastepd_it8951_calls == 0);
         CHECK(fastepd_init_failed());
-        upload(120u * 540u);
+        CHECK(!upload(120u * 540u));
         CHECK(fake_fastepd_updates == before);
         CHECK(fake_esp32_guards_intact());
     }
