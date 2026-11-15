@@ -607,6 +607,9 @@ def encode_yaml_steps(steps: list[str]) -> bytes:
         elif s.startswith("@delay"):
             ms = int(s.split()[1], 10)
             out += bytes([0, ESC["delay"], ms & 0xFF, ms >> 8])
+        elif s.startswith("@slice"):
+            part, of = (int(v, 10) for v in s.split()[1:3])
+            out += bytes([0, ESC["slice"], part, of])
         else:
             toks = s.split()
             parsed = [(1, _WAVE_TOKENS[t]) if t in _WAVE_TOKENS else (0, int(t, 16)) for t in toks]
