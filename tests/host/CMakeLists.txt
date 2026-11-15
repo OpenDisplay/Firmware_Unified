@@ -1288,7 +1288,25 @@ add_executable(od_tlsr_ota_test tlsr_ota_test.c od_log_test_stub.c nvs_empty_tes
 target_link_libraries(od_tlsr_ota_test od_fake_tlsr_flash)
 add_test(NAME tlsr_ota COMMAND od_tlsr_ota_test)
 
-# tlsr_mac: the flash UID gives the legacy firmware's address; then the MAC record; then a per-boot random one.
+# tlsr_install: the RAM install routine, built for the host; a power cut at every operation and
+# page programs that do not take leave a boot flag only on a complete image.
+add_executable(od_tlsr_install_test tlsr_install_test.c ${OD_TLSR_SRC}/od_tlsr_install.c)
+target_compile_definitions(od_tlsr_install_test PRIVATE OD_TLSR_INSTALL_HOST=1)
+target_link_libraries(od_tlsr_install_test od_fake_tlsr_flash)
+add_test(NAME tlsr_install COMMAND od_tlsr_install_test)
+
+# tlsr_pins: config pin encoding; port E and PA7 (SWS) are refused (L7).
+add_executable(od_tlsr_pins_test tlsr_pins_test.c)
+target_include_directories(od_tlsr_pins_test PRIVATE ${OD_TLSR_SRC})
+add_test(NAME tlsr_pins COMMAND od_tlsr_pins_test)
+
+# tlsr_reset_state: only a reset inside a boot-screen render stops the boot screen (L1).
+add_executable(od_tlsr_reset_state_test tlsr_reset_state_test.c)
+target_include_directories(od_tlsr_reset_state_test PRIVATE ${OD_TLSR_SRC})
+add_test(NAME tlsr_reset_state COMMAND od_tlsr_reset_state_test)
+
+# tlsr_mac: the flash UID gives the legacy firmware's address; then the MAC record; then a random
+# one, made once and kept.
 add_executable(od_tlsr_mac_test tlsr_mac_test.c od_log_test_stub.c)
 target_link_libraries(od_tlsr_mac_test od_fake_tlsr_flash)
 add_test(NAME tlsr_mac COMMAND od_tlsr_mac_test)

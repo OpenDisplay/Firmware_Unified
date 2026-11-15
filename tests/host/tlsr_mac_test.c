@@ -1,6 +1,7 @@
 /* tlsr_mac_test.c -- the Telink tag address (targets/telink-tlsr/src/od_tlsr_mac.h): the flash
  * UID gives the legacy firmware's address; a missing, unstable or blank UID falls back to the MAC
- * record, then to a random address in Telink's vendor block. Nothing is written to flash. */
+ * record, then to a random address in Telink's vendor block, made once and kept through the
+ * target's hooks. The SDK's MAC record is never written. */
 #include <stdint.h>
 
 void flash_read_uid(unsigned char idcmd, unsigned char *buf);
@@ -43,6 +44,25 @@ void generateRandomNum(int len, unsigned char *data)
     for (i = 0; i < len; ++i) {
         data[i] = (unsigned char)(0x10 + i);
     }
+}
+
+/* The target's keep-the-random-address hooks, over one slot. */
+static unsigned char g_kept[6];
+static int g_kept_valid, g_saves;
+
+bool od_tlsr_mac_app_load(unsigned char mac[6])
+{
+    if (g_kept_valid) {
+        memcpy(mac, g_kept, 6u);
+    }
+    return g_kept_valid != 0;
+}
+
+void od_tlsr_mac_app_save(const unsigned char mac[6])
+{
+    memcpy(g_kept, mac, 6u);
+    g_kept_valid = 1;
+    ++g_saves;
 }
 
 static void set_uid(const unsigned char uid[16])
@@ -135,6 +155,32 @@ static void test_nothing_gives_random_vendor_address(void)
     for (unsigned i = 0u; i < 8u; ++i) {
         CHECK(fake_flash[OD_TLSR_MAC_ADDR + i] == 0xFFu);
     }
+    CHECK(g_saves == 1 && memcmp(g_kept, want, 6u) == 0);
+}
+
+/* The next boot gets the kept address, not a new one: it is also the SEC2 device id. */
+static void test_random_address_is_kept(void)
+{
+    static const unsigned char kept[6] = { 0x77, 0x66, 0x55, 0x38, 0xC1, 0xA4 };
+    unsigned char uid[16], mac[6];
+
+    fake_flash_reset();
+    memset(uid, 0xFF, sizeof uid);
+    set_uid(uid);
+    memcpy(g_kept, kept, 6u);
+    g_kept_valid = 1;
+    g_saves = 0;
+    od_tlsr_mac_read(mac);
+    CHECK(memcmp(mac, kept, 6u) == 0);
+    CHECK(g_random_calls == 0u && g_saves == 0);
+
+    /* a tag with a UID never consults or fills the slot */
+    g_kept_valid = 0;
+    uid_for(k_od05b911, uid);
+    set_uid(uid);
+    od_tlsr_mac_read(mac);
+    CHECK(memcmp(mac, k_od05b911, 6u) == 0);
+    CHECK(g_kept_valid == 0 && g_saves == 0);
 }
 
 int main(void)
@@ -142,6 +188,7 @@ int main(void)
     test_uid_gives_legacy_address();
     test_bad_uid_falls_back_to_record();
     test_nothing_gives_random_vendor_address();
+    test_random_address_is_kept();
     printf("tlsr_mac: %u checks, %u failures\n", g_checks, g_failures);
     return g_failures == 0u ? 0 : 1;
 }

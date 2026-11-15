@@ -16,8 +16,8 @@ there). What it does today:
 
 - drives the panel from the config's drive packets (shared `od_display`), over a bit-banged
   bit-banged SPI bus, for full uploads (0x0070, raw or zlib with a 9-bit window) and PIPE (window
-  6), plus CMD_SPI_RAW (0x0084) for characterising a panel over the air. No partial or
-  drive-write yet;
+  6), plus, in a bring-up build (`-DOD_TLSR_BRINGUP=ON`), CMD_SPI_RAW (0x0084) for
+  characterising a panel over the air. No partial or drive-write yet;
 - reports the supply voltage and the glass temperature in the MSD.
 
 Battery: `PowerOption.battery_sense_pin` names an unused ADC-capable pin (PB0..PB7, PC4, PC5),
@@ -45,8 +45,9 @@ for reading each floor on a current meter. `-DOD_TLSR_FAULT_TEST=ON` builds the 
 image with a hang that GPIO pin 0xFE arms for the next retention wake, to exercise the fallback.
 Neither is ever a release image.
 
-CMD_SPI_RAW's GPIO sub-opcode (0x07, provisional, `OD_CAP_SPI_RAW_GPIO`) sets and reads any pin
-from PA0..PD7 except PA7, with or without a raw session open; a mode holds until the firmware
+CMD_SPI_RAW and its GPIO sub-opcode (0x07, provisional, `OD_CAP_SPI_RAW_GPIO`) are built only
+with `-DOD_TLSR_BRINGUP=ON` (the fault-test build turns it on): on an unclaimed tag they drive
+pins without authentication. The GPIO sub-op sets and reads any pin from PA0..PD7 except PA7, with or without a raw session open; a mode holds until the firmware
 next drives that pin, or until the first deep-retention sleep (disconnected, 60 s after boot).
 
 There is no LED. The setup-family screens and the key-state redraw are not wired to the panel.
@@ -54,12 +55,12 @@ There is no LED. The setup-family screens and the key-state redraw are not wired
 ### Pins and rail
 
 A config pin byte is `group * 8 + bit`: PA0 = 0 … PD7 = 31; 0xFF is "not present". Port E is
-refused: PE0..PE3 are the internal flash bus. These tags
+refused: PE0..PE3 are the internal flash bus. So is PA7, which is SWS: a config pin naming
+it is treated as not present. These tags
 switch the panel rail with a P-MOSFET, on when `pwr_pin` is LOW, which the config declares with
 the provisional DeviceFlags bit 6 `OD_DEVICE_FLAG_PWR_PIN_ACTIVE_LOW`. OD05B911's panel:
 RESET PD4 (28), BUSY PA1 (1), DC PB7 (15), CS PD2 (26), MOSI PB6 (14), CLK PD7 (31), rail PB5
-(13), on panel id 0xF001 (`panels/panels.yaml`, provisional). PA7 is SWS: no config should name
-it.
+(13), on panel id 0xF001 (`panels/panels.yaml`, provisional).
 
 OD060F40 (3.5" BWY, legacy screen type 1): RESET PD4 (28), BUSY PA1 (1), DC PD7 (31), CS PB4
 (12), MOSI PB6 (14), CLK PB5 (13), panel power PB7 (15) driven high (no active-low flag), battery
@@ -107,7 +108,9 @@ leaves the legacy firmware's other data alone. That includes the MAC record at `
 The BLE address is the legacy firmware's own (`src/od_tlsr_mac.h`): derived from the flash chip's unique ID,
 so a tag keeps the address and the three name bytes it had under the legacy firmware (`OD05B911` becomes
 `OD05B911`). Without a usable UID it falls back to the record at `0x76000`, then to a random
-address for that boot.
+address in Telink's vendor block. The random address is made once and kept in the secrets
+record, because it is also the SEC2 device id; a factory reset (the store purge) drops it with
+the keys. The probe does not keep it.
 
 Each store (`src/od_tlsr_store.c`) keeps two banks. A write goes to the bank that does not
 hold the newest record, payload first and header last, so a power cut leaves either the old
@@ -118,7 +121,8 @@ record or the new one. Erasing is done by writing a zero-length record (a tombst
 It is the bring-up way back to the previous firmware; images are not signed. **SEC2-gated**
 like the ESP32 and Nordic DFU transports: on a claimed tag, in claim mode or LOCKED, every op
 but STATUS answers `locked` until an authenticated `CMD_ENTER_DFU` (0x0051) on the same link,
-and the unlock ends with the link. `tools/tlsr_ota.py --sec2` does that through py-opendisplay.
+and the unlock ends with the link. BEGIN and INSTALL also need the session that sent it to be
+live; an upload may outlast the session, but its INSTALL then needs a new session and ENTER_DFU. `tools/tlsr_ota.py --sec2` does that through py-opendisplay.
 A claimed tag whose key is lost is opened again by the factory-reset pattern (five quick
 power-cycles); a LOCKED one never opens a session, so it needs SWS. It runs on its own
 GATT service, `6f64f000-1e1e-4c4b-8b5a-7454534c5200`. Writes and notifications both go through
@@ -134,7 +138,10 @@ characteristic `…f001`.
 | `0x06` ABORT | — | `86 00` |
 
 Integers are little-endian. In a reply, a non-zero second byte is an `enum od_tlsr_ota_err`;
-8 (`locked`) answers any gated op, DATA included.
+8 (`locked`) answers any gated op, DATA included. 9 (`supply`): the supply measured on
+`battery_sense_pin` is below 2.1 V (`OD_TLSR_FLASH_MIN_MV`), checked before BEGIN, each erase step,
+DATA, the flag write and INSTALL; a refused INSTALL leaves the image staged and verified. The
+config store refuses writes the same way. Without a sense pin the supply is not measured.
 In STATUS, `boot` says why the tag last booted: 0 power applied (a brownout looks the same),
 1 planned reboot or install, 2 unplanned (watchdog, reset pin). `resets` counts unplanned
 resets since power was applied, saturating at 7. The probe reports `FF FF`.
@@ -145,9 +152,13 @@ ROM never sees a partly staged image as bootable.
 Install runs from RAM with interrupts off:
 
 1. Erase sector 0 first.
-2. Copy sectors 1..n.
-3. Copy sector 0 last.
-4. Clear the staged copy's flag, then reset.
+2. Erase, copy and read back sectors 1..n, each tried up to three times.
+3. Copy sector 0 with its boot-flag byte left erased, and read it back.
+4. Write the flag byte at 0 and read it back.
+5. Clear the staged copy's flag, then reset.
+
+If a sector never reads back, install stops before step 4, so the staged copy keeps the only
+flag. `tests/host/tlsr_install_test.c` cuts power at every operation of an install.
 
 A power cut during install therefore leaves sector 0 without a boot flag. The ROM's fallback
 to the image at `0x40000` then decides what boots. **That fallback has not been verified on
@@ -157,7 +168,7 @@ this part.**
 
 - `tests/host/tlsr_store_test.c`: power cut at every flash operation.
 - `tests/host/tlsr_ota_test.c`: the updater.
-- `tests/host/tlsr_mac_test.c`: the address order (UID, record, random), and that nothing is written.
+- `tests/host/tlsr_mac_test.c`: the address order (UID, record, kept random, new random), and that the MAC record is never written.
 - `tests/host/tlsr_crypto_test.c`: CCM and CMAC against RFC 4493 and OpenSSL, plus ECDH.
 - `crypto_hal_contract_telink`: the HAL buffer contract.
 

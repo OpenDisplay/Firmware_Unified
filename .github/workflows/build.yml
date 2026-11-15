@@ -305,11 +305,12 @@ jobs:
           mkdir -p "$VENDOR"
           tar -xjf "$tarball" -C "$VENDOR"   # unpacks to $VENDOR/tc32
 
-      - name: Build (main, probe, power-test and fault-test images)
+      - name: Build (main, probe, bring-up, power-test and fault-test images)
         run: |
           export TC32_DIR="$VENDOR/tc32"
           export TELINK_SDK_DIR="$VENDOR/sdk/tc_ble_single_sdk"
           "$TC32_DIR/bin/tc32-elf-gcc" --version | head -1
           targets/telink-tlsr/build.sh
+          BUILD_DIR="$RUNNER_TEMP/tlsr-bringup" targets/telink-tlsr/build.sh -DOD_TLSR_BRINGUP=ON
           BUILD_DIR="$RUNNER_TEMP/tlsr-pmtest" targets/telink-tlsr/build.sh -DOD_TLSR_PMTEST=ON
           BUILD_DIR="$RUNNER_TEMP/tlsr-fault" targets/telink-tlsr/build.sh -DOD_TLSR_FAULT_TEST=ON

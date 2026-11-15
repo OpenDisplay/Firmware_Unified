@@ -154,6 +154,17 @@ bool od_tlsr_ota_app_needs_unlock(void)
     return false;
 }
 
+bool od_tlsr_ota_app_unlock_live(void)
+{
+    return true;
+}
+
+/* No config, so no sense pin to measure the supply on (od_tlsr_flash.h). */
+bool od_tlsr_flash_supply_ok(void)
+{
+    return true;
+}
+
 /* Milliseconds from the 16 MHz system tick, carried past the tick's 268 s wrap. */
 static uint32_t now_ms(void)
 {
@@ -242,6 +253,19 @@ static void pmtest_retention_wake(void)
     }
 }
 #endif
+
+/* The probe never writes the secret bank, so a tag with neither UID nor MAC record gets a new
+ * random address at every boot of the probe. */
+bool od_tlsr_mac_app_load(unsigned char mac[6])
+{
+    (void)mac;
+    return false;
+}
+
+void od_tlsr_mac_app_save(const unsigned char mac[6])
+{
+    (void)mac;
+}
 
 static void ble_init(void)
 {

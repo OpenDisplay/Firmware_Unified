@@ -25,6 +25,7 @@ void fake_flash_reset(void)
     s_budget = -1;
     s_cut = NULL;
     fake_flash_ops = 0u;
+    fake_flash_supply_low = false;
 }
 
 void fake_flash_cut_after(long n, jmp_buf *where)
@@ -103,4 +104,11 @@ bool od_tlsr_flash_program(uint32_t addr, const uint8_t *data, uint32_t len)
 void od_tlsr_flash_read(uint32_t addr, uint8_t *buf, uint32_t len)
 {
     memcpy(buf, &fake_flash[addr], len);
+}
+
+bool fake_flash_supply_low;
+
+bool od_tlsr_flash_supply_ok(void)
+{
+    return !fake_flash_supply_low;
 }

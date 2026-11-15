@@ -28,7 +28,7 @@ from bleak import BleakClient, BleakScanner  # noqa: E402
 OTA_CHAR = "6f64f001-1e1e-4c4b-8b5a-7454534c5200"
 STATES = ["idle", "erasing", "receiving", "verifying", "verified", "installing", "failed"]
 BOOTS = ["power-on", "planned", "unplanned"]
-ERRORS = ["ok", "state", "length", "offset", "flash", "header", "crc", "opcode", "locked"]
+ERRORS = ["ok", "state", "length", "offset", "flash", "header", "crc", "opcode", "locked", "supply"]
 ENTER_DFU = b"\x00\x51"
 
 

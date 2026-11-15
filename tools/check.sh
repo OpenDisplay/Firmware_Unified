@@ -1705,6 +1705,8 @@ fi
 
 # ===================================================================================== telink ==
 # Provisional target. The image check and the RAM-resident install check run inside its build.
+# The image checker's own rules (CRC, cap, no boot flag at a multi-boot slot) need no toolchain.
+check "host: telink image checker selftest" python3 -I targets/telink-tlsr/tools/tlsr_image.py selftest
 telink_tlsr() {
     BUILD_DIR="$BUILD_ROOT/telink" targets/telink-tlsr/build.sh
 }

@@ -244,6 +244,74 @@ static void secrets(void)
     CHECK(od_hal_secret_read(OD_HAL_SECRET_STATE, got, sizeof st));
 }
 
+/* M1: below the supply floor nothing is erased or programmed; the stored record stays. */
+static void low_supply(void)
+{
+    uint8_t key[32];
+    unsigned long ops;
+
+    fake_flash_reset();
+    reboot();
+    CHECK(od_hal_nvs_write(B, sizeof B) == OD_HAL_NVS_OK);
+    fill(key, sizeof key, 3);
+    CHECK(od_hal_secret_write(OD_HAL_SECRET_KEY, key, sizeof key));
+    fake_flash_supply_low = true;
+    ops = fake_flash_ops;
+    CHECK(od_hal_nvs_write(C, sizeof C) == OD_HAL_NVS_EIO);
+    CHECK(od_hal_nvs_erase() == OD_HAL_NVS_EIO);
+    CHECK(!od_hal_secret_erase(OD_HAL_SECRET_KEY));
+    CHECK(od_tlsr_store_purge_all() != 0);
+    CHECK(fake_flash_ops == ops);
+    fake_flash_supply_low = false;
+    reboot();
+    CHECK(nvs_holds(B, sizeof B) == 1);
+    CHECK(od_hal_secret_read(OD_HAL_SECRET_KEY, key, sizeof key));
+}
+
+/* M3: the kept fallback address rides in the secrets record without disturbing the SEC2 ids,
+ * and a record without it (every tag before the slot) still reads. */
+static void mac_slot(void)
+{
+    static const uint8_t mac[6] = { 0x10, 0x11, 0x12, 0x38, 0xC1, 0xA4 };
+    uint8_t key[32], got[32], m[6];
+    uint32_t len;
+
+    fake_flash_reset();
+    reboot();
+    CHECK(!od_tlsr_store_mac_read(m));
+    fill(key, sizeof key, 5);
+    CHECK(od_hal_secret_write(OD_HAL_SECRET_KEY, key, sizeof key));
+    CHECK(od_tlsr_store_len(&s_sec, &len) == 0 && len == SECRET_REC);
+    CHECK(!od_tlsr_store_mac_read(m));
+
+    CHECK(od_tlsr_store_mac_write(mac));
+    reboot();
+    CHECK(od_tlsr_store_len(&s_sec, &len) == 0 && len == SECRET_REC_MAC);
+    CHECK(od_tlsr_store_mac_read(m) && memcmp(m, mac, 6u) == 0);
+    CHECK(od_hal_secret_read(OD_HAL_SECRET_KEY, got, sizeof key) && memcmp(got, key, sizeof key) == 0);
+
+    /* SEC2 writes and erases keep the address */
+    CHECK(od_hal_secret_erase(OD_HAL_SECRET_KEY));
+    reboot();
+    CHECK(od_tlsr_store_mac_read(m) && memcmp(m, mac, 6u) == 0);
+    CHECK(!od_hal_secret_read(OD_HAL_SECRET_KEY, got, sizeof key));
+
+    /* writing the same address again costs no flash */
+    {
+        unsigned long ops = fake_flash_ops;
+        CHECK(od_tlsr_store_mac_write(mac));
+        CHECK(fake_flash_ops == ops);
+    }
+
+    /* the slot alone, on an empty bank */
+    fake_flash_reset();
+    reboot();
+    CHECK(od_tlsr_store_mac_write(mac));
+    reboot();
+    CHECK(od_tlsr_store_mac_read(m) && memcmp(m, mac, 6u) == 0);
+    CHECK(!od_hal_secret_read(OD_HAL_SECRET_KEY, got, sizeof key));
+}
+
 int main(void)
 {
     long w, e, p;
@@ -258,6 +326,8 @@ int main(void)
     p = sweep(OP_PURGE);
     purge_removes_superseded();
     secrets();
+    low_supply();
+    mac_slot();
     printf("tlsr_store: power cut at each of %ld write, %ld erase, %ld purge operations\n", w + 1,
            e + 1, p + 1);
     printf("tlsr_store: %u checks, %u failures\n", g_checks, g_failures);

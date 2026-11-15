@@ -120,7 +120,8 @@ int od_tlsr_store_write(struct od_tlsr_store *s, const void *data, uint32_t len)
     uint32_t seq, target, off, got_seq = 0u, got_len = 0u;
     int dst;
 
-    if (len > s->bank_size - OD_TLSR_STORE_HDR || (len != 0u && data == NULL)) {
+    if (len > s->bank_size - OD_TLSR_STORE_HDR || (len != 0u && data == NULL) ||
+        !od_tlsr_flash_supply_ok()) {
         return -2;
     }
     scan(s);
@@ -171,6 +172,9 @@ int od_tlsr_store_purge(struct od_tlsr_store *s)
     uint32_t off, src, dst, got_seq = 0u, got_len = 0u;
     int i;
 
+    if (!od_tlsr_flash_supply_ok()) {
+        return -2;
+    }
     scan(s);
     s->valid = false;
     if (s->cur < 0) {
@@ -259,34 +263,45 @@ int od_hal_nvs_erase(void)
 
 /* ---- od_hal_secret: the three SEC2 records, one store record holding all of them ----
  * Per id: a length byte (0 = absent) and up to SECRET_CAP bytes. One write rewrites the whole
- * record, so each id's update is as atomic as the store's. */
+ * record, so each id's update is as atomic as the store's. After them, only on a tag that has
+ * needed one, the fallback address: a length byte (6) and the address. Without it the record
+ * is SECRET_REC bytes, as on every tag before the slot existed. */
 
 #define SECRET_IDS 3u
 #define SECRET_CAP 32u
 #define SECRET_REC (SECRET_IDS * (1u + SECRET_CAP))
+#define MAC_SLOT   7u
+#define SECRET_REC_MAC (SECRET_REC + MAC_SLOT)
 
 static struct od_tlsr_store s_sec = {
     { OD_TLSR_SEC_BANK_A, OD_TLSR_SEC_BANK_B }, OD_TLSR_SEC_BANK_SIZE, false, -1, 0u, 0u
 };
 
-static bool secret_load(uint8_t rec[SECRET_REC])
+static bool secret_load(uint8_t rec[SECRET_REC_MAC])
 {
     uint32_t len;
     int rc = od_tlsr_store_len(&s_sec, &len);
 
-    memset(rec, 0, SECRET_REC);
+    memset(rec, 0, SECRET_REC_MAC);
     if (rc != 0) {
         return true; /* nothing stored: every id absent */
     }
-    if (len != SECRET_REC) {
+    if (len != SECRET_REC && len != SECRET_REC_MAC) {
         return false;
     }
-    return od_tlsr_store_read(&s_sec, 0u, rec, SECRET_REC) == 0;
+    return od_tlsr_store_read(&s_sec, 0u, rec, len) == 0;
+}
+
+static bool secret_save(const uint8_t rec[SECRET_REC_MAC])
+{
+    const uint32_t len = rec[SECRET_REC] != 0u ? SECRET_REC_MAC : SECRET_REC;
+
+    return od_tlsr_store_write(&s_sec, rec, len) == 0;
 }
 
 bool od_hal_secret_read(enum od_hal_secret_id id, uint8_t *buf, uint16_t len)
 {
-    uint8_t rec[SECRET_REC];
+    uint8_t rec[SECRET_REC_MAC];
     const uint8_t *slot;
 
     if (buf == NULL || (unsigned)id >= SECRET_IDS || !secret_load(rec)) {
@@ -302,7 +317,7 @@ bool od_hal_secret_read(enum od_hal_secret_id id, uint8_t *buf, uint16_t len)
 
 static bool secret_store(enum od_hal_secret_id id, const uint8_t *buf, uint16_t len)
 {
-    uint8_t rec[SECRET_REC];
+    uint8_t rec[SECRET_REC_MAC];
     uint8_t *slot;
 
     if ((unsigned)id >= SECRET_IDS || len > SECRET_CAP || !secret_load(rec)) {
@@ -317,7 +332,7 @@ static bool secret_store(enum od_hal_secret_id id, const uint8_t *buf, uint16_t 
         slot[0] = (uint8_t)len;
         memcpy(&slot[1], buf, len);
     }
-    return od_tlsr_store_write(&s_sec, rec, SECRET_REC) == 0;
+    return secret_save(rec);
 }
 
 bool od_hal_secret_write(enum od_hal_secret_id id, const uint8_t *buf, uint16_t len)
@@ -328,6 +343,32 @@ bool od_hal_secret_write(enum od_hal_secret_id id, const uint8_t *buf, uint16_t 
 bool od_hal_secret_erase(enum od_hal_secret_id id)
 {
     return secret_store(id, NULL, 0u);
+}
+
+bool od_tlsr_store_mac_read(uint8_t mac[6])
+{
+    uint8_t rec[SECRET_REC_MAC];
+
+    if (mac == NULL || !secret_load(rec) || rec[SECRET_REC] != 6u) {
+        return false;
+    }
+    memcpy(mac, &rec[SECRET_REC + 1u], 6u);
+    return true;
+}
+
+bool od_tlsr_store_mac_write(const uint8_t mac[6])
+{
+    uint8_t rec[SECRET_REC_MAC];
+
+    if (mac == NULL || !secret_load(rec)) {
+        return false;
+    }
+    if (rec[SECRET_REC] == 6u && memcmp(&rec[SECRET_REC + 1u], mac, 6u) == 0) {
+        return true;
+    }
+    rec[SECRET_REC] = 6u;
+    memcpy(&rec[SECRET_REC + 1u], mac, 6u);
+    return secret_save(rec);
 }
 
 int od_tlsr_store_purge_all(void)
