@@ -3,7 +3,8 @@
  * The driver keeps a one-row DMA buffer and, in 1-bit mode, a PSRAM framebuffer. A config write
  * reloads the panel geometry with no reboot (od_it8951_set_panel from fastepd_prepare_hardware),
  * so these cases change it between transfers and check that no write lands past an allocation
- * (the fake heap keeps guard bytes after every block). */
+ * (the fake heap keeps guard bytes after every block). Also: a failed init must not leave the
+ * board supply (EN) and controller supply (ITE_EN) switched on. */
 #include "display_it8951.h"
 #include "fake_esp32.h"
 
@@ -105,11 +106,25 @@ static void test_boot_row_after_growth(void)
     power_cycle();
 }
 
+static void test_failed_init_powers_down(void)
+{
+    fake_esp32_reset();
+    panel(1872u, 1404u, false);
+    fake_esp32_rx_word = 0u;             /* DEV_INFO reads 0: no controller answering */
+    od_it8951_epaper_begin();
+    CHECK(od_it8951_init_failed());
+    CHECK(fake_esp32_pin_level(EN) == 0);
+    CHECK(fake_esp32_pin_level(ITE_EN) == 0);
+    CHECK(fake_esp32_pin_level(CS) == 1);
+    od_it8951_mark_hw_deinitialized();
+}
+
 int main(void)
 {
     test_mono_to_gray16();
     test_mono_grows();
     test_boot_row_after_growth();
+    test_failed_init_powers_down();
     printf("esp32_it8951: %u checks, %u failures\n", g_checks, g_failures);
     return g_failures == 0u ? 0 : 1;
 }

@@ -330,6 +330,15 @@ static bool ensure_buffers(void)
     return buffers_fit();
 }
 
+/* After a failed init nothing else switches the supplies off: power_down() needs a ready
+ * controller, and the callers only mark the hardware uninitialised. */
+static void supplies_off(void)
+{
+    pin_level(s_en, 0);
+    pin_level(s_ite_en, 0);
+    pin_level(s_cs, 1);
+}
+
 static bool hw_ready(void)
 {
     if (!s_hw_ready) {
@@ -338,6 +347,9 @@ static bool hw_ready(void)
     } else if (!ensure_buffers()) {
         s_failed = true;
         s_hw_ready = false;
+    }
+    if (s_failed) {
+        supplies_off();
     }
     return s_hw_ready;
 }
