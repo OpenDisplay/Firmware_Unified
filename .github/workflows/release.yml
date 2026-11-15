@@ -51,14 +51,15 @@ jobs:
           echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "resolved $raw -> $v"
 
-      # A release without its CHANGELOG section is not reviewable; fail before twenty minutes
-      # of builds rather than after.
-      - name: CHANGELOG has a section for this version
+      # The CHANGELOG section is NOT required for now (maintainer decision, 2026-11-15, while
+      # the 3.0 test releases are cut). A version without one gets notes that say so; the gate
+      # that used to fail here can come back once releases are for users.
+      - name: CHANGELOG section for this version (informational)
         env:
           V: ${{ steps.v.outputs.version }}
         run: |
           grep -Eq "^## \[${V//./\\.}\]" CHANGELOG.md \
-            || { echo "::error::CHANGELOG.md has no '## [$V]' section"; exit 1; }
+            || echo "::warning::CHANGELOG.md has no '## [$V]' section; the release notes will say so"
 
   build:
     name: build
@@ -110,6 +111,8 @@ jobs:
             on && /^## \[/ { exit }
             on { print }
           ' CHANGELOG.md > notes.md
+          grep -q '[^[:space:]]' notes.md \
+            || echo "No changelog section was written for $V." > notes.md
           {
             echo
             echo "---"

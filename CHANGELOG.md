@@ -3,8 +3,8 @@
 All notable changes to the OpenDisplay firmware built from this repository. Versions follow
 [semantic versioning](README.md#versioning-and-releases). One version line covers every target.
 
-`release.yml` refuses to tag a version that has no `## [X.Y.Z]` section here, and uses that
-section as the release notes. Write it before tagging, not after.
+`release.yml` uses the `## [X.Y.Z]` section here as the release notes. The section is not
+required for now: a version without one is released with notes that say so.
 
 ## [Unreleased]
 
