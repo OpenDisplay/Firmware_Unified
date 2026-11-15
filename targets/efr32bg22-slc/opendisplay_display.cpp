@@ -72,6 +72,9 @@ static int16_t s_pending_slot = -1;
  * timeout. Charged once per switch-on, so an always-on rail never pays it. */
 #define OD_PANEL_RAIL_SETTLE_MS 800u
 
+/* SoluM EL058F5W4C 5.85in BWRY 792x272 (dual controller), panels.yaml provisional 0xF003. */
+#define OD_EL058_PANEL_IC_TYPE 0xF003u
+
 static const struct DisplayConfig *display_cfg(void)
 {
   const struct GlobalConfig *cfg = opendisplay_get_global_config();
@@ -502,6 +505,55 @@ static bool render_screen(const struct DisplayConfig *dc, const char *const *lin
     white_byte = 0x11u;
   }
 
+  auto draw_row = [&](int row_y) {
+    memset(s_boot_row, white_byte, (size_t)pitch);
+
+    for (unsigned i = 0; i < n; i++) {
+      if (L.show[i]) {
+        draw_text_row(s_boot_row, row_y, L.x[i], L.y[i], lines[i], L.scale[i], bits_per_pixel, (int)w);
+      }
+    }
+
+    if (L.module_px > 0 && row_y >= L.qr_y && row_y < L.qr_y + L.qr_px) {
+      int my = (row_y - L.qr_y) / L.module_px;
+      int qy_qr = my - 4;
+      for (int mx = 0; mx < qr_modules; mx++) {
+        int qx_qr = mx - 4;
+        if (qx_qr < 0 || qy_qr < 0 || qx_qr >= (int)qr_size || qy_qr >= (int)qr_size ||
+            !qrcode_getModule(&qr, (uint8_t)qx_qr, (uint8_t)qy_qr)) {
+          continue;
+        }
+        for (int sx = 0; sx < L.module_px; sx++) {
+          int px = L.qr_x + mx * L.module_px + sx;
+          if (px >= 0 && px < (int)w) {
+            set_pixel_row(s_boot_row, px, bits_per_pixel);
+          }
+        }
+      }
+    }
+  };
+
+  if (dc->panel_ic_type == OD_EL058_PANEL_IC_TYPE && dc->color_scheme == OD_COLOR_SCHEME_BWRY) {
+    /* SoluM EL058F5W4C: two cascaded controllers, one IMAGE_SLICE each. Slice 0 is the master
+     * (right half), slice 1 the slave (left half); each takes its rows as 0, H-1, 1, H-2, ... */
+    const int half_pitch = pitch / 2;
+    for (int part = 0; part < 2; part++) {
+      if (part > 0 && !od_epd_shim_next_plane()) {
+        return false;
+      }
+      const int offset = part == 0 ? half_pitch : 0;
+      for (int k = 0; k < (int)h / 2; k++) {
+        for (int j = 0; j < 2; j++) {
+          draw_row(j == 0 ? k : (int)h - 1 - k);
+          if (!od_epd_shim_write(s_boot_row + offset, (uint32_t)half_pitch)) {
+            return false;
+          }
+        }
+      }
+    }
+    return true;
+  }
+
   const int render_passes = is_gray4 ? 2 : 1;
   for (int pass = 0; pass < render_passes; pass++) {
     /* Pass 0's image marker was already reached by od_epd_shim_begin(). There is no
@@ -511,31 +563,7 @@ static bool render_screen(const struct DisplayConfig *dc, const char *const *lin
     }
 
     for (y = 0; y < (int)h; y++) {
-      memset(s_boot_row, white_byte, (size_t)pitch);
-
-      for (unsigned i = 0; i < n; i++) {
-        if (L.show[i]) {
-          draw_text_row(s_boot_row, y, L.x[i], L.y[i], lines[i], L.scale[i], bits_per_pixel, (int)w);
-        }
-      }
-
-      if (L.module_px > 0 && y >= L.qr_y && y < L.qr_y + L.qr_px) {
-        int my = (y - L.qr_y) / L.module_px;
-        int qy_qr = my - 4;
-        for (int mx = 0; mx < qr_modules; mx++) {
-          int qx_qr = mx - 4;
-          if (qx_qr < 0 || qy_qr < 0 || qx_qr >= (int)qr_size || qy_qr >= (int)qr_size ||
-              !qrcode_getModule(&qr, (uint8_t)qx_qr, (uint8_t)qy_qr)) {
-            continue;
-          }
-          for (int sx = 0; sx < L.module_px; sx++) {
-            int px = L.qr_x + mx * L.module_px + sx;
-            if (px >= 0 && px < (int)w) {
-              set_pixel_row(s_boot_row, px, bits_per_pixel);
-            }
-          }
-        }
-      }
+      draw_row(y);
 
       if (is_gray4) {
         uint8_t *plane_row = s_boot_row + pitch;
