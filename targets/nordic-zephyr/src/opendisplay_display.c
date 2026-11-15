@@ -452,9 +452,9 @@ void od_sec2_app_key_screen_changed(void)
 
 /* --- CMD_SPI_RAW ------------------------------------------------------------------------------
  *
- * The session owns the panel: OPEN aborts any transfer, and the transfer abort path (which a BLE
- * disconnect reaches) closes the session, so bytes never go to an unpowered panel. Needs drive
- * packets: without them there is no BUSY sense and no init sequence. */
+ * The session owns the panel: OPEN aborts any transfer, and a transfer start or the drive abort
+ * path (which a BLE disconnect reaches) closes the session, so bytes never go to an unpowered
+ * panel. Needs drive packets: without them there is no BUSY sense and no init sequence. */
 
 bool opendisplay_display_spi_raw_is_open(void)
 {
@@ -563,7 +563,12 @@ static bool xfer_app_busy(void)
 
 void od_xfer_app_prepare_start(void)
 {
-  /* A queued FLASH_DISPLAY would paint an older image over this upload. */
+  /* An upload owns the panel from here: a raw session left open would keep answering success
+   * into a powered-down bus and hold the display service off until disconnect, and a queued
+   * FLASH_DISPLAY would paint an older image over this one. */
+  if (s_spi_raw_open) {
+    opendisplay_display_spi_raw_close();
+  }
 #if OD_CAP_IMGSTORE
   s_pending_slot = -1;
 #endif
