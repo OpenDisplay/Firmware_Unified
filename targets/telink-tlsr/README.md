@@ -148,9 +148,13 @@ ROM never sees a partly staged image as bootable.
 Install runs from RAM with interrupts off:
 
 1. Erase sector 0 first.
-2. Copy sectors 1..n.
-3. Copy sector 0 last.
-4. Clear the staged copy's flag, then reset.
+2. Erase, copy and read back sectors 1..n, each tried up to three times.
+3. Copy sector 0 with its boot-flag byte left erased, and read it back.
+4. Write the flag byte at 0 and read it back.
+5. Clear the staged copy's flag, then reset.
+
+If a sector never reads back, install stops before step 4, so the staged copy keeps the only
+flag. `tests/host/tlsr_install_test.c` cuts power at every operation of an install.
 
 A power cut during install therefore leaves sector 0 without a boot flag. The ROM's fallback
 to the image at `0x40000` then decides what boots. **That fallback has not been verified on

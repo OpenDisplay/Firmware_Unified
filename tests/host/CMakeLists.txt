@@ -1288,6 +1288,13 @@ add_executable(od_tlsr_ota_test tlsr_ota_test.c od_log_test_stub.c nvs_empty_tes
 target_link_libraries(od_tlsr_ota_test od_fake_tlsr_flash)
 add_test(NAME tlsr_ota COMMAND od_tlsr_ota_test)
 
+# tlsr_install: the RAM install routine, built for the host; a power cut at every operation and
+# page programs that do not take leave a boot flag only on a complete image.
+add_executable(od_tlsr_install_test tlsr_install_test.c ${OD_TLSR_SRC}/od_tlsr_install.c)
+target_compile_definitions(od_tlsr_install_test PRIVATE OD_TLSR_INSTALL_HOST=1)
+target_link_libraries(od_tlsr_install_test od_fake_tlsr_flash)
+add_test(NAME tlsr_install COMMAND od_tlsr_install_test)
+
 # tlsr_mac: the flash UID gives the legacy firmware's address; then the MAC record; then a per-boot random one.
 add_executable(od_tlsr_mac_test tlsr_mac_test.c od_log_test_stub.c)
 target_link_libraries(od_tlsr_mac_test od_fake_tlsr_flash)
