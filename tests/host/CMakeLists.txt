@@ -1295,7 +1295,13 @@ target_compile_definitions(od_tlsr_install_test PRIVATE OD_TLSR_INSTALL_HOST=1)
 target_link_libraries(od_tlsr_install_test od_fake_tlsr_flash)
 add_test(NAME tlsr_install COMMAND od_tlsr_install_test)
 
-# tlsr_mac: the flash UID gives the legacy firmware's address; then the MAC record; then a per-boot random one.
+# tlsr_reset_state: only a reset inside a boot-screen render stops the boot screen (L1).
+add_executable(od_tlsr_reset_state_test tlsr_reset_state_test.c)
+target_include_directories(od_tlsr_reset_state_test PRIVATE ${OD_TLSR_SRC})
+add_test(NAME tlsr_reset_state COMMAND od_tlsr_reset_state_test)
+
+# tlsr_mac: the flash UID gives the legacy firmware's address; then the MAC record; then a random
+# one, made once and kept.
 add_executable(od_tlsr_mac_test tlsr_mac_test.c od_log_test_stub.c)
 target_link_libraries(od_tlsr_mac_test od_fake_tlsr_flash)
 add_test(NAME tlsr_mac COMMAND od_tlsr_mac_test)

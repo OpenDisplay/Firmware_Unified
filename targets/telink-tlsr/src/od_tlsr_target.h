@@ -20,6 +20,10 @@ bool od_tlsr_config_assembling(void);
 void od_tlsr_hal_boot(void);
 /* Unplanned resets (watchdog, reset pin) since power was applied, saturating at 7. */
 uint8_t od_tlsr_hal_unplanned(void);
+/* Around a boot-screen render, so a reset inside one is told apart from any other. */
+void od_tlsr_hal_render_mark(bool rendering);
+/* A boot-screen render was cut by an unplanned reset since power was applied. */
+bool od_tlsr_hal_render_died(void);
 float od_tlsr_chip_temperature_c(void);
 uint16_t od_tlsr_battery_mv(void);
 bool od_tlsr_reboot_flag(void);

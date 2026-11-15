@@ -8,6 +8,7 @@
 #include "od_tlsr_mac.h"
 #include "od_tlsr_ota.h"
 #include "od_tlsr_pins.h"
+#include "od_tlsr_reset_state.h"
 #include "od_tlsr_store.h"
 
 #include "od_config.h"
@@ -44,49 +45,40 @@ void od_tlsr_feed_watchdog(void)
     wd_clear();
 }
 
-/* ---- reset cause ----
+/* ---- reset cause (od_tlsr_reset_state.h) ----
  * DEEP_ANA_REG1 is the one analog register that only a power cycle clears and that the SDK
  * leaves to the application (REG0 is USED_DEEP_ANA_REG and holds a ROM flag; REG2 is the SDK's
- * SYS_DEEP_ANA_REG). Its layout:
- *   [7:4] 0xA, written on every boot, so anything else means power was applied (a brownout
- *         included: this part cannot tell the two apart)
- *   [3]   set by od_hal_reset_reboot() just before a planned reboot
- *   [2:0] unplanned resets (watchdog, reset pin) since power was applied, saturating at 7
- * An unplanned reset is reported as OTHER, which never counts toward a boot gesture. */
+ * SYS_DEEP_ANA_REG). An unplanned reset is reported as OTHER, which never counts toward a boot
+ * gesture. */
 
-#define ANA_STATE_REG     DEEP_ANA_REG1
-#define ANA_BOOT_MARK     0xA0u
-#define ANA_BOOT_MASK     0xF0u
-#define ANA_PLANNED       0x08u
-#define ANA_COUNT_MASK    0x07u
+#define ANA_STATE_REG DEEP_ANA_REG1
 
 static uint32_t s_cause;
-static uint8_t s_unplanned;
+static struct od_tlsr_rs s_rs;
 
 void od_tlsr_hal_boot(void)
 {
-    uint8_t st = analog_read(ANA_STATE_REG);
-
-    s_unplanned = 0u;
-    if ((st & ANA_BOOT_MASK) != ANA_BOOT_MARK) {
-        s_cause = OD_HAL_RESET_POWER_ON;
-    } else if ((st & ANA_PLANNED) != 0u) {
-        s_cause = OD_HAL_RESET_SOFTWARE;
-        s_unplanned = st & ANA_COUNT_MASK;
-    } else {
-        s_cause = OD_HAL_RESET_OTHER;
-        s_unplanned = st & ANA_COUNT_MASK;
-        if (s_unplanned < ANA_COUNT_MASK) {
-            s_unplanned++;
-        }
-    }
-    analog_write(ANA_STATE_REG, (uint8_t)(ANA_BOOT_MARK | s_unplanned));
+    od_tlsr_rs_decode(analog_read(ANA_STATE_REG), &s_rs);
+    s_cause = s_rs.cause == OD_TLSR_RS_POWER_ON  ? OD_HAL_RESET_POWER_ON
+            : s_rs.cause == OD_TLSR_RS_PLANNED_BOOT ? OD_HAL_RESET_SOFTWARE
+                                                 : OD_HAL_RESET_OTHER;
+    analog_write(ANA_STATE_REG, od_tlsr_rs_encode(&s_rs, false, false));
     s_last_tick = clock_time();
+}
+
+void od_tlsr_hal_render_mark(bool rendering)
+{
+    analog_write(ANA_STATE_REG, od_tlsr_rs_encode(&s_rs, rendering, false));
+}
+
+bool od_tlsr_hal_render_died(void)
+{
+    return s_rs.render_died;
 }
 
 uint8_t od_tlsr_hal_unplanned(void)
 {
-    return s_unplanned;
+    return s_rs.unplanned;
 }
 
 void od_tlsr_ota_app_boot_info(uint8_t info[2])
@@ -94,12 +86,12 @@ void od_tlsr_ota_app_boot_info(uint8_t info[2])
     info[0] = s_cause == OD_HAL_RESET_POWER_ON ? OD_TLSR_BOOT_POWER_ON
             : s_cause == OD_HAL_RESET_SOFTWARE ? OD_TLSR_BOOT_PLANNED
                                                : OD_TLSR_BOOT_UNPLANNED;
-    info[1] = s_unplanned;
+    info[1] = s_rs.unplanned;
 }
 
 void od_tlsr_ota_app_before_install(void)
 {
-    analog_write(ANA_STATE_REG, (uint8_t)(ANA_BOOT_MARK | ANA_PLANNED | s_unplanned));
+    analog_write(ANA_STATE_REG, od_tlsr_rs_encode(&s_rs, false, true));
     wd_clear();
 }
 
@@ -128,7 +120,7 @@ void od_hal_retained_clear(void)
 
 void od_hal_reset_reboot(void)
 {
-    analog_write(ANA_STATE_REG, (uint8_t)(ANA_BOOT_MARK | ANA_PLANNED | s_unplanned));
+    analog_write(ANA_STATE_REG, od_tlsr_rs_encode(&s_rs, false, true));
     start_reboot();
     for (;;) {
     }
