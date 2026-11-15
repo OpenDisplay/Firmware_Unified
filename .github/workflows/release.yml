@@ -98,7 +98,9 @@ jobs:
             cp "$f" "out/$b"
           done < <(find dist -type f ! -path '*/logs/*' -print0)
           cp LICENSE out/LICENSE
-          cp third_party/NOTICE.md out/NOTICE.md
+          # The release notice lists only what is in the images. third_party/NOTICE.md is the
+          # repository's vendoring record and also covers host-only trees.
+          cp tools/release/NOTICE.md out/NOTICE.md
           python3 tools/release/collect.py merge --version "$V" --tag "$TAG" \
             --commit "$GITHUB_SHA" out
           python3 tools/release/collect.py check out
