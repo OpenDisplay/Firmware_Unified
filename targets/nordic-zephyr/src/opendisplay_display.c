@@ -55,6 +55,10 @@ static uint8_t s_decompression_chunk[OPENDISPLAY_DECOMPRESSION_CHUNK_SIZE];
 #if OD_CAP_PARTIAL
 static uint32_t s_displayed_etag;
 #endif
+#if OD_CAP_IMGSTORE
+/* -1 = nothing queued. Set by FLASH_DISPLAY, consumed by the loop, dropped by a newer upload. */
+static int16_t s_pending_slot = -1;
+#endif
 static bool s_epd_rail_conditioned;
 static bool s_spi_raw_open;
 #if OD_CAP_IMGSTORE
@@ -232,6 +236,15 @@ const od_epd_cfg_bus_t *od_drive_app_bus(void)
   return od_epd_nordic_bus();
 }
 
+/* A redraw that is not an od_xfer transfer leaves an image no host etag describes, so a 0x76
+ * partial must not diff against it. */
+static void displayed_etag_forget(void)
+{
+#if OD_CAP_PARTIAL
+  s_displayed_etag = 0u;
+#endif
+}
+
 static void xfer_app_clear(void)
 {
 #if OD_CAP_IMGSTORE
@@ -240,6 +253,7 @@ static void xfer_app_clear(void)
   }
   s_to_flash = false;
   od_cmd_flash_clear_arm();
+  s_pending_slot = -1;
 #endif
   /* The boot render owns the panel from its own thread: tearing SPIM down under it is the race
    * the gate exists for. Nothing of an upload's is on the panel while it is held. */
@@ -361,6 +375,7 @@ bool opendisplay_display_boot_apply(void)
     return true;
   }
 
+  displayed_etag_forget();
   for (unsigned attempt = 1; attempt <= 2; attempt++) {
     OD_SEC2_TRACE("draw NORMAL boot screen (attempt %u) at %u ms", attempt,
                   (unsigned)od_hal_uptime_ms());
@@ -403,6 +418,7 @@ bool od_claim_app_draw(enum od_setup_screen kind, uint32_t code)
 	}
 	OD_SEC2_TRACE("od_claim_app_draw(kind=%d) start at %u ms", (int)kind,
 		      (unsigned)od_hal_uptime_ms());
+	displayed_etag_forget();
 	rc = od_display_setup_screen(opendisplay_get_global_config(), kind, code, &bufs);
 	OD_SEC2_TRACE("od_claim_app_draw(kind=%d) rc=%d at %u ms", (int)kind, (int)rc,
 		      (unsigned)od_hal_uptime_ms());
@@ -456,6 +472,7 @@ int opendisplay_display_spi_raw_open(bool run_panel_init)
   if (d == NULL || !od_epd_cfg_load(d, od_epd_nordic_bus())) {
     return -OD_ERR_SPI_RAW_NO_CONFIG;
   }
+  displayed_etag_forget();
   if (!od_drive_app_panel_up(d)) {
     return -OD_ERR_SPI_RAW_PANEL;
   }
@@ -546,6 +563,10 @@ static bool xfer_app_busy(void)
 
 void od_xfer_app_prepare_start(void)
 {
+  /* A queued FLASH_DISPLAY would paint an older image over this upload. */
+#if OD_CAP_IMGSTORE
+  s_pending_slot = -1;
+#endif
   if (xfer_app_busy()) {
     xfer_app_clear();
   }
@@ -716,9 +737,6 @@ uint32_t od_xfer_app_now_ms(void)
 /* --- loop service: stored-image display and the deferred boot screen ------------------------ */
 
 #if OD_CAP_IMGSTORE
-/* -1 = nothing queued. Set by a command, consumed by the loop. */
-static int16_t s_pending_slot = -1;
-
 bool od_display_from_slot_arm(uint8_t index)
 {
   const struct DisplayConfig *d = display_cfg();
@@ -761,6 +779,7 @@ static void display_pending_slot(void)
       && slot.payload_len == geometry.total_bytes;
   if (ok) {
     od_cmd_flash_clear_arm();
+    displayed_etag_forget();
     ok = od_xfer_app_begin_full(&geometry);
   }
   while (ok && off < slot.payload_len) {
