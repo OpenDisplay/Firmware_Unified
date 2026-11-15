@@ -445,7 +445,9 @@ add_executable(od_silabs_purge_test
     ../../targets/efr32bg22-slc/od_nvm3_purge.c)
 target_include_directories(od_silabs_purge_test PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/fake_silabs
-    ../../shared/core)
+    ../../shared/core
+    ../../targets/efr32bg22-slc)
+target_compile_definitions(od_silabs_purge_test PRIVATE OD_BG22_DIAG=2)
 add_test(NAME silabs_purge COMMAND od_silabs_purge_test)
 
 # time_silabs: compile the production BG22 adapter over fake sleeptimer/udelay primitives. The

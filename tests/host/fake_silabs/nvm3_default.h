@@ -44,6 +44,7 @@ sl_status_t nvm3_initDefault(void);
 /* Declared for od_nvm3_purge.c's tests, which define them; nvm3_fake.c does not. */
 sl_status_t nvm3_repack(nvm3_Handle_t *h);
 bool nvm3_repackNeeded(nvm3_Handle_t *h);
+sl_status_t nvm3_getEraseCount(nvm3_Handle_t *h, uint32_t *eraseCnt);
 
 /* ---- test control ---- */
 
