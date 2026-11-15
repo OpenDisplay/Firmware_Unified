@@ -63,6 +63,11 @@ bool od_epd_shim_write(const uint8_t *data, uint32_t len)
     return true;
 }
 
+uint8_t od_epd_shim_image_of(void)
+{
+    return s_in_pass ? s_epd.imageOf() : 1u;
+}
+
 bool od_epd_shim_next_plane(void)
 {
     if (!s_in_pass) {
