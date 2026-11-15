@@ -8,6 +8,7 @@
 #include "od_tlsr_mac.h"
 #include "od_tlsr_ota.h"
 #include "od_tlsr_pins.h"
+#include "od_tlsr_store.h"
 
 #include "od_config.h"
 
@@ -134,6 +135,16 @@ void od_hal_reset_reboot(void)
 }
 
 /* ---- the tag's address (od_tlsr_mac.h), read once ---- */
+
+bool od_tlsr_mac_app_load(unsigned char mac[6])
+{
+    return od_tlsr_store_mac_read(mac);
+}
+
+void od_tlsr_mac_app_save(const unsigned char mac[6])
+{
+    (void)od_tlsr_store_mac_write(mac);
+}
 
 static uint8_t s_mac[6];
 static bool s_mac_ready;

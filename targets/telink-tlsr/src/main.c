@@ -1,5 +1,6 @@
 /* Boot and main loop, after the SDK's ble_sample main.c / app.c, with two deliberate
- * differences: the address comes from the flash UID as in the legacy firmware and is never written (od_tlsr_mac.h), and there is no SMP. */
+ * differences: the address comes from the flash UID as in the legacy firmware (od_tlsr_mac.h),
+ * and there is no SMP. */
 #include "od_tlsr_sdk.h"
 
 #include "od_tlsr_ble.h"

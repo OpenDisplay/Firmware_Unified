@@ -107,7 +107,9 @@ leaves the legacy firmware's other data alone. That includes the MAC record at `
 The BLE address is the legacy firmware's own (`src/od_tlsr_mac.h`): derived from the flash chip's unique ID,
 so a tag keeps the address and the three name bytes it had under the legacy firmware (`OD05B911` becomes
 `OD05B911`). Without a usable UID it falls back to the record at `0x76000`, then to a random
-address for that boot.
+address in Telink's vendor block. The random address is made once and kept in the secrets
+record, because it is also the SEC2 device id; a factory reset (the store purge) drops it with
+the keys. The probe does not keep it.
 
 Each store (`src/od_tlsr_store.c`) keeps two banks. A write goes to the bank that does not
 hold the newest record, payload first and header last, so a power cut leaves either the old
@@ -164,7 +166,7 @@ this part.**
 
 - `tests/host/tlsr_store_test.c`: power cut at every flash operation.
 - `tests/host/tlsr_ota_test.c`: the updater.
-- `tests/host/tlsr_mac_test.c`: the address order (UID, record, random), and that nothing is written.
+- `tests/host/tlsr_mac_test.c`: the address order (UID, record, kept random, new random), and that the MAC record is never written.
 - `tests/host/tlsr_crypto_test.c`: CCM and CMAC against RFC 4493 and OpenSSL, plus ECDH.
 - `crypto_hal_contract_telink`: the HAL buffer contract.
 

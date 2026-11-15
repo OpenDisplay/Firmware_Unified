@@ -249,6 +249,19 @@ static void pmtest_retention_wake(void)
 }
 #endif
 
+/* The probe never writes the secret bank, so a tag with neither UID nor MAC record gets a new
+ * random address at every boot of the probe. */
+bool od_tlsr_mac_app_load(unsigned char mac[6])
+{
+    (void)mac;
+    return false;
+}
+
+void od_tlsr_mac_app_save(const unsigned char mac[6])
+{
+    (void)mac;
+}
+
 static void ble_init(void)
 {
     static const char hex[] = "0123456789ABCDEF";
