@@ -68,7 +68,12 @@ extern "C" {
  * how long a malformed sequence can keep the panel (each step may be a 65 s DELAY or a BUSY wait).
  * The largest real sequence has 79 steps (panels/generated, 0x0042 dual-controller Spectra 6). */
 #define OD_EPD_MAX_SEQ_STEPS  128u
+/* Largest 0xAF slot a pass accepts (od_epd_cfg lut_info; a larger slot reads as absent). Not a
+ * buffer: slots are streamed. Published to hosts as drive_presets.json caps.lut_max, so a build
+ * that overrides it diverges from what hosts assume; only host tests do. */
+#ifndef OD_EPD_LUT_BYTES
 #define OD_EPD_LUT_BYTES      535u   /* 7-byte analog header + 528-byte body */
+#endif
 /* 20: the longest sleep sequence is the 4.2in SSD16xx's discharge plus its 200 ms bleed DELAY
  * (19 B; panels/tools/pdlib.py POST_SLEEP_BLEED). */
 #define OD_EPD_SLEEP_SEQ_MAX   20u

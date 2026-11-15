@@ -17,6 +17,11 @@
  * the lab table; the bytes behind each chip's DTM against the lab renderer; the refresh tail; the
  * 60 s BUSY cap; that no OTP-program (0x90/0x91) or A0/A1 command is ever sent.
  *
+ * The multi-pass case runs the custom-waveform design of the EE02 report (k_multipass_seq, two
+ * 807-byte 0xAF slots). Built as is, it pins today's refusal of such a slot; built again with
+ * OD_EPD_LUT_BYTES=1024 (od_ee02_spectra_lut1k_test), it checks per-pass PLL, PSR, the 800-byte
+ * 0x20 image on both chips and both frames.
+ *
  * Not checked, and not checkable here: anything on glass. Nothing in this file has run on
  * hardware. */
 
@@ -27,6 +32,7 @@
 #include "od_display.h"
 #include "od_display_app.h"
 #include "od_drive_app.h"
+#include "od_epd.h"
 #include "od_epd_cfg.h"
 #include "od_hal_nvs.h"
 #include "od_inflate_app.h"
@@ -301,9 +307,18 @@ static uint32_t g_now;
 static uint32_t g_busy_until;
 static uint32_t g_refresh_ms;      /* how long DRF holds BUSY */
 static bool g_last_read_busy;
-static uint8_t g_cap[2][HALF_BYTES];   /* DTM bytes per chip */
-static uint32_t g_cap_n[2];
-static uint32_t g_cs_frames;           /* CS assert/deassert pairs, as od_epd_esp frames them */
+/* The data behind every DTM (0x10) and waveform-register (0x20) command, in the order they went
+ * out: a single pass sends DTM to cs0 then cs1 (captures 0 and 1), a second pass adds 2 and 3. */
+#define MAX_CAP 4u
+#define LUT_CAP 1024u
+static uint8_t g_cap[MAX_CAP][HALF_BYTES];
+static uint32_t g_cap_n[MAX_CAP];
+static uint8_t g_cap_cs[MAX_CAP];
+static unsigned g_ncap;
+static uint8_t g_lut[MAX_CAP][LUT_CAP];
+static uint32_t g_lut_n[MAX_CAP];
+static uint8_t g_lut_cs[MAX_CAP];
+static unsigned g_nlut;
 
 static token_t *push(uint8_t kind)
 {
@@ -324,7 +339,14 @@ static void bus_cmd(uint8_t c)
     token_t *t = push(TK_CMD);
 
     t->cmd = c;
-    g_cs_frames++;
+    if (c == 0x10u && g_ncap < MAX_CAP) {
+        g_cap_cs[g_ncap] = g_cs;
+        g_cap_n[g_ncap++] = 0u;
+    }
+    if (c == 0x20u && g_nlut < MAX_CAP) {
+        g_lut_cs[g_nlut] = g_cs;
+        g_lut_n[g_nlut++] = 0u;
+    }
     /* BUSY is the AND of both chips: a refresh holds it once DRF has reached cs1, the second copy
      * of the both-chip DRF. PON holds it briefly. */
     if (c == 0x04u && g_cs == 1u) {
@@ -336,16 +358,27 @@ static void bus_data(const uint8_t *d, size_t n)
 {
     token_t *t = last();
 
-    g_cs_frames++;
     if (t == NULL || t->kind != TK_CMD || t->cs != g_cs) {
         t = push(TK_ORPHAN_DATA);
     }
-    if (t->kind == TK_CMD && t->cmd == 0x10u && g_cs < 2u) {
+    if (t->kind == TK_CMD && t->cmd == 0x10u && g_ncap > 0u) {
+        const unsigned k = g_ncap - 1u;
+
         for (size_t i = 0; i < n; i++) {
-            if (g_cap_n[g_cs] < HALF_BYTES) {
-                g_cap[g_cs][g_cap_n[g_cs]] = d[i];
+            if (g_cap_n[k] < HALF_BYTES) {
+                g_cap[k][g_cap_n[k]] = d[i];
             }
-            g_cap_n[g_cs]++;
+            g_cap_n[k]++;
+        }
+    }
+    if (t->kind == TK_CMD && t->cmd == 0x20u && g_nlut > 0u) {
+        const unsigned k = g_nlut - 1u;
+
+        for (size_t i = 0; i < n; i++) {
+            if (g_lut_n[k] < LUT_CAP) {
+                g_lut[k][g_lut_n[k]] = d[i];
+            }
+            g_lut_n[k]++;
         }
     }
     for (size_t i = 0; i < n && t->len < sizeof t->d; i++) {
@@ -569,8 +602,7 @@ static void reset_bus(uint32_t refresh_ms)
     g_now = 0u;
     g_busy_until = 0u;
     g_refresh_ms = refresh_ms;
-    g_cap_n[0] = g_cap_n[1] = 0u;
-    g_cs_frames = 0u;
+    g_ncap = g_nlut = 0u;
     g_panel_up = g_panel_down = 0u;
     g_refresh_completed = false;
     od_xfer_reset();
@@ -801,11 +833,18 @@ static bool no_orphan_data(void)
     return true;
 }
 
+/* DTM captures k (main) and k + 1 (slave) carry exactly these two halves. */
+static bool dtm_pair_is(unsigned k, const uint8_t *main_half, const uint8_t *slave_half)
+{
+    return g_ncap >= k + 2u && g_cap_cs[k] == 0u && g_cap_cs[k + 1u] == 1u &&
+           g_cap_n[k] == HALF_BYTES && g_cap_n[k + 1u] == HALF_BYTES &&
+           memcmp(g_cap[k], main_half, HALF_BYTES) == 0 &&
+           memcmp(g_cap[k + 1u], slave_half, HALF_BYTES) == 0;
+}
+
 static bool frame_matches_lab(void)
 {
-    return g_cap_n[0] == HALF_BYTES && g_cap_n[1] == HALF_BYTES &&
-           memcmp(g_cap[0], g_lab_half[0], HALF_BYTES) == 0 &&
-           memcmp(g_cap[1], g_lab_half[1], HALF_BYTES) == 0;
+    return g_ncap == 2u && dtm_pair_is(0u, g_lab_half[0], g_lab_half[1]);
 }
 
 /* Token-level shape of a tail: a string of 'R' reset, 'B' BUSY, 'D' delay, and the commands as
@@ -968,15 +1007,218 @@ static void test_geometry(void)
     CHECK(memcmp(g_frame + HALF_BYTES, g_lab_half[1], HALF_BYTES) == 0);
 }
 
+
+/* ------------------------------------------- custom waveform + multi-pass (proposal) --- */
+
+/* REPORT.md's design for the 42-colour mode, on today's escapes: mode 1, two passes, slot 0 and
+ * slot 1, k_multipass_seq. A slot is the 7-byte prefix (PLL, PSR byte B) plus an 800-byte 0x20
+ * image; the tables here are patterns, not waveforms. Pass 0 keeps PSR byte B 0x69 (the chip
+ * runs its OTP waveform; the uploaded table is ignored, as the lab saw), pass 1 sets 0xE9 and
+ * PLL 05. The pass-1 frame uses code 7 (hold) as well as the six driven codes. */
+#define SLOT_LEN (7u + 800u)
+
+static uint8_t g_frame2[FRAME_BYTES];
+
+static uint8_t step_code(uint16_t x, uint16_t y)
+{
+    static const uint8_t codes[7] = { 0u, 1u, 2u, 3u, 5u, 6u, 7u };
+
+    return codes[(x / 37u + y / 23u) % 7u];
+}
+
+static void host_frame2(void)
+{
+    uint32_t o = 0u;
+
+    for (uint8_t half = 0; half < 2u; half++) {
+        for (uint16_t y = 0; y < PANEL_H; y++) {
+            for (uint16_t x = (uint16_t)(half * HALF_W); x < (half + 1u) * HALF_W; x += 2u) {
+                g_frame2[o++] =
+                    (uint8_t)((step_code(x, y) << 4) | step_code((uint16_t)(x + 1u), y));
+            }
+        }
+    }
+}
+
+static uint8_t g_slot[2][SLOT_LEN];
+
+static uint16_t crc16_ccitt(const uint8_t *d, size_t n)
+{
+    uint16_t crc = 0xFFFFu;
+
+    for (size_t i = 0; i < n; i++) {
+        crc ^= (uint16_t)((uint16_t)d[i] << 8);
+        for (int b = 0; b < 8; b++) {
+            crc = (crc & 0x8000u) ? (uint16_t)((crc << 1) ^ 0x1021u) : (uint16_t)(crc << 1);
+        }
+    }
+    return crc;
+}
+
+static void mode_packet(uint8_t index, const char *name, uint8_t passes, const uint8_t *slots,
+                        const uint8_t *seq, uint16_t seq_len)
+{
+    static uint8_t mode[37 + 512];
+
+    memset(mode, 0, sizeof mode);
+    mode[1] = index;
+    strncpy((char *)&mode[2], name, 12);
+    mode[14] = 0xFFu;
+    mode[15] = passes;
+    memset(&mode[19], 0xFF, 8);
+    for (uint8_t p = 0; p < passes; p++) {
+        mode[19 + p] = slots[p];
+    }
+    mode[35] = (uint8_t)seq_len;
+    mode[36] = (uint8_t)(seq_len >> 8);
+    memcpy(&mode[37], seq, seq_len);
+    store_packet(OD_PKT_DISPLAY_MODE, mode, (uint16_t)(37u + seq_len));
+}
+
+static void provision_multipass(void)
+{
+    static const uint8_t prefix[2][7] = {
+        { 0x04u, 0x69u, 0u, 0u, 0u, 0u, 0u },
+        { 0x05u, 0xE9u, 0u, 0u, 0u, 0u, 0u },
+    };
+    static const uint8_t slots[2] = { 0u, 1u };
+    const size_t b1 = 4u + (size_t)(k_preset_EP133S[2] | (k_preset_EP133S[3] << 8));
+    uint8_t panel[64];
+    uint8_t lut[4 + SLOT_LEN];
+
+    display_block();
+    store_reset();
+    memcpy(panel, k_preset_EP133S, b1);
+    panel[4 + 11] = 2u;                       /* DisplayPanelHead.mode_count */
+    store_raw(panel, b1);
+    mode_packet(0u, "full", 1u, slots, k_lab_order_seq, (uint16_t)sizeof k_lab_order_seq);
+    mode_packet(1u, "colour42", 2u, slots, k_multipass_seq, (uint16_t)sizeof k_multipass_seq);
+    for (uint8_t k = 0; k < 2u; k++) {
+        memcpy(g_slot[k], prefix[k], 7u);
+        for (unsigned i = 0; i < 800u; i++) {
+            g_slot[k][7u + i] = (uint8_t)(k ? (0xFFu - i * 13u) : (i * 7u + 1u));
+        }
+        const uint16_t crc = crc16_ccitt(g_slot[k], SLOT_LEN);
+        lut[0] = 0u;
+        lut[1] = k;
+        lut[2] = (uint8_t)crc;
+        lut[3] = (uint8_t)(crc >> 8);
+        memcpy(&lut[4], g_slot[k], SLOT_LEN);
+        store_packet(OD_PKT_DISPLAY_LUT, lut, (uint16_t)sizeof lut);
+    }
+    store_commit();
+}
+
+/* Data of the n-th command `cmd` sent to chip `cs`, or NULL. */
+static const token_t *nth_cmd(uint8_t cmd, uint8_t cs, unsigned n)
+{
+    for (unsigned i = 0; i < g_ntok; i++) {
+        if (g_tok[i].kind == TK_CMD && g_tok[i].cmd == cmd && g_tok[i].cs == cs && n-- == 0u) {
+            return &g_tok[i];
+        }
+    }
+    return NULL;
+}
+
+static void test_multipass(void)
+{
+    od_epd_cfg_mode_t hdr;
+    od_color_geometry_t g;
+    bool ok;
+
+    provision_multipass();
+    reset_bus(20200u);
+    CHECK(od_epd_cfg_load(g_disp, &g_bus));
+    CHECK(od_epd_cfg_select(1u, &hdr) && hdr.passes == 2u);
+    CHECK(od_color_direct_geometry(g_disp->color_scheme, PANEL_W, PANEL_H, &g) == OD_COLOR_OK);
+    ok = od_epd_cfg_begin_pass(0u);
+
+#if OD_EPD_LUT_BYTES < 807
+    CASE("multi-pass, 807-byte slots: refused today (OD_EPD_LUT_BYTES 535), at the LUT step");
+    CHECK(!ok && od_epd_cfg_last_rc() == OD_EPD_RC_LUT);
+    /* The refusal comes after the init went out (the validator does not resolve slots): the PSR
+     * SUBST of an absent slot sends byte B 0x00, and the bare 0x20 command goes out with no data
+     * before LUT_SLICE fails. Recorded so a fix is visible. */
+    CHECK(find_cmd(0u, 0x74u) < g_ntok);
+    CHECK(g_ncap == 0u && g_nlut == 1u && g_lut_n[0] == 0u);
+    {
+        const token_t *psr = nth_cmd(0x00u, 0u, 1u);
+        CHECK(psr != NULL && psr->n == 2u && psr->d[0] == 0xDFu && psr->d[1] == 0x00u);
+    }
+    od_epd_cfg_sleep();
+#else
+    od_epd_cfg_stream_t st;
+
+    CASE("multi-pass, 807-byte slots (OD_EPD_LUT_BYTES raised): per-pass PLL, PSR, 0x20, frames");
+    CHECK(ok);
+    CHECK(ok && od_epd_cfg_stream_init(&st, &g, 2u, false, NULL, 0u));
+    for (uint32_t o = 0u; ok && o < 2u * FRAME_BYTES; o += 230u) {
+        const uint32_t n = 2u * FRAME_BYTES - o < 230u ? 2u * FRAME_BYTES - o : 230u;
+        const uint8_t *src = o < FRAME_BYTES ? g_frame + o : g_frame2 + (o - FRAME_BYTES);
+        /* 230 does not divide 960,000: split the chunk that straddles the pass boundary. */
+        const uint32_t cut = (o < FRAME_BYTES && o + n > FRAME_BYTES) ? FRAME_BYTES - o : n;
+
+        ok = od_epd_cfg_stream_write(&st, o, src, cut, NULL);
+        if (ok && cut < n) {
+            ok = od_epd_cfg_stream_write(&st, FRAME_BYTES, g_frame2, n - cut, NULL);
+        }
+    }
+    CHECK(ok);
+    CHECK(od_epd_cfg_finish());
+    od_epd_cfg_sleep();
+    CHECK(!g_tok_overflow && no_orphan_data());
+
+    /* Both passes: reset + the lab init, byte for byte. */
+    {
+        const unsigned r1 = 0u;
+        unsigned r2 = g_ntok;
+
+        for (unsigned i = 1u; i < g_ntok; i++) {
+            if (g_tok[i].kind == TK_RESET) {
+                r2 = i;
+                break;
+            }
+        }
+        CHECK(g_tok[r1].kind == TK_RESET && r2 < g_ntok);
+        CHECK(init_matches_lab(r1, find_cmd(r1, 0x30u)));
+        CHECK(init_matches_lab(r2, find_cmd(r2, 0x30u)));
+    }
+    /* Per pass, from the slot prefix: PLL to both chips, then the PSR override to both. */
+    for (uint8_t cs = 0; cs < 2u; cs++) {
+        const token_t *pll0 = nth_cmd(0x30u, cs, 0u), *pll1 = nth_cmd(0x30u, cs, 1u);
+        const token_t *psr0 = nth_cmd(0x00u, cs, 1u), *psr1 = nth_cmd(0x00u, cs, 3u);
+
+        CHECK(pll0 && pll0->n == 1u && pll0->d[0] == 0x04u);
+        CHECK(pll1 && pll1->n == 1u && pll1->d[0] == 0x05u);
+        CHECK(psr0 && psr0->n == 2u && psr0->d[0] == 0xDFu && psr0->d[1] == 0x69u);
+        CHECK(psr1 && psr1->n == 2u && psr1->d[0] == 0xDFu && psr1->d[1] == 0xE9u);
+    }
+    /* The 800-byte image to 0x20 on main then slave, each pass its own slot, prefix excluded. */
+    CHECK(g_nlut == 4u);
+    for (unsigned k = 0; k < g_nlut && k < 4u; k++) {
+        CHECK(g_lut_cs[k] == (k & 1u) && g_lut_n[k] == 800u &&
+              memcmp(g_lut[k], &g_slot[k / 2u][7], 800u) == 0);
+    }
+    /* Frames: pass 0's halves, then pass 1's (with hold code 7) behind the next DTM pair. */
+    CHECK(g_ncap == 4u);
+    CHECK(dtm_pair_is(0u, g_frame, g_frame + HALF_BYTES));
+    CHECK(dtm_pair_is(2u, g_frame2, g_frame2 + HALF_BYTES));
+    CHECK(nth_cmd(0x12u, 1u, 1u) != NULL && nth_cmd(0x12u, 1u, 2u) == NULL);
+    CHECK(never_sent_forbidden());
+#endif
+}
+
 int main(void)
 {
     lab_frame();
     host_frame();
+    host_frame2();
     test_geometry();
     test_database_preset(false);
     test_database_preset(true);
     test_lab_order();
     test_busy_cap();
+    test_multipass();
     printf("ee02_spectra: %u checks, %u failures\n", g_checks, g_failures);
     return g_failures == 0u ? 0 : 1;
 }

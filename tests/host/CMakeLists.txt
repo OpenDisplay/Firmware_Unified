@@ -615,6 +615,19 @@ add_executable(od_ee02_spectra_test ee02_spectra_test.c boot_key_stub.c
     ${CMAKE_CURRENT_LIST_DIR}/../../third_party/qrcode/qrcode.c)
 target_link_libraries(od_ee02_spectra_test od_xfer_split od_shared)
 add_test(NAME ee02_spectra COMMAND od_ee02_spectra_test)
+# The same suite with OD_EPD_LUT_BYTES raised to 1024 (the 0x20 register's ceiling on that
+# controller): the multi-pass custom-waveform design of the EE02 report runs end to end. No target
+# builds with this value; it is the evidence for a proposal, not a configuration.
+add_executable(od_ee02_spectra_lut1k_test ee02_spectra_test.c boot_key_stub.c
+    ../../shared/core/od_display.c
+    ../../shared/core/od_epd_cfg.c
+    ../../shared/core/od_epd.c
+    ../../shared/core/od_cfg_index.c
+    od_log_test_stub.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../third_party/qrcode/qrcode.c)
+target_compile_definitions(od_ee02_spectra_lut1k_test PRIVATE OD_EPD_LUT_BYTES=1024u)
+target_link_libraries(od_ee02_spectra_lut1k_test od_xfer_split od_shared)
+add_test(NAME ee02_spectra_lut1k COMMAND od_ee02_spectra_lut1k_test)
 
 # legacy_upload: what py-opendisplay 7.14.0 (no drive modes) sends for an upload -- 0x70/0x71/0x72
 # compressed and not, and PIPE -- for one panel of every colour class, replayed into od_display:
