@@ -210,4 +210,7 @@ A 2.3.0 `.gbl` works as an OTA, but a 3.0 config larger than 2048 B may be unrea
 - `esp32: unsigned` and `bg22: unsigned` mean the same, permanently, for those targets.
 
 A later change to a project MCUboot key needs a USB (nRF52840) or SWD (nRF54) visit per
-device, because MCUboot checks only against the key it was built with.
+device, because MCUboot checks only against the key it was built with. 3.0 ships with the debug key and
+with MCUboot downgrade prevention off, by decision (RELEASE_CHECKLIST_3.0.md C2, C8). Under a
+public key, downgrade prevention would let one hostile upload of a high version number block every
+later genuine update. The two are revisited together.
