@@ -6,9 +6,10 @@
 # before you push anyway: CI is the backstop, not the first look.
 #
 #   tools/check.sh                 boundary + host suites + sanitizers + fuzz + arduino-free
-#   tools/check.sh --targets       also builds ESP32, Nordic, and Silabs targets. Required before
-#                                  merge.
+#   tools/check.sh --targets       also builds ESP32, Nordic, Silabs and Telink targets. Required
+#                                  before merge.
 #   tools/check.sh --esp32         ESP32 only, as --targets used to be
+#   tools/check.sh --telink        Telink only (needs TC32_DIR and TELINK_SDK_DIR)
 #   tools/check.sh --fuzz-time 300 longer fuzz budget per target (default 60 s)
 #   tools/check.sh --latest        also replay the corpus against the NEWEST py-opendisplay
 #   tools/check.sh --list          print the checks and exit
@@ -28,6 +29,7 @@ FUZZ_TIME=60
 DO_ESP32=0
 DO_NORDIC=0
 DO_SILABS=0
+DO_TELINK=0
 DO_LATEST=0
 
 while [ $# -gt 0 ]; do
@@ -35,7 +37,8 @@ while [ $# -gt 0 ]; do
         --esp32)      DO_ESP32=1 ;;
         --nordic)     DO_NORDIC=1 ;;
         --silabs)     DO_SILABS=1 ;;
-        --targets)    DO_ESP32=1; DO_NORDIC=1; DO_SILABS=1 ;;
+        --telink)     DO_TELINK=1 ;;
+        --targets)    DO_ESP32=1; DO_NORDIC=1; DO_SILABS=1; DO_TELINK=1 ;;
         --latest)     DO_LATEST=1 ;;
         --fuzz-time)  FUZZ_TIME="${2:?--fuzz-time needs a value}"; shift ;;
         --list)
@@ -1698,6 +1701,19 @@ if [ "$DO_SILABS" = 1 ]; then
     check "silabs: BG22 headless build" silabs_bg22
 else
     skip "silabs: BG22 headless build" "needs --silabs/--targets (Simplicity SDK 2025.12.2)"
+fi
+
+# ===================================================================================== telink ==
+# Provisional target. The image check and the RAM-resident install check run inside its build.
+telink_tlsr() {
+    BUILD_DIR="$BUILD_ROOT/telink" targets/telink-tlsr/build.sh
+}
+if [ "$DO_TELINK" = 1 ] && [ -n "${TC32_DIR:-}" ] && [ -n "${TELINK_SDK_DIR:-}" ]; then
+    check "telink: TLSR825x build" telink_tlsr
+elif [ "$DO_TELINK" = 1 ]; then
+    skip "telink: TLSR825x build" "TC32_DIR and TELINK_SDK_DIR not set (targets/telink-tlsr/README.md)"
+else
+    skip "telink: TLSR825x build" "needs --telink/--targets"
 fi
 
 # ===================================================================================== summary ==

@@ -357,6 +357,31 @@ class Equivalence(unittest.TestCase):
                 rc, _ = P.replay(blob, "sleep", cls, geom)
                 self.assertEqual(rc, 0)
 
+    def test_provisional_entries(self):
+        """A provisional panels.yaml entry encodes and walks cleanly in od_epd for every class,
+        and stays out of the glass set and the generated presets."""
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest("PyYAML not installed")
+        doc = yaml.safe_load((P.PANELS / "panels.yaml").read_text())
+        prov = [e for e in doc["panels"] if e.get("status") == "provisional"]
+        self.assertTrue(prov)
+        for ent in prov:
+            key = f"0x{int(str(ent['id']), 0):04X}"
+            self.assertNotIn(key, GLASS)
+            self.assertNotIn(key, PRESETS["panels"])
+            blob = G.frame_all(P.yaml_panel_packets(ent, {}, {"entries": []}))
+            geom = [ent["geometry"]["width"], ent["geometry"]["height"]]
+            for cls in CLASSES:
+                for mi, m in enumerate(ent["modes"]):
+                    with self.subTest(key=key, cls=cls, mode=m["name"]):
+                        rc, lines = P.replay(blob, str(mi), cls, geom)
+                        self.assertEqual(rc, 0, lines)
+                        self.assertEqual(sum(1 for x in lines if x.startswith("M pass")), m["passes"])
+                rc, _ = P.replay(blob, "sleep", cls, geom)
+                self.assertEqual(rc, 0)
+
     def test_recorded_verdicts_match(self):
         """The equivalence block in the JSON is what a fresh replay gives."""
         for key, e in PRESETS["panels"].items():
@@ -382,6 +407,8 @@ class Glass(unittest.TestCase):
         waves = {w: (P.PANELS / "waves" / f"{w}.bin").read_bytes() for w in ("wave_colour", "wave_edit")}
         pal = json.loads((P.PANELS / "palettes" / "palette16_photo_ODBEEBA6.json").read_text())
         for ent in doc["panels"]:
+            if ent.get("status") == "provisional":
+                continue  # not on the website; test_provisional_entries covers it
             key = f"0x{int(str(ent['id']), 0):04X}"
             with self.subTest(key=key):
                 mine = [{"pid": str(pid), "raw": b.hex()} for _, pid, b in P.yaml_panel_packets(ent, waves, pal)]

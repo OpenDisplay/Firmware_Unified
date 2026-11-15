@@ -75,6 +75,9 @@ add_executable(od_drive_cmd_test drive_cmd_test.c od_log_test_stub.c
     ${OD_SHARED_CORE}/od_cmd_drive.c ${OD_SHARED_CORE}/od_cmd_spi_raw.c
     ${OD_SHARED_CORE}/od_epd_cfg.c ${OD_SHARED_CORE}/od_epd.c ${OD_SHARED_CORE}/od_cfg_index.c)
 target_link_libraries(od_drive_cmd_test od_shared_silabs)
+# The GPIO sub-opcode is off on every archive profile; only this executable compiles the
+# handler, so turning it on here tests the routing without changing BG22's ABI.
+target_compile_definitions(od_drive_cmd_test PRIVATE OD_CAP_SPI_RAW_GPIO=1)
 add_test(NAME drive_cmd COMMAND od_drive_cmd_test)
 
 # CMD_READ_IDENT on the default profile: the 3.0 tail, fw_target, NEEDS_MIGRATION from the mode-0

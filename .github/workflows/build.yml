@@ -1,12 +1,13 @@
 name: Build targets
 
-# Reusable: builds all three firmware targets and uploads each target's release/ directory as
-# an artifact, already normalised by tools/release/collect.py into the asset set that
-# docs/RELEASE_ARTEFACTS.md defines. ci.yml calls it for every push and pull request;
+# Reusable: builds every firmware target. The three release targets upload their release/
+# directory as an artifact, already normalised by tools/release/collect.py into the asset set
+# that docs/RELEASE_ARTEFACTS.md defines. ci.yml calls it for every push and pull request;
 # release.yml calls it for a tag and publishes the artifacts.
 #
-# Three jobs rather than one because the toolchains (ESP-IDF, nRF Connect SDK, Simplicity SDK)
-# share nothing, and an image carrying all three would be enormous and slow to pull.
+# One job per toolchain (ESP-IDF, nRF Connect SDK, Simplicity SDK, Telink TC32) because they
+# share nothing, and an image carrying all of them would be enormous and slow to pull. The
+# Telink job builds only: the target is provisional and ships no release asset.
 #
 # VERSION: every job resolves its version through tools/release/version.sh: the caller's
 # version (a tag) when given, else the in-source default. It exports the result as
@@ -203,3 +204,61 @@ jobs:
           name: firmware-silabs
           path: release/
           if-no-files-found: error
+
+  telink:
+    name: telink-tlsr
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash
+    # Neither is committed here. TC32 GCC 2.0 (GPL) is Telink's tarball, from the link its SIG
+    # Mesh SDK README gives; that host serves plain HTTP only, so the pinned sha256 is the
+    # integrity check. The BLE SDK (Apache sources, Telink's binary stack libraries) is
+    # telink-semi's GitHub repository at a pinned commit.
+    env:
+      TC32_URL: http://shyboy.oss-cn-shenzhen.aliyuncs.com/readonly/tc32_gcc_v2.0.tar.bz2
+      TC32_SHA256: 33b854be3e3db3dba4b4dacdda2cd4ea1c94dfd4d562864a095956de7991b430
+      SDK_REPO: https://github.com/telink-semi/tc_ble_single_sdk
+      SDK_REV: b91ac0f8365e8e5864bc50429d89073ec3485a15
+      VENDOR: ${{ github.workspace }}/.telink
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
+
+      - name: Resolve version
+        env:
+          IN_VERSION: ${{ inputs.version }}
+        run: echo "OD_FW_VERSION=$(tools/release/version.sh "$IN_VERSION")" >> "$GITHUB_ENV"
+
+      - name: Restore TC32 and the Telink SDK
+        id: telink-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.VENDOR }}
+          key: telink-tc32-${{ env.TC32_SHA256 }}-sdk-${{ env.SDK_REV }}
+
+      - name: Fetch TC32 and the Telink SDK
+        if: steps.telink-cache.outputs.cache-hit != 'true'
+        run: |
+          fetch() {   # fetch DIR REPO REV
+            git init -q "$1"
+            git -C "$1" remote add origin "$2"
+            git -C "$1" fetch -q --depth 1 --filter=blob:none origin "$3"
+            git -C "$1" checkout -q FETCH_HEAD
+            test "$(git -C "$1" rev-parse HEAD)" = "$3"
+          }
+          fetch "$VENDOR/sdk" "$SDK_REPO" "$SDK_REV"
+          tarball="$RUNNER_TEMP/tc32_gcc_v2.0.tar.bz2"
+          curl -fsSL --retry 5 --retry-all-errors --max-time 600 -o "$tarball" "$TC32_URL"
+          echo "$TC32_SHA256  $tarball" | sha256sum -c -
+          mkdir -p "$VENDOR"
+          tar -xjf "$tarball" -C "$VENDOR"   # unpacks to $VENDOR/tc32
+
+      - name: Build (main, probe, power-test and fault-test images)
+        run: |
+          export TC32_DIR="$VENDOR/tc32"
+          export TELINK_SDK_DIR="$VENDOR/sdk/tc_ble_single_sdk"
+          "$TC32_DIR/bin/tc32-elf-gcc" --version | head -1
+          targets/telink-tlsr/build.sh
+          BUILD_DIR="$RUNNER_TEMP/tlsr-pmtest" targets/telink-tlsr/build.sh -DOD_TLSR_PMTEST=ON
+          BUILD_DIR="$RUNNER_TEMP/tlsr-fault" targets/telink-tlsr/build.sh -DOD_TLSR_FAULT_TEST=ON

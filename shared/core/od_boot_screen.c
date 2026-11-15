@@ -749,10 +749,12 @@ bool od_boot_screen_render(const struct od_config *cfg,
     int logoX = pad;
     int logoY = 8;
     if (useZoneLayout) {
+#if OD_BOOT_LOGO_SIZES >= 2
         // Logo scale: largest size whose height fits in headerH-16 and width is under 30% of logical width.
         const int maxLogoH = headerH - 16;
         const int maxLogoW = w_log * 3 / 10;
         int logoScale = 1;
+#endif
 #if OD_BOOT_LOGO_SIZES >= 3
         if (BOOT_LOGO_H_S3 <= maxLogoH && BOOT_LOGO_W_S3 < maxLogoW) logoScale = 3;
         else

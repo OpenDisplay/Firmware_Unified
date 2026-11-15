@@ -78,6 +78,16 @@
 #define OD_CAP_SPI_RAW 0
 #endif
 
+/* CMD_SPI_RAW's GPIO sub-opcode (od_spi_raw_app.h): set and read any pin the target allows, for
+ * finding a board's power switches, strap pins and leakage without a firmware rebuild. Needs
+ * OD_CAP_SPI_RAW; a target that sets it implements opendisplay_display_spi_raw_gpio(). */
+#ifndef OD_CAP_SPI_RAW_GPIO
+#define OD_CAP_SPI_RAW_GPIO 0
+#endif
+#if OD_CAP_SPI_RAW_GPIO && !OD_CAP_SPI_RAW
+#error "OD_CAP_SPI_RAW_GPIO needs OD_CAP_SPI_RAW"
+#endif
+
 /* CMD_READ_IDENT (0x0046): plaintext panel identity, routed pre-gate like FIRMWARE_VERSION.
  *
  * DEFAULT OFF: the protocol lists it as Silabs-only with the other families "pending

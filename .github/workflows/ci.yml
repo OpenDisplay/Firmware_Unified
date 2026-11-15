@@ -1,8 +1,8 @@
 name: CI
 
 # The gate tools/check.sh describes, run on every push and pull request: the host suites,
-# sanitizers, fuzz targets and wire corpus here, and all three firmware targets through
-# build.yml. tools/ci_check.sh keeps the split honest: the host job tolerates exactly the three
+# sanitizers, fuzz targets and wire corpus here, and all four firmware targets through
+# build.yml. tools/ci_check.sh keeps the split honest: the host job tolerates exactly the four
 # target-build skips (build.yml covers them) and fails on any other skip, so coverage cannot
 # quietly shrink.
 

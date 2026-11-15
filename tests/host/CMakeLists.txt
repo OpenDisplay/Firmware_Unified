@@ -1270,6 +1270,42 @@ else()
     message(WARNING "od: ${OD_REPLAY_SCRIPT} missing — replay_vectors NOT registered.")
 endif()
 
+# Telink TLSR825x (targets/telink-tlsr/). The target's plain-C modules -- the two-bank store,
+# the updater state machine, the software CCM/CMAC -- over host stand-ins for the flash and the
+# AES/P-256 primitives; the SDK-facing files are not host-compiled.
+set(OD_TLSR_SRC ${CMAKE_CURRENT_LIST_DIR}/../../targets/telink-tlsr/src)
+add_library(od_fake_tlsr_flash STATIC fake_tlsr/fake_tlsr_flash.c)
+target_include_directories(od_fake_tlsr_flash PUBLIC ${CMAKE_CURRENT_LIST_DIR}/fake_tlsr ${OD_TLSR_SRC})
+target_link_libraries(od_fake_tlsr_flash PUBLIC od_shared)
+
+# tlsr_store: power cut at every erase/program of a write, an erase and a purge.
+add_executable(od_tlsr_store_test tlsr_store_test.c od_log_test_stub.c)
+target_link_libraries(od_tlsr_store_test od_fake_tlsr_flash)
+add_test(NAME tlsr_store COMMAND od_tlsr_store_test)
+
+# tlsr_ota: the staged boot flag is set only after the whole image verified.
+add_executable(od_tlsr_ota_test tlsr_ota_test.c od_log_test_stub.c nvs_empty_test_stub.c ${OD_TLSR_SRC}/od_tlsr_ota.c)
+target_link_libraries(od_tlsr_ota_test od_fake_tlsr_flash)
+add_test(NAME tlsr_ota COMMAND od_tlsr_ota_test)
+
+# tlsr_mac: the flash UID gives the legacy firmware's address; then the MAC record; then a per-boot random one.
+add_executable(od_tlsr_mac_test tlsr_mac_test.c od_log_test_stub.c)
+target_link_libraries(od_tlsr_mac_test od_fake_tlsr_flash)
+add_test(NAME tlsr_mac COMMAND od_tlsr_mac_test)
+
+# tlsr_crypto: RFC 4493 vectors, a differential against OpenSSL CCM and ECDH; and the shared
+# buffer contract the other production HALs are held to.
+add_library(od_tlsr_crypto_ref STATIC fake_tlsr/tlsr_crypto_ref.c aes128.c
+    ${OD_TLSR_SRC}/od_tlsr_crypto.c)
+target_include_directories(od_tlsr_crypto_ref PUBLIC ${OD_TLSR_SRC} ${CMAKE_CURRENT_LIST_DIR})
+target_link_libraries(od_tlsr_crypto_ref PUBLIC od_shared OpenSSL::Crypto)
+add_executable(od_tlsr_crypto_test tlsr_crypto_test.c od_log_test_stub.c nvs_empty_test_stub.c)
+target_link_libraries(od_tlsr_crypto_test od_tlsr_crypto_ref)
+add_test(NAME tlsr_crypto COMMAND od_tlsr_crypto_test)
+add_executable(od_crypto_contract_telink crypto_hal_contract_test.c od_log_test_stub.c nvs_empty_test_stub.c)
+target_link_libraries(od_crypto_contract_telink od_tlsr_crypto_ref)
+add_test(NAME crypto_hal_contract_telink COMMAND od_crypto_contract_telink)
+
 include(${CMAKE_CURRENT_LIST_DIR}/drive_coverage.cmake)
 
 # --------------------------------------------------------------------------------------------

@@ -134,6 +134,24 @@ od_cmd_result_t od_cmd_app_spi_raw(const od_cmd_ctx_t *ctx, od_span_t body)
         rc = 0;
         break;
 
+#if OD_CAP_SPI_RAW_GPIO
+    case SPI_RAW_SUB_GPIO: {
+        uint8_t level = 0u;
+
+        if (args_len < 2u || args[1] > OD_SPI_RAW_GPIO_OUT_HIGH) {
+            return nack(ctx, OD_ERR_SPI_RAW_BAD_ARGS, sub);
+        }
+        rc = opendisplay_display_spi_raw_gpio(args[0], args[1], &level);
+        if (rc == 0) {
+            const uint8_t r[5] = { RESP_ACK, RESP_SPI_RAW, sub, args[0], level };
+
+            (void)reply(ctx, r, sizeof r);
+            return OD_CMD_OK;
+        }
+        break;
+    }
+#endif
+
     default:
         return nack(ctx, OD_ERR_SPI_RAW_UNKNOWN_SUB, sub);
     }

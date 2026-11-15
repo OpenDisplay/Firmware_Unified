@@ -1776,3 +1776,24 @@ none is fixed here.
   bytes as the session gate's 3-byte refusal frames. py-opendisplay disambiguates (accepts the
   erase-all ACK only with no live session; limits `host_id` to `0x00`-`0xFD`); a cleaner fix is a
   protocol change.
+
+## `Firmware_Unified` / telink-tlsr — what the provisional Telink target still needs outside it
+
+The target (`targets/telink-tlsr/`, README there) builds and is host-tested; these are the
+pieces that belong elsewhere or wait on hardware.
+
+- **`../opendisplay-protocol`:** reserve `OD_IDENT_TARGET_TELINK` = `0x06` (READ_IDENT
+  `fw_target`, `docs/PROTOCOL_CHANGES_3.0.md` row 10), then sync the vendored header and drop the
+  number from the target's `CMakeLists.txt`.
+- **`py-opendisplay` and the website:** map `fw_target` `0x06` to "Telink TLSR825x".
+- **`shared/profiles.cmake`:** move `OD_PROFILE_TELINK` there from the target's `CMakeLists.txt`
+  once the target is accepted, so one file defines every profile.
+- **OTA trust:** the updater is unauthenticated and outside the `od_health` rule. Gating it on
+  SEC2, and trusting a new image only after it has served a GATT request, is open design.
+- **Hardware-only questions:** whether the ROM falls back to the image at `0x40000` when sector 0
+  has no boot flag, which is what protects a power cut during install; the sw_ecc shared-secret
+  byte order; the TRNG's entropy; whether a link survives the per-sector erase with interrupts
+  off.
+- **CI:** `tools/check.sh --telink` builds the target when `TC32_DIR` and `TELINK_SDK_DIR` are
+  set. `build.yml` does not, because the toolchain is not redistributable without carrying GPL
+  obligations (Telink publishes no source for its TC32 backend).

@@ -61,6 +61,13 @@
 extern "C" {
 #endif
 
+/* DeviceFlags bit 6, provisional (docs/PROTOCOL_CHANGES_3.0.md row 11): pwr_pin turns the panel
+ * rail on when driven LOW. The protocol header marks bits 5-7 reserved; remove this fallback
+ * once ../opendisplay-protocol defines the bit and the vendored header is synced. */
+#ifndef OD_DEVICE_FLAG_PWR_PIN_ACTIVE_LOW
+#define OD_DEVICE_FLAG_PWR_PIN_ACTIVE_LOW (1u << 6)
+#endif
+
 /* ------------------------------------------------------------------------ instance caps --- */
 /* Not target-tunable. All three repos independently chose these numbers and a host that writes
  * a fifth display must get the same answer from every chip; a per-target cap would be a wire

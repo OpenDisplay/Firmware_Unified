@@ -2,9 +2,9 @@
 # ci_check.sh -- run tools/check.sh in CI and decide what its exit status means.
 #
 # check.sh exits 2 when ANY check was skipped, deliberately: "a skip is not a pass". In CI that
-# status needs splitting, because one skip is legitimate and every other kind is not. The three
+# status needs splitting, because one skip is legitimate and every other kind is not. The four
 # target builds are skipped here because they run in their OWN jobs with their own toolchains --
-# putting ESP-IDF, the nRF toolchain and the Simplicity SDK in one image to avoid that would be
+# putting ESP-IDF, the nRF toolchain, the Simplicity SDK and TC32 in one image to avoid that would be
 # a far worse trade. A skip for any other reason (no clang, no Python that can install
 # py-opendisplay) means the gate silently stopped covering something, and must be red.
 #
@@ -21,11 +21,13 @@ set -u -o pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
 
-# Substrings of check names whose skip is covered by a sibling CI job.
+# Substrings of check names whose skip is covered by a sibling CI job (build.yml: esp32,
+# nordic, silabs, telink).
 ALLOWED_SKIPS=(
     "esp32: all fragments + sdkconfig baseline"
     "nordic: all three boards"
     "silabs: BG22 headless build"
+    "telink: TLSR825x build"
 )
 
 LOG="$(mktemp)"

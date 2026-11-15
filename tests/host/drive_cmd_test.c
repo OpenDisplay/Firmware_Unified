@@ -175,6 +175,18 @@ void opendisplay_display_spi_raw_close(void)
 }
 bool opendisplay_display_spi_raw_is_open(void) { return g_raw_open; }
 
+/* GPIO seam: pin 7 stands in for a pin the target protects. Records the last call so a test
+ * can see that the handler passed pin and mode through untouched. */
+static uint8_t g_gpio_pin = 0xFFu, g_gpio_mode = 0xFFu;
+int opendisplay_display_spi_raw_gpio(uint8_t pin, uint8_t mode, uint8_t *level_out)
+{
+    if (pin == 7u) return -OD_ERR_SPI_RAW_BAD_ARGS;
+    g_gpio_pin = pin;
+    g_gpio_mode = mode;
+    *level_out = (mode == OD_SPI_RAW_GPIO_OUT_HIGH || mode == OD_SPI_RAW_GPIO_IN_PULLUP) ? 1u : 0u;
+    return 0;
+}
+
 /* ------------------------------------------------------------------------------ helpers -- */
 
 static od_tx_reservation_t g_res;
@@ -522,6 +534,34 @@ static void test_spi_raw(void)
         CHECK(od_config_store_save(ws, sizeof ws, payload, 99999u) == OD_CONFIG_STORE_TOO_BIG);
         CHECK(od_config_store_save_error() == OD_ERR_CONFIG_WRITE_FAILED);
         store_cfg(true);
+    }
+    CASE("GPIO: no session needed; reply carries pin and level");
+    {
+        const uint8_t hi[3] = { SPI_RAW_SUB_GPIO, 21u, OD_SPI_RAW_GPIO_OUT_HIGH };
+        const uint8_t rd[3] = { SPI_RAW_SUB_GPIO, 1u, OD_SPI_RAW_GPIO_READ };
+        CHECK(!g_raw_open);
+        CHECK(raw(hi, 3u) == OD_CMD_OK);
+        CHECK(reply_is(((const uint8_t[]){ RESP_ACK, RESP_SPI_RAW, SPI_RAW_SUB_GPIO, 21u, 1u }), 5u));
+        CHECK(g_gpio_pin == 21u && g_gpio_mode == OD_SPI_RAW_GPIO_OUT_HIGH);
+        CHECK(raw(rd, 3u) == OD_CMD_OK);
+        CHECK(reply_is(((const uint8_t[]){ RESP_ACK, RESP_SPI_RAW, SPI_RAW_SUB_GPIO, 1u, 0u }), 5u));
+        CHECK(!g_raw_open && !g_up);
+    }
+    CASE("GPIO: short args and an unknown mode are BAD_ARGS before the seam");
+    {
+        const uint8_t shrt[2] = { SPI_RAW_SUB_GPIO, 3u };
+        const uint8_t mode[3] = { SPI_RAW_SUB_GPIO, 3u, OD_SPI_RAW_GPIO_OUT_HIGH + 1u };
+        g_gpio_pin = 0xFFu;
+        CHECK(raw(shrt, 2u) == OD_CMD_NACK && g_rep_n == 5u &&
+              g_rep[2] == OD_ERR_SPI_RAW_BAD_ARGS && g_rep[3] == SPI_RAW_SUB_GPIO);
+        CHECK(raw(mode, 3u) == OD_CMD_NACK && g_rep[2] == OD_ERR_SPI_RAW_BAD_ARGS);
+        CHECK(g_gpio_pin == 0xFFu);
+    }
+    CASE("GPIO: a pin the target refuses is NACKed with its error");
+    {
+        const uint8_t b[3] = { SPI_RAW_SUB_GPIO, 7u, OD_SPI_RAW_GPIO_OUT_LOW };
+        CHECK(raw(b, 3u) == OD_CMD_NACK && g_rep_n == 5u &&
+              g_rep[2] == OD_ERR_SPI_RAW_BAD_ARGS && g_rep[3] == SPI_RAW_SUB_GPIO);
     }
     CASE("N1: OPEN ends an upload in flight");
     {

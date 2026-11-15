@@ -636,6 +636,127 @@ panels:
 #   flags: 0x01 MIRRORED, 0x02 GRAY16 (4 bpp frame), 0x04 TEMP_SENSOR
 #   parallel_panel: 1 Inkplate 5 V2, 2 Inkplate 10, 3 M5Stack PaperS3
 #   default_temp_c 127 = the driver's own default; pin 255 = none; vcom 0 = keep stored VCOM
+  # ---------------------------------------------------------------------------
+  # PROVISIONAL -- not glass-verified, not on the website, id not assigned by
+  # ../opendisplay-protocol. The 2.0" 200x152 BWRY glass of the legacy firmware
+  # Telink tags (legacy screen type 38, hw 0x6C), on a JD79661 like 0x001E.
+  #
+  # Sequence: 0x001E's full mode with two changes, both read from the legacy v108
+  # image's JD BWRY init branch (2025-09-18_180bec5292.bin):
+  #   BTST_P "06 0F 0A 2F 25 22 2E 21" (0x001E: 05 00 3F 0A 25 12 1A)
+  #   TRES   "61 00 C8 00 98"          (200 source x 152 gate; the legacy firmware's config
+  #          stores h 200 / w 152 with wh_inversed set -- the glass is landscape,
+  #          confirmed on OD05B911: a 152x200 TRES left 48 columns blank and
+  #          lost the last 48 rows)
+  # PWRR: The legacy firmware sends "01 07" without 0x001E's trailing 00; the 00 is kept.
+  # code_map is the identity, as on 0x001E. No 16-colour mode:
+  # the waveforms were derived on the 2.9".
+  #
+  # BUSY HOLDS LOW FROM PON UNTIL THE REFRESH ENDS on this glass (raw SPI on
+  # OD05B911: still busy 60 s after PON alone; with the frame written and DRF
+  # sent, released 16.7 s after DRF). So PON is followed by a fixed 400 ms --
+  # the legacy firmware's own cap on every BUSY wait -- not @busy, and the frame goes into DTM
+  # before PON, the order the legacy firmware uses and the raw test proved.
+  #
+  # Full mode verified on glass (OD05B911, docs/HARDWARE_VERIFICATION_CHECKLIST.md):
+  # geometry, orientation and colour map. Kept out of GLASS and the website
+  # identity test by `status: provisional` until the id is canonical.
+  - id: 0xF001
+    status: provisional
+    name: EP20YR_200x152
+    controller: JD79661
+    geometry: { width: 200, height: 152 }
+    colour:
+      scheme: BWRY            # OD_COLOR_SCHEME_BWRY = 3
+      plane_format: 2bpp_packed
+      code_map: [0, 1, 2, 3]  # identity, confirmed on glass (OD05B911)
+    busy:
+      usable: true
+      idle_level: 1
+      timeout_ms: 30000
+    lut:
+      supported: false
+    sleep_sequence:
+      - "02 00"               # POF
+      - "07 A5"               # deep sleep
+    modes:
+      - name: full
+        init: full
+        passes: 1
+    init_sequences:
+      full:
+        - "4D 78"
+        - "00 0F 29"            # PSR
+        - "01 07 00"            # PWRR
+        - "03 10 54 44"         # POFS
+        - "06 0F 0A 2F 25 22 2E 21"   # BTST_P, the legacy firmware's
+        - "50 37"               # CDI
+        - "60 02 02"            # TCON
+        - "61 00 C8 00 98"      # TRES 200x152
+        - "E7 1C"
+        - "E3 22"
+        - "B4 D0"
+        - "B5 03"
+        - "E9 01"
+        - "30 08"
+        - "10"                  # DTM
+        - "@image"
+        - "04"                  # PON
+        - "@delay 400"          # BUSY stays low until the refresh ends
+        - "12 00"               # DRF
+        - "@busy"
+
+  # Legacy screen type 1, "350 HS BWY UC": the 3.5" Hanshow tag OD060F40,
+  # 184 wide x 384 tall native (the legacy firmware's config does not set wh_inv). From legacy v108's UC
+  # driver (0xbbcc): PON with the legacy firmware's 400 ms BUSY cap, PSR, DTM1 then DTM2, DRF; no TRES,
+  # so the resolution comes from PSR. The legacy firmware's TSC read (40) after PON is left to the
+  # firmware's panel-up read.
+  #
+  # Two bytes are not the legacy firmware's, both measured on the tag:
+  #  - PSR 8F 0F (LUT from OTP). AF 0F selects register LUTs, and DRF then never raises
+  #    BUSY: nothing refreshes.
+  #  - CDI 50 97 sets the data polarity explicitly: without it, and with DDX 00, black
+  #    and white come out swapped; DDX bit 1 (A7) inverts yellow instead.
+  # The panel's power is the board's PB7, driven high (the legacy firmware calls it enable1; its
+  # pin_enable pull code 1 is a pull-up). Whether the legacy firmware's other enable, PC5, is needed
+  # as well was not tested once the PSR was right.
+  #
+  # Full mode verified on glass (OD060F40, docs/HARDWARE_VERIFICATION_CHECKLIST.md).
+  - id: 0xF002
+    status: provisional
+    name: EP35Y_184x384
+    controller: UC81xx
+    geometry: { width: 184, height: 384 }
+    colour:
+      scheme: BWY             # OD_COLOR_SCHEME_BWY = 2
+      plane_format: two_1bpp_planes   # DTM1 black/white (1 = white), DTM2 yellow (1 = yellow)
+    busy:
+      usable: true
+      idle_level: 1
+      timeout_ms: 60000       # DRF holds BUSY ~28 s at room temperature
+    lut:
+      supported: false
+    sleep_sequence:
+      - "02"                  # POF
+      - "07 A5"               # deep sleep
+    modes:
+      - name: full
+        init: full
+        passes: 1
+    init_sequences:
+      full:
+        - "04"                  # PON
+        - "@delay 400"          # the legacy firmware's cap on the PON BUSY wait
+        - "00 8F 0F"            # PSR: LUT from OTP (AF selects register LUTs; DRF then does nothing)
+        - "50 97"               # CDI: B/W polarity, measured (see above)
+        - "10"                  # DTM1: black/white plane
+        - "@image"
+        - "13"                  # DTM2: yellow plane
+        - "@image"
+        - "12"                  # DRF
+        - "@delay 20"           # BUSY is not low yet the moment DRF ends; the legacy firmware waits 1 ms first
+        - "@busy"
+
 native_controllers:
 
   - id: 3000
