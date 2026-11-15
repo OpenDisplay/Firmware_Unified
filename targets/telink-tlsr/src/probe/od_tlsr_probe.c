@@ -154,6 +154,12 @@ bool od_tlsr_ota_app_needs_unlock(void)
     return false;
 }
 
+/* No config, so no sense pin to measure the supply on (od_tlsr_flash.h). */
+bool od_tlsr_flash_supply_ok(void)
+{
+    return true;
+}
+
 /* Milliseconds from the 16 MHz system tick, carried past the tick's 268 s wrap. */
 static uint32_t now_ms(void)
 {

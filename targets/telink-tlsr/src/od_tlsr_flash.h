@@ -24,4 +24,11 @@ bool od_tlsr_flash_program(uint32_t addr, const uint8_t *data, uint32_t len);
 /* Read any address, including the read-only sectors. */
 void od_tlsr_flash_read(uint32_t addr, uint8_t *buf, uint32_t len);
 
+/* Target hook: false while the measured supply is below OD_TLSR_FLASH_MIN_MV. The SDK's flash
+ * driver warns that an erase or program below a safe voltage can corrupt the image and data, so
+ * the updater and the record store refuse to start one then. True when the config names no
+ * sense pin: the supply cannot be measured, and is then usually not a battery. */
+#define OD_TLSR_FLASH_MIN_MV 2100u
+bool od_tlsr_flash_supply_ok(void);
+
 #endif /* OD_TLSR_FLASH_H */

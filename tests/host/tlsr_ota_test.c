@@ -343,11 +343,75 @@ static void gate(void)
     reset_all();
 }
 
+/* M1: a low supply refuses every flash step; a verified image stays staged and verified. */
+static void supply(void)
+{
+    uint8_t out[OD_TLSR_OTA_REPLY_MAX];
+    uint8_t b[5] = { 0x01u };
+    uint8_t op;
+    uint32_t len = make_image(6000u), i;
+    bool untouched = true;
+
+    reset_all();
+    g_needs_unlock = false;
+    wr32(&b[1], len);
+    fake_flash_supply_low = true;
+    CHECK(cmd(b, sizeof b, out) == 6u && out[0] == 0x81u && out[1] == OD_TLSR_OTA_E_SUPPLY);
+    pump(4u);
+    CHECK(od_tlsr_ota_state() == OD_TLSR_OTA_IDLE && fake_flash_ops == 0u);
+
+    /* the supply drops during the erase */
+    fake_flash_supply_low = false;
+    CHECK(cmd(b, sizeof b, out) == 0u);
+    pump(1u);
+    fake_flash_supply_low = true;
+    pump(1u);
+    CHECK(od_tlsr_ota_state() == OD_TLSR_OTA_FAILED && g_note[0] == 0x81u &&
+          g_note[1] == OD_TLSR_OTA_E_SUPPLY);
+
+    /* during DATA: nothing programmed, the error latches */
+    reset_all();
+    CHECK(begin(len));
+    fake_flash_supply_low = true;
+    data(0u, IMG, 200u);
+    CHECK(od_tlsr_ota_state() == OD_TLSR_OTA_FAILED);
+    for (i = 0; i < 200u; ++i) {
+        untouched = untouched && fake_flash[OD_TLSR_STAGE_BASE + i] == 0xFFu;
+    }
+    CHECK(untouched);
+    CHECK(finish() == OD_TLSR_OTA_E_SUPPLY);
+
+    /* at INSTALL, and again when the install falls due */
+    reset_all();
+    CHECK(begin(len));
+    send_all(len, 240u);
+    CHECK(finish() == OD_TLSR_OTA_OK);
+    fake_flash_supply_low = true;
+    op = 0x04u;
+    CHECK(cmd(&op, 1u, out) == 6u && out[0] == 0x84u && out[1] == OD_TLSR_OTA_E_SUPPLY);
+    CHECK(od_tlsr_ota_state() == OD_TLSR_OTA_VERIFIED);
+    fake_flash_supply_low = false;
+    CHECK(cmd(&op, 1u, out) == 6u && out[1] == OD_TLSR_OTA_OK);
+    od_tlsr_ota_service(0u);           /* arms the delay */
+    fake_flash_supply_low = true;
+    od_tlsr_ota_service(5000u);
+    CHECK(g_installs == 0u && od_tlsr_ota_state() == OD_TLSR_OTA_VERIFIED);
+    CHECK(g_note[0] == 0x84u && g_note[1] == OD_TLSR_OTA_E_SUPPLY);
+    CHECK(staged_flag() == 0x4Bu);
+    fake_flash_supply_low = false;
+    CHECK(cmd(&op, 1u, out) == 6u && out[1] == OD_TLSR_OTA_OK);
+    od_tlsr_ota_service(0u);
+    od_tlsr_ota_service(5000u);
+    CHECK(g_installs == 1u && g_install_len == len);
+    reset_all();
+}
+
 int main(void)
 {
     happy_path();
     failures();
     gate();
+    supply();
     printf("tlsr_ota: %u checks, %u failures\n", g_checks, g_failures);
     return g_failures == 0u ? 0 : 1;
 }

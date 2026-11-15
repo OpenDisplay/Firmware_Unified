@@ -244,6 +244,30 @@ static void secrets(void)
     CHECK(od_hal_secret_read(OD_HAL_SECRET_STATE, got, sizeof st));
 }
 
+/* M1: below the supply floor nothing is erased or programmed; the stored record stays. */
+static void low_supply(void)
+{
+    uint8_t key[32];
+    unsigned long ops;
+
+    fake_flash_reset();
+    reboot();
+    CHECK(od_hal_nvs_write(B, sizeof B) == OD_HAL_NVS_OK);
+    fill(key, sizeof key, 3);
+    CHECK(od_hal_secret_write(OD_HAL_SECRET_KEY, key, sizeof key));
+    fake_flash_supply_low = true;
+    ops = fake_flash_ops;
+    CHECK(od_hal_nvs_write(C, sizeof C) == OD_HAL_NVS_EIO);
+    CHECK(od_hal_nvs_erase() == OD_HAL_NVS_EIO);
+    CHECK(!od_hal_secret_erase(OD_HAL_SECRET_KEY));
+    CHECK(od_tlsr_store_purge_all() != 0);
+    CHECK(fake_flash_ops == ops);
+    fake_flash_supply_low = false;
+    reboot();
+    CHECK(nvs_holds(B, sizeof B) == 1);
+    CHECK(od_hal_secret_read(OD_HAL_SECRET_KEY, key, sizeof key));
+}
+
 int main(void)
 {
     long w, e, p;
@@ -258,6 +282,7 @@ int main(void)
     p = sweep(OP_PURGE);
     purge_removes_superseded();
     secrets();
+    low_supply();
     printf("tlsr_store: power cut at each of %ld write, %ld erase, %ld purge operations\n", w + 1,
            e + 1, p + 1);
     printf("tlsr_store: %u checks, %u failures\n", g_checks, g_failures);

@@ -91,6 +91,9 @@ static uint8_t on_begin(const uint8_t *d, uint16_t n, uint8_t *out)
         return reply(out, 0x01u, OD_TLSR_OTA_E_LENGTH, len);
     }
     od_tlsr_ota_reset();
+    if (!od_tlsr_flash_supply_ok()) {
+        return reply(out, 0x01u, OD_TLSR_OTA_E_SUPPLY, len);
+    }
     s.state = OD_TLSR_OTA_ERASING;
     s.len = len;
     s.next = 0u;
@@ -117,6 +120,10 @@ static uint8_t on_data(const uint8_t *d, uint16_t n, uint8_t *out)
     cnt = (uint32_t)(n - 5u);
     if (off != s.next || cnt == 0u || cnt > s.len - s.next) {
         fail(OD_TLSR_OTA_E_OFFSET);
+        return 0u;
+    }
+    if (!od_tlsr_flash_supply_ok()) {
+        fail(OD_TLSR_OTA_E_SUPPLY);
         return 0u;
     }
     memcpy(buf, &d[5], cnt);
@@ -187,6 +194,9 @@ uint8_t od_tlsr_ota_write(const uint8_t *data, uint16_t len, uint8_t out[OD_TLSR
         if (s.state != OD_TLSR_OTA_VERIFIED) {
             return reply(out, 0x04u, OD_TLSR_OTA_E_STATE, 0u);
         }
+        if (!od_tlsr_flash_supply_ok()) {
+            return reply(out, 0x04u, OD_TLSR_OTA_E_SUPPLY, 0u);
+        }
         s.state = OD_TLSR_OTA_INSTALLING;
         s.install_due = false; /* armed by the next service() call, which knows the time */
         return reply(out, 0x04u, OD_TLSR_OTA_OK, s.len);
@@ -235,6 +245,11 @@ static void verify_step(void)
         od_tlsr_ota_app_notify(out, reply(out, 0x03u, OD_TLSR_OTA_E_CRC, 0u));
         return;
     }
+    if (!od_tlsr_flash_supply_ok()) {
+        fail(OD_TLSR_OTA_E_SUPPLY);
+        od_tlsr_ota_app_notify(out, reply(out, 0x03u, OD_TLSR_OTA_E_SUPPLY, 0u));
+        return;
+    }
     if (!od_tlsr_flash_program(OD_TLSR_STAGE_BASE + OD_TLSR_HDR_FLAG_OFF, &s.flag, 1u)) {
         fail(OD_TLSR_OTA_E_FLASH);
         od_tlsr_ota_app_notify(out, reply(out, 0x03u, OD_TLSR_OTA_E_FLASH, 0u));
@@ -257,6 +272,11 @@ void od_tlsr_ota_service(uint32_t now_ms)
 
     switch (s.state) {
     case OD_TLSR_OTA_ERASING:
+        if (!od_tlsr_flash_supply_ok()) {
+            fail(OD_TLSR_OTA_E_SUPPLY);
+            od_tlsr_ota_app_notify(out, reply(out, 0x01u, OD_TLSR_OTA_E_SUPPLY, s.next));
+            return;
+        }
         if (!od_tlsr_flash_erase(OD_TLSR_STAGE_BASE + s.next)) {
             fail(OD_TLSR_OTA_E_FLASH);
             od_tlsr_ota_app_notify(out, reply(out, 0x01u, OD_TLSR_OTA_E_FLASH, s.next));
@@ -280,6 +300,13 @@ void od_tlsr_ota_service(uint32_t now_ms)
             return;
         }
         if ((int32_t)(now_ms - s.install_at) >= 0) {
+            /* The last chance to refuse: after this the running image is erased. */
+            if (!od_tlsr_flash_supply_ok()) {
+                s.state = OD_TLSR_OTA_VERIFIED;
+                s.install_due = false;
+                od_tlsr_ota_app_notify(out, reply(out, 0x04u, OD_TLSR_OTA_E_SUPPLY, 0u));
+                return;
+            }
             od_tlsr_ota_app_before_install();
             od_tlsr_install(s.len);
         }

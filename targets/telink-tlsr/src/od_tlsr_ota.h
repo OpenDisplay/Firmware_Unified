@@ -19,6 +19,9 @@
  *   0x06 ABORT                    back to idle
  * Integers little-endian. Reply: op|0x80, status (0 ok, else enum od_tlsr_ota_err), u32 arg.
  *
+ * BEGIN, every erase step, DATA, the flag write and INSTALL first check the supply
+ * (od_tlsr_flash_supply_ok()). A refused INSTALL leaves the image staged and verified.
+ *
  * The staged image's boot-flag byte (offset 8) is held back and written only once the whole
  * image has verified, so the ROM never sees a partially staged image as bootable. */
 #ifndef OD_TLSR_OTA_H
@@ -46,7 +49,8 @@ enum od_tlsr_ota_err {
     OD_TLSR_OTA_E_HEADER = 5,
     OD_TLSR_OTA_E_CRC = 6,
     OD_TLSR_OTA_E_OPCODE = 7,
-    OD_TLSR_OTA_E_LOCKED = 8
+    OD_TLSR_OTA_E_LOCKED = 8,
+    OD_TLSR_OTA_E_SUPPLY = 9   /* supply below OD_TLSR_FLASH_MIN_MV: nothing written */
 };
 
 #define OD_TLSR_OTA_REPLY_MAX 13u

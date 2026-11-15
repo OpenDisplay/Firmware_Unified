@@ -120,7 +120,8 @@ int od_tlsr_store_write(struct od_tlsr_store *s, const void *data, uint32_t len)
     uint32_t seq, target, off, got_seq = 0u, got_len = 0u;
     int dst;
 
-    if (len > s->bank_size - OD_TLSR_STORE_HDR || (len != 0u && data == NULL)) {
+    if (len > s->bank_size - OD_TLSR_STORE_HDR || (len != 0u && data == NULL) ||
+        !od_tlsr_flash_supply_ok()) {
         return -2;
     }
     scan(s);
@@ -171,6 +172,9 @@ int od_tlsr_store_purge(struct od_tlsr_store *s)
     uint32_t off, src, dst, got_seq = 0u, got_len = 0u;
     int i;
 
+    if (!od_tlsr_flash_supply_ok()) {
+        return -2;
+    }
     scan(s);
     s->valid = false;
     if (s->cur < 0) {

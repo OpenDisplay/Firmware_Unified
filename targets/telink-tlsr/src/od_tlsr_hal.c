@@ -160,15 +160,18 @@ float od_tlsr_chip_temperature_c(void)
 
 /* Supply voltage, the B85 way: PowerOption.battery_sense_pin, an otherwise unused ADC-capable
  * pin, is driven HIGH and sampled through the 1/8 prescaler, so it reads the rail it is driven
- * from. No divider and no enable pin; voltage_scaling_factor is not used. The legacy firmware does the
- * same on the pin its config names (PB3 on OD05B911). Sampled at most once a minute. */
+ * from. No divider and no enable pin; voltage_scaling_factor is not used. The legacy firmware
+ * does the same on the pin its config names (PB3 on OD05B911). The MSD reads it at most once a
+ * minute; the flash guard at most once a second, since an erase under load is what sags it. */
 #define BATTERY_TTL_MS 60000u
+#define SUPPLY_TTL_MS  1000u
 
 static uint16_t s_batt_mv;
 static uint32_t s_batt_at;
 static bool s_batt_valid;
 
-uint16_t od_tlsr_battery_mv(void)
+/* 0 when the config names no ADC-capable sense pin. */
+static uint16_t supply_mv(uint32_t max_age_ms)
 {
     const struct od_config *c = od_tlsr_config_loaded() ? od_tlsr_config() : NULL;
     const uint8_t p = c != NULL ? c->power_option.battery_sense_pin : 0xFFu;
@@ -178,7 +181,7 @@ uint16_t od_tlsr_battery_mv(void)
     if (!od_tlsr_pin_adc(p)) {
         return 0u;
     }
-    if (s_batt_valid && (uint32_t)(now - s_batt_at) < BATTERY_TTL_MS) {
+    if (s_batt_valid && (uint32_t)(now - s_batt_at) < max_age_ms) {
         return s_batt_mv;
     }
     pin = od_tlsr_pin_sdk(p);
@@ -192,6 +195,18 @@ uint16_t od_tlsr_battery_mv(void)
     s_batt_at = now;
     s_batt_valid = true;
     return s_batt_mv;
+}
+
+uint16_t od_tlsr_battery_mv(void)
+{
+    return supply_mv(BATTERY_TTL_MS);
+}
+
+bool od_tlsr_flash_supply_ok(void)
+{
+    const uint16_t mv = supply_mv(SUPPLY_TTL_MS);
+
+    return mv == 0u || mv >= OD_TLSR_FLASH_MIN_MV;
 }
 
 bool od_tlsr_reboot_flag(void)

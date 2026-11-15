@@ -134,7 +134,10 @@ characteristic `…f001`.
 | `0x06` ABORT | — | `86 00` |
 
 Integers are little-endian. In a reply, a non-zero second byte is an `enum od_tlsr_ota_err`;
-8 (`locked`) answers any gated op, DATA included.
+8 (`locked`) answers any gated op, DATA included. 9 (`supply`): the supply measured on
+`battery_sense_pin` is below 2.1 V (`OD_TLSR_FLASH_MIN_MV`), checked before BEGIN, each erase step,
+DATA, the flag write and INSTALL; a refused INSTALL leaves the image staged and verified. The
+config store refuses writes the same way. Without a sense pin the supply is not measured.
 In STATUS, `boot` says why the tag last booted: 0 power applied (a brownout looks the same),
 1 planned reboot or install, 2 unplanned (watchdog, reset pin). `resets` counts unplanned
 resets since power was applied, saturating at 7. The probe reports `FF FF`.
