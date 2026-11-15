@@ -769,6 +769,9 @@ int od_epd_finish_pass(od_epd_t *e)
      * the same sequence. A panel needing a different refresh command or an
      * extra register poke after the frame needs no code change here. */
     int rc = resume(e);
+    if (rc == 1) {
+        return OD_ERR_SEQ;      /* paused on another image marker: the tail never ran */
+    }
     return (rc < 0) ? rc : OD_OK;
 }
 

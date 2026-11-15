@@ -521,6 +521,31 @@ static void test_config_write_mid_pass(void)
     CHECK(g_pre_io > 0u && g_post_io > 0u);
 }
 
+/* A pass that finishes while the sequence still has an image marker ahead must fail: the walk
+ * pauses there, so the refresh tail after it never runs. */
+static void test_extra_marker_fails_finish(void)
+{
+    static const uint8_t seq[] = {
+        1u, 0x10u,  0u, 0x03u,  1u, 0x11u,  0u, 0x03u,  1u, 0x12u,  0u, 0x00u,
+    };
+    static const uint8_t img[2] = { 1, 2 };
+
+    CASE("finish_pass that stops on a second image marker is a sequence error");
+    setup(seq, sizeof seq, 1u, false, false);
+    CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_OK);
+    CHECK(od_epd_write_image_chunk(&g_epd, img, sizeof img) == OD_EPD_RC_OK);
+    CHECK(od_epd_finish_pass(&g_epd) == OD_EPD_RC_SEQ);
+    CHECK(count_cmd(0x12u) == 0u);
+    CHECK(od_epd_write_image_chunk(&g_epd, img, sizeof img) == OD_EPD_RC_STATE);
+
+    CASE("the same sequence driven as two planes refreshes");
+    setup(seq, sizeof seq, 1u, false, false);
+    CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_OK);
+    CHECK(od_epd_next_plane(&g_epd) == OD_EPD_RC_OK);
+    CHECK(od_epd_finish_pass(&g_epd) == OD_EPD_RC_OK);
+    CHECK(count_cmd(0x12u) == 1u);
+}
+
 int main(void)
 {
     test_refused_escapes_execute_nothing();
@@ -532,6 +557,7 @@ int main(void)
     test_long_step_is_chunked();
     test_read_fault_at_every_call();
     test_config_write_mid_pass();
+    test_extra_marker_fails_finish();
     printf("epd_seq: %u checks, %u failures\n", g_checks, g_failures);
     return g_failures == 0u ? 0 : 1;
 }
