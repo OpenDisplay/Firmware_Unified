@@ -36,6 +36,7 @@
 #include "od_rxq.h"
 #include "od_hal_adv.h"
 #include "od_adv_control.h"
+#include "od_adv_watch.h"
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/gap.h>
@@ -247,6 +248,7 @@ static volatile uint8_t s_adv_txp_pending = 1u;
  * callback (HAL_NFC/ISR context) -- see od_adv_app_boost() for why that
  * constraint is load-bearing here and not just a style preference. */
 static struct od_adv_control s_adv;
+static struct od_adv_watch s_adv_watch;  /* H2: bounded recovery, src/od_adv_watch.h */
 static bool s_adv_interval_is_boost;   /* which interval was last SUCCESSFULLY applied */
 static bool s_adv_restart_pending;     /* see request_adv_restart() */
 
@@ -1246,6 +1248,14 @@ void opendisplay_ble_process(void)
 	 * !epdRefreshInProgress) -- start_allowed unconditionally true, preserving current
 	 * behavior. */
 	(void)ble_service_advertising(true);
+	if (od_adv_watch_step(&s_adv_watch, &s_adv, k_uptime_get_32())) {
+		/* Nothing else on this target can clear a latched fault (one bt_enable per boot). */
+		od_log_error("advertising down for %u ms (faulted=%u): resetting",
+			     (unsigned)OD_ADV_WATCH_RESET_MS, (unsigned)s_adv.faulted);
+		(void)od_claim_mode_before_reboot();
+		k_sleep(K_MSEC(300));
+		NVIC_SystemReset();
+	}
 	opendisplay_display_service();
 	od_health_app_tick();
 }

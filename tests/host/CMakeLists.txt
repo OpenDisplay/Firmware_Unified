@@ -1319,3 +1319,11 @@ else()
     message(STATUS "od: fuzz targets NOT built (needs Clang); the pre-auth surface is "
                    "UNFUZZED in this build")
 endif()
+
+# nordic_adv_watch: H2 -- a Nordic advertiser that stays down (latched od_adv_control fault, or
+# wanted and not running with nobody connected) resets after a bound; transients never do.
+add_executable(od_nordic_adv_watch_test nordic_adv_watch_test.c
+    ../../targets/nordic-zephyr/src/od_adv_watch.c)
+target_include_directories(od_nordic_adv_watch_test PRIVATE
+    ../../targets/nordic-zephyr/src ${OD_SHARED_INCLUDE_DIRS})
+add_test(NAME nordic_adv_watch COMMAND od_nordic_adv_watch_test)
