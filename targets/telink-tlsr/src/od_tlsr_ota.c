@@ -192,8 +192,16 @@ uint8_t od_tlsr_ota_write(const uint8_t *data, uint16_t len, uint8_t out[OD_TLSR
     if (data == NULL || len == 0u) {
         return 0u;
     }
-    if (data[0] != 0x05u && !s_unlocked && od_tlsr_ota_app_needs_unlock()) {
-        return reply(out, data[0] & 0x7Fu, OD_TLSR_OTA_E_LOCKED, 0u);
+    if (data[0] != 0x05u && od_tlsr_ota_app_needs_unlock()) {
+        /* BEGIN and INSTALL, the two ops that change what the tag runs, also need the session
+         * that unlocked to be live. DATA and FINISH do not: a session's lifetime is absolute,
+         * and an upload outlasting it would otherwise fail part-way. */
+        if (s_unlocked && (data[0] == 0x01u || data[0] == 0x04u) && !od_tlsr_ota_app_unlock_live()) {
+            s_unlocked = false;
+        }
+        if (!s_unlocked) {
+            return reply(out, data[0] & 0x7Fu, OD_TLSR_OTA_E_LOCKED, 0u);
+        }
     }
     switch (data[0]) {
     case 0x01u:

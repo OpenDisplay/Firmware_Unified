@@ -47,6 +47,13 @@ bool od_tlsr_ota_app_needs_unlock(void)
     return g_needs_unlock;
 }
 
+static bool g_session_live = true;
+
+bool od_tlsr_ota_app_unlock_live(void)
+{
+    return g_session_live;
+}
+
 void od_tlsr_ota_app_boot_info(uint8_t info[2])
 {
     info[0] = 2u;
@@ -345,8 +352,30 @@ static void gate(void)
     CHECK(begin(len));
     od_tlsr_ota_link_closed();
     CHECK(cmd(b, sizeof b, out) == 6u && out[1] == OD_TLSR_OTA_E_LOCKED);
-    g_needs_unlock = false;
+
+    /* L5: once the unlocking session ends an upload continues, but BEGIN and INSTALL shut the
+     * gate, and it stays shut if a session comes back */
+    od_tlsr_ota_unlock();
     CHECK(begin(len));
+    g_session_live = false;
+    send_all(len, 240u);
+    CHECK(finish() == OD_TLSR_OTA_OK);
+    op = 0x04u;
+    CHECK(cmd(&op, 1u, out) == 6u && out[0] == 0x84u && out[1] == OD_TLSR_OTA_E_LOCKED);
+    CHECK(od_tlsr_ota_state() == OD_TLSR_OTA_VERIFIED);
+    op = 0x02u;
+    CHECK(cmd(&op, 1u, out) == 6u && out[1] == OD_TLSR_OTA_E_LOCKED);
+    g_session_live = true;
+    CHECK(cmd(b, sizeof b, out) == 6u && out[1] == OD_TLSR_OTA_E_LOCKED);
+    op = 0x05u;
+    CHECK(cmd(&op, 1u, out) == 13u && out[0] == 0x85u); /* STATUS stays open */
+    od_tlsr_ota_unlock();
+    CHECK(begin(len));
+
+    g_needs_unlock = false;
+    g_session_live = false; /* not asked when no gate is needed */
+    CHECK(begin(len));
+    g_session_live = true;
     reset_all();
 }
 

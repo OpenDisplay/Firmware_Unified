@@ -120,7 +120,8 @@ record or the new one. Erasing is done by writing a zero-length record (a tombst
 It is the bring-up way back to the previous firmware; images are not signed. **SEC2-gated**
 like the ESP32 and Nordic DFU transports: on a claimed tag, in claim mode or LOCKED, every op
 but STATUS answers `locked` until an authenticated `CMD_ENTER_DFU` (0x0051) on the same link,
-and the unlock ends with the link. `tools/tlsr_ota.py --sec2` does that through py-opendisplay.
+and the unlock ends with the link. BEGIN and INSTALL also need the session that sent it to be
+live; an upload may outlast the session, but its INSTALL then needs a new session and ENTER_DFU. `tools/tlsr_ota.py --sec2` does that through py-opendisplay.
 A claimed tag whose key is lost is opened again by the factory-reset pattern (five quick
 power-cycles); a LOCKED one never opens a session, so it needs SWS. It runs on its own
 GATT service, `6f64f000-1e1e-4c4b-8b5a-7454534c5200`. Writes and notifications both go through

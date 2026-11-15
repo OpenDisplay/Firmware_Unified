@@ -6,8 +6,11 @@
  * SEC2 gate (SECURITY_V2 6.1, the predicate the ESP32 and Nordic DFU transports use): while
  * od_sec2_dfu_needs_unlock() -- CLAIMED, LOCKED or claim mode -- every op except STATUS is
  * refused with E_LOCKED until od_tlsr_ota_unlock(), which an authenticated CMD_ENTER_DFU calls.
- * The unlock lasts until the link closes. LOCKED never opens a session, so it stays shut; a
- * claimed tag whose key is lost is opened by the factory-reset power-cycle pattern.
+ * The unlock lasts until the link closes, and BEGIN and INSTALL also need the session that sent
+ * ENTER_DFU to be live; once it is not, the gate is shut until the next ENTER_DFU. DATA and
+ * FINISH do not ask, so an upload may outlast the session. LOCKED never opens a session, so it
+ * stays shut; a claimed tag whose key is lost is opened by the factory-reset power-cycle
+ * pattern.
  *
  * Wire (one GATT characteristic, write with response; replies are notifications):
  *   0x01 BEGIN  u32 len           erase staging; notify 81 00 <len> when ready
@@ -63,7 +66,7 @@ uint8_t od_tlsr_ota_write(const uint8_t *data, uint16_t len, uint8_t reply[OD_TL
 /* Main loop: one bounded step of erase or verify, or the install once it is due. */
 void od_tlsr_ota_service(uint32_t now_ms);
 
-/* CMD_ENTER_DFU succeeded on this link (od_tlsr_cmd.c): open the gate until the link closes. */
+/* CMD_ENTER_DFU succeeded on this link (od_tlsr_cmd.c): open the gate (see the header). */
 void od_tlsr_ota_unlock(void);
 
 /* The link closed. The gate shuts; a verified image stays staged; anything in progress is
@@ -75,6 +78,10 @@ enum od_tlsr_ota_state od_tlsr_ota_state(void);
 /* Target hooks. */
 /* od_sec2_dfu_needs_unlock(). */
 bool od_tlsr_ota_app_needs_unlock(void);
+/* The session that sent the unlocking ENTER_DFU is still live. Asked at BEGIN and INSTALL while
+ * the gate is needed and open; false shuts it, so a later session on the same link has to send
+ * ENTER_DFU again. */
+bool od_tlsr_ota_app_unlock_live(void);
 void od_tlsr_ota_app_notify(const uint8_t *reply, uint8_t len);
 /* Called once, just before od_tlsr_install(): feed the watchdog, mark the reboot as planned. */
 void od_tlsr_ota_app_before_install(void);

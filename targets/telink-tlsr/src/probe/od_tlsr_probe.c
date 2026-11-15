@@ -154,6 +154,11 @@ bool od_tlsr_ota_app_needs_unlock(void)
     return false;
 }
 
+bool od_tlsr_ota_app_unlock_live(void)
+{
+    return true;
+}
+
 /* No config, so no sense pin to measure the supply on (od_tlsr_flash.h). */
 bool od_tlsr_flash_supply_ok(void)
 {
