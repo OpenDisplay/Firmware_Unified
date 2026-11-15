@@ -1319,3 +1319,18 @@ else()
     message(STATUS "od: fuzz targets NOT built (needs Clang); the pre-auth surface is "
                    "UNFUZZED in this build")
 endif()
+
+# esp32_it8951: targets/esp32-idf/src/display_it8951.cpp on host fakes of the ESP-IDF calls it
+# makes (fake_esp32/). Panel geometry changes between transfers must never write past an
+# allocation, and a failed init must switch the panel supplies off.
+add_executable(od_esp32_it8951_test esp32_it8951_test.cpp fake_esp32/fake_esp32.c
+    ../../targets/esp32-idf/src/display_it8951.cpp
+    od_log_test_stub.c)
+target_include_directories(od_esp32_it8951_test PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/fake_esp32
+    ../../targets/esp32-idf/src
+    ../../shared/core)
+target_compile_definitions(od_esp32_it8951_test PRIVATE OPENDISPLAY_FASTEPD=1)
+target_compile_options(od_esp32_it8951_test PRIVATE
+    $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti>)
+add_test(NAME esp32_it8951 COMMAND od_esp32_it8951_test)
