@@ -16,6 +16,7 @@ SPIClass SPI;
 int fake_fastepd_init_panel_calls;
 int fake_fastepd_init_rc = BBEP_SUCCESS;
 int fake_fastepd_updates;
+int fake_fastepd_it8951_calls;
 
 static void panel_size(int panel, int *w, int *h)
 {
@@ -55,6 +56,7 @@ int FASTEPD::initPanel(int iPanelType, uint32_t)
 
 int FASTEPD::initIT8951(uint8_t, uint8_t, uint8_t, uint8_t, uint8_t, uint8_t, uint8_t, uint8_t)
 {
+    ++fake_fastepd_it8951_calls;
     return BBEP_ERROR_NOT_SUPPORTED;
 }
 

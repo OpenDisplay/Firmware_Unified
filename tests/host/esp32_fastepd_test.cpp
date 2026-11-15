@@ -147,12 +147,32 @@ static void test_config_size_differs(void)
     CHECK(fake_esp32_guards_intact());
 }
 
+/* A parallel controller whose panel id this firmware does not know. The parser ignores such a
+ * 0xB3 (od_controller_esp.cpp); this is the driver's own guard: it must not fall back to
+ * FastEPD's IT8951 path, which drives hard-coded SPI pins that are parallel data lines here. */
+static void test_unknown_parallel_panel(void)
+{
+    static const uint8_t kPanels[] = { 0u, 4u };
+    for (uint8_t panel : kPanels) {
+        config(panel, 960u, 540u, false);
+        const int before = fake_fastepd_updates;
+        fastepd_mark_hw_deinitialized();
+        fastepd_epaper_begin();
+        CHECK(fake_fastepd_it8951_calls == 0);
+        CHECK(fastepd_init_failed());
+        upload(120u * 540u);
+        CHECK(fake_fastepd_updates == before);
+        CHECK(fake_esp32_guards_intact());
+    }
+}
+
 int main(void)
 {
     fake_esp32_reset();
     test_config_size_differs();
     test_native_size_works();
     test_panel_changes_with_buffer();
+    test_unknown_parallel_panel();
     printf("esp32_fastepd: %u checks, %u failures\n", g_checks, g_failures);
     return g_failures == 0u ? 0 : 1;
 }

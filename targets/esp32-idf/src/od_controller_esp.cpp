@@ -37,6 +37,12 @@ static bool from_packet(uint8_t instance, struct od_controller_desc *out)
                         (unsigned)b[1], (unsigned)b[2]);
             return false;
         }
+        if (b[2] == OD_CTRL_CLASS_PARALLEL &&
+            (b[7] < OD_CTRL_PARALLEL_INKPLATE5V2 || b[7] > OD_CTRL_PARALLEL_M5PAPERS3)) {
+            od_log_warn("display_controller: parallel panel %u not understood; ignored",
+                        (unsigned)b[7]);
+            return false;
+        }
         out->cls = b[2];
         out->flags = b[3];
         out->vcom_mv = (uint16_t)(b[4] | (b[5] << 8));
