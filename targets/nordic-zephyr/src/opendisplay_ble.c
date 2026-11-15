@@ -1,6 +1,7 @@
 #include "od_sec2.h"
 #include "opendisplay_ble.h"
 #include "od_health_app.h"
+#include "od_watchdog_app.h"
 #include "opendisplay_idle_wake.h"
 #include "od_log.h"
 #include "od_caps.h"
@@ -890,6 +891,7 @@ enum od_hal_adv_result od_hal_adv_start(void)
 		 * s_adv_param to an already-running advertiser, or the corrective restart in
 		 * opendisplay_ble_advertising_tick() would be silently suppressed. */
 		s_adv_interval_is_boost = boost;
+		od_health_app_advertising();
 		od_log_info("advertising as %s (interval=%u-%u ms)", s_dev_name,
 		       (unsigned)BT_GAP_ADV_INTERVAL_TO_MS(s_adv_param.interval_min),
 		       (unsigned)BT_GAP_ADV_INTERVAL_TO_MS(s_adv_param.interval_max));
@@ -1065,6 +1067,20 @@ void opendisplay_ble_advertising_tick(void)
 	}
 }
 
+/* Long enough that a permanent failure is not a tight reset loop, short enough that a transient
+ * one costs little. Fed: the wait runs before the main loop exists. */
+#define OD_BT_ENABLE_FAIL_RESET_MS 5000u
+
+static void bt_enable_failed_reset(void)
+{
+	for (uint32_t waited = 0u; waited < OD_BT_ENABLE_FAIL_RESET_MS; waited += 100u) {
+		od_watchdog_app_service();
+		k_msleep(100);
+	}
+	(void)od_claim_mode_before_reboot();
+	NVIC_SystemReset();
+}
+
 void opendisplay_ble_init(void)
 {
 	int err;
@@ -1123,7 +1139,13 @@ void opendisplay_ble_init(void)
 	od_log_info("enabling Bluetooth");
 	err = bt_enable(NULL);
 	if (err != 0) {
-		od_log_info("bt_enable failed: %d", err);
+		/* Without the stack the unit is unreachable and nothing would ever reset it: the loop
+		 * still feeds the watchdog. Reset instead. On a freshly swapped-in image that reset is
+		 * also what makes MCUboot revert it; on a confirmed one it is the only retry there is.
+		 * The pause bounds the loop rate if the failure is permanent. */
+		od_log_error("bt_enable failed: %d -- resetting in %u ms", err,
+			     (unsigned)OD_BT_ENABLE_FAIL_RESET_MS);
+		bt_enable_failed_reset();
 		return;
 	}
 	if (IS_ENABLED(CONFIG_SETTINGS)) {

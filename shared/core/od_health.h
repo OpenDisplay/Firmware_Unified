@@ -35,6 +35,8 @@
  *   link close the verdict above, while unconfirmed                      -> RECOVER (revert)
  *              any dead link at all also disables the fallback below
  *   FALLBACK   OD_HEALTH_CONFIRM_FALLBACK_MS of uptime with no dead link  -> CONFIRM
+ *              (and, on a target that opted in with od_health_expect_advertising(), only
+ *              once the image has advertised or had a link this boot)
  *   SLEEP      (a target that powers down and boots through its bootloader on wake, ESP32 deep
  *              sleep) before sleeping unconfirmed: stay awake until OD_HEALTH_SLEEP_HOLD_MS of
  *              uptime; then CONFIRM if no dead link was seen (the fallback, shortened because
@@ -133,6 +135,8 @@ struct od_health {
     bool     gatt_proven;      /* some link this boot carried ATT */
     bool     confirmed;        /* rollback targets: the running image is trusted */
     bool     dead_seen;        /* some link this boot was dead (or a verdict was RECOVER) */
+    bool     expect_adv;       /* the target reports advertising: FALLBACK needs adv_seen */
+    bool     adv_seen;         /* advertising started, or a link opened, this boot */
 };
 
 /* Updater kind (BG22). forced_so_far: the target's retained count for this power-on (0 after a
@@ -158,6 +162,15 @@ enum od_health_action od_health_poll(struct od_health *h, uint32_t uptime_ms);
 /* Before a power-down that boots through the bootloader on wake: NONE (sleep), HOLD (stay awake),
  * CONFIRM (confirm, then sleep) or RECOVER. Always NONE on an updater target or once confirmed. */
 enum od_health_action od_health_before_sleep(struct od_health *h, uint32_t uptime_ms);
+/* Opt-in, right after od_health_init_rollback(): this target reports od_health_advertising(), so
+ * the FALLBACK confirm also requires that the image got on the air (an advertising start or any
+ * link this boot). Without it an image whose radio never came up -- the stack failed to enable,
+ * or advertising latched a fault -- would confirm itself after a day of silence, and nothing
+ * could revert it. A target that does not call this keeps the plain 24 h rule. */
+void od_health_expect_advertising(struct od_health *h);
+/* Advertising started (the stack accepted a start). Any rate; only the first call matters. */
+void od_health_advertising(struct od_health *h);
+
 /* The target's confirm write failed: try again on the next evidence. */
 void od_health_confirm_failed(struct od_health *h);
 /* The image was confirmed by another path (an SMP image-confirm command). */
