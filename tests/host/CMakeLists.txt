@@ -450,6 +450,29 @@ target_include_directories(od_silabs_purge_test PRIVATE
 target_compile_definitions(od_silabs_purge_test PRIVATE OD_BG22_DIAG=2)
 add_test(NAME silabs_purge COMMAND od_silabs_purge_test)
 
+# silabs_slot_draw: the production BG22 display file's draw from a stored image slot (0x004B)
+# over a recording panel shim and a one-slot image store. Proves a two-plane frame (BWR, BWY,
+# GRAY4) reaches the panel as two planes, split where a 0x0070 upload splits it, and that a
+# single-plane frame streams unchanged.
+add_executable(od_silabs_slot_draw_test
+    silabs_slot_draw_test.c
+    silabs_slot_draw_stubs.c
+    nvs_empty_test_stub.c
+    session_fake.c
+    aes128.c
+    fake_silabs/em_gpio.c
+    ../../targets/efr32bg22-slc/od_link_policy.c
+    ../../targets/efr32bg22-slc/od_inflate_app.c
+    ../../third_party/qrcode/qrcode.c
+    ../../targets/efr32bg22-slc/opendisplay_display.cpp)
+target_include_directories(od_silabs_slot_draw_test PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/fake_silabs
+    ../../targets/efr32bg22-slc
+    ../../third_party)
+target_compile_definitions(od_silabs_slot_draw_test PRIVATE OD_BG22_DIAG=0)
+target_link_libraries(od_silabs_slot_draw_test od_shared_silabs OpenSSL::Crypto)
+add_test(NAME silabs_slot_draw COMMAND od_silabs_slot_draw_test)
+
 # time_silabs: compile the production BG22 adapter over fake sleeptimer/udelay primitives. The
 # load-bearing case crosses the underlying 32-bit tick rollover and proves conversion happens in
 # 64 bits before the public millisecond result is narrowed.
