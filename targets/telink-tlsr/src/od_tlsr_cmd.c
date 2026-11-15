@@ -183,7 +183,7 @@ static od_reply_t s_dfu_rp;
 
 od_cmd_result_t od_cmd_app_enter_dfu(const od_cmd_ctx_t *ctx, od_span_t body)
 {
-    const uint8_t ok[] = { 0x00u, RESP_ENTER_DFU };
+    const uint8_t ok[] = { RESP_ACK, RESP_ENTER_DFU };
 
     (void)body;
     s_dfu_rp = ctx->rp;

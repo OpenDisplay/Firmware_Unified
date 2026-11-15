@@ -4,6 +4,7 @@
 #include "od_hal_i2c.h"
 #include "od_log.h"
 #include "od_touch_app.h"
+#include "opendisplay_structs.h" /* OD_STATIC_ASSERT */
 
 #include <string.h>
 
