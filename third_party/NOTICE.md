@@ -345,7 +345,6 @@ that way: configuration belongs in `sdkconfig.defaults`, not in edits here.
 |---|---|
 | Content | `od_logo.svg` (the OpenDisplay logo), `convert_logo.py` (SVG to packed 1-bit C header), `logo_bitmap.h` (its generated output) |
 | Origin | OpenDisplay's own artwork and tooling, not third-party code |
-| Licence | The repository licence, **GPL-3.0** (`LICENSE`), for the logo, the script and the generated header alike |
 | Arrived | `1f30d36`, 2026-08-18 |
 
 It sits under `third_party/` only because the boot screen's other input, the QR encoder, does.

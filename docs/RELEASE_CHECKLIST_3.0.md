@@ -83,7 +83,7 @@ checklist cites build SHAs.
 | C4 | ESP32 2.x → 3.0 erases config and key, by decision. Confirm it is acceptable with the backup/migrate CLI as the mitigation. | needs maintainer | [ ] |
 | C5 | Action system and image store: supported, or "experimental" in the notes. CHANGELOG says experimental. | needs maintainer | [ ] |
 | C7 | **BG22 connection count** 4 (shipped default) or 2 (≈ 936 B more free heap at the one-link peak, estimate). One line: `OD_BG22_MAX_CONNECTIONS_DEFAULT` in `targets/efr32bg22-slc/cmake_gcc/CMakeLists.txt`; table in [BG22_RAM_BUDGET.md](BG22_RAM_BUDGET.md) § 3.1. 2 needs D11 + D12 with that image. | needs maintainer | [ ] |
-| C6 | `third_party/boot_logo` is OpenDisplay artwork under the repository GPL-3.0; `third_party/qrcode` carries its MIT `LICENSE` (decided 2026-11-11, `third_party/NOTICE.md`). Still open: uzlib/tinf notice in `od_zlib_inflate.c` | agent-done (qrcode, boot_logo); uzlib open | [~] |
+| C6 | `third_party/boot_logo` is OpenDisplay's own artwork (no licence statement is made for the logo; maintainer, 2026-11-15); `third_party/qrcode` carries its MIT `LICENSE` (decided 2026-11-11, `third_party/NOTICE.md`). Still open: uzlib/tinf notice in `od_zlib_inflate.c` | agent-done (qrcode, boot_logo); uzlib open | [~] |
 
 ## D. Hardware pass at the release SHA
 

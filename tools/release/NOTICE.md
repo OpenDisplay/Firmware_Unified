@@ -14,7 +14,6 @@ code that is used only by host-side tests and tools and is not part of any image
 | mdns 1.11.3 | every ESP32 image | Espressif Systems, https://github.com/espressif/esp-protocols | Apache-2.0 |
 | QR code encoder (trimmed) | every image (boot screen) | Richard Moore, https://github.com/ricmoo/QRCode, derived from Project Nayuki's QR Code generator | MIT |
 | Inflate, based on uzlib / tinf | every image | Paul Sokolovsky (uzlib), Joergen Ibsen (tinf) | zlib licence |
-| Boot logo | every image (boot screen) | OpenDisplay | GPL-3.0 |
 
 Apache-2.0, MIT and zlib-licensed code inside a GPL-3.0 work is permitted; the combined work is
 GPL-3.0 and each component keeps its own licence and notice. Licence texts are in the source
