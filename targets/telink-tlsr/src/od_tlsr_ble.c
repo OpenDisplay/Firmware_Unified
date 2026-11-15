@@ -233,18 +233,23 @@ static int ota_write_cb(void *p)
 /* What a closed link leaves behind: the rx ring, core and command state, the updater's link
  * state. Runs from the loop after a terminate, or from on_connect when the terminate and the
  * next connect arrived in one blt_sdk_main_loop() pass -- before the new link's first write is
- * queued, so its frames are never the ones cleared. */
-static void teardown(void)
+ * queued, so its frames are never the ones cleared. The hold watchdog runs it on a live link
+ * with link_closed false: the updater belongs to the link, not to dispatch, so an update in
+ * progress and its pending reply survive a stuck config read or notification queue. The SEC2
+ * session does not (od_core_reset), and with it the updater's unlock (od_tlsr_ota.h). */
+static void teardown(bool link_closed)
 {
     od_core_reset();
     od_tlsr_cmd_reset();
-    od_tlsr_ota_link_closed();
+    if (link_closed) {
+        od_tlsr_ota_link_closed();
+        s.ota_reply_len = 0u;
+    }
     s.rx_head = 0u;
     s.rx_count = 0u;
     s.abuse = 0u;
     s.hold_active = false;
     s.read_active = false;
-    s.ota_reply_len = 0u;
 }
 
 static void on_connect(u8 e, u8 *p, int n)
@@ -252,7 +257,7 @@ static void on_connect(u8 e, u8 *p, int n)
     (void)e; (void)p; (void)n;
     if (s.closed_pending) {
         s.closed_pending = false;
-        teardown();
+        teardown(true);
     }
     s.connected = true;
     if (++s.epoch == 0u) {
@@ -505,7 +510,7 @@ static void watch_holds(uint32_t now)
             s.read_active = true;
             s.read_started = now;
         } else if ((uint32_t)(now - s.read_started) >= OD_CONFIG_READ_MAX_MS) {
-            teardown();
+            teardown(false);
             return;
         }
     } else {
@@ -517,7 +522,7 @@ static void watch_holds(uint32_t now)
         s.hold_active = true;
         s.hold_started = now;
     } else if ((uint32_t)(now - s.hold_started) >= OD_EVENT_HOLD_MAX_MS) {
-        teardown();
+        teardown(false);
     }
 }
 
@@ -548,7 +553,7 @@ void od_tlsr_ble_loop(uint32_t now)
 {
     if (s.closed_pending) {
         s.closed_pending = false;
-        teardown();
+        teardown(true);
     }
     od_tlsr_ota_service(now);
     flush_ota_reply();
