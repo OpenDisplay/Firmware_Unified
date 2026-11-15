@@ -230,9 +230,30 @@ static int ota_write_cb(void *p)
     return 0;
 }
 
+/* What a closed link leaves behind: the rx ring, core and command state, the updater's link
+ * state. Runs from the loop after a terminate, or from on_connect when the terminate and the
+ * next connect arrived in one blt_sdk_main_loop() pass -- before the new link's first write is
+ * queued, so its frames are never the ones cleared. */
+static void teardown(void)
+{
+    od_core_reset();
+    od_tlsr_cmd_reset();
+    od_tlsr_ota_link_closed();
+    s.rx_head = 0u;
+    s.rx_count = 0u;
+    s.abuse = 0u;
+    s.hold_active = false;
+    s.read_active = false;
+    s.ota_reply_len = 0u;
+}
+
 static void on_connect(u8 e, u8 *p, int n)
 {
     (void)e; (void)p; (void)n;
+    if (s.closed_pending) {
+        s.closed_pending = false;
+        teardown();
+    }
     s.connected = true;
     if (++s.epoch == 0u) {
         s.epoch = 1u;
@@ -450,19 +471,6 @@ _attribute_ram_code_ void od_tlsr_ble_retention_wake(void)
     blc_ll_initBasicMCU();
     rf_set_power_level_index(RF_POWER_P3dBm);
     blc_ll_recoverDeepRetention();
-}
-
-static void teardown(void)
-{
-    od_core_reset();
-    od_tlsr_cmd_reset();
-    od_tlsr_ota_link_closed();
-    s.rx_head = 0u;
-    s.rx_count = 0u;
-    s.abuse = 0u;
-    s.hold_active = false;
-    s.read_active = false;
-    s.ota_reply_len = 0u;
 }
 
 /* Dispatch is admitted only while it can reserve reply capacity and no producer owns the
