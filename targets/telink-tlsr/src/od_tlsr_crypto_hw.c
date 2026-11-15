@@ -78,9 +78,10 @@ bool od_tlsr_aes128(const uint8_t key[16], const uint8_t in[16], uint8_t out[16]
     return true;
 }
 
-/* generateRandomNum is the SDK's generator, seeded by random_generator_init() at boot from
- * analog noise (main.c). Its entropy on this part is not characterised: REPORT.md records it as
- * an open item for SEC2. */
+/* generateRandomNum is the SDK's generator: a multiply-with-carry PRNG XORed with the system
+ * timer, seeded once by random_generator_init() at boot from analog noise (main.c). It is not a
+ * CSPRNG, and the noise's entropy on this part is not characterised (docs/FOLLOWUPS.md,
+ * telink-tlsr). */
 bool od_tlsr_random(uint8_t *buf, uint16_t len)
 {
     generateRandomNum((int)len, buf);

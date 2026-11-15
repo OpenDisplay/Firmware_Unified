@@ -1788,12 +1788,21 @@ pieces that belong elsewhere or wait on hardware.
 - **`py-opendisplay` and the website:** map `fw_target` `0x06` to "Telink TLSR825x".
 - **`shared/profiles.cmake`:** move `OD_PROFILE_TELINK` there from the target's `CMakeLists.txt`
   once the target is accepted, so one file defines every profile.
-- **OTA trust:** the updater is unauthenticated and outside the `od_health` rule. Gating it on
-  SEC2, and trusting a new image only after it has served a GATT request, is open design.
+- **OTA trust:** the updater is SEC2-gated (README § Updater) but images are not signed, and it
+  is outside the `od_health` rule: trusting a new image only after it has served a GATT request
+  is open design.
+- **SEC2 randomness:** keys and nonces come from the SDK's `generateRandomNum()`, a
+  multiply-with-carry generator seeded once from two analog registers -- not a CSPRNG. Telink
+  SEC2 is reduced strength until an entropy design lands (options and costs in the Telink review
+  follow-up, not in the repo).
 - **Hardware-only questions:** whether the ROM falls back to the image at `0x40000` when sector 0
   has no boot flag, which is what protects a power cut during install; the sw_ecc shared-secret
-  byte order; the TRNG's entropy; whether a link survives the per-sector erase with interrupts
-  off.
-- **CI:** `tools/check.sh --telink` builds the target when `TC32_DIR` and `TELINK_SDK_DIR` are
-  set. `build.yml` does not, because the toolchain is not redistributable without carrying GPL
-  obligations (Telink publishes no source for its TC32 backend).
+  byte order; the raw entropy of the analog noise source; whether a link survives the per-sector
+  erase with interrupts off.
+- **Panel temperature read:** every panel-up sends 0x40 and reads two bytes, outside the
+  config's drive packets. Gating it needs a config bit for command-driven panels (the 0xB3
+  `TEMP_SENSOR` flag exists only for built-in controllers, and Telink does not index 0xB3).
+- **CI:** `build.yml` builds the target with Telink's own TC32 tarball (pinned by SHA-256) and
+  the SDK at a pinned commit. The tarball is fetched over plain HTTP from a single host and
+  cached for 7 days; a mirror the project controls would remove both risks.
+  `tools/check.sh --telink` builds it locally when `TC32_DIR` and `TELINK_SDK_DIR` are set.

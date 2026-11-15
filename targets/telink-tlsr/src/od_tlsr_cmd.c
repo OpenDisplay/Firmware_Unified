@@ -208,7 +208,7 @@ od_cmd_result_t od_cmd_app_power_off(const od_cmd_ctx_t *ctx, od_span_t body)
     return nack(ctx, RESP_POWER_OFF, OD_ERR_POWER_OFF_UNSUPPORTED);
 }
 
-/* Deep sleep arrives with the power design (REPORT.md § sleep); refused until then. */
+/* CMD_DEEP_SLEEP is not implemented on this target: refused. */
 od_cmd_result_t od_cmd_app_deep_sleep(const od_cmd_ctx_t *ctx, od_span_t body)
 {
     (void)body;
