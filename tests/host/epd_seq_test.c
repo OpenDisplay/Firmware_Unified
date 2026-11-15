@@ -70,7 +70,8 @@ static void io_delay(uint32_t ms)
     }
     ++g_ndelays;
 }
-static bool io_busy(void)                        { return true; }   /* idle level 1 */
+static bool g_busy_stuck;                        /* BUSY never reaches its idle level */
+static bool io_busy(void)                        { return !g_busy_stuck; }   /* idle level 1 */
 
 /* Storage faults: the g_fail_call'th seq_read (1-based; 0 = never) returns 0 bytes, or one byte
  * short when g_fail_short is set, and
@@ -165,6 +166,7 @@ static void setup(const uint8_t *seq, uint16_t len, uint8_t passes, bool cs_hook
     memcpy(g_seq, seq, len);
     g_seq_len = len;
     g_cs2_wired = true;
+    g_busy_stuck = false;
     for (unsigned k = 0; k < sizeof g_read_src; ++k) {
         g_read_src[k] = (uint8_t)(0xA0u + k);
     }
@@ -570,6 +572,79 @@ static void test_config_write_mid_pass(void)
     CHECK(g_pre_io > 0u && g_post_io > 0u);
 }
 
+/* A pass that finishes while the sequence still has an image marker ahead must fail: the walk
+ * pauses there, so the refresh tail after it never runs. */
+static void test_extra_marker_fails_finish(void)
+{
+    static const uint8_t seq[] = {
+        1u, 0x10u,  0u, 0x03u,  1u, 0x11u,  0u, 0x03u,  1u, 0x12u,  0u, 0x00u,
+    };
+    static const uint8_t img[2] = { 1, 2 };
+
+    CASE("finish_pass that stops on a second image marker is a sequence error");
+    setup(seq, sizeof seq, 1u, false, false);
+    CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_OK);
+    CHECK(od_epd_write_image_chunk(&g_epd, img, sizeof img) == OD_EPD_RC_OK);
+    CHECK(od_epd_finish_pass(&g_epd) == OD_EPD_RC_SEQ);
+    CHECK(count_cmd(0x12u) == 0u);
+    CHECK(od_epd_write_image_chunk(&g_epd, img, sizeof img) == OD_EPD_RC_STATE);
+
+    CASE("the same sequence driven as two planes refreshes");
+    setup(seq, sizeof seq, 1u, false, false);
+    CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_OK);
+    CHECK(od_epd_next_plane(&g_epd) == OD_EPD_RC_OK);
+    CHECK(od_epd_finish_pass(&g_epd) == OD_EPD_RC_OK);
+    CHECK(count_cmd(0x12u) == 1u);
+}
+
+/* A pass that fails after the reset leaves a controller that has seen I/O: the sleep sequence
+ * runs once, whether or not the caller follows up with od_epd_sleep(). */
+static void test_failed_begin_sleeps_once(void)
+{
+    static const uint8_t no_marker[] = { 1u, 0x10u, 1u, 0x12u, 0u, 0x00u };
+    static const uint8_t ok[] = { 1u, 0x10u, 0u, 0x03u, 1u, 0x12u, 0u, 0x00u };
+    static const uint8_t unsup[] = { 1u, 0x10u, 0u, 0x08u, 0x01u, 0u, 0x03u, 0u, 0x00u };
+
+    CASE("BUSY stuck after reset: BUSY error, sleep sequence sent once");
+    setup(ok, sizeof ok, 1u, false, false);
+    memcpy(g_desc.sleep_seq, SLEEP_SEQ, sizeof SLEEP_SEQ);
+    g_desc.sleep_seq_len = sizeof SLEEP_SEQ;
+    g_busy_stuck = true;
+    CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_BUSY);
+    CHECK(count_cmd(0x10u) == 0u && count_cmd(0x07u) == 1u);
+    CHECK(od_epd_sleep(&g_epd) == OD_EPD_RC_OK);
+    CHECK(count_cmd(0x07u) == 1u);
+
+    CASE("no image marker: the whole walk ran, so it is slept");
+    setup(no_marker, sizeof no_marker, 1u, false, false);
+    memcpy(g_desc.sleep_seq, SLEEP_SEQ, sizeof SLEEP_SEQ);
+    g_desc.sleep_seq_len = sizeof SLEEP_SEQ;
+    CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_SEQ);
+    CHECK(count_cmd(0x12u) == 1u && count_cmd(0x07u) == 1u);
+    CHECK(od_epd_sleep(&g_epd) == OD_EPD_RC_OK);
+    CHECK(count_cmd(0x07u) == 1u);
+
+    CASE("refused before any I/O: nothing at all is sent, not even the sleep sequence");
+    setup(unsup, sizeof unsup, 1u, false, false);
+    memcpy(g_desc.sleep_seq, SLEEP_SEQ, sizeof SLEEP_SEQ);
+    g_desc.sleep_seq_len = sizeof SLEEP_SEQ;
+    CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_UNSUP);
+    CHECK(g_nops == 0u);
+
+    CASE("an extra image marker at finish: slept once");
+    {
+        static const uint8_t two[] = { 1u, 0x10u, 0u, 0x03u, 0u, 0x03u, 1u, 0x12u, 0u, 0x00u };
+        setup(two, sizeof two, 1u, false, false);
+        memcpy(g_desc.sleep_seq, SLEEP_SEQ, sizeof SLEEP_SEQ);
+        g_desc.sleep_seq_len = sizeof SLEEP_SEQ;
+        CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_OK);
+        CHECK(od_epd_finish_pass(&g_epd) == OD_EPD_RC_SEQ);
+        CHECK(count_cmd(0x07u) == 1u);
+        CHECK(od_epd_sleep(&g_epd) == OD_EPD_RC_OK);
+        CHECK(count_cmd(0x07u) == 1u);
+    }
+}
+
 int main(void)
 {
     test_refused_escapes_execute_nothing();
@@ -582,6 +657,8 @@ int main(void)
     test_long_step_is_chunked();
     test_read_fault_at_every_call();
     test_config_write_mid_pass();
+    test_extra_marker_fails_finish();
+    test_failed_begin_sleeps_once();
     printf("epd_seq: %u checks, %u failures\n", g_checks, g_failures);
     return g_failures == 0u ? 0 : 1;
 }

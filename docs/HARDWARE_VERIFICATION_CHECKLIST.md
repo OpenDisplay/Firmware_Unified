@@ -1337,6 +1337,27 @@ Open:
 
 ---
 
+## ESP32-S3 reTerminal Sticky — executor fixes S1 / S3 (2026-11-15)
+
+One board, the reTerminal Sticky (OD6C79FC, EP397 800x480 SSD16xx, config-driven), image
+`s3-n32r8-extuart` from `fix/esp32-display-review` at `89ddb5b`, ESP-IDF 5.5.5, plaintext,
+unclaimed. A/B against origin/main `a519151` on the same board and config. S1/S3 bus evidence
+is from a test-only build that logs each panel command byte (not committed). No camera: "refresh"
+below means the command bytes on the bus, not the glass.
+
+- [x] Config with the board's drive packets written over BLE; boot screen, full upload (0x0070)
+      and 0x0085 mode 0 refresh on the fix build.
+- [x] **S1, extra image marker in mode 0.** Base: frame sent (`24`), no refresh command, only the
+      sleep sequence, and the host gets a success ACK. Fix: the same bus traffic, then
+      "refresh did not complete" and 0x74 to the host, on both 0x0085 and 0x0070.
+- [x] **S3, BUSY never idle after the reset (inverted idle level, 3 s timeout), 0x0085.** Both
+      builds answer PANEL_BUSY after 4.0 s. Base sends no command after the reset; the fix sends
+      the sleep sequence (`3f 22 20 10`) once, twice repeated.
+- [ ] The native-driver fixes (N1-N5): this board has no FastEPD/IT8951, so they are not on
+      hardware. Needs an E1003 or a parallel board.
+- [ ] S3 on the ESP32 SPI_RAW open path; the inverted-BUSY trick also makes the sleep sequence's
+      own BUSY step return early, so the sleep's timing was not checked.
+
 ## ESP32-S3 reTerminal E1003 — FastEPD 16-gray (2026-11-08)
 
 One board: ESP32-S3R8, 32 MB flash, ED103TC2 1872x1404, panel 3001. Image `s3-n16r8-extuart` at

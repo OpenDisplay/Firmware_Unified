@@ -5,27 +5,17 @@
 #include "od_controller_esp.h"
 #include "od_sensor_sht40.h"
 #include "display_service.h"
+#include "od_log.h"
 #include "structs.h"
-/* No <Arduino.h>: this file never used one. Its only Arduino-shaped names -- SPISettings,
- * MSBFIRST, SPI_MODE0 -- come from the FastEPD vendor adapter below, which is permanent and
- * deliberately not counted by the arduino-free check in tools/check.sh. */
+/* No <Arduino.h>: this file never used one. Its only Arduino-shaped name -- the SPI object --
+ * comes from the FastEPD vendor adapter below, which is permanent and deliberately not counted
+ * by the arduino-free check in tools/check.sh. */
 #include <SPI.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
 #include <string.h>
 #include <FastEPD.h>
 
 extern struct od_config globalConfig;
 
-// FastEPD compiles these IT8951 helpers into FastEPD.cpp (via FastEPD.inl).
-extern void it8951WaitForReady(FASTEPDSTATE* pState);
-extern void it8951WaitForLUTReady(FASTEPDSTATE* pState);
-extern void it8951SetImgBufBaseAddr(FASTEPDSTATE* pState);
-extern void it8951LoadImgAreaStart(FASTEPDSTATE* pState, uint16_t endian, uint16_t pix_fmt, uint16_t rotate,
-                                   uint16_t x, uint16_t y, uint16_t w, uint16_t h);
-extern void it8951WriteCmdCode(FASTEPDSTATE* pState, uint16_t cmd);
-extern void it8951DisplayArea1Bit(FASTEPDSTATE* pState, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
-                                  uint16_t mode, uint8_t bg_gray, uint8_t fg_gray);
 // FastEPD's cached PCAL6416A write
 extern void bbepPCALDigitalWrite(uint8_t pin, uint8_t value);
 static void fastepd_inkplate_wakeup_off(void);
@@ -47,10 +37,6 @@ static int fastepd_parallel_panel(void) {
         case OD_CTRL_PARALLEL_M5PAPERS3:     return BB_PANEL_M5PAPERS3;
         default:                             return -1;
     }
-}
-
-static bool fastepd_is_parallel(void) {
-    return fastepd_parallel_panel() >= 0;
 }
 
 static int8_t s_mosi = 9;
@@ -122,6 +108,10 @@ static void update_it8951_temperature(void) {
 static OdFastEPD g_epd;
 static uint32_t s_direct_offset;
 static bool s_hw_initialized = false;
+/* The panel FastEPD's buffer was allocated for (fastepd_parallel_panel() value). FastEPD sizes
+ * that buffer once, from the panel's native size, and cannot free or re-allocate it, so a
+ * config that names another panel or another size takes a reboot. */
+static int s_buf_panel = -2;
 
 static uint16_t s_partial_x;
 static uint16_t s_partial_y;
@@ -151,25 +141,49 @@ static void fastepd_apply_mode(void) {
     }
 }
 
-static size_t fb_byte_size(void) {
-    uint32_t w = globalConfig.displays[0].pixel_width;
-    uint32_t h = globalConfig.displays[0].pixel_height;
-    if (fastepd_panel_is_4gray()) {
-        return (size_t)((w + 1) / 2) * h;
-    }
-    return (size_t)((w + 7) / 8) * h;
+// Every size below is FastEPD's native one, i.e. the size of the allocated buffer.
+static unsigned row_pitch_bytes(void) {
+    const unsigned w = (unsigned)g_epd.state()->native_width;
+    return fastepd_panel_is_4gray() ? (w + 1u) / 2u : (w + 7u) / 8u;
 }
 
-static unsigned row_pitch_bytes(void) {
-    unsigned w = globalConfig.displays[0].pixel_width;
-    return fastepd_panel_is_4gray() ? (unsigned)((w + 1) / 2) : (unsigned)((w + 7) / 8);
+static size_t fb_byte_size(void) {
+    return (size_t)row_pitch_bytes() * (size_t)g_epd.state()->native_height;
+}
+
+// True when the config still describes the panel the buffer was allocated for. A mismatch is
+// a config written since boot; it fails the display until a reboot re-allocates.
+static bool fb_matches_config(void) {
+    const FASTEPDSTATE* st = g_epd.state();
+    if (globalConfig.display_count < 1) return false;
+    const struct DisplayConfig& d = globalConfig.displays[0];
+    return fastepd_parallel_panel() == s_buf_panel &&
+           d.pixel_width == (uint32_t)st->native_width &&
+           d.pixel_height == (uint32_t)st->native_height;
+}
+
+// The framebuffer, or NULL (and the driver marked failed) when the config no longer matches it.
+static uint8_t* fb(void) {
+    uint8_t* p = g_epd.currentBuffer();
+    if (!p) return nullptr;
+    if (!fb_matches_config()) {
+        if (!s_init_failed) {
+            od_log_error("fastepd: config is %ux%u panel %d, buffer is %dx%d panel %d; reboot to apply",
+                         (unsigned)globalConfig.displays[0].pixel_width,
+                         (unsigned)globalConfig.displays[0].pixel_height, fastepd_parallel_panel(),
+                         g_epd.state()->native_width, g_epd.state()->native_height, s_buf_panel);
+        }
+        s_init_failed = true;
+        return nullptr;
+    }
+    return p;
 }
 
 static void blit_1bpp_rect(uint8_t* dst, const uint8_t* src, uint32_t src_len,
                            uint16_t x, uint16_t y, uint16_t w, uint16_t h,
                            uint32_t* io_offset) {
     if (!dst || !src || !io_offset) return;
-    const unsigned panel_pitch = (globalConfig.displays[0].pixel_width + 7u) / 8u;
+    const unsigned panel_pitch = ((unsigned)g_epd.state()->native_width + 7u) / 8u;
     const unsigned rect_pitch = (w + 7u) / 8u;
     uint32_t off = *io_offset;
     uint32_t end = off + src_len;
@@ -185,61 +199,6 @@ static void blit_1bpp_rect(uint8_t* dst, const uint8_t* src, uint32_t src_len,
         src_i += chunk;
     }
     *io_offset = off;
-}
-
-/** Full-screen 1bpp DU (mode 1) — non-flashing. Matches FastEPD full-frame
- *  packing (MIRROR_X → B_ENDIAN + byte-reverse) with IT8951 DU waveform. */
-static bool it8951_fullscreen_du(void) {
-    FASTEPDSTATE* st = g_epd.state();
-    uint8_t* cur = g_epd.currentBuffer();
-    if (!st || !cur) return false;
-
-    const uint16_t w = (uint16_t)st->native_width;
-    const uint16_t h = (uint16_t)st->native_height;
-    const bool mirror_x = (st->iFlags & BB_PANEL_FLAG_MIRROR_X) != 0;
-    const unsigned pitch = (unsigned)((w + 7) / 8);
-
-    g_epd.einkPower(1);
-    it8951WaitForLUTReady(st);
-    it8951SetImgBufBaseAddr(st);
-
-    const uint16_t endian = mirror_x ? IT8951_LDIMG_B_ENDIAN : IT8951_LDIMG_L_ENDIAN;
-    it8951LoadImgAreaStart(st, endian, IT8951_8BPP, IT8951_ROTATE_0, 0, 0, pitch, h);
-
-    uint8_t* rowbuf = mirror_x ? (uint8_t*)malloc(pitch) : nullptr;
-    if (mirror_x && !rowbuf) return false;
-
-    gpio_set_level((gpio_num_t)st->u8CS, 0);   /* was Arduino LOW, which is this literal */
-    SPI.beginTransaction(SPISettings(st->spi_frequency, MSBFIRST, SPI_MODE0));
-    it8951WaitForReady(st);
-    SPI.transfer16(0x0000);
-    it8951WaitForReady(st);
-
-    for (uint16_t row = 0; row < h; row++) {
-        const uint8_t* src = cur + (size_t)row * pitch;
-        if (mirror_x) {
-            for (unsigned i = 0; i < pitch; i++) {
-                rowbuf[pitch - 1 - i] = src[i];
-            }
-            SPI.writeBytes(rowbuf, pitch);
-        } else {
-            SPI.writeBytes(src, pitch);
-        }
-        /* Was Arduino yield(), which the shim defined as exactly this. Keeps the loop task
-         * from starving its peers across a full-frame blit; NOT a delay, so the transfer
-         * rate is unchanged. */
-        if ((row & 7) == 0) taskYIELD();
-    }
-
-    SPI.endTransaction();
-    gpio_set_level((gpio_num_t)st->u8CS, 1);   /* was Arduino HIGH */
-    free(rowbuf);
-
-    it8951WriteCmdCode(st, IT8951_TCON_LD_IMG_END);
-    it8951DisplayArea1Bit(st, 0, 0, w, h, IT8951_MODE_1, 0x00, 0xff);
-    it8951WaitForReady(st);
-    st->prev_mode = st->mode;
-    return true;
 }
 
 void fastepd_prepare_hardware(void) {
@@ -281,8 +240,18 @@ void fastepd_epaper_begin(void) {
                 s_hw_initialized = false;
                 return;
             }
+            s_buf_panel = parallel;
             g_epd.setMode(fastepd_panel_is_4gray() ? BB_MODE_4BPP : BB_MODE_1BPP);
             g_epd.setPreviousMode((uint8_t)g_epd.getMode());
+            if (!fb_matches_config()) {
+                (void)fb();   // logs and marks the failure
+                s_hw_initialized = false;
+                return;
+            }
+        } else if (!fb_matches_config()) {
+            (void)fb();
+            s_hw_initialized = false;
+            return;
         } else {
             g_epd.einkPower(1);
             s_hw_initialized = true;   // fastepd_apply_mode() requires it
@@ -292,50 +261,26 @@ void fastepd_epaper_begin(void) {
         return;
     }
 
-    int rc = g_epd.initIT8951((uint8_t)s_mosi, (uint8_t)s_miso, (uint8_t)s_sclk,
-                              (uint8_t)s_cs, (uint8_t)s_busy, (uint8_t)s_rst,
-                              (uint8_t)s_en, (uint8_t)s_ite_en);
-    if (rc != BBEP_SUCCESS) {
-        s_init_failed = true;
-        s_hw_initialized = false;
-        return;
-    }
-
-    if (!g_epd.currentBuffer()) {
-        rc = g_epd.setPanelSize(BBEP_DISPLAY_ED103TC2);
-        if (rc != BBEP_SUCCESS || !g_epd.currentBuffer()) {
-            s_init_failed = true;
-            s_hw_initialized = false;
-            return;
-        }
-    }
-
-    if (fastepd_panel_is_4gray()) {
-        g_epd.setMode(BB_MODE_4BPP);
-    } else {
-        g_epd.setMode(BB_MODE_1BPP);
-    }
-    g_epd.setPreviousMode((uint8_t)g_epd.getMode());
-    s_hw_initialized = true;
+    // Neither IT8951 nor a known parallel panel: nothing here can drive it. IT8951 panels go
+    // through display_it8951.cpp above, never through FastEPD's own IT8951 path.
+    od_log_error("fastepd: 0xB3 names no panel this driver knows");
+    s_init_failed = true;
+    s_hw_initialized = false;
 }
 
-// REFRESH_FULL: parallel panels flash-clear to flush ghosting; IT8951 clears
-// internally (ignores the mode) so it stays CLEAR_NONE.
+// REFRESH_FULL: parallel panels flash-clear to flush ghosting. PaperS3 needs the
+// library-default 10-pass clear: CLEAR_FAST's 8 passes leave residual banding there.
+// Inkplates keep the faster clear they were tuned with.
 static void fastepd_full_refresh_impl(void) {
-    int clear = CLEAR_NONE;
-    if (fastepd_is_parallel()) {
-        // PaperS3 needs the library-default 10-pass clear: CLEAR_FAST's 8 passes leave residual
-        // banding there. Inkplates keep the faster clear they were tuned with.
-        clear = (od_controller_esp()->parallel_panel == OD_CTRL_PARALLEL_M5PAPERS3)
-                    ? CLEAR_SLOW
-                    : CLEAR_FAST;
-    }
+    const int clear = (od_controller_esp()->parallel_panel == OD_CTRL_PARALLEL_M5PAPERS3)
+                          ? CLEAR_SLOW
+                          : CLEAR_FAST;
     g_epd.fullUpdate(clear, true, NULL);
 }
 
 void fastepd_full_update(void) {
     if (panel_is_it8951()) { update_it8951_temperature(); od_it8951_full_update(); return; }
-    if (!g_epd.currentBuffer()) return;
+    if (!fb()) return;
     fastepd_full_refresh_impl();
     g_epd.backupPlane();
 }
@@ -355,8 +300,8 @@ void fastepd_sleep_after_refresh(void) {
 
 void fastepd_boot_write_row(uint16_t y, const uint8_t* row, unsigned pitch) {
     if (panel_is_it8951()) { od_it8951_boot_write_row(y, row, pitch); return; }
-    uint8_t* p = g_epd.currentBuffer();
-    if (!p || !row) return;
+    uint8_t* p = fb();
+    if (!p || !row || y >= (unsigned)g_epd.state()->native_height) return;
     unsigned rp = row_pitch_bytes();
     if (pitch < rp) return;
     memcpy(p + (size_t)y * rp, row, rp);
@@ -376,17 +321,17 @@ void fastepd_direct_write_reset(void) {
         fastepd_apply_mode();
     }
     s_direct_offset = 0;
-    uint8_t* p = g_epd.currentBuffer();
+    uint8_t* p = fb();
     if (p) {
         memset(p, 0xFF, fb_byte_size());
     }
 }
 
-void fastepd_direct_write_chunk(const uint8_t* data, uint32_t len) {
-    if (panel_is_it8951()) { od_it8951_direct_write_chunk(data, len); return; }
-    if (!data || len == 0) return;
-    uint8_t* base = g_epd.currentBuffer();
-    if (!base) return;
+bool fastepd_direct_write_chunk(const uint8_t* data, uint32_t len) {
+    if (panel_is_it8951()) return od_it8951_direct_write_chunk(data, len);
+    if (!data || len == 0) return true;
+    uint8_t* base = fb();
+    if (!base || s_init_failed || !s_hw_initialized) return false;
     size_t maxb = fb_byte_size();
     size_t room = (s_direct_offset < maxb) ? (maxb - s_direct_offset) : 0;
     size_t n = (len > room) ? room : (size_t)len;
@@ -394,20 +339,17 @@ void fastepd_direct_write_chunk(const uint8_t* data, uint32_t len) {
         memcpy(base + s_direct_offset, data, n);
         s_direct_offset += n;
     }
+    return n == len;
 }
 
 void fastepd_direct_refresh(int refresh_mode) {
     if (panel_is_it8951()) { update_it8951_temperature(); od_it8951_direct_refresh(refresh_mode); return; }
-    if (!g_epd.currentBuffer()) return;
+    if (!fb()) return;
     if (refresh_mode == 1) {
-        // FAST: parallel 1bpp uses native diff; IT8951 uses its DU waveform.
-        // 4bpp has no fast path (fastUpdate is 1bpp-only) -> fall back to full.
-        if (fastepd_is_parallel()) {
-            if (fastepd_panel_is_4gray()) fastepd_full_refresh_impl();
-            else g_epd.fastUpdate(true);
-        } else {
-            it8951_fullscreen_du();
-        }
+        // FAST: 1bpp uses FastEPD's native diff. 4bpp has no fast path (fastUpdate is
+        // 1bpp-only) -> fall back to full.
+        if (fastepd_panel_is_4gray()) fastepd_full_refresh_impl();
+        else g_epd.fastUpdate(true);
     } else {
         fastepd_full_refresh_impl();
     }
@@ -461,8 +403,11 @@ bool fastepd_partial_write_chunk(const uint8_t* data, uint32_t len) {
     if (len > s_partial_expected - s_partial_bytes_written) return false;
 
     uint8_t* prev = g_epd.previousBuffer();
-    uint8_t* cur = g_epd.currentBuffer();
+    uint8_t* cur = fb();
     if (!cur) return false;
+    const FASTEPDSTATE* st = g_epd.state();
+    if ((uint32_t)s_partial_x + s_partial_w > (uint32_t)st->native_width ||
+        (uint32_t)s_partial_y + s_partial_h > (uint32_t)st->native_height) return false;
 
     uint32_t remaining = len;
     const uint8_t* p = data;
@@ -492,18 +437,13 @@ bool fastepd_partial_write_chunk(const uint8_t* data, uint32_t len) {
 bool fastepd_partial_refresh(int refresh_mode) {
     if (panel_is_it8951()) { update_it8951_temperature(); return od_it8951_partial_refresh(refresh_mode); }
     if (s_partial_bytes_written != s_partial_expected) return false;
-    if (!g_epd.currentBuffer()) return false;
+    if (!fb()) return false;
 
-    if (refresh_mode == 0) {
-        fastepd_full_refresh_impl();
-    } else if (fastepd_is_parallel()) {
+    if (refresh_mode == 0 || fastepd_panel_is_4gray()) {
         // Rect already blitted into the framebuffer; 4bpp has no fast path.
-        if (fastepd_panel_is_4gray()) fastepd_full_refresh_impl();
-        else g_epd.fastUpdate(true);
+        fastepd_full_refresh_impl();
     } else {
-        // Region rect is still applied to the framebuffer via blit; refresh is
-        // full-screen DU (IT8951 region DU had persistent edge alignment issues).
-        if (!it8951_fullscreen_du()) return false;
+        g_epd.fastUpdate(true);
     }
     g_epd.backupPlane();
     return true;

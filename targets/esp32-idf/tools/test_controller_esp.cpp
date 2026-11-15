@@ -175,6 +175,18 @@ int main()
         CHECK(!c->from_packet && c->cls == OD_CTRL_CLASS_COMMAND);
     }
 
+    g_case = "parallel 0xB3 naming no known panel is ignored (command-driven)";
+    static const uint8_t kUnknownParallel[] = { 0u, 4u, 0xFFu };
+    for (uint8_t panel : kUnknownParallel) {
+        display(0x0002u, 0u);
+        store_reset();
+        controller(0u, OD_CTRL_CLASS_PARALLEL, 0u, 0u, 0x7F, panel, 0xFFu, 0xFFu, 0xFFu);
+        store_commit();
+        od_controller_esp_reload();
+        c = od_controller_esp();
+        CHECK(!c->from_packet && c->cls == OD_CTRL_CLASS_COMMAND);
+    }
+
     g_case = "first 0xB3 for the instance wins";
     display(0x0002u, 0u);
     store_reset();
