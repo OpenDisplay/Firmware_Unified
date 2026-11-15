@@ -1,6 +1,7 @@
 /* BG22 config adapter: NVM3 owns persistence; shared/core owns parsing and normalization. */
 
 #include "opendisplay_config_parser.h"
+#include "od_diag.h"
 
 #include "od_config.h"
 #include "od_span.h"
@@ -21,11 +22,11 @@ static void log_parse(const struct od_config_report *report,
   if (report == NULL) {
     return;
   }
-  printf("[OD] config parse rc=%d stored=%u full=%u not-built=%u unknown=0x%02X\r\n",
+  OD_DIAG("[OD] config parse rc=%d stored=%u full=%u not-built=%u unknown=0x%02X\r\n",
          (int)result, (unsigned)report->stored, (unsigned)report->dropped_full,
          (unsigned)report->dropped_not_built, (unsigned)report->unknown_id);
   if (report->crc_checked && report->crc_stored != report->crc_computed) {
-    printf("[OD] config CRC advisory mismatch stored=0x%04X computed=0x%04X\r\n",
+    OD_DIAG("[OD] config CRC advisory mismatch stored=0x%04X computed=0x%04X\r\n",
            (unsigned)report->crc_stored, (unsigned)report->crc_computed);
   }
 }

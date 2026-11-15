@@ -17,8 +17,9 @@
 #include "od_nfc_app.h"
 #include "od_cmd_test_ctx.h"
 #include "od_reply.h"
-#include "od_session.h"
-#include "od_session_app.h"
+#include "od_sec2.h"
+#include "od_sec2_app.h"
+#include "sec2_client.h"
 #include "od_txq.h"
 #include "session_fake.h"
 
@@ -63,14 +64,19 @@ void _od_log(int level, const char *fmt, ...)
 
 /* ------------------------------------------------------------------------------- the link --- */
 
-#define SENT_MAX 4
+#define SENT_MAX 16
 static struct { uint16_t len; uint8_t data[OD_TX_FRAME_MAX]; } g_sent[SENT_MAX];
 static unsigned g_sent_n;
+static unsigned g_pop;
 
 od_radio_result_t od_hal_radio_send(od_origin_t origin, uint32_t tag,
                                     const uint8_t *frame, uint16_t len)
 {
     (void)origin; (void)tag;
+    if (g_pop == g_sent_n) {              /* everything captured so far was consumed */
+        g_pop = 0u;
+        g_sent_n = 0u;
+    }
     if (g_sent_n < SENT_MAX) {
         g_sent[g_sent_n].len = len;
         memcpy(g_sent[g_sent_n].data, frame, len);
@@ -88,17 +94,22 @@ bool od_hal_radio_tag_is_live(od_origin_t origin, uint32_t tag)
 void od_txq_app_dropped(const od_reply_t *rp, uint16_t len, od_radio_result_t why)
 { (void)rp; (void)len; (void)why; }
 
-static struct od_session g_session;
-static bool g_security_on;
-struct od_session *od_session_app_state(void) { return &g_session; }
-const struct SecurityConfig *od_session_app_security(void)
-{ return g_security_on ? &g_sec : NULL; }
-uint32_t od_session_app_now_ms(void) { return 5000u; }
-void od_session_app_device_id(uint8_t out[OD_SESSION_DEVICE_ID_LEN])
-{ memcpy(out, DEVICE_ID, OD_SESSION_DEVICE_ID_LEN); }
-void od_session_app_report(enum od_session_app_op op, int result, uint16_t cmd,
-                           const struct od_session_report *report)
-{ (void)op; (void)result; (void)cmd; (void)report; }
+/* The SEC2 client reads its handshake replies from the capture. */
+bool sec2c_radio_pop(uint8_t *buf, uint16_t *len)
+{
+    if (g_pop >= g_sent_n) {
+        return false;
+    }
+    memcpy(buf, g_sent[g_pop].data, g_sent[g_pop].len);
+    *len = g_sent[g_pop].len;
+    ++g_pop;
+    return true;
+}
+
+uint32_t od_sec2_app_now_ms(void) { return 5000u; }
+void od_sec2_app_uid(uint8_t uid[8]) { memcpy(uid, UID, 8u); }
+uint8_t od_sec2_app_dflags(void) { return OD_SEC2_DFLAG_HAS_PANEL; }
+const struct SecurityConfig *od_sec2_app_security(void) { return &g_sec; }
 
 static const od_reply_t OWNER = { OD_ORIGIN_BLE, 7u };
 static const od_reply_t OTHER_TAG = { OD_ORIGIN_BLE, 8u };
@@ -108,12 +119,12 @@ static void setup(void)
 {
     fake_nfc_tag_reset();
     od_txq_reset();
+    fake_reset();
     sec_init(0u);
-    g_security_on = false;
-    od_session_clear(&g_session);
-    memset(&g_session, 0, sizeof g_session);
+    (void)od_sec2_boot(NULL);
     od_nfc_reset();
     g_sent_n = 0u;
+    g_pop = 0u;
 }
 
 /* ------------------------------------------------------------------------------ submitting --- */
@@ -123,6 +134,7 @@ static od_cmd_result_t submit_from(od_reply_t who, const uint8_t *body, uint16_t
     od_tx_reservation_t r;
 
     g_sent_n = 0u;
+    g_pop = 0u;
     if (od_txq_reserve(1u, &r) != OD_TXQ_OK) {
         return OD_CMD_UNKNOWN;
     }
@@ -315,10 +327,10 @@ static void test_read_above_the_cap(void)
 static void test_read_sealed(void)
 {
     static const uint8_t read[1] = { NFC_SUB_READ };
-    uint8_t nonce[16];
-    uint8_t expected[OD_SESSION_PLAIN_FRAME_MAX];
+    struct sec2c c;
+    uint8_t expected[OD_SEC2_PLAIN_RESP_MAX];
     uint16_t expected_len;
-    uint8_t plain[OD_SESSION_PLAIN_FRAME_MAX];
+    uint8_t plain[256];
     uint16_t plain_len = 0u;
 
     /* THE PLAINTEXT ANSWER IS THE ORACLE, captured rather than described. Spot-checking a status
@@ -337,14 +349,13 @@ static void test_read_sealed(void)
      * the session happens to be encrypted. */
     CASE("the same read in a protected session decodes to the identical frame");
     setup();
-    g_security_on = true;
-    CHECK(handshake(&g_session, od_session_app_now_ms(), nonce, false)
-          == OD_SESSION_AUTH_ESTABLISHED);
+    (void)od_sec2_boot(&g_sec);
+    sec2c_init(&c, MASTER, UID);
+    CHECK(sec2c_auth(&c, &OWNER) == 0);
     fake_nfc_read_len = 218u;
     CHECK(submit(read, 1u) == OD_CMD_OK);
-    CHECK(g_sent_n == 1u && g_sent[0].len == 253u);
-    CHECK(session_fake_unseal(g_sent[0].data, g_sent[0].len, plain,
-                              (uint16_t)sizeof plain, &plain_len));
+    CHECK(g_sent_n == 1u && g_sent[0].len == 224u + OD_SEC2_D2H_OVERHEAD);
+    CHECK(sec2c_open(&c, g_sent[0].data, g_sent[0].len, plain, &plain_len));
     CHECK(plain_len == expected_len);
     CHECK(plain_len == expected_len && memcmp(plain, expected, expected_len) == 0);
 }

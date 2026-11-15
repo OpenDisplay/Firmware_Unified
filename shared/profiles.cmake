@@ -15,7 +15,11 @@
 # EFR32BG22: 32 KB RAM, no kernel, no PIPE, no partial transfer, no RX ring, single chip select,
 # no logging, and no touch/buzzer/Wi-Fi/extended-data hardware.
 set(OD_PROFILE_SILABS
-    OD_CONFIG_MAX_SIZE=2048u
+    # 3120 rather than 4096: a 16-colour 2.9in config measures 2112 B and each additional
+    # display sharing the global waveform slots adds ~493 B, so this covers two displays with
+    # margin. The ceiling is NVM3's, not RAM's -- see nvm3_default_config.h. Cost is 1088 B of
+    # .memory_manager_heap, which the linker sizes as whatever RAM is left; no flash.
+    OD_CONFIG_MAX_SIZE=3120u
     OD_TXQ_SLOTS=3u
     OD_CAP_PIPE=0
     OD_CAP_PARTIAL=0
@@ -27,7 +31,19 @@ set(OD_PROFILE_SILABS
     # DIVERGENCE_MATRIX 16; ratcheted by check.sh "silabs: BG22 has no buzzer runner".
     OD_CONFIG_WITH_BUZZER=0
     OD_CONFIG_WITH_WIFI=0
-    OD_CONFIG_WITH_DATA_EXTENDED=0)
+    OD_CONFIG_WITH_DATA_EXTENDED=0
+    OD_CAP_IMGSTORE=1
+    # CMD_DRIVE_WRITE_START: canonical at protocol 2.3, Silabs-first. Routed only by targets with
+    # a display path driven from config drive packets; Nordic sets it in its own CMakeLists.
+    OD_CAP_DRIVE_WRITE=1
+    # CMD_SPI_RAW: Silabs-only by specification, and the opcode every panel in this fleet was
+    # brought up through. ESP32 and Nordic set it in their own build files too.
+    OD_CAP_SPI_RAW=1
+    # CMD_READ_IDENT: plaintext identity from DisplayConfig 0x20, pre-gate. Silabs-first.
+    OD_CAP_READ_IDENT=1
+    # od_epd's WINDOW/FILL escapes (partial update) cost flash this part does not have, and it
+    # has no partial transfer to use them; a sequence carrying them is refused SEQ_UNSUPPORTED.
+    OD_EPD_WITH_WINDOW=0)
 
 # Compile-time log level, one selector for every target.
 #

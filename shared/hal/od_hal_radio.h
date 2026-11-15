@@ -3,10 +3,10 @@
  * The fourth shared HAL, after od_hal_adv, od_hal_wdt and od_hal_crypto. Division of labour: this
  * header owns nothing but the act of handing bytes to a link and asking whether that link is still
  * the one that asked. Queue policy, reservation, sealing and drain ordering are od_txq's; framing
- * is od_session's; who may talk is the target's connection policy.
+ * is od_sec2's; who may talk is the target's connection policy.
  *
  * NOT ISR-SAFE, and not intended to be. Every caller runs on the single loop/main context that
- * owns the queue, the same contract od_adv_control and od_session already state.
+ * owns the queue, the same contract od_adv_control and od_sec2 already state.
  */
 
 #ifndef OD_HAL_RADIO_H

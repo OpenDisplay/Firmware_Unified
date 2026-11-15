@@ -1,3 +1,4 @@
+#include "od_claim_mode.h"
 #include "wifi_service.h"
 #include "od_ble.h"        /* OD: BLE identity address for the mDNS TXT record */
 
@@ -6,8 +7,7 @@
 #include "communication.h"
 #include "od_cmd.h"
 #include "encryption.h"   // getChipIdHex(), getAuthDeviceIdBytes(), OD_CHIP_ID_HEX_LEN
-#include "od_session.h"
-#include "od_session_app.h"
+#include "od_sec2.h"
 #include "structs.h"
 #include "od_log.h"
 #include "ble_transport.h"
@@ -244,7 +244,7 @@ uint8_t getFirmwareMinor();
 // ------------------------------------------------------------------ TLS-PSK ---
 // One TLS session at a time, driven cooperatively from handleWiFiServer(). The
 // PSK identity string "opendisplay" must match the py-opendisplay client; the
-// PSK bytes come from od_session_derive_tls_psk() (AES-CMAC over the master key).
+// PSK bytes are K_lan = KDF(K_dev, "OD2/k-lan", uid) (SECURITY_V2 2.2, 12).
 static const char* kTlsPskIdentity = "opendisplay";
 static const int kTlsCiphersuites[] = { MBEDTLS_TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256, 0 };
 
@@ -279,10 +279,10 @@ static uint16_t lanBasePort(void) {
 // Active LAN port: plaintext -> base; TLS -> base+1 (derived, no config field).
 uint16_t lanActivePort(void) {
     uint16_t base = lanBasePort();
-    return od_session_security_enabled(od_session_app_security()) ? (uint16_t)(base + 1) : base;
+    return (od_sec2_state() == OD_SEC2_CLAIMED) ? (uint16_t)(base + 1) : base;
 }
 
-bool lanTlsEnabled(void) { return od_session_security_enabled(od_session_app_security()); }
+bool lanTlsEnabled(void) { return (od_sec2_state() == OD_SEC2_CLAIMED); }
 
 // Is there a LIVE, FULLY HANDSHAKEN TLS-PSK session on the accepted socket?
 //
@@ -419,7 +419,7 @@ static void od_tls_free(void* p) {
 void od_tls_reserve_records(void) {
     if (s_tlsAllocHooked) return;
     // Gate on config: a device without encryption must not hold 34 KB it never uses.
-    if (!od_session_security_enabled(od_session_app_security())) {
+    if (!(od_sec2_state() == OD_SEC2_CLAIMED)) {
         od_log_info("TLS: encryption disabled, no record buffers reserved");
         return;
     }
@@ -477,8 +477,8 @@ static bool tlsEnsureConfig(void) {
     // heap, but the log then says so instead of leaving it silently unreserved.
     od_tls_reserve_records();
     if (tlsInited) return true;
-    if (!od_session_derive_tls_psk(od_session_app_security(), tlsPsk)) {
-        od_log_error("TLS PSK derivation failed (no master key)");
+    if (!od_sec2_k_lan(tlsPsk)) {
+        od_log_error("TLS PSK derivation failed (device not claimed)");
         return false;
     }
     mbedtls_ssl_config_init(&tlsConf);
@@ -797,7 +797,7 @@ static void restartLanService(void) {
     char idhex[9];
     snprintf(idhex, sizeof(idhex), "%02x%02x%02x%02x", did[0], did[1], did[2], did[3]);
     const char* mac = advertisedBleMacLower();
-    const char* tls = od_session_security_enabled(od_session_app_security()) ? "1" : "0";
+    const char* tls = (od_sec2_state() == OD_SEC2_CLAIMED) ? "1" : "0";
 
     // Value pointers need only outlive the call -- the component copies both key and
     // value into its own record storage.
@@ -833,7 +833,7 @@ static void startLanServer(void) {
         od_log_error("LAN RX buffer unavailable -- LAN transport disabled");
         return;
     }
-    tlsMode = od_session_security_enabled(od_session_app_security());
+    tlsMode = (od_sec2_state() == OD_SEC2_CLAIMED);
     uint16_t port = lanActivePort();
     // A restart on a new port must rebind, not silently keep the old listener: the
     // Arduino WiFiServer::begin() returned early when a socket already existed, so
@@ -970,6 +970,9 @@ static void odWifiEnsureStack(void) {
     s_staNetif = esp_netif_create_default_wifi_sta();
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     esp_wifi_init(&cfg);
+    // SECURITY_V2 10.4 (A16): ESP-IDF keeps no second copy of the password in nvs.net80211
+    // (CONFIG_ESP_WIFI_NVS_ENABLED=y would). Before any esp_wifi_set_config().
+    esp_wifi_set_storage(WIFI_STORAGE_RAM);
     esp_wifi_set_mode(WIFI_MODE_STA);
     s_wifiStackUp = true;
 }
@@ -1284,6 +1287,11 @@ void serviceLanRoam(void) {
 }
 
 void initWiFi(bool waitForConnection) {
+    /* SECURITY_V2 7.3 / 10.1: no WiFi in claim mode, none on a LOCKED device. */
+    if (od_claim_mode_active() || od_sec2_state() == OD_SEC2_LOCKED) {
+        od_log_info("WiFi not started: %s", od_claim_mode_active() ? "claim mode" : "LOCKED");
+        return;
+    }
     od_log_info("=== Initializing WiFi ===");
 
     // WiFi is NOT gated on power_mode: if COMM_MODE_WIFI is enabled the radio comes
@@ -1374,7 +1382,7 @@ void wifiLanDropOwnedSocket(void) {
     //
     // Deliberately the LAN-LOCAL subset of disconnectWiFiServer() below: it closes
     // the socket and clears this file's session bookkeeping, but does NOT call
-    // od_session_clear() or requestTransferSessionCleanup(), which are the
+    // requestTransferSessionCleanup(), which are the
     // abort's own steps 8 and 3-5. Calling them here would nest the two teardowns.
     tlsCloseSession();
     // Ownership, not liveness -- see lanClientConnected(). A peer that has already
@@ -1399,7 +1407,6 @@ void disconnectWiFiServer() {
     // guard here skipped both the close and the crypto clear on every orderly close.
     if (s_lanClientFd >= 0) {
         od_log_info("Closing LAN client");
-        od_session_clear(od_session_app_state());
         lanSockClose(&s_lanClientFd);
     }
     wifiServerConnected = false;

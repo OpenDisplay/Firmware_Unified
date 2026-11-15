@@ -23,7 +23,7 @@
  * of them -- a backward-compatible carve, per that header's own MINOR-bump policy.
  *
  * NAMING. targets/esp32-idf calls its equivalent src/structs.h. This one is not called that
- * because this target's include path also carries third_party/bb_epaper and the panel and uzlib
+ * because this target's include path also carries third_party/ and the panel and uzlib
  * directories, where a header named structs.h is a collision waiting to happen; the od_ prefix
  * matches the rest of this target's local headers.
  */
@@ -44,8 +44,7 @@
 
 /* ------------------------------------------------------------------- RAM-only aggregates --- */
 
-/* Session state lives in shared/core/od_session.h (struct od_session). The session key is not
- * in it at all -- it lives in an od_hal_crypto slot -- so the struct stays trivially zeroable.
- * Never memset one: od_session_clear() is the only teardown, because it also releases the slot. */
+/* SEC2 session state is file-static in shared/core/od_sec2.c; its keys live in od_hal_crypto
+ * slots. od_sec2_disconnect() is the only teardown. */
 
 #endif /* OD_RUNTIME_TYPES_H */

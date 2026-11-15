@@ -16,6 +16,14 @@ a per-target fork. Do not "fix" this by moving it into `shared/`.
 
 ## bb_epaper
 
+> **3.0 (2026-11): no firmware target compiles bb_epaper.** Every target drives its panel from
+> the config's drive packets (`shared/core/od_epd.c` via `od_display.c`); tools/check.sh ratchets
+> "nordic: no panel library" / "esp32: no panel library" enforce it. The tree stays vendored for
+> the host-only panel-data harness (`tests/panels/harness/`, `panels/tools/gen_all.py`), which
+> records bb_epaper's streams as the reference the drive presets are proven against. The notes
+> below describe the 2.x-era ESP32 integration and are kept for the record; the
+> `od_hal_panel` / `od_panel_ops` destination they name was deleted.
+
 > **RESOLVED 2026-08-04 -- bb_epaper needs NO Arduino surface on this target.** The open
 > decision below ("replacing `esp_generic.inl` with an in-project backend as the other two
 > targets already did") was taken: `targets/esp32-idf/panel/od_bbep.cpp` replaces the vendored
@@ -149,7 +157,7 @@ absent is not.
 | Revision | `770e168d695e693688053560d9a8d296a0dbc967` ("changed to taskYIELD") |
 | Licence | **Apache-2.0** |
 | Vendored | 2026-07-25, at the ESP32 phase-B import |
-| Scope | **ESP32-S3 only, and PSRAM-mandatory** — parallel e-paper via the S3 LCD peripheral |
+| Scope | **PSRAM-mandatory** parallel e-paper: the ESP32-S3 LCD peripheral on the S3 boards, and the classic-ESP32 path on `esp32-wrover-e-n4r8` (esp32-resync branch) |
 
 **Pruned on the way in — 13 MB → 380 KB.** Kept `src/`, `LICENSE`, `README.md`,
 `library.properties`. Dropped `examples/` (8.2 MB), `Fonts/` (1.6 MB), `Linux/`, `fontconvert/`,
@@ -260,27 +268,21 @@ tells the linker to silently keep whichever definition it saw first — which me
 G5 codec depends on link order, and a divergence between the two copies becomes a bug nobody can
 see in the source.
 
-**This repo does not carry that flag.** MEMORY_CONSTRAINTS.md § "Open questions" recommends
-option 1 — *compile the duplicated files from one library only* — and DESIGN_REVIEW § "Likely
-pitfalls" #4 warns specifically that the flag must not ship "temporarily", because temporary
-linker workarounds are exactly the class of thing that becomes permanent. It says to adopt
-option 1 **before** phase B, not during. That is what `targets/esp32-idf/main/CMakeLists.txt`
-does: on a FastEPD board it compiles `Group5.cpp` from FastEPD and excludes bb_epaper's; on a
-non-FastEPD board only bb_epaper's exists and the question does not arise.
+**This repo does not carry that flag, and the collision no longer arises.** The ESP32 firmware
+does not link bb_epaper: SPI panels are driven from the config's drive packets
+(`shared/core/od_display.c`), and FastEPD is compiled only on FastEPD boards. So exactly one copy
+of `Group5.cpp` and `bb_ep_gfx.inl` is ever built, FastEPD's, and `FastEPD.cpp` includes its
+`bb_ep_gfx.inl` exactly as upstream does.
 
-**Resolved 2026-07-26, and the collision was wider than Group5.cpp.** FastEPD and bb_epaper
-also both carry `bb_ep_gfx.inl`, defining `bbepUnicodeTo1252`, `bbepUnicodeString`,
-`RotateCharBox`, `bbepStretchAndSmooth` and `millis`. Excluding one copy does not work:
-each library's own wrappers call into its copy, even though the application calls none of
-them. **FastEPD's copy is therefore given internal linkage** (an anonymous namespace,
-`OD-PATCH` in `FastEPD.cpp`) so both libraries keep a private copy and there is no
-arbitrary linker winner. The duplicated text is mostly discarded as unreferenced.
+That matters beyond tidiness: `FastEPD.inl` declares `bbepSetPixel2Clr` and
+`bbepSetPixelFast2Clr` extern and installs them as its 1-bpp pixel setters. While FastEPD's
+drawing layer had internal linkage beside a linked bb_epaper, those references resolved to
+bb_epaper's copies, which read the pointer as a `BBEPDISP`. They now resolve to FastEPD's own.
+FastEPD's 1-bpp mode is not exercised by this firmware's upload paths and has not been run on
+hardware either way.
 
-The premise this rests on, from MEMORY_CONSTRAINTS: *"confirm both drawing APIs are not
-simultaneously required on any single board first."* The `platformio.ini` comment asserts they
-are not — only FastEPD's buffer/update APIs are used on those boards. **That assertion has not
-been verified against the code**, and it is the thing to check before trusting this arrangement
-on hardware.
+bb_epaper stays vendored under `third_party/bb_epaper/`; whether any other target still needs it
+is that target's question, not this one's.
 
 ---
 
@@ -323,3 +325,53 @@ that way: configuration belongs in `sdkconfig.defaults`, not in edits here.
 **This device ADVERTISES ONLY — it never resolves.** There is no upstream build flag for that
 (the querier and browser compile in regardless), so it is expressed in configuration: see
 `sdkconfig.defaults` for the responder-only settings and what each one is worth.
+
+---
+
+## qrcode
+
+| | |
+|---|---|
+| Upstream | https://github.com/ricmoo/QRCode (Richard Moore), itself derived from Project Nayuki's QR Code generator library |
+| Licence | **MIT**. Text and copyright lines in `third_party/qrcode/LICENSE` (Copyright (c) 2017 Richard Moore; Copyright (c) 2017 Project Nayuki). Written from upstream's licence as recalled, not copied from a checkout: confirm both lines against upstream's `LICENSE.txt` and `qrcode.c` header at the same time as the revision |
+| Revision | The ricmoo/QRCode commit it was trimmed from is not recorded anywhere in the source repos. The trimmed form came into this tree byte-identical to `../Firmware_Silabs` `qr/` (`0de8d80`, 2026-04-19) and `../Firmware_NRF54` `src/qr/` (`8af2290`, 2026-07-08); `../Firmware`'s `src/qr/` (`fd0d73a`, 2026-03-24) is an earlier, different trim of the same code. So the exact upstream commit is unknown (maintainer question, checked offline only); diff against ricmoo/QRCode master when someone has network access, and record the closest commit here |
+| Form | A trimmed encoder: byte mode, ECC level M, versions 1-10 only (`qrcode.c` lookup tables) |
+| Arrived | `1f30d36` ("feat: unify boot screen rendering", 2026-08-18) |
+| Used by | the shared boot screen's QR code (`shared/core/od_boot_screen.c`), on every target |
+
+## boot_logo
+
+| | |
+|---|---|
+| Content | `od_logo.svg` (the OpenDisplay logo), `convert_logo.py` (SVG to packed 1-bit C header), `logo_bitmap.h` (its generated output) |
+| Origin | OpenDisplay's own artwork and tooling, not third-party code |
+| Licence | The repository licence, **GPL-3.0** (`LICENSE`), for the logo, the script and the generated header alike |
+| Arrived | `1f30d36`, 2026-08-18 |
+
+It sits under `third_party/` only because the boot screen's other input, the QR encoder, does.
+`logo_bitmap.h` is generated and must not be hand-edited. Regenerate it with
+`convert_logo.py` (needs Pillow plus cairosvg or ImageMagick).
+
+## uzlib / tinf (inflate)
+
+`shared/core/od_zlib_inflate.c` is "based on uzlib/tinf" (its header). uzlib (Paul Sokolovsky)
+and tinf (Joergen Ibsen) are under the **zlib licence**. That licence asks that altered source
+be plainly marked as altered and that the notice not be removed. The file says it is based on
+uzlib/tinf but carries **no copyright notice or licence text** (open item, listed in the
+release checklist). No other uzlib copy is in the tree.
+
+## Linked from toolchains, not vendored here
+
+Release images contain code that is not in this repository but is linked from the pinned
+SDKs. It keeps its own licence:
+
+| Component | In which images | Licence |
+|---|---|---|
+| MCUboot (via nRF Connect SDK v3.3.1) | every Nordic `-merged.hex` and the nRF52840 `usb-2-install.zip` | Apache-2.0 |
+| Zephyr RTOS, nRF Connect SDK (SoftDevice Controller, nrfx, Oberon PSA crypto) | every Nordic image | Apache-2.0 and the LicenseRef-Nordic-5-Clause terms of their sources |
+| ESP-IDF (bootloader, NimBLE, mbedTLS, FreeRTOS) | every ESP32 image | Apache-2.0 (FreeRTOS: MIT) |
+| Simplicity SDK (Bluetooth stack, Gecko bootloader, emlib, SEGGER RTT when enabled) | every BG22 image and `opendisplay-bg22-bootloader.s37` | Silicon Labs MSLA / Zlib / SEGGER RTT BSD-style, per file |
+| Adafruit nRF52 Bootloader | not shipped. It is the bootloader already on the device; the nRF52840 USB packages are written through it | MIT |
+
+A release ships `LICENSE` and this file. Notices for the SDK components are in the SDK sources
+at the pinned versions (docs/TOOLCHAINS.md).

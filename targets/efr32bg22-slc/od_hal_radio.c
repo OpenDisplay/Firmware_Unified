@@ -1,6 +1,7 @@
 /* BG22 notification adapter for the shared bounded response queue. */
 
 #include "od_hal_radio.h"
+#include "od_diag.h"
 
 #include "od_txq.h"
 #include "opendisplay_pipe.h"
@@ -42,7 +43,7 @@ od_radio_result_t od_hal_radio_send(od_origin_t origin, uint32_t tag,
   if (sc == SL_STATUS_NO_MORE_RESOURCE) {
     return OD_RADIO_RETRY;
   }
-  printf("[OD] pipe notify permanent failure sc=0x%04lX len=%u\r\n",
+  OD_DIAG("[OD] pipe notify permanent failure sc=0x%04lX len=%u\r\n",
          (unsigned long)sc, (unsigned)len);
   return OD_RADIO_ERROR;
 }
@@ -55,6 +56,6 @@ bool od_hal_radio_tag_is_live(od_origin_t origin, uint32_t tag)
 
 void od_txq_app_dropped(const od_reply_t *rp, uint16_t len, od_radio_result_t why)
 {
-  printf("[OD] TX dropped len=%u tag=%lu reason=%d\r\n", (unsigned)len,
+  OD_DIAG("[OD] TX dropped len=%u tag=%lu reason=%d\r\n", (unsigned)len,
          (unsigned long)(rp != NULL ? rp->tag : 0u), (int)why);
 }

@@ -1,7 +1,7 @@
 #include "od_pipe.h"
 
 #include "od_log.h"
-#include "od_session.h"
+#include "od_sec2.h"
 #include "od_xfer.h"
 #include "od_xfer_internal.h"
 
@@ -15,8 +15,8 @@
 
 OD_STATIC_ASSERT(sizeof(struct PipeStartRequest) == 10u, "PipeStartRequest wire size");
 OD_STATIC_ASSERT(sizeof(struct PipePartialExt) == 12u, "PipePartialExt wire size");
-OD_STATIC_ASSERT(OD_SESSION_ENVELOPE_MIN == 29u, "PIPE protected-frame accounting");
-OD_STATIC_ASSERT(PIPE_FRAME_OVERHEAD + 1u + OD_SESSION_ENVELOPE_MIN == 33u,
+OD_STATIC_ASSERT(OD_SEC2_H2D_MIN == 16u, "PIPE protected-frame accounting");
+OD_STATIC_ASSERT(PIPE_FRAME_OVERHEAD + 1u + OD_SEC2_H2D_MIN == 20u,
                  "smallest protected PIPE DATA frame");
 
 #if OD_CAP_PIPE
@@ -374,7 +374,7 @@ od_cmd_result_t od_pipe_start(const od_cmd_ctx_t *ctx, od_span_t body)
     client_max_frame = read_le16(body.p + 4u);
     total = read_le32(body.p + 6u);
     minimum_frame = (uint16_t)(PIPE_FRAME_OVERHEAD + 1u
-        + (ctx->was_protected ? OD_SESSION_ENVELOPE_MIN : 0u));
+        + (ctx->was_protected ? OD_SEC2_H2D_MIN : 0u));
     if (client_max_frame < minimum_frame) {
         od_xfer_log_start_refused("PIPE", OD_XFER_START_MALFORMED,
                                   OD_ERR_PIPE_START_BAD_HEADER, false);
@@ -406,10 +406,12 @@ od_cmd_result_t od_pipe_start(const od_cmd_ctx_t *ctx, od_span_t body)
 #endif
     cause = od_xfer_pipe_arm_full(ctx, total, compressed);
     if (cause != OD_XFER_START_OK) {
-        od_xfer_log_start_refused("PIPE", cause, OD_ERR_PIPE_START_SIZE_MISMATCH,
+        error = cause == OD_XFER_START_NEEDS_MIGRATION ? OD_ERR_NEEDS_MIGRATION
+                                                       : OD_ERR_PIPE_START_SIZE_MISMATCH;
+        od_xfer_log_start_refused("PIPE", cause, error,
                                   cause == OD_XFER_START_PANEL_GEOMETRY
                                   || cause == OD_XFER_START_SPLIT_LAYOUT);
-        pipe_send_start_nack(ctx, OD_ERR_PIPE_START_SIZE_MISMATCH);
+        pipe_send_start_nack(ctx, error);
         return OD_CMD_NACK;
     }
 
@@ -483,7 +485,7 @@ od_cmd_result_t od_pipe_data(const od_cmd_ctx_t *ctx, od_span_t body)
         pipe_send_data_nack(ctx, 0x03u, OD_XFER_TERM_FRAME_SIZE);
         return OD_CMD_NACK;
     }
-    protection_overhead = ctx->was_protected ? OD_SESSION_ENVELOPE_MIN : 0u;
+    protection_overhead = ctx->was_protected ? OD_SEC2_H2D_MIN : 0u;
     if (ctx->wire_len > s_pipe.frame_eff
         || s_pipe.frame_eff < PIPE_FRAME_OVERHEAD + protection_overhead) {
         pipe_send_data_nack(ctx, 0x03u, OD_XFER_TERM_FRAME_SIZE);

@@ -1,9 +1,11 @@
 #include "opendisplay_config_storage.h"
+#include "od_diag.h"
 
 #include <stddef.h>
 #include <stdio.h>
 
 #include "nvm3_default_config.h"
+#include "od_cfg_policy.h"
 #include "od_config_store.h"
 
 /* The record must fit ONE NVM3 object. Nothing checks this at runtime -- od_hal_nvs_write()
@@ -55,9 +57,9 @@ bool saveConfig(uint8_t *config_data, uint32_t len)
     return false;
   }
 
-  rc = od_config_store_save(s_cfg.record, sizeof(s_cfg.record), config_data, len);
+  rc = od_cfg_policy_save(s_cfg.record, sizeof(s_cfg.record), config_data, len);
   if (rc != OD_CONFIG_STORE_OK) {
-    printf("[OD] config save failed rc=%d len=%u\r\n", (int)rc, (unsigned)len);
+    OD_DIAG("[OD] config save failed rc=%d len=%u\r\n", (int)rc, (unsigned)len);
   }
   /* After the write, always: the state words are already gone, so leaving `active` set would
    * resume a transfer against a record header. */
@@ -72,5 +74,6 @@ bool loadConfig(uint8_t *config_data, uint32_t *len)
 
 bool clearStoredConfig(void)
 {
-  return od_config_store_clear() == OD_CONFIG_STORE_OK;
+  /* SECURITY_V2 10.6: a claimed device keeps 0x27 at rest; the policy decides. */
+  return od_cfg_policy_clear_store() == OD_CONFIG_STORE_OK;
 }

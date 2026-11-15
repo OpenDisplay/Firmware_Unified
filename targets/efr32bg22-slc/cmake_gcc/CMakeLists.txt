@@ -14,14 +14,58 @@ option(OD_TNB132M_BOOT_PROBE "At boot read TNB132M NDEF via Type-3 AI@0x48 + dat
 option(OD_TNB132M_WRITE_NDEF "With BOOT_PROBE: before the read, write OD_TNB132M_NDEF_TEXT as a Text record" OFF)
 set(OD_TNB132M_NDEF_TEXT "OpenDisplay" CACHE STRING "UTF-8 text (lang=en) written when OD_TNB132M_WRITE_NDEF=ON; max 25 chars")
 
-set(OD_APP_VERSION "0x0019" CACHE STRING "16-bit BLE app version (hex, high byte=major, low=minor); ignored when OD_FW_VERSION is set")
+# Target printf diagnostics, see od_diag.h: 2 every line, 1 boot banner + fatals only, 0 none.
+set(OD_BG22_DIAG "1" CACHE STRING "BG22 printf diagnostics level (0 none, 1 fatal+banner, 2 all)")
+set_property(CACHE OD_BG22_DIAG PROPERTY STRINGS 0 1 2)
+if(NOT OD_BG22_DIAG MATCHES "^[012]$")
+  message(FATAL_ERROR "OD_BG22_DIAG must be 0, 1 or 2 (got '${OD_BG22_DIAG}')")
+endif()
+
+# THE CONNECTION-COUNT DECISION (docs/BG22_RAM_BUDGET.md section 3.1). The Bluetooth stack takes
+# every connection's tables from the heap at init (about 468 B each: LL 328 + host 140), whether
+# or not a link ever uses them, and this firmware serves one link at a time. 4 is the Simplicity
+# default and what every hardware test so far ran; 2 leaves about 936 B more heap at the one-link
+# peak. Changing OD_BG22_MAX_CONNECTIONS_DEFAULT is the whole change; it needs the D11/D12 rows.
+# Not cached: a one-off -DOD_BG22_MAX_CONNECTIONS=<n> (a measurement build) must not stick to the
+# next release build in the same directory.
+set(OD_BG22_MAX_CONNECTIONS_DEFAULT 4)
+if(DEFINED OD_BG22_MAX_CONNECTIONS)
+  set(od_bg22_max_conn "${OD_BG22_MAX_CONNECTIONS}")
+  unset(OD_BG22_MAX_CONNECTIONS CACHE)
+  set(OD_BG22_MAX_CONNECTIONS "${od_bg22_max_conn}")
+else()
+  set(OD_BG22_MAX_CONNECTIONS ${OD_BG22_MAX_CONNECTIONS_DEFAULT})
+endif()
+if(NOT OD_BG22_MAX_CONNECTIONS MATCHES "^[1-4]$")
+  message(FATAL_ERROR "OD_BG22_MAX_CONNECTIONS must be 1..4 (got '${OD_BG22_MAX_CONNECTIONS}')")
+endif()
+message(STATUS "OD_BG22_MAX_CONNECTIONS: ${OD_BG22_MAX_CONNECTIONS}")
+
+set(OD_APP_VERSION "0x0300" CACHE STRING "16-bit BLE app version (hex, high byte=major, low=minor); ignored when OD_FW_VERSION is set")
 set(OD_FW_VERSION "" CACHE STRING "App version string major.minor[.patch] (optional leading v); drives BLE 0x43 + boot screen")
 set(OPENDISPLAY_BUILD_ID "bg22-dev" CACHE STRING "Firmware version string (GATT 0x0043 / build id)")
-set(OD_SL_APPLICATION_VERSION "" CACHE STRING "If set, overrides SL_APPLICATION_VERSION (decimal uint32)")
+set(OD_SL_APPLICATION_VERSION "" CACHE STRING "If set, overrides the derived SL_APPLICATION_VERSION (decimal uint32)")
 
 # Include the definition of the slc_opendisplay-bg22 target,
 # which contains the content of the SLC project
 include(opendisplay-bg22.cmake)
+
+# Link-time optimisation (the SDK's toolchain_gcc_lto setting: -flto at compile and link; the
+# Bluetooth host archives ship LTO IR for it). These objects stay out of it:
+# - definitions referenced only from newlib members pulled in after the IR is resolved
+#   (syscalls, the --wrap'd allocator, _write, the printf family): the plugin would drop them;
+# - em_msc.c and em_emu.c, which hold the text_application_ram functions (Series 2 flash
+#   write/erase must execute from RAM): cross-TU inlining would copy their bodies into flash
+#   callers and lose the section.
+set_source_files_properties(
+    "${SDK_PATH}/platform_core/platform/emlib/src/em_msc.c"
+    "${SDK_PATH}/platform_core/platform/emlib/src/em_emu.c"
+    "${SDK_PATH}/platform_common/platform/common/src/sl_syscalls.c"
+    "${SDK_PATH}/platform_core/platform/service/memory_manager/src/sl_memory_manager_retarget.c"
+    "../od_rtt.c"
+    "../od_printf.c"
+    TARGET_DIRECTORY slc
+    PROPERTIES COMPILE_OPTIONS "-fno-lto")
 
 # main.c and other app sources live in target `slc`; they must see OD_ENABLE_RTT when compiled.
 target_compile_definitions(slc PUBLIC
@@ -30,6 +74,8 @@ target_compile_definitions(slc PUBLIC
 	OD_TNB132M_WRITE_NDEF=$<IF:$<BOOL:${OD_TNB132M_WRITE_NDEF}>,1,0>
 	"OD_TNB132M_NDEF_TEXT=\"${OD_TNB132M_NDEF_TEXT}\""
 	SL_APP_PROPERTIES=1
+	"OD_BG22_DIAG=${OD_BG22_DIAG}"
+	"OD_BG22_MAX_CONNECTIONS=${OD_BG22_MAX_CONNECTIONS}"
 	"OD_APP_VERSION=${OD_APP_VERSION}"
 	"OPENDISPLAY_BUILD_ID=\"${OPENDISPLAY_BUILD_ID}\""
 )
@@ -39,24 +85,54 @@ if(NOT "${OD_FW_VERSION}" STREQUAL "")
   message(STATUS "OpenDisplay FW version: ${OD_FW_VERSION}")
 endif()
 
-if(NOT "${OD_SL_APPLICATION_VERSION}" STREQUAL "")
-  target_compile_definitions(slc PUBLIC "SL_APPLICATION_VERSION=${OD_SL_APPLICATION_VERSION}u")
+# SL_APPLICATION_VERSION (app properties, read by the Gecko Bootloader/AppLoader) is derived
+# from the firmware version unless OD_SL_APPLICATION_VERSION overrides it:
+#
+#     (major << 16) | (minor << 8) | patch        3.0.0 -> 196608, 3.1.2 -> 196866
+#
+# Firmware_Silabs 2.x stamped (major << 8) | minor (2.3.0 -> 515), which tops out at 65535, so
+# every 3.x value is above every 2.x value and the sequence stays monotonic across the switch.
+# The shipped bootloader is built with BOOTLOADER_ROLLBACK_PROTECTION 0, so nothing refuses a
+# lower value today; this keeps that true if rollback protection is ever turned on. Source of
+# the numbers: OD_FW_VERSION ("[v]M.m[.p]") when set, else OD_APP_VERSION (0xMMmm, patch 0).
+if("${OD_SL_APPLICATION_VERSION}" STREQUAL "")
+  if(NOT "${OD_FW_VERSION}" STREQUAL "")
+    string(REGEX MATCH "^v?([0-9]+)\\.([0-9]+)(\\.([0-9]+))?" _od_v "${OD_FW_VERSION}")
+    if(NOT _od_v)
+      message(FATAL_ERROR "OD_FW_VERSION '${OD_FW_VERSION}' is not [v]major.minor[.patch]")
+    endif()
+    set(_od_maj "${CMAKE_MATCH_1}")
+    set(_od_min "${CMAKE_MATCH_2}")
+    set(_od_pat "${CMAKE_MATCH_4}")
+    if("${_od_pat}" STREQUAL "")
+      set(_od_pat 0)
+    endif()
+  else()
+    math(EXPR _od_maj "(${OD_APP_VERSION} >> 8) & 255")
+    math(EXPR _od_min "${OD_APP_VERSION} & 255")
+    set(_od_pat 0)
+  endif()
+  if(_od_maj GREATER 255 OR _od_min GREATER 255 OR _od_pat GREATER 255)
+    message(FATAL_ERROR "firmware version component above 255 cannot be encoded")
+  endif()
+  math(EXPR OD_SL_APPLICATION_VERSION "(${_od_maj} << 16) | (${_od_min} << 8) | ${_od_pat}")
 endif()
+message(STATUS "SL_APPLICATION_VERSION: ${OD_SL_APPLICATION_VERSION}")
+target_compile_definitions(slc PUBLIC "SL_APPLICATION_VERSION=${OD_SL_APPLICATION_VERSION}u")
 
 # Silicon Labs application properties.
 #
-# NOT IMPORTED. Like segger_rtt, this two-file vendored tree has no top-level
-# home in this repo and the migration plan does not mention it; where it belongs
-# is an open decision, not an oversight. The path below is unchanged from the
-# source repo so that the fix is a one-line repoint once that is settled.
-# APP PROPERTIES COMES FROM THE PINNED SDK TOO, and unlike RTT this one is NOT optional:
 # app_properties.c is what the Gecko Bootloader/AppLoader reads to validate the application, so
-# it gates the .gbl OTA path -- the only field-update mechanism any target in this repo has.
+# it gates the .gbl OTA path -- the only field-update mechanism any target in this repo has. It
+# is REQUIRED, not optional, and it comes from the pinned SDK rather than a vendored copy.
 #
-# The two files were byte-for-byte identical to the SDK's copy (verified by hash), so vendoring
-# them bought nothing. The target keeps its own config/app_properties_config.h and
-# config/sl_application_type.h: those carry the OpenDisplay signature, version, capabilities and
-# product id, which ARE ours and must not come from the SDK.
+# SDK_PATH must be a FULL Simplicity SDK. A tree pruned to just the components this target
+# compiles against carries no bootloader_interface/ and fails here -- see docs/TOOLCHAINS.md for
+# the pinned install location.
+#
+# The target keeps its own config/app_properties_config.h and config/sl_application_type.h:
+# those carry the OpenDisplay signature, version, capabilities and product id, which ARE ours
+# and must not come from the SDK.
 set(OPD_APP_PROPERTIES_SRC
     "${SDK_PATH}/bootloader_interface/platform/bootloader/app_properties/app_properties.c")
 if(NOT EXISTS "${OPD_APP_PROPERTIES_SRC}")
@@ -70,7 +146,6 @@ target_sources(slc PRIVATE "${OPD_APP_PROPERTIES_SRC}")
 target_include_directories(slc PUBLIC
     "${SDK_PATH}/bootloader_interface/platform/bootloader")
 target_include_directories(slc PUBLIC
-  "${OPD_APP_PROPERTIES_DIR}"
   "${CMAKE_CURRENT_LIST_DIR}/../config"
 )
 
@@ -130,6 +205,21 @@ endif()
 
 # Force the gcc linker command
 set_target_properties(opendisplay-bg22 PROPERTIES LINKER_LANGUAGE C)
+
+# RAM budget gate (docs/BG22_RAM_BUDGET.md): the heap is whatever RAM the statics leave, and the
+# Bluetooth stack allocates its connection state from it at connect time, so a heap that is too
+# small links, boots and advertises, then serves no GATT. Runs before the image artefacts so a
+# failing image produces no .s37/.gbl to flash or OTA (and stale ones from an earlier link are
+# deleted).
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+add_custom_command(TARGET opendisplay-bg22
+    POST_BUILD
+    COMMAND "${Python3_EXECUTABLE}" "${OD_REPO_ROOT}/tools/bg22_ram_budget.py" --fail-removes-artefacts
+      --elf "$<TARGET_FILE:opendisplay-bg22>"
+      --baseline "${CMAKE_CURRENT_LIST_DIR}/../ram_budget.json"
+    COMMENT "BG22 RAM budget (heap floor, stack, static RAM ratchet)"
+    VERBATIM
+)
 
 # Create .bin, .hex and .s37 artifacts after building the project
 add_custom_command(TARGET opendisplay-bg22

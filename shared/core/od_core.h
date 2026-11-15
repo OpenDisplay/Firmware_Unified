@@ -27,8 +27,8 @@ extern "C" {
 /* Drop any partial NFC assembly, reset transfer state, cancel the config-read producer, drop
  * queued responses, and clear the app session.
  *
- * The session goes through od_session_clear(), never a memset: clear also releases the HAL key
- * slot and preserves the slot index, and a memset would strand a prepared key in a finite pool. */
+ * The session goes through od_sec2_disconnect(), never a memset: it also releases the HAL key
+ * slots and the pending handshake, and a memset would strand a prepared key in a finite pool. */
 void od_core_reset(void);
 
 #ifdef __cplusplus

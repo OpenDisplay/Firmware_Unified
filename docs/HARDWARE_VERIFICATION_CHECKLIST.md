@@ -32,6 +32,163 @@ floor and D8 are BG22-only and are the rows
 Wire encoding for these rows: `group_repeats` is sent **minus one**, so "raw `0x02`" is a request
 for three groups. `py-opendisplay` sends raw `0xFE` for indefinite and never sends a finite `0xFF`.
 
+### ESP32 + Nordic — shared `od_epd_cfg`: CMD_DRIVE_WRITE_START + CMD_SPI_RAW, 2026-11-10
+
+Both opcodes now route on ESP32 (SPI panels only; FastEPD/IT8951 boards refuse) and Nordic
+through `shared/core/od_epd_cfg.c` + `od_cmd_drive.c` + `od_cmd_spi_raw.c`. Builds pass
+(ESP32 `s3-n16r8-extuart`, `c3-n4`; Nordic `xiao_nrf52840` single- and dual-slot); host gate green.
+Nordic's 0x0085 was on glass before the move to shared code; nothing below has run since.
+
+- [ ] Nordic `xiao_nrf52840` (EN04, 2.9" BWRY): 16-colour 0x0085 through the shared path, on glass
+- [ ] Nordic: CMD_SPI_RAW OPEN (plain and PANEL_INIT), CMD, DATA, DATA_NOACK, BUSY, RESET, CLOSE
+- [ ] Nordic: BLE disconnect mid raw session closes it (rail down)
+- [ ] ESP32 SPI-panel board with drive packets: 0x0085 on glass
+- [ ] ESP32: CMD_SPI_RAW sub-opcodes, and refusal on a FastEPD/IT8951 board
+- [ ] ESP32: ordinary bb_epaper upload still works after a drive or raw session
+
+### EFR32BG22 (`efr32bg22-slc`) — 3.0 rollout on six units, 2026-11-13
+
+Release image `v3/head2` `3c5e1f7` (gbl sha256 `5366fdf2…`, RAM gate heap 9,664 B), delivered by
+BLE OTA through the AppLoader. Each unit then got a fresh website-preset config (board + panel +
+power, BG22 drive class), left open and unclaimed. Evidence: `reports/silabs_validation/`
+(`LOG.md`, `REPORT.md`, per-unit logs) outside the repo. "Glass" = Jonas looked at the panel.
+
+| Unit | Board | Panel | Update from |
+|---|---|---|---|
+| ODF4DA34 | M3 Pro | 0x001E EP29YR 2.9in | 2.2.1 |
+| OD1F9C0E | M3 Pro | 0x0038 EP154YR 1.54in | 2.2.1 |
+| OD01AAA9 | M3 Pro | 0x003A EP42YR 4.2in (BUSY unusable) | 2.2.1 |
+| OD6FACF2 | M3 Pro | 0x001C EP266YR 2.66in | 2.2.1 |
+| OD507E22 | M3 Core | 0x0036 EP35YR 3.5in | 0.25 bg22-dev (4-page NVM3 prototype) |
+| ODBF064E | M3 Pro | 0x0040 EP75YR 7.5in | 0.25 bg22-dev, encrypted |
+
+- [x] **2.2.1 -> 3.0 keeps the config**: 289 B (x3) and 579 B byte-identical after the OTA, on four
+      units; READ_IDENT flags 0x0B (NEEDS_MIGRATION), SEC2 UNCLAIMED.
+- [x] **0.25 -> 3.0 keeps the config on OD507E22**: 1772 B with display modes/LUT packets,
+      byte-identical.
+- [x] **0.25 -> 3.0 brought back an OLDER config on ODBF064E**: `BG22_NVM3_OTA_LAYOUT.md` case (b)
+      row 2, now observed. The 2072 B open config written and read back on 0.25 was gone; the
+      2138 B encrypted one it replaced came back, and 3.0 migrated its key into SEC2 (CLAIMED).
+- [x] Same-image re-flash after every update (six units) - the units stay updatable.
+- [x] Fresh config write + byte-identical read-back (2032-2110 B), six units.
+- [x] Compressed, raw and 0x0085 colour16 uploads ACKed on all six panels (4.2in: START ACK
+      only after panel power-on, beyond the client's 10 s; colour16 221 s).
+- [x] Image store mounts after a reboot (not after the config write) and serves FLASH_PRELOAD /
+      FLASH_DISPLAY slot 0 on all six (16/12/32/20/20/96 KiB slots).
+- [x] **Glass: yellow and red were swapped** with `code_map` [0,1,3,2] on all six BWRY panels;
+      **correct on all six** after the identity map (fixed panel data, config rewritten). Only the
+      4-colour full mode was looked at; colour16 output was not checked by eye on any unit.
+- [x] Health gate on ODF4DA34: 24 links (incl. 4 consecutive quiet 15 s links), no AppLoader
+      entry. Counters not read (RTT only).
+- [x] **SEC_KEY UNCLAIM on BG22 (ODBF064E)**: accepted, unit UNCLAIMED, 0x27 disabled and zeroed.
+      **Its next boot never advertised**: the storage purge looped in `nvm3_repack`
+      (SWD PC samples + stack), NVM3 pages ended at ~29,200 erases each (spec 10k). Recovered
+      by erasing 0x50000-0x56000 over SWD; the unit then booted factory-fresh into claim mode,
+      the 10-minute window timed out unclaimed, and it was configured normally.
+- [ ] **Purge fix (`od_nvm3_purge.c`) on hardware**: UNCLAIM or factory reset on a configured BG22
+      running the fixed image, reboot watched under J-Link: must advertise within seconds, erase
+      counts up by about one per page. Not run.
+- [ ] Factory reset (R6 sets the same purge flag) on BG22: not run.
+- [ ] colour16 output on glass; the 4.2in colour16 palette is still the 2.9in copy.
+
+### EFR32BG22 (`efr32bg22-slc`) — link starvation after a config write, 2026-11-11
+
+Unit **OD13FA1E** (M3 Silabs Pro, EP29YR 2.9in BWRY, 168x384), encrypted, FMDN + FindMy on,
+LTO image `bg22-test-B-fix` (v3/reconnect-fix), 2274 B config, delivered by BLE OTA only.
+
+- [x] **Boot screen renders on BWRY** (was: no blank second plane for a single packed plane;
+      the render failed after a 21 s stall at boot and after every config write).
+- [x] **No refresh while a link is open; advertising paused during it.** After a config write
+      the writer stayed connected and got FIRMWARE_VERSION and encrypted READ_MSD in 0.09 s each
+      (session kept: security packet unchanged). After it disconnected, adverts stopped for
+      ~24 s while the boot screen drew, then resumed; connects at t=15..100 s all served,
+      a connect at t=5 s failed cleanly at the client's 20 s timeout (no half-open link).
+- [x] Config write/restore round trip byte-identical (2274 B); 0x0085 16-colour ACK in 28.9 s;
+      compressed upload; OTA of the image onto itself, first reconnect clean.
+- [x] **Image store mounts with flash MISO = PC0** (`0x20` in the 0x26 packet's MISO byte):
+      31 slots x 16 KiB; preload slot 0 -> VALID with digest, display accepted, erase -> empty,
+      display of the erased slot refused. The shipped config/preset has MISO 0xFF, so the store
+      stays unmounted until the preset is fixed. Panel output not camera-checked.
+- [ ] Not seen on glass by a camera; not watermarked for stack.
+
+### EFR32BG22 (`efr32bg22-slc`) — CMD_SPI_RAW + config ceiling, 2026-11-06
+
+Unit **ODBEEBA6** (2.9in BWRY GDEY029F51H, 168x384), 3.0 V from a PPK2, encrypted link,
+`OD_CONFIG_MAX_SIZE=3120` / `NVM3_DEFAULT_MAX_OBJECT_SIZE=3136`, image from `f012ca3`.
+
+- [x] **Config ceiling moved, and the boundary is exact.** `CMD_CONFIG_WRITE` start frames only,
+      so nothing is committed and the live config is untouched. Before the OTA: 2048 ACCEPTED,
+      2049 REFUSED. After: 3120 ACCEPTED, **3121 REFUSED**, and **2112 — the measured 16-colour
+      2.9in config size — went from REFUSED to ACCEPTED**, which is the whole point of the change.
+- [x] **NVM3 still opens, and the stored config survived.** This is the row that matters: the
+      Firmware_Silabs failure of 2026-11-02 compiled fine and then would not open, reading every
+      config back as 0 bytes. The pre-existing 1325-byte blob read back intact after the OTA
+      (`2d 05` total, system + DisplayConfig ic `0x001E` 168x384 present).
+- [x] **CMD_SPI_RAW (0x0084) answers on all paths.** Before the OTA every sub-opcode TIMED OUT --
+      an unrouted opcode is silent, not NACKed (`OD_FRAME_UNKNOWN_OPCODE` emits no frame). After:
+      `CMD` before OPEN -> NACK `0x02` NOT_OPEN; `BUSY` with no args -> NACK `0x01` BAD_ARGS;
+      sub `0x7F` -> NACK `0x05` UNKNOWN_SUB; OPEN (pins only) -> ACK; `BUSY 1000 ms` -> ACK with
+      payload `00 00 00`, i.e. elapsed 0 and not-busy, correct for a pins-only OPEN that sent
+      nothing; CLOSE -> ACK; `CMD` after CLOSE -> NACK NOT_OPEN, so teardown works.
+- [x] **The CMD path really clocks the bus.** `--poke` sent command byte `0x71` -> ACK, and a
+      following BUSY still answered, so the session survived a real write.
+
+- [x] **A >2048 B config COMMITS and round-trips.** This was the open row above; it is now closed.
+      The real 16-colour drive config for 0x001E went on via `migrate_drive_config.py`:
+      **1325 B -> 2144 B**, and the delta of **819 B is exactly** the three expected additions
+      measured beforehand with `packets_from_yaml` (colour16 mode 140 + wave_edit LUT 543 +
+      calibration 136). Read back **2144/2144 B COMPLETE over 23 frames** and parsed by
+      py-opendisplay's own deserialiser.
+- [x] **The drive set is complete and correctly shaped.** `0xB1` panel; `0xAE` **two** modes --
+      `mode_index=0 scheme=0xFF passes=1` (full) and `mode_index=1 scheme=10 passes=3`
+      (colour16); `0xAF` **two** waveform slots at 539 B each; `0xB0` calibration bound to
+      `mode_index=1`. No `unknown_ex` packets, so nothing was left unparsed.
+- [x] **`bwry16` stayed a MODE, not a scheme.** DisplayConfig `0x20` still reports
+      `color_scheme=3` (BWRY) while scheme 10 appears only on the `0xAE` mode packet -- the
+      invariant that keeps an unknown scheme from silently degrading a panel to greyscale.
+- [x] **Device identity survived the rewrite.** `0x27` security is PRESENT in the read-back and
+      the unit still answers on the encrypted link.
+
+**Two tooling defects found while doing this, both in HOST code, neither a firmware fault:**
+`Firmware_Silabs scripts/dump_config.py` reads the CONFIG_READ response's *chunk-index* field as
+the declared total, gets 0, and stops after two frames -- which made a healthy 1325 B config look
+like a 272 B truncation. And the config read stream is **not** uniformly framed: the FIRST frame
+is `[00][40][chunk_no:2][total_len:2][tlv...]` (6-byte prefix) while the rest are
+`[00][40][chunk_no:2][tlv...]` (4-byte). Stripping 4 from the first frame shifts the whole blob by
+two bytes and shows up as a bogus "unknown packet type 0x00" immediately after the first packet.
+`device.py interrogate()` gets this right; hand-rolled readers must match it.
+
+### EFR32BG22 (`efr32bg22-slc`) — Firmware_Silabs `feat/od-epd-driver` parity, 2026-11-06
+
+Built (246,908 B; 7,044 B real headroom against 253,952). ODBEEBA6 OTA'd twice on 2026-11-06 (the
+second image adds the write/refresh fix below); PPK2 rail at 3.0 V, encrypted link. **No camera covers
+this bench**, so render rows are protocol-level until someone looks at the glass.
+
+- [x] **16-colour via `0x0085`, protocol level.** Mode 1 (`colour16`): START ACK `mode 1, passes 3,
+      temp 25 C`; 3 x 16128 = 48384 B accepted; END `00 72`; refresh notification `00 73` (success).
+      The first OTA'd image ACKed START and then NACKed the first DATA (`ff 71`): `od_xfer_app_write`
+      and `od_xfer_app_refresh` only admitted `XFER_APP_FULL`, so a drive-mode transfer could never
+      stream. Host tests stub the display layer and could not see it.
+- [x] **16-colour visually correct on glass** (4x4 index16 grid, full panel). Confirmed by eye by
+      the user on 2026-11-06; no camera record.
+- [ ] **Temp policy.** A mode whose window excludes the die temperature: REJECT NACKs `0x06`
+      with nothing driven; SUBSTITUTE answers with the substituted mode index.
+- [x] **`READ_IDENT` (`0x0046`) pre-gate.** Encrypted unit, no key, no session: answered
+      `00 46 04 03 01 1e 00 a8 00 80 01 03` -- protocol minor 4, Silabs, one display, ic `0x001E`,
+      168x384, scheme 3.
+- [x] **Config survives the OTA.** 2144 B read back byte-identical to the pre-OTA backup after both
+      OTAs (2 modes, 2 LUT slots, panel, calibration).
+- [ ] **Boot screen after an OTA with no drive packets.** Boot logs "no drive packets; will retry";
+      writing the drive config then draws the QR without a power cycle, and the config-write ACK
+      arrives within py-opendisplay's 5 s bound (the redraw follows it).
+- [ ] **Burned `0x2E`–`0x31` walked past.** A config carrying them still drives its panel from the
+      `0xAE`–`0xB1` packets behind them.
+- [ ] **CS_SELECT (`0x08`).** Needs a split-controller panel with `cs_pin_2` wired; none on the
+      bench. Host-tested: sticky, reset to CS 0 per pass, refused before any I/O where unwired.
+- [ ] **READ/WRITE_SCRATCH (`0x09`/`0x0A`).** Needs a panel with a read-back path (UC8159 EEPROM,
+      or a 3-wire controller on `data_pin`); none on the bench. Host-tested: bounds, zeroed per
+      pass, read-then-write data path.
+
 ### EFR32BG22 (`efr32bg22-slc`) — Gate 2 blockers
 
 - [ ] **D1 liveness:** send `0x0073` with every loop count and delay zero and `group_repeats` raw
@@ -1125,3 +1282,397 @@ Merged in PR #90 (`4a61a7a`). Baseline before the change: ~2 mA idle while adver
       (2026-09-17, same test.)
 - [ ] Plug/unplug during BLE upload does not interrupt the upload; a serial-monitor log burst may
       drop characters but does not block firmware work; UF2 drag-and-drop remains functional.
+
+---
+
+## nRF52840 EN04 (OD114608) — 2.9" BWRY, advertiser settling (2026-11-08)
+
+One board, USB powered: EN04, GDEY029F51H 168x384 BWRY (panel 0x001E through bb_epaper),
+plaintext, dual-slot MCUboot layout, serial-DFU flash. Build `9.9.10`, working tree on `2ac1a46`
+plus the `opendisplay_ble_advertising_settling()` change. 4-colour only: this target has no
+config-driven drive path.
+
+- [x] **A configured device stays visible.** With `sleep_timeout_ms` = 2000: 36 scanner sightings
+      in 90 s, against about one every few minutes on the previous build at the same range.
+- [x] Website-built config (EN04 + 2.9" BWRY + USB power, security packet removed), 1978 B: write
+      after CONFIG_CLEAR, reboot, read back byte-identical, no parser warning. The 0xAE-0xB1
+      packets are walked past.
+- [x] Compressed PIPE upload, 16128 B frame, 36.5 s including refresh. Labelled black, white,
+      yellow and red bands confirmed by eye to match their labels; no camera or colorimetry.
+- [x] **A config too large to coexist with its predecessor replaces it.** Build `9.9.11` over BLE
+      SMP, config retained across the update. 1978 B -> 2882 B and back: both took the `-ENOSPC`
+      path (`Config replace: retiring the old record first`), both ACKed, both read back
+      identical, and the 1978 B record survived a reboot.
+- [x] **CMD_DRIVE_WRITE_START, 16 colours.** Build `9.9.12`, plaintext, uncompressed direct path,
+      mode 1 `colour16`, 3 passes x 16128 B, 21 C die. `render16.py --pattern index16` grid
+      confirmed by eye as correct; no camera or colorimetry.
+
+- [x] **XIAO QSPI flash deep power-down at boot.** PPK2 at 4.0 V, USB unplugged, advertising with
+      `sleep_timeout_ms` = 2000: mean 150.8 -> 141.0 uA. Same build with a 40 s refresh: 136.0 uA.
+      A temporary System OFF build still drew 113.7 uA, so that is board and module hardware.
+
+- [x] **Image store on the XIAO module flash (0x0047-0x004B).** Build `9.9.24`, plaintext. Preload of
+      two 16128 B frames over compressed PIPE, about 1.2 s each and no refresh; both VALID with
+      distinct digests, kept across a reboot; empty slot refused; slot displayed and confirmed
+      correct by eye; single-slot erase. Idle afterwards 141.5 uA.
+
+Open:
+
+- [ ] `replace_without_overlap()` restoring the old record when the new one still does not fit.
+      Not exercised; a record that passes NVS's size check yet fails after the delete was not
+      constructed.
+- [ ] The original failure itself (1978 B over 1980 B NACKing on `9.9.10`) did not recur in four
+      later attempts on `9.9.11`, and its errno was never captured.
+- [ ] Boot refresh takes ~34 s on this panel, past the 30 s limit, so each boot logs
+      `boot display: still running` and BLE starts 30 s in.
+- [ ] The drive path on nRF54L15 / nRF54LM20A (built, not run), compressed 0x0085, encrypted 0x0085,
+      and 0x0085 arriving during an active PIPE upload. The panel run predates removing
+      `od_xfer_reset()` from `od_cmd_drive.c`, which affects only a start during an active transfer.
+- [ ] What makes up the ~113 uA hardware floor below (PMIC, DC-DC, module LDO, `P0.17` LED path).
+- [ ] Image store: `FLASH_ERASE 0xFF` (py-opendisplay misreads the echoed `0xFF` as an integrity
+      failure), a preload interrupted mid-transfer, encrypted use, and why the first 60 s after a
+      BLE session averaged 178 uA.
+- [ ] Battery idle current with the settling change. nRF54L15 / nRF54LM20A take the same `main.c`
+      and have not been run.
+
+---
+
+## ESP32-S3 reTerminal E1003 — FastEPD 16-gray (2026-11-08)
+
+One board: ESP32-S3R8, 32 MB flash, ED103TC2 1872x1404, panel 3001. Image `s3-n16r8-extuart` at
+`858f2cb`, built with ESP-IDF 5.5.5 (pin is 5.5.4), plaintext.
+
+- [x] Config written over BLE, parsed at boot, panel initialised through FastEPD.
+- [x] Compressed PIPE full frame, 1,283 kB in 4.8 s, 7.1 s including refresh. 16 gray bands and
+      fine stripes confirmed by eye; no camera or colorimetry.
+- [x] **IT8951 on `display_it8951.cpp`, FastEPD no longer used for this panel.** 16-gray full frame
+      streamed with no framebuffer: 5.3 s against 7.1 s, 8.36 MB PSRAM free against 6.39 MB. 1-bit
+      full frame and 0x76 partial update also confirmed by eye. Boot screen not separately checked.
+- [x] **Refresh temperature from the SHT4x, not a forced value.** Strips at forced 14/22/30 C: 22 C best
+      by eye. Real reading (24 C) sent before each refresh; grays and 1-bit partial confirmed by eye.
+      VCOM is still a fixed -1.5 V rather than the value labelled on this panel.
+- [x] **BLE OTA over mcumgr SMP** (`s3-n16r8-extuart`, plaintext). 1.28 MB in 75 s, booted and
+      confirmed. A build that never confirms ran once, then rolled back by itself on the next reset.
+
+Open:
+
+- [ ] A variant with FastEPD, 32 MB and the CH343 console; `s3-n32r8-extuart` has no FastEPD.
+- [ ] Whether a config stored by older firmware survives the move to this firmware. This unit came
+      up with no stored config in NVS.
+- [ ] ESP32 OTA with encryption on (unlock through `CMD_ENTER_DFU`), a corrupt image, a host other
+      than BlueZ, and any ESP32 variant besides this S3 on hardware.
+
+---
+
+## `efr32bg22-slc` on OD58FFC4 — config-driven panel, flash store, actions (2026-11-06)
+
+One board, one session: **OD58FFC4**, a Newton Pro 2.6" (2x CR2450) with a 184x360 BWRY
+panel and an SPI NOR fitted, in the thermal chamber with the camera on it. Before this
+session the BG22 target had never been built in this repo, so every row below is a first.
+
+**The board's identity fields are stale and were not corrected:** it reports
+`manufacturer_id=1 / board_type=1 / ic_type=1`, which the toolbox renders as
+"EN04 (nRF52840)" on a part that is a BG22. Nothing reads those fields here, but any
+row below that looks like it came from an nRF52 came from this BG22. Re-provisioning them
+is open follow-up.
+
+### Panel driven from config (`od_epd`, bb_epaper removed)
+
+- [x] Boot screen renders from the config's `DisplayConfig` + drive packets, with no
+      bb_epaper in the image. **bb_epaper is compiled out on this target entirely** — not
+      disabled at runtime — because the app overflowed its slot by 4116 B with both
+      renderers present. A config carrying the `0xAE`/`0xAF`/`0xB0`/`0xB1` drive packets is
+      therefore **required** on BG22, not optional.
+- [x] BLE image upload renders: 2953 B compressed, 22.5 s wall, camera-confirmed.
+- [ ] Partial refresh and `CMD_PARTIAL_WRITE` — not implemented on this target.
+
+### Find My (network A)
+
+- [x] Advertises on the address **derived** from the provisioned key, concurrent with normal
+      OpenDisplay advertising. Address and payload were checked byte-for-byte against the
+      derivation, not merely observed to be present.
+- [x] Survives a reboot. This row exists because it originally did **not**: the boot path
+      never synced network A, so a tag was findable after provisioning and silently not
+      after a power cycle.
+- [x] Host test `tests/host/net_a_test.c` sweeps all 256 values of `key[0]` to prove both
+      halves of the address are recoverable (the top two bits are forced for a static random
+      address, so a naive derivation loses them).
+- [ ] FMDN / network G (`shared/core/od_net_g.c`, set `OD_HAL_ADV2_SET_NET_G`) — ported,
+  host-tested only (`net_a_test.c` pins the 29-byte SECP160 frame against 2.3.0). Open: a 2.3.0
+  unit provisioned for network G, OTA'd to 3.0, still advertises the same frame on the same
+  address (scanner), and network A + G + OpenDisplay advertise concurrently (3 sets).
+  SECP256R1 is not advertised (2.3.0 could not either: no SHA-256 in its PSA build).
+
+### SPI NOR image store (`od_flash_nor` + `od_imgstore`)
+
+- [x] Probe identifies the part: **Puya, 512 KiB, 4 KB sectors**, giving **25 image slots** at
+      this panel's geometry. The proposal's slot arithmetic was written against a guessed
+      capacity and was corrected to these measured numbers.
+- [x] `0xAB` release-from-deep-power-down is issued before the JEDEC read. Required, not
+      defensive: a previously-slept part answers `0xFF` to everything and reads as an empty
+      socket. OpenDisplay only ever sent `0xB9` (power **down**).
+- [x] Preload without display: 2.3 s to store an image the panel never showed.
+- [x] Display-from-slot renders the preloaded image, camera-confirmed.
+- [x] Slot state values form a **descending bit lattice** (`0xFF` free -> `0xFE` writing ->
+      `0xFC` valid), and the digest is left erased until `finish()`. The first attempt used
+      `0xA5` for valid, which NOR cannot reach from `0xFE` (programming only clears bits:
+      `0xFE & 0xA5 = 0xA4`), and pre-zeroed the digest so every CRC ANDed to zero.
+- [x] A page program that would cross a 256-byte page boundary is refused. Hardware wraps to
+      the start of the same page and overwrites what was just written, reporting success.
+
+### Action system (`od_action`, config packet `0xB2`)
+
+- [x] Table loads and classifies: **entries=5 active=4 inactive=1 rejected=0** for a table
+      holding one entry whose effect this board cannot perform (buzzer). Inactive-not-dropped
+      is the contract — a newer firmware must start running the entry with no config rewrite.
+- [x] `0x004D` ACTION_FIRE drives a `DISPLAY_SLOT` step and the panel changes,
+      camera-confirmed. This is the row that proves a trigger -> sequence -> effect path end
+      to end without needing the physical event.
+- [x] `0xB2` is reached through `od_cfg_index`. This row exists because it originally was
+      not: the indexed-packet whitelist omitted `0xB2`, so the table loaded as `entries=0`
+      with no error anywhere.
+- [x] A config write reloads the table (`od_action_reload()` after `od_cfg_index_build()`, in
+      that order — the table is read *through* the index, so the other order validates
+      against the previous config's byte offsets).
+- [ ] **BUTTON_PRESS and NFC_FIELD triggers are unexercised.** Both need a physical press or
+      an NFC scan at the chamber; neither can be driven from here. The entries load active,
+      which is not the same as having fired.
+- [x] Temperature triggers fire from a real thermal stimulus. Closed-loop in the chamber: a
+      32..48 °C window armed with the die inside it, three baseline polls with **no fire**
+      (so the trigger is an edge and not a level), then cooled through the lower edge.
+- [ ] **FAILED — temperature triggers chatter.** That single crossing fired **four** times,
+      alternating EXIT/ENTER. `temp_in_window()` has no deadband, the poll is 2 s, and the die
+      reading dithers ±2 °C. Defect and fix in `docs/FOLLOWUPS.md`; this row stays open until a
+      deadband lands and the crossing fires exactly once.
+- [ ] Known limitation, recorded not fixed: the temperature edge state is **one shared bit**,
+      correct only while every temperature entry uses the same window. Untested — the chatter
+      above has to be fixed before a two-window test could be read.
+
+**Two notes on how these rows were obtained**, because both cost a session's time. The action
+table is reached through `od_cfg_index`, which resolves by FIRST match, and py-opendisplay
+round-trips unknown `0x80+` packets — so `interrogate()` → append → `write_config()` silently
+stacks tables and keeps running the oldest. Verify `0x004C` reports the table you think you
+wrote before trusting any row here. And a BLE poll every ~38 s cannot order events the firmware
+generates every 2 s: assert on counts, not on `last`.
+
+### Flash budget — a reporting bug worth knowing before trusting a build
+
+The SLC build script's "Free in application FLASH region" **overstates by 24576 bytes**: the
+`.nvm` NVM3 region lives inside the `0x44000` application slot and the script does not
+subtract it. Real ceiling is **253952**, not 278528. Acting on the reported figure is what
+made a 4116-byte overflow look like 26016 bytes of headroom. Fixing the script is open
+follow-up.
+
+
+---
+
+## `xiao_ble` / EN04 — BLE OTA via dual-slot MCUboot (2026-11-06)
+
+One board, **OD114608** (Seeed EN04, `E0:91:D1:32:80:27`), SoftDevice erased and MCUboot
+chained behind the Adafruit bootloader. Opt-in behind `OD_NRF52840_MCUBOOT=1`.
+
+- [x] **SoftDevice erase moves the application start to 0x1000.** `0x3004` went
+      `51b1e5db` -> `ffffffff`, and a reset issued with NO DFU request landed in serial DFU
+      -- which the bootloader can only do by looking at `0x1000` and finding erased flash.
+      Reclaims 152 kB. Reversible: `s140_nrf52_7.3.0_softdevice.hex` over serial DFU.
+- [x] **Chain boots**: Adafruit (`0xF4000`) -> MCUboot (`0x1000`) -> application
+      (`0xD200`), advertising and USB CDC up.
+- [x] **Fits with room**: application 371,152 B of 450,048 B (82.5%). The same image was
+      98.6% of a 376,320 B slot before the erase, and did not boot.
+- [x] **BLE OTA end to end.** 372,016 B uploaded over SMP into the secondary slot, marked
+      for test, rebooted, and MCUboot swapped: slot0 went `298810f2...` -> `0fde8171...`
+      and came back `active=True confirmed=True`, with the previous image retained in
+      slot1. Client was `smpclient` over BLE; no physical contact at any point.
+- [x] A first upload of the IDENTICAL image was correctly refused at the mark step with
+      `IMAGE_SETTING_TEST_TO_ACTIVE_DENIED`. Recorded because it looks like a failure and
+      is not: MCUboot will not mark the running image for test.
+- [x] **Rollback on a bad image.** Built an image with boot_write_img_confirmed() removed,
+      uploaded it over BLE and marked it for test. Reboot 1: MCUboot swapped it in and it
+      ran as `active=True confirmed=False`, good image preserved in slot1. Reboot 2:
+      MCUboot reverted -- slot0 back to the good image, confirmed, and the bad one demoted
+      to slot1. Unattended, over BLE, no physical contact.
+
+      WHAT THIS DOES AND DOES NOT PROTECT. The application calls
+      boot_write_img_confirmed() in main() just after opendisplay_ble_init(), so anything
+      reaching that line confirms itself. Rollback therefore covers an image that hangs or
+      faults BEFORE BLE is up; it does NOT cover one that boots cleanly and is broken
+      later -- a bad display driver, a config parser that corrupts state. Moving the
+      confirm later, or gating it on a health check, would widen the net; doing so is a
+      deliberate decision and has not been made.
+- [ ] **Images are signed with MCUboot's published debug key.** The build says so
+      explicitly. Must not ship.
+- [ ] Fleet migration (erasing the SoftDevice on existing devices) is a per-device USB
+      visit: the erase also removes the Adafruit bootloader's BLE DFU, so there is no radio
+      path left for stragglers.
+
+## `telink-tlsr` on tag 42D241 (TLSR825x, 2.66" BWR SSD) — bring-up (2026-11-14)
+
+| Row | Result |
+|---|---|
+| The legacy firmware v108 updates onto itself via `tools/legacy_ota.py` (OEPL block transfer, type 0x03) | **PASS**: back at fw 0x006C, 0x0005 and 0x0011 byte-identical before/after |
+| The legacy firmware installs the probe (`opendisplay_tlsr_probe.bin` @ 81cfdab, 44,100 B) | **PASS**: 00C9, image boots |
+| Probe advertises | **PASS**: `ODPROBE69ED53`, steady, no reboot seen in 20 s. Address is the random fallback, so 0x76000 is blank on this tag; the legacy firmware's 34:64:60:42:D2:41 comes from elsewhere |
+| Probe accepts a connection | **FAIL**: connects time out. Cause: the link-layer ACL FIFOs (`blt_rxfifo`/`blt_txfifo`) were never defined, so the linker made them 1-byte/zero-sized. Fixed in `src/od_tlsr_fifo.c`, and `tools/check_ll_fifos.py` now fails a build that lacks them. The fix is **not yet on the tag** |
+| Way back (probe → the legacy firmware through `tlsr_ota.py`) | **BLOCKED**: unreachable without a connection. Needs SWS |
+| Full image, display, SEC2, OTA power-cut fallback | not run |
+
+## `telink-tlsr` on tag 03BE11 (TLSR825x, 2.66" BWR SSD, legacy v98) — bring-up (2026-11-14)
+
+| Row | Result |
+|---|---|
+| Legacy v98 updates onto itself via `tools/legacy_ota.py` (`2025-05-27_9c5f268282.bin`) | **PASS**: back at fw 0x0062, 0x0005 and 0x0011 byte-identical |
+| The legacy firmware installs the probe @ e61640d (44,132 B, FIFOs defined, GAP count fixed) | **PASS**: boots as `ODPROBE6B42B5` |
+| Probe accepts a connection, GATT discovery | **PASS**: GAP, GATT and the updater service (value handle 11, write + notify) |
+| Updater STATUS | **FAIL**: replies "unknown opcode" for a byte that changes per packet. Cause: the SDK and liblt_825x.a are built with `-fpack-struct`; unpacked, `rf_packet_att_write_t.value` is at offset 10 instead of the wire's 9, so every write is read one byte late. Fixed by compiling the SDK with `-fpack-struct` and reading its headers under `pack(1)`; a compile-time assert pins offset 9. **Not on the tag** |
+| Way back | **BLOCKED**: the updater cannot parse a command. Needs SWS |
+
+## `telink-tlsr` on OD05B911 (TLSR825x, 2.0" BWRY JD, legacy v108) — bring-up (2026-11-14)
+
+| Row | Result |
+|---|---|
+| Legacy v108 updates onto itself via `tools/legacy_ota.py` | **PASS**: back at fw 0x006C, 0x0011 byte-identical; 0x0005 byte 35 went 0 → 1 (it reads 1 on both other tags; runtime state, not stored config) |
+| The legacy firmware installs the probe @ f2fda19 (44,148 B, packed SDK structs) | **PASS**: boots as `ODPROBE84DCED` |
+| Probe connects; updater STATUS | **PASS**: `idle, 0, 0, ok`, twice. The write path reads the value at the right offset |
+| Stage legacy v108 through the updater (no install) | **INCOMPLETE**: BEGIN's staging erase completed; then 15-byte writes, because the tool failed to acquire the MTU, ran for 500 s and the tool timed out mid-transfer |
+| Tag afterwards | **SILENT**: no advertising under any `ODPROBE`/`A4:C1:38` address in 25 s and 60 s scans. A reboot would show a new random address. Nothing outside staging was written and no INSTALL was sent. Not yet explained: a coin cell sagging under ~8 min of continuous connection plus erases, or a lockup the watchdog did not clear (**open**) |
+| After a manual power cycle | **PASS**: back as `ODPROBEAECA0C`; STATUS `idle, ok`. The probe image was intact |
+| Stage legacy v108 at MTU 247 (239-byte chunks, ~60 s) | **PASS**: `staged and verified` on the device (CRC pass, held-back boot flag written and read back); STATUS after reconnect `verified, 126388, 126388, ok`, so a verified image survives a disconnect |
+| **Way back: INSTALL legacy v108 through our updater (RAM install routine, first run)** | **PASS**: the tag rebooted into legacy v108 (MSD fw 0x006C, hw 0x6C); 0x0011 byte-identical to before any update, 0x0005 identical to after the legacy firmware self-update |
+| Round trip: legacy v108 installs the probe again (same f2fda19 image, sha256 d5d2c50b…) | **PASS**: boots as `ODPROBEF12E9D`; STATUS `idle, 0, 0, ok` |
+| Updatability after the second probe flash: stage legacy v108 (no install) | **PASS**: `staged and verified`; STATUS `verified, 126388, 126388, ok`. Left staged; the probe stays on |
+| Probe updater installs the full image @ 43fc6ea (90,052 B, sha256 4973d105…) | **PASS**: boots as `OD9933A8` (A4:C1:38:99:33:A8); MSD 0x2446 `ffffffffffffffffffffff500064`, service 0x2446 advertised; GATT has GAP, GATT, 0x2446 and the updater service |
+| Full image: updater STATUS | **PASS**: `idle, 0, 0, ok` |
+| Full image: `CMD_FIRMWARE_VERSION` 0x0043 and `CMD_READ_IDENT` 0x0046, plaintext | **PASS**: `0043 03 00 08 "tlsr-dev"` (3.0) and `0046 04 06 00 29 a0 0f 80 00 00` (fw_target 0x06). Only these two read-only commands ran; config write, SEC2 and every transfer opcode are untested here |
+| Full image: updatability, stage legacy v108 (no install) | **PASS**: `staged and verified`; STATUS `verified, 126388, 126388, ok`. Left staged; the full image stays on |
+| Full image: `CMD_CONFIG_READ` 0x0040 with nothing stored, plaintext | **PASS**: `ff400000`, the fleet's no-config answer (same as Nordic and Silabs; py-opendisplay reads it as "no stored configuration") |
+| Full image: chunked `CMD_CONFIG_WRITE` 0x0041 + `CMD_CONFIG_CHUNK` 0x0042, 229 B, plaintext | **PASS**: `00410000`, `00420000`. Config = the corpus's `minimal-required-singletons` packets plus three 0x20 display packets (200×152, every pin 0xFF), built with py-opendisplay's serializer. Nothing on this target applies config to hardware |
+| Full image: config readback after write | **PASS**: 229 B byte-identical; py-opendisplay `parse_config_response` gives 3 displays at 200×152. READ_IDENT went from 0 to 3 displays without a reboot, so the write reloads config live |
+| Full image: `CMD_REBOOT` 0x000F, then config readback | **PASS**: the tag came back as `ODDA7248` (a new random address, because 0x76000 is blank); READ_IDENT still 3 displays; config 229 B byte-identical. Config persists across a reboot |
+| Full image after reboot: updater | **PASS**: STATUS `idle, ok` (the first connect failed with a BlueZ `EOFError`, the retry worked: contention). The reboot took the updater from `verified` back to `idle` (that state is RAM-only); legacy v108 staged and verified again, and left staged |
+| Not run: `CMD_CONFIG_CLEAR`, a single-frame write, a config with a security packet, power-cut during a config write, SEC2 | **OPEN** |
+| Full image @ 0674cd2 (address from the flash UID, 90,276 B, sha256 0fefaaf1…): first install attempt | **FAIL, recovered**: the host got ATT error 0x0e mid-transfer and the tag rebooted into the previous image (new random address `OD014F08`, STATUS `idle, ok`). A reset during an upload is **open**, alongside the earlier silent-after-abort row |
+| Same image, second install | **PASS**: boots as **`OD05B911` at `FA:FB:3E:05:B9:11`**, the address the legacy firmware used on this tag, and the name carries the legacy firmware's three bytes |
+| UID address across `CMD_REBOOT` | **PASS**: back at `FA:FB:3E:05:B9:11` / `OD05B911` |
+| Config across the image change and the reboot | **PASS**: the 229 B config reads back byte-identical; READ_IDENT 3 displays |
+| Updatability on this image: stage legacy v108 (no install) | **PASS**: `staged and verified`; STATUS `verified, 126388, 126388, ok`. Left staged |
+| Full image @ 1198c6b (boot state in DEEP_ANA_REG1, reset cause in STATUS; 90,388 B, sha256 ab6ca765…): install | **PASS**: running (STATUS carries the new fields). The host lost its D-Bus connection (`EOFError` in dbus_fast) during the disconnect after INSTALL; bluetoothd did not restart. Host-side, the second time today |
+| STATUS boot info right after that install | `unplanned, 6`: **expected artefact**, not six crashes. The previous image's boot mark 0xA5 reads in the new layout as "booted, not planned, 5", and the previous updater's install did not mark its reboot planned |
+| `CMD_REBOOT`, then STATUS | **PASS**: `planned, 6`. A planned reboot is told apart and leaves the unplanned count alone; address, READ_IDENT and the 229 B config unchanged |
+| Updatability on this image | **PASS**: legacy v108 `staged and verified`; STATUS `verified, …, planned, 6`. Left staged |
+| Next disturbed transfer: read STATUS **before** any power cycle | **OPEN**: `power-on` means a brownout (coin cell), `unplanned` with the count up by one means the watchdog or a crash |
+| Full image @ 55071ad (panel path through `od_display`, 131,412 B, sha256 2d5ab067…): install | **PASS**: staged and verified at MTU 247, installed; STATUS after reboot `idle, ok, planned, 6` (the install's reboot is marked planned; no unplanned reset) |
+| Updatability on this image: stage legacy v108 (no install) | **PASS**: `staged and verified`; STATUS `verified, 126388, 126388, ok, planned, 6`. Left staged. One status read and one config read lost the host's D-Bus connection (`EOFError`); the retries worked |
+| Old config (no drive packets) on the panel image | **PASS**: READ_IDENT tail flags 0x0B, NEEDS_MIGRATION set; nothing drawn |
+| Display config, 270 B, plaintext chunked write: SystemConfig `pwr_pin` PB5 (13) with DeviceFlags 0x41 (PWR_PIN + provisional PWR_PIN_ACTIVE_LOW), one 0x20 (152×200, panel 0xF001, BWRY, CLEAR_ON_BOOT, pins as in `targets/telink-tlsr/README.md`), 0xB1 + one 0xAE from `panels.yaml` | **PASS**: `00410000`, `00420000`; readback byte-identical; READ_IDENT `0101f09800c80003` + tail flags 0x09 (NEEDS_MIGRATION clear). The reload parks the panel pins and drives the rail pin to off; CLEAR_ON_BOOT kept the boot screen from drawing. Tag healthy afterwards (STATUS `verified, …, planned, 6`) |
+| First refresh (0x0070 raw 7,600 B, FULL), go-ahead given; sequence as first committed (PON then `@busy`) | **FAIL, diagnosed**: START NACK `ff700900` (OD_ERR_PANEL_BUSY) after 31.4 s. No reset (STATUS `verified, …, planned, 6`) |
+| Same, BUSY declared unusable (24 s fixed waits; diagnostic config) | Flow completes: START 49 s, END `0072`, `0073` 24 s later. Proves the transfer path only; BUSY ignored |
+| Image @ 2e43465 (adds CMD_SPI_RAW; 132,516 B, sha256 9698ba96…): install, then stage legacy v108 | **PASS**: STATUS `idle, ok, planned, 6`; the legacy firmware `staged and verified`, left staged |
+| Raw SPI: BUSY after power + pins / after RESET / after a bare PON | low / **released at once** / still low after 3 s. The rail (active-low PB5), the pin map and BUSY on PA1 are right; the controller answers RESET |
+| Raw SPI: the legacy firmware's exact register list, then PON | BUSY still low after 10 s, and after 60 s |
+| Legacy v108 timing (disassembly, 0xa698 at 0x8c58 / 0xbbe4) | The legacy firmware caps every BUSY wait at 400 ms (after reset, PON, POF) and carries on; its bit-bang SPI (0xa46c) is the same mode 0, MSB first, no added delay |
+| Raw SPI refresh: registers, DTM + 7,600 B pattern, PON (400 ms cap), DRF 12 00, POF, deep sleep | **BUSY released 16.7 s after DRF**; POF released at once. BUSY on this glass holds low from PON until the refresh ends |
+| 0xF001 sequence changed: DTM + image before PON, `@delay 400` after PON, `@busy` after DRF only; config rewritten (272 B, readback identical) | **PASS**: 0x0070 START `0070` in 1.0 s, 7,600 B by 4.6 s, END `0072`, REFRESH_SUCCESS `0073` at 21.8 s (≈17 s BUSY-sensed refresh). Repeated: 1.0 / 4.7 / 22.0 s. Tag healthy (STATUS `verified, …, planned, 6`) |
+| `CMD_REBOOT`, then config readback, then 0x0070 upload | **PASS**: same address and name; the 272 B config reads back byte-identical to what was written; CLEAR_ON_BOOT kept the boot screen off; upload START 1.1 s, `0073` at 21.8 s. STATUS `idle, …, planned, 6`; legacy v108 staged and verified again and left staged |
+| Boot screen: config rewritten with CLEAR_ON_BOOT clear (272 B, readback identical), then `CMD_REBOOT` | **PASS on glass** (Jonas): the boot screen draws at startup on the 200×152 BWRY panel. STATUS after the reboot `idle, ok, planned, 6` (the blocking draw on the loop caused no watchdog or unplanned reset); legacy v108 staged and verified again, left staged. Battery and temperature fields have no sensor behind them on this target yet |
+| Image with battery ADC, panel TSC temperature, PIPE W=6 (138,132 B, sha256 b6e9b715…): install, then stage legacy v108 | **PASS**: STATUS `verified, 126388, 126388, ok, planned, 6`; the legacy firmware left staged |
+| Config 272 B with PowerOption `battery_sense_pin` PB3 (11) and 0x20 `transmission_modes` STREAMING \| ZIP \| PIPE_WRITE | **PASS**: `00410000`, `00420000`, readback identical |
+| MSD after the reload's panel-up, decoded by py-opendisplay `parse_advertisement` | **PASS, plausible**: battery 2990 mV, later 2980 mV (coin cell); temperature 24 °C from the JD controller's TSC (cmd 0x40, 3-wire read). Neither was cross-checked against a meter or thermometer |
+| py-opendisplay `upload_image`, compressed (418 B, 9-bit window), PIPE off | **PASS**: 18.7 s end to end |
+| py-opendisplay `upload_image`, compressed (416 B), PIPE on | **PASS on glass** (Jonas): negotiated W=6 N=6 frame 244, selective; 18.9 s |
+| py-opendisplay `upload_image`, uncompressed 7,600 B, PIPE on | **PASS on glass** (Jonas): W=6; 20.1 s end to end, about 1 s more than compressed. STATUS afterwards `verified, …, planned, 6`: no reset across the three uploads |
+| Not run: encrypted uploads, partial, setup-family screens, PIPE retransmit (no loss was induced), the boot screen's battery/temperature text on glass | **OPEN** |
+| What the glass shows at 152×200 (Jonas's photo) | Colour map **correct** (black, white, yellow, red as sent; code_map identity confirmed), text upright and unmirrored. Geometry **wrong**: the glass is 200 wide × 152 tall, so 48 columns on the right stayed blank and the last 48 rows (most of the red band) were lost |
+| 0xF001 renamed EP20YR_200x152, TRES `61 00 C8 00 98`; config 0x20 200×152 (272 B, readback identical, READ_IDENT `01f0c80098`) | Upload START 1.0 s, `0073` at 22.0 s. **PASS on glass** (Jonas): the four bands fill the panel, triangle top-right, colours right |
+
+## `telink-tlsr` on OD060F40 (TLSR825x, 3.5" HS BWY UC, legacy screen type 1) — install (2026-11-14)
+
+The legacy firmware's 0x0011 on this tag: 384×184 (the legacy firmware's `h` is the glass width), 2 colours (BWY), OEPL type 0x60. EPD pins RESET PD4, DC PD7, BUSY PA1, CS PB4, CLK PB5, MOSI PB6, enable PC5 with `enable_invert` 1, and a second enable `enable1` PB7, which our config has no field for. Battery ADC PB3; LED PD2/PD3/PA7.
+
+| Row | Result |
+|---|---|
+| The legacy firmware's updater installs the full image (138,132 B, sha256 b6e9b715…), with no probe first | **PASS**: boots as `OD060F40` at the legacy firmware's own address 3D:67:58:06:0F:40. The host's D-Bus link dropped (`EOFError`) at the disconnect after the transfer; the install had completed |
+| Updater STATUS, then stage legacy v108 (no install) | **PASS**: `idle, ok, power-on, 0`, then `staged and verified`; left staged |
+| Config 133 B, plaintext single-frame write: rail PC5 active-low, battery PB3, one 0x20 (384×184, BWY, panel id 0, no drive packets) | **PASS**: `00410000`, readback identical; READ_IDENT 1 display, NEEDS_MIGRATION set; nothing drawn |
+| MSD | **PASS, plausible**: battery 2950 mV (no meter check); temperature at the "no reading" floor, as designed before any panel-up |
+| Sequence: legacy v108's UC driver (0xbbcc, family 0 of the table at flash 0x1e8b8), default branch for type 1; provisional panel 0xF002 EP35Y_184x384 | Transcribed; see `panels/panels.yaml` |
+| Config with 0xF002, rail PC5 active-low, PSR `AF 0F` (as first transcribed) | **FAIL**: upload reports success in 0.7 s, glass unchanged. Raw SPI: PON raises BUSY for 23 ms; DRF never raises it |
+| Same with PC5 active-high; with PB7 as the rail (active-high); with a 20 ms delay before the post-DRF BUSY poll | **FAIL**, same symptom each time |
+| Raw SPI with PB7 as the rail: PON, PSR `AF 0F` / `8F 0F`, DRF | `AF 0F`: BUSY never raised. **`8F 0F` (OTP LUT): BUSY held 27.9 s**, a real refresh. PON took 81-83 ms with PB7, against 23 ms in every PC5 run |
+| Upload with PSR `8F 0F`, PB7 rail, no CDI | Refreshes (28.5 s). **B/W inverted** on glass (Jonas), yellow right |
+| CDI `50 87` / `50 A7` / `50 97` | 87: B/W still inverted. A7: yellow inverted instead. **97: PASS on glass** (Jonas): geometry 184×384, orientation (triangle top-right), black, white and yellow right |
+| BUSY timeout raised to 60 s; config 229 B rewritten (readback identical); py-opendisplay compressed + PIPE (W=6) upload | **PASS**: 30.3 s end to end. STATUS `verified, …, planned, 0`: no unplanned reset; legacy v108 still staged |
+| MSD after panel-ups | battery 2960 mV; temperature 20 °C from the UC controller's TSC (3-wire read), plausible, not checked against a thermometer |
+| One upload stalled with no reply for 90 s (host `BLETimeoutError`) right after a config write; STATUS afterwards `verified, planned, 0`, and the retry passed | **OPEN**: cause unknown (the tag did not reset) |
+| Not run: whether PC5 is needed alongside PB7 now that the PSR is right; uncompressed, plaintext-only and encrypted uploads; the boot screen at 184×384; LED | **OPEN** |
+
+### OD060F40 — idle power and the GPIO sub-op (2026-11-14)
+
+PPK2 as source meter at 3.0 V into the battery terminals, sampled at ~86 kS/s.
+
+| Row | Result |
+|---|---|
+| Baseline, image b6e9b715… (suspend disabled, 100 ms advertising), idle | 2.9 mA mean, p10 2.76 mA: no suspend at all |
+| Suspend when idle, 100 ms advertising | 219 µA mean, floor (median) 49 µA |
+| Suspend + 1000 ms advertising (20-30 ms for 3 s after boot / disconnect) | **65 µA mean**, median 47.8 µA, p10 45.2 µA (25 s window). Legacy v108 on the same tag: under 20 µA mean (Jonas) |
+| Pull-downs on 18 spare pins | Floor unchanged (45.2 µA): no floating-pin leakage; the floor is the suspend mode |
+| Install via `tlsr_ota.py`, then stage legacy v108, with suspend on | **PASS**: `verified, 126388, planned`; done three times |
+| py-opendisplay compressed PIPE (W=6) upload with suspend on | **PASS**: refresh complete, 28.5 s |
+| 3 min idle | **PASS**: no unplanned reset, "verified" (RAM-only) survived |
+| GPIO sub-op: read PA1/PC5/PB7, set PD2 high/low/pull-up/pull-down/float with readback; PA7 and pins ≥ 32 refused | **PASS**: `00 84 07 pin level`; refused pins `FF 84 01 07`. PD2 reads 1 under its pull-down: an external pull-up (LED) |
+| GPIO pull-down on PE0 (before port E was refused) | **FAIL**, one unplanned reset: PE0..PE3 are the flash bus. Port E is now invalid for config and GPIO alike |
+| A read pass over every pin, then idle | **PASS** after the fix: floor 47 µA. Before it, a read left PB/PC inputs enabled (their input-enable is an analog register) and the floor rose to 168 µA |
+| Power-floor test image (`-DOD_TLSR_PMTEST=ON`: probe cycling A 100 ms adv + suspend / B suspend, radio off / C deep sleep, 32 KB retention / D deep sleep, no retention), 3 cycles | A floor 49.5 µA (mean ~195). **B 45 µA**: the suspend floor is the chip's suspend mode. **C 3.6 µA** (4 µA mean with a timer wake every 4 s). **D 1.7 µA**: the board itself. Deep retention is the missing piece; with 1000 ms advertising (~17 µA) it predicts ~20 µA, the legacy firmware's figure |
+| Test image updatable in phase A; OpenDisplay image reinstalled from it, then legacy v108 staged | **PASS**: STATUS answered 13 s after install; reinstall `planned, 0`; `verified, 126388` |
+
+### OD060F40 — deep retention in the OpenDisplay image (2026-11-14)
+
+Every static in the 32 KB retention bank (`tools/retention_link.py`; 32,080 B used), retention
+while advertising only, from 60 s after a boot with no unplanned reset since power-on.
+
+| Row | Result |
+|---|---|
+| Install (158,164 B image, ROM loads ~32 KB at cold boot), cold boot, STATUS | **PASS**: `planned, 0`; and again after a power-on boot |
+| Retention starts 60 s after boot | **PASS**: per-second floor 47 µA → 4.0 µA at the 60 s mark |
+| Idle, 1000 ms advertising, 21.6 s window | **24 µA mean**, median 4.0 µA, p10 3.6 µA (was 65 µA mean with suspend). Legacy v108: under 20 µA |
+| Uptime runs through retention sleeps: PPK2 supply 3.0 → 2.7 V while in retention, MSD battery (60 s cache) | **PASS**: 2930 → 2640 mV within 25 s; the cache could only expire on a running clock |
+| Connect from retention: py-opendisplay compressed PIPE upload; config read; GPIO sub-op reads | **PASS**: refresh 28.5 s; config 229 B identical; GPIO replies |
+| Stage legacy v108, then ~75 s of retention, STATUS | **PASS**: `verified, 126388` survives the sleeps; unplanned 0 |
+| Floor after a refresh (rail pin held off by the pull-down through deep sleep) | **PASS**: 3.9 µA; MSD temperature 21 °C from the panel |
+| Fallback: fault-test image (`-DOD_TLSR_FAULT_TEST=ON`), GPIO pin 0xFE arms a hang in the next retention wake | **PASS**: ~4 s at 2.9 mA (the hang), watchdog reset, STATUS `unplanned, 1`; floor stays 47 µA (suspend only) for minutes past the 60 s mark; updater answers |
+| Update from the fallback state, then power cycle (PPK2 off ~5 s) | **PASS**: build a1a1a1a1 installed (`planned, 1`, still suspend-only); after the power cycle `power-on, 0` and retention back ~66 s after power-up |
+| Self-update, OpenDisplay over OpenDisplay, no legacy image staged: a1a1a1a1 → b2b2b2b2 from the retention state | **PASS**: READ_FW_VERSION `3.0.0 build b2b2b2b2` after the reboot |
+| Corrupted image (one byte flipped mid-image), sent past the host's check | **PASS**: FINISH refused `crc`, STATUS `failed, …, crc`; build b2b2b2b2 keeps running; the next install (the permanent image, sha256 84aebe19…) is clean |
+| Idle connection held 30 s (BlueZ's parameters) | 305 µA mean, 48 µA median: suspend between connection events, as designed |
+| OD060F40 made permanent (Jonas): OpenDisplay image sha256 84aebe19… installed, no legacy image staged | Done |
+| OD05B911 (active-low rail PB5, battery): install, upload | **PASS** in suspend-only mode: refresh complete at 22 s; STATUS `planned, 6`. Its 6 unplanned resets since the battery went in (bring-up) keep retention off until a power cycle; legacy v108 staged again |
+| OD05B911 after a battery cycle (Jonas) | STATUS `power-on, 0`: retention armed |
+| Retention on OD05B911, detected without a meter: PA2 (floating) set pull-down + output high over the GPIO sub-op, link closed, 90 s idle, read back | **PASS**: read 1 before, 0 after, while STATUS stayed `power-on, 0` (no reboot): only a retention wake resets the digital GPIO registers |
+| Two uploads with retention between them (active-low rail PB5, pull-up while off) | **PASS**: both refreshes complete at ~22 s, no reset; MSD 2960 mV, 25 °C. The rail being off *during* sleep is not measured on this tag (no meter) |
+| Boot screen on the fix image (0ff7a43 + no boot screen after an unplanned reset; sha256 644164c4…); config already without CLEAR_ON_BOOT | **PASS**: boots and stays up, STATUS `planned, 0`; MSD temperature 23 °C with no upload since the install, so the panel ran at boot. Glass not checked. Does **not** prove the watchdog fix: this 200×152 panel renders under 4 s, and it booted the boot screen on earlier images too. Legacy v108 staged again |
+| Not run: hours-long soak (deferred by Jonas) | **OPEN** |
+
+### OD060F40 — factory reset and SEC2 claim (2026-11-14)
+
+Power cycles are the PPK2 cutting DUT power for 1.5 s; on-periods 4.5 s (inside T_ARM 2 s ..
+T_CLEAR 10 s). Host: py-opendisplay `v3/py` (f838fe0) CLI. Rows 1-3 on the permanent image
+(84aebe19…), the rest on the image with the setup screens wired.
+
+| Row | Result |
+|---|---|
+| A 1.5 s PPK2 cut reads as a power-on (DEEP_ANA_REG1 lost): planned reboot, cut, STATUS | **PASS**: `planned` → `power-on, 0` |
+| Factory reset: five quick cuts, config present, unclaimed | **PASS**: config gone (read returns none), STATUS `planned` (R8 reboot), SEC_STATUS `UNCLAIMED`, claim mode, 3 renders |
+| Below the pattern: three quick cuts after restoring the config | **PASS**: claim mode only; config 229 B identical |
+| Claim gesture (two quick cuts): SETUP screen drawn | **PASS** on the meter: ~30 s refresh at 5-13 mA once past T_CLEAR; not advertising during it. Screen not photographed |
+| `opendisplay claim`: CODE screen, code typed from the glass (Jonas) | **PASS**: `Claimed 00003d6758060f40`; SEC_STATUS `CLAIMED`. The CODE refresh ran inside the open connection |
+| Encrypted session: `opendisplay info` | **PASS**: config read, "Encryption Enabled" |
+| Encrypted upload: `opendisplay upload` (184x384 BWY, compressed) | **PASS**: done in 48 s; idle back to ~28 µA mean. Glass not checked |
+| Claimed, no session: plaintext 0x0040 config read, 0x000F reboot, 0x0084 raw SPI | **PASS**: each `[00][cmd][FE]` (auth required); 0x0046 and 0x0043 answer, as specified |
+| Updater on the claimed tag, ungated image | STATUS answers; the updater took a plain install (this is how the gated image got on) |
+| Gated image, claimed, no session: `tlsr_ota.py stage` | **PASS**: BEGIN refused `locked`; STATUS answers; plaintext 0x0051 → `[00][51][FE]` |
+| `tlsr_ota.py --sec2 install` (session via py-opendisplay, sealed ENTER_DFU, same link) | **PASS**: ENTER_DFU ACK, 239-byte chunks, staged, verified, installed; READ_FW_VERSION `3.0.0 build c3c3c3c3`; still `CLAIMED`, encrypted `info` works |
+| The unlock does not outlive the link: plain stage after that reboot | **PASS**: `locked` again |
+| Back to the dev build the same way | **PASS**: `3.0.0 build tlsr-dev` (sha256 5e939cf7…) |
+| Key rotation: `opendisplay rotate-key` | **PASS**: the stored key changes (fingerprint compared, not the key); encrypted `info` with the new key works; the old key gets `0x0056` AUTH_FAILED |
+| Unclaim: `opendisplay unclaim` | **PASS**: SEC_STATUS `UNCLAIMED`, no claim mode; plaintext config read answers (295 B); plain `tlsr_ota.py stage` verifies (updater open again); the key store forgot the uid |
+| Not run: reset pin (no 0x27 pin on this tag), session timeout, replay | **OPEN** |
+| Boot screen on power-up (CLEAR_ON_BOOT cleared in the stored config, CMD_REBOOT), image 43c7946 | **FAIL**: watchdog reset loop from ~1 s after every boot (~3.6 mA, ~5.5 s period = 4 s watchdog + boot), never advertises; the five-cycle factory reset does not count (render starts before T_ARM). Tag needs SWS. Fix 0ff7a43 (watchdog fed from data writes) not yet run on a tag |

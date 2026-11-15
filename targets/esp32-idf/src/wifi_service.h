@@ -130,7 +130,7 @@ bool wifiLanClientConnected(void);
 /// +1 when the TLS-PSK channel is active. Derived, never configured directly.
 uint16_t lanActivePort(void);
 /// True when the LAN channel is TLS-PSK rather than plaintext
-/// (= od_session_security_enabled(od_session_app_security())).
+/// (= od_sec2_state() == OD_SEC2_CLAIMED).
 bool lanTlsEnabled(void);
 /// True while a TLS-PSK session on the accepted socket has COMPLETED its handshake.
 /// This -- not lanTlsEnabled(), which is only a configuration question -- is what

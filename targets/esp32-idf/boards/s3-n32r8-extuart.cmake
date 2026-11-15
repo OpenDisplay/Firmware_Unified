@@ -3,10 +3,8 @@
 #
 # Two differences from s3-n32r8, both deliberate and both from the source env:
 #
-#   * NO OPENDISPLAY_FASTEPD. This board's panel goes through bb_epaper, not FastEPD --
-#     env:esp32-s3-N32R8-extuart does not list the FastEPD lib_dep either. Adding it here
-#     would pull FastEPD's Group5 in and change which copy wins the collision resolved in
-#     main/CMakeLists.txt.
+#   * NO OPENDISPLAY_FASTEPD. This board's panel is an SPI panel driven from the config's drive
+#     packets -- env:esp32-s3-N32R8-extuart does not list the FastEPD lib_dep either.
 #   * Console on the onboard CH343P USB-UART (GPIO43/44), not native USB-CDC.
 set(OD_IDF_TARGET esp32s3)
 set(OD_PARTITION_CSV partitions/default_32MB.csv)

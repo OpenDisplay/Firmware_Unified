@@ -15,7 +15,7 @@ before the import and are corrected here.
 | This target builds | **yes**, clean: `text 249892  data 492  bss 31792`, `heap_size 0x2cd0` (`./build-and-flash.sh --no-flash`) |
 | Hardware-verified | **no** — nothing here has been flashed to a board |
 | Takes from `shared/` | seven tiers it calls — PURE + HAL_CRYPTO + HAL_RADIO + APP_SESSION + APP_INFLATE + APP_XFER + APP_NFC — **plus HAL_LOG compiled capability-off** (`OD_CAP_LOG=0`), which links no logger symbol or state. Declines APP_RXQ, HAL_ADV and HAL_WDT. See [below](#what-this-target-takes-from-shared-today) |
-| Blocked by | *(resolved)* `bb_epaper` had no EFR32 IO backend and no `sendPanelInitFull()`; fixed by the target-owned `panel/od_bbep_efr32.cpp` adapter, `third_party/` unedited |
+| Panel library | none: the panel is driven from the config's drive packets (`od_epd_adapter.cpp`, `od_epd_io_silabs.c`). The bb_epaper adapter (`panel/`) and the panel-id map (`opendisplay_epd_map.c`) are deleted |
 | Also missing | *(resolved)* SEGGER RTT and `app_properties` come from the pinned SDK; neither is vendored |
 
 The rest of this section is the record of how it got there, kept because the failures it
@@ -49,7 +49,7 @@ targets — a target-owned `panel/` backend, not an edit to `third_party/`.
 | Not imported: the SDK | `simplicity_sdk_2025.12.2/`, 57 MB / 658 files — the documented deviation. Replaced by the pinned install |
 | Not imported: `third_party/` | all four trees. `bb_epaper` and `uzlib` are vendored once at repo level; `segger_rtt` and `silabs_app_properties` **have no home yet** |
 | Not imported: `include/` | the local protocol-header copies; `shared/protocol/` is the single reference |
-| Not imported: the bootloader blob | 753 KB `.s37`; its README is imported so the provenance survives |
+| Imported later: the bootloader blob | `bootloader-artifact/opendisplay-bootloader.s37`, 747 KB, byte-identical to Firmware_Silabs (provenance in its README); needed for virgin-board release images |
 
 ### The two homeless vendored trees
 
@@ -191,6 +191,14 @@ SLC-managed project (`opendisplay-bg22.slcp`) with a **generated** CMake file
 Project options exposed by the wrapper: `OD_ENABLE_RTT`, `OD_GENERATE_GBL_OTA`,
 `OD_APP_VERSION`, `OD_SL_APPLICATION_VERSION`, `OD_TNB132M_BOOT_PROBE`,
 `OD_TNB132M_WRITE_NDEF`, `OD_TNB132M_NDEF_TEXT`.
+
+**Application version (app properties).** `SL_APPLICATION_VERSION` is derived from
+`OD_FW_VERSION` (else `OD_APP_VERSION`) as `(major << 16) | (minor << 8) | patch` — 3.0.0 is
+196608. Firmware_Silabs 2.x used `(major << 8) | minor` (2.3.0 = 515, max 65535), so 3.x is
+always above the 2.x fleet. The shipped bootloader (`bootloader-artifact/`) is built with
+`BOOTLOADER_ROLLBACK_PROTECTION 0`, so no version is refused on OTA today; the encoding only
+keeps that safe if rollback protection is ever enabled. `OD_SL_APPLICATION_VERSION` still
+overrides. A release build must pass `OD_FW_VERSION=<tag>` so the number tracks the tag.
 
 **`slc generate` needs to be pointed at a real SDK.** It requires component metadata
 (`.slcc`/`.slce`); the source-only `-cp` copy in the source repo at `simplicity_sdk_2025.12.2`

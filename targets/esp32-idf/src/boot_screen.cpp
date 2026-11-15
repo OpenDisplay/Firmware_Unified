@@ -10,92 +10,99 @@
 #include "encryption_state.h"
 #include "od_boot_app.h"
 #include "od_boot_screen.h"
+#include "od_claim_app.h"
+#include "od_sec2_trace.h"
+#include "od_watchdog_app.h"
+#include "touch_input.h"
+#include "od_color.h"
+#include "od_display.h"
+#include "od_display_esp.h"
 #include "structs.h"
 
-#include <bb_epaper.h>
 #include <stdlib.h>
 
 extern struct od_config globalConfig;
-extern BBEPDISP bbep;
 extern uint8_t staticRowBuffer[BOOT_ROW_BUFFER_SIZE];
 
-void bbepSetAddrWindow(BBEPDISP *epd, int x, int y, int width, int height);
-void bbepStartWrite(BBEPDISP *epd, int plane);
-void bbepWriteData(BBEPDISP *epd, uint8_t *data, int len);
-
 static uint8_t s_boot_qr[256];
+static const struct od_boot_bufs s_bufs = {
+    staticRowBuffer, BOOT_ROW_BUFFER_SIZE, s_boot_qr, sizeof(s_boot_qr)};
+
+/* Two sinks for one renderer: od_display's stream for config-driven panels, FastEPD's
+ * framebuffer for the panels on a built-in driver (built with OD_DISPLAY_SHARED_BOOT_SINK=0). */
+#if defined(OPENDISPLAY_FASTEPD)
+#define NATIVE() displayUsesNativeDriver()
+#else
+#define NATIVE() false
+#endif
 
 int od_boot_app_begin_frame(uint16_t width, uint16_t height, uint8_t segments)
 {
-  (void)width;
-  (void)height;
-  return segments == 1u ? 0 : -1;
+  if (NATIVE()) return segments == 1u ? 0 : -1;
+  return od_display_boot_sink_begin_frame(width, height, segments);
 }
 
 int od_boot_app_begin_plane(int plane)
 {
-#if defined(OPENDISPLAY_FASTEPD)
-  if (fastepd_driver_used()) return 0;
-#endif
-  bbepSetAddrWindow(&bbep, 0, 0, globalConfig.displays[0].pixel_width,
-                    globalConfig.displays[0].pixel_height);
-  bbepStartWrite(&bbep, plane == OD_BOOT_PLANE_PRIMARY ? PLANE_0 : PLANE_1);
-  return 0;
+  if (NATIVE()) return 0;
+  return od_display_boot_sink_begin_plane(plane);
 }
 
 int od_boot_app_write_row(uint16_t y, uint8_t segment, const uint8_t *row, uint16_t len)
 {
-  if (segment != 0u) return -1;
 #if defined(OPENDISPLAY_FASTEPD)
-  if (fastepd_driver_used()) {
+  if (NATIVE()) {
+    if (segment != 0u) return -1;
     fastepd_boot_write_row(y, row, len);
     return 0;
   }
-#else
-  (void)y;
 #endif
-  bbepWriteData(&bbep, (uint8_t *)(void *)row, len);
-  return 0;
+  return od_display_boot_sink_write_row(y, segment, row, len);
 }
 
 int od_boot_app_end_plane(int plane)
 {
-  (void)plane;
-  return 0;
+  if (NATIVE()) return 0;
+  return od_display_boot_sink_end_plane(plane);
 }
 
 int od_boot_app_end_frame(void)
 {
 #if defined(OPENDISPLAY_FASTEPD)
-  if (fastepd_driver_used()) fastepd_boot_skip_planes();
+  if (NATIVE()) {
+    fastepd_boot_skip_planes();
+    return 0;
+  }
 #endif
-  return 0;
+  return od_display_boot_sink_end_frame();
 }
 
 int od_boot_app_bits_per_pixel(uint8_t color_scheme)
 {
-  return displayBootBitsPerPixel(color_scheme);
+  if (NATIVE()) return displayBootBitsPerPixel(color_scheme);
+  return od_display_boot_sink_bits_per_pixel(color_scheme);
 }
 
 int od_boot_app_default_plane(uint8_t color_scheme)
 {
-  return displayBootPlane(color_scheme) == PLANE_0
-      ? OD_BOOT_PLANE_PRIMARY : OD_BOOT_PLANE_SECOND;
+  if (NATIVE()) {
+    return (color_scheme == OD_COLOR_SCHEME_MONO || color_scheme == OD_COLOR_SCHEME_GRAY16 ||
+            color_scheme == OD_COLOR_SCHEME_BWR || color_scheme == OD_COLOR_SCHEME_BWY)
+        ? OD_BOOT_PLANE_PRIMARY : OD_BOOT_PLANE_SECOND;
+  }
+  return od_display_boot_sink_default_plane(color_scheme);
 }
 
 bool od_boot_app_direct_2bpp(void)
 {
-#if defined(OPENDISPLAY_FASTEPD)
-  return fastepd_driver_used();
-#else
-  return false;
-#endif
+  if (NATIVE()) return true;
+  return od_display_boot_sink_direct_2bpp();
 }
 
 uint8_t od_boot_app_segments(void)
 {
-  /* Split panels remain refused until the held-CS transport is hardware-qualified. */
-  return 1u;
+  if (NATIVE()) return 1u;
+  return od_display_boot_sink_segments();
 }
 
 uint32_t od_boot_app_device_id24(void)
@@ -115,9 +122,74 @@ void od_boot_app_firmware_version(uint8_t *major, uint8_t *minor, uint8_t *patch
 float od_boot_app_battery_volts(void) { return readBatteryVoltage(); }
 float od_boot_app_chip_temp_c(void) { return readChipTemperature(); }
 
+const struct od_boot_bufs *bootScreenBufs(void)
+{
+  return &s_bufs;
+}
+
 bool writeBootScreenWithQr()
 {
-  const struct od_boot_bufs bufs = {
-      staticRowBuffer, BOOT_ROW_BUFFER_SIZE, s_boot_qr, sizeof(s_boot_qr)};
-  return od_boot_screen_render(&globalConfig, &securityConfig, &bufs);
+  return od_boot_screen_render(&globalConfig, &securityConfig, &s_bufs);
+}
+
+/* SECURITY_V2 7.8 / FACTORY_RESET.md 4 (od_claim_app.h): a setup-family screen through the same
+ * two sinks as the boot screen. Blocks for the refresh; the caller has flushed its replies. */
+static const char *setup_kind_name(enum od_setup_screen kind)
+{
+  switch (kind) {
+  case OD_SETUP_SCREEN_SETUP: return "SETUP";
+  case OD_SETUP_SCREEN_CODE:  return "CODE";
+  case OD_SETUP_SCREEN_RESET: return "RESET";
+  default:                    return "NORMAL";
+  }
+}
+
+static bool claim_app_draw(enum od_setup_screen kind, uint32_t code);
+
+extern "C" bool od_claim_app_draw(enum od_setup_screen kind, uint32_t code)
+{
+  const bool ok = claim_app_draw(kind, code);
+
+  OD_SEC2_TRACE("od_claim_app_draw(%s) -> %s (display_count=%u needs_migration=%u)",
+                setup_kind_name(kind), ok ? "drawn" : "NOT drawn",
+                (unsigned)globalConfig.display_count, (unsigned)od_display_needs_migration());
+  (void)setup_kind_name;
+  return ok;
+}
+
+static bool claim_app_draw(enum od_setup_screen kind, uint32_t code)
+{
+  bool ok = false;
+
+  if (kind == OD_SETUP_SCREEN_NORMAL || globalConfig.display_count == 0u) {
+    return false;
+  }
+  od_watchdog_app_phase(OD_WDT_PHASE_BOOT_REFRESH);
+#if defined(OPENDISPLAY_FASTEPD)
+  if (NATIVE()) {
+    if (displayBootBitsPerPixel(globalConfig.displays[0].color_scheme) != 0) {
+      displayRailAcquire();
+      fastepd_epaper_begin();
+      if (fastepd_init_failed()) {
+        fastepd_mark_hw_deinitialized();
+      } else if (od_boot_screen_render_setup(&globalConfig, kind, code, &s_bufs)) {
+        touchSuspendForEpdRefresh();
+        fastepd_full_update();
+        ok = fastepd_wait_refresh(60);
+        touchResumeAfterEpdRefresh();
+      }
+      epdSessionForceOff();
+    }
+    od_watchdog_app_phase(OD_WDT_PHASE_IDLE);
+    return ok;
+  }
+#endif
+  if (!od_display_needs_migration()) {
+    touchSuspendForEpdRefresh();
+    ok = od_display_setup_screen(&globalConfig, kind, code, &s_bufs) == OD_DISPLAY_OK;
+    epdSessionForceOff();   /* ends with the rail off, like the boot screen */
+    touchResumeAfterEpdRefresh();
+  }
+  od_watchdog_app_phase(OD_WDT_PHASE_IDLE);
+  return ok;
 }

@@ -34,6 +34,24 @@ if(NOT DEFINED SDK_PATH OR SDK_PATH STREQUAL "")
       OUTPUT_STRIP_TRAILING_WHITESPACE
       ERROR_QUIET)
   endif()
+  # slt is rarely on PATH, and its conan package has a hashed directory name. Only a complete SDK
+  # counts, and with more than one installed the choice is left to SIMPLICITY_SDK_DIR.
+  if(SDK_PATH STREQUAL "")
+    file(GLOB _od_sdk_candidates "$ENV{HOME}/.silabs/slt/installs/conan/p/simpl*/p")
+    set(_od_sdk_complete "")
+    foreach(_od_sdk IN LISTS _od_sdk_candidates)
+      if(EXISTS "${_od_sdk}/bluetooth_le_host/src/sl_bt_stack_init.c" AND
+         EXISTS "${_od_sdk}/bootloader_interface/platform/bootloader/app_properties/app_properties.c")
+        list(APPEND _od_sdk_complete "${_od_sdk}")
+      endif()
+    endforeach()
+    list(LENGTH _od_sdk_complete _od_sdk_count)
+    if(_od_sdk_count EQUAL 1)
+      set(SDK_PATH "${_od_sdk_complete}")
+    elseif(_od_sdk_count GREATER 1)
+      message(WARNING "Several Simplicity SDKs found, set SIMPLICITY_SDK_DIR: ${_od_sdk_complete}")
+    endif()
+  endif()
 endif()
 if(SDK_PATH STREQUAL "" OR NOT EXISTS "${SDK_PATH}/bluetooth_le_host/src/sl_bt_stack_init.c")
   message(FATAL_ERROR
@@ -84,6 +102,16 @@ if(OD_ENABLE_RTT AND NOT EXISTS "${SDK_PATH}/segger/systemview/SEGGER/SEGGER_RTT
     "Build with -DOD_ENABLE_RTT=OFF for a shipping image that needs no RTT.")
 endif()
 
+# The SOURCE has to follow the same condition as the guard above. An SDK pruned to the
+# components this target compiles against carries no segger/ at all, so listing SEGGER_RTT.c
+# unconditionally makes add_library() fail on a missing source and leaves `slc` with no sources
+# -- which surfaces as "No SOURCES given to target: slc", naming neither RTT nor the SDK.
+# Unquoted below on purpose: empty expands to no argument.
+set(OPD_SEGGER_RTT_SRC "")
+if(OD_ENABLE_RTT)
+  set(OPD_SEGGER_RTT_SRC "${SDK_PATH}/segger/systemview/SEGGER/SEGGER_RTT.c")
+endif()
+
 add_library(slc OBJECT
     "${SDK_PATH}/bluetooth_common/src/sli_bgcommon_debug_efr32.c"
     "${SDK_PATH}/bluetooth_le_controller/src/sl_btctrl_init.c"
@@ -105,8 +133,9 @@ add_library(slc OBJECT
     "${SDK_PATH}/platform_common/platform/common/src/sl_assert.c"
     "${SDK_PATH}/platform_common/platform/common/src/sl_slist.c"
     "${SDK_PATH}/platform_common/platform/common/src/sl_syscalls.c"
-    "${SDK_PATH}/segger/systemview/SEGGER/SEGGER_RTT.c"
+    ${OPD_SEGGER_RTT_SRC}
     "../od_rtt.c"
+    "../od_printf.c"
     "${SDK_PATH}/platform_core/platform/common/src/sl_core_cortexm.c"
     "${SDK_PATH}/platform_core/platform/driver/gpio/src/sl_gpio.c"
     "${SDK_PATH}/platform_core/platform/emdrv/nvm3/src/nvm3.c"
@@ -253,13 +282,16 @@ add_library(slc OBJECT
     "../hal/od_hal_i2c.c"
     "../od_hal_radio.c"
     "../od_hal_time.c"
-    "../od_session_app.c"
+    "../od_sec2_app.c"
+    "../od_claim_app_silabs.c"
+    "../od_nvm3_purge.c"
+    "../od_hal_secret.c"
     "../od_cmd_silabs.c"
+    "../od_link_policy.c"
     "../opendisplay_config_storage.c"
     "../opendisplay_config_parser.c"
     "../opendisplay_display.cpp"
     "../od_inflate_app.c"
-    "../opendisplay_epd_map.c"
     "../opendisplay_led.c"
     "${OD_REPO_ROOT}/third_party/qrcode/qrcode.c"
     "../app_bm.c"
@@ -268,10 +300,6 @@ add_library(slc OBJECT
     "../autogen/sl_event_handler.c"
     "../autogen/sl_power_manager_handler.c"
     "../main.c"
-    # OUR glue TU, not the vendored bb_epaper.cpp -- see ../panel/od_bbep_efr32.cpp for why.
-    # Third target on this pattern; third_party/bb_epaper takes zero edits.
-    "${CMAKE_CURRENT_LIST_DIR}/../panel/od_bbep_efr32.cpp"
-    "${OD_REPO_ROOT}/third_party/bb_epaper/src/Group5.cpp"
 
     # Shared tiers selected for the seams this target implements. HAL_ADV, HAL_WDT, APP_RXQ and
     # APP_BOOT remain absent. APP_XFER is production code: direct and capability-off partial route
@@ -285,7 +313,26 @@ add_library(slc OBJECT
     ${OD_SHARED_SOURCES_APP_XFER}
     ${OD_SHARED_SOURCES_APP_NFC}
     ${OD_SHARED_SOURCES_APP_LED}
+    ${OD_SHARED_SOURCES_APP_EPD}
+    ${OD_SHARED_SOURCES_APP_NET_A}
+    ${OD_SHARED_SOURCES_APP_IMGSTORE}
+    ${OD_SHARED_SOURCES_APP_ACTION}
+    ${OD_SHARED_SOURCES_APP_SPI_RAW}
+    ${OD_SHARED_SOURCES_APP_IDENT}
     ${OD_SHARED_SOURCES_HAL_LOG}
+    "../od_hal_adv2.c"
+
+    # The od_epd seam for this target: SPI/GPIO over em_*, and the adapter that turns a device
+    # config into a panel description. Not in APP_EPD because both are target-shaped -- one
+    # needs vendor headers, the other is C++.
+    "../od_epd_io_silabs.c"
+    "../od_epd_adapter.cpp"
+    "../od_epd_shim.cpp"
+    "../od_hal_spi.c"
+    "../od_cmd_flash.c"
+    "../od_cmd_drive.c"
+    "../od_display_drive.cpp"
+    "../od_action_app_silabs.c"
 )
 
 target_include_directories(slc PUBLIC
@@ -307,7 +354,6 @@ target_include_directories(slc PUBLIC
    ${OD_SHARED_INCLUDE_DIRS}
    "${OD_REPO_ROOT}/third_party"
    "${SDK_PATH}/segger/systemview/SEGGER"
-   "${OD_REPO_ROOT}/third_party/bb_epaper/src"
    "${CMAKE_CURRENT_LIST_DIR}/../panel"
     "${SDK_PATH}/devices/platform/Device/SiliconLabs/EFR32BG22/Include"
     "${SDK_PATH}/platform_common_apps/app/common/util/app_assert"
@@ -376,6 +422,7 @@ target_compile_definitions(slc PUBLIC
     "NVM3_MAX_OBJECT_SIZE=2112"
     "SLI_PSA_CONFIG_AUTOGEN_OVERRIDE_FILE=\"od_psa_config_autogen.h\""
     ${OD_PROFILE_SILABS}
+    "OD_IDENT_TARGET=OD_IDENT_TARGET_SILABS"
     "OPENDISPLAY_ZLIB_WINDOW_BITS=9"
     "__SILABS_BG22__=1"
     "EFR32BG22C222F352GM40=1"
@@ -423,7 +470,7 @@ target_link_libraries(slc PUBLIC
     "${SDK_PATH}/bluetooth_common/lib/build/gcc/cortex-m33/bgcommon/release/libbgcommon.a"
     "${SDK_PATH}/bluetooth_le_controller/build/gcc/xg22/release/liblinklayer.a"
     "${SDK_PATH}/bluetooth_le_host/build/gcc/cortex-m33/bgstack/release/libbondingdb.a"
-    "${SDK_PATH}/bluetooth_le_host/build/gcc/cortex-m33/ble_bgapi/release/libble_bgapi_gatt_client.a"
+    "${SDK_PATH}/bluetooth_le_host/build/gcc/cortex-m33/ble_bgapi/release/libble_bgapi_stub_gatt_client.a"
     "${SDK_PATH}/bluetooth_le_host/build/gcc/cortex-m33/ble_bgapi/release/libble_bgapi_gatt_server.a"
     "${SDK_PATH}/bluetooth_le_host/build/gcc/cortex-m33/accept_list/release/libble_host_accept_list_stub.a"
     "${SDK_PATH}/bluetooth_le_host/build/gcc/cortex-m33/bgstack/release/libble_host.a"
@@ -446,28 +493,31 @@ target_compile_options(slc PUBLIC
     $<$<COMPILE_LANGUAGE:C>:-Wall>
     $<$<COMPILE_LANGUAGE:C>:-Wextra>
     $<$<COMPILE_LANGUAGE:C>:-Oz>
+    $<$<COMPILE_LANGUAGE:C>:-fno-inline-functions-called-once>
     $<$<COMPILE_LANGUAGE:C>:-fdata-sections>
     $<$<COMPILE_LANGUAGE:C>:-ffunction-sections>
     $<$<COMPILE_LANGUAGE:C>:-fomit-frame-pointer>
     $<$<COMPILE_LANGUAGE:C>:-g0>
     $<$<COMPILE_LANGUAGE:C>:--specs=nano.specs>
-    $<$<COMPILE_LANGUAGE:C>:-fno-lto>
+    $<$<COMPILE_LANGUAGE:C>:-flto>
     $<$<COMPILE_LANGUAGE:CXX>:-mcpu=cortex-m33>
     $<$<COMPILE_LANGUAGE:CXX>:-mthumb>
     $<$<COMPILE_LANGUAGE:CXX>:-mfpu=fpv5-sp-d16>
     $<$<COMPILE_LANGUAGE:CXX>:-mfloat-abi=hard>
     $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>
     $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions>
+    $<$<COMPILE_LANGUAGE:CXX>:-fno-threadsafe-statics>
     $<$<COMPILE_LANGUAGE:CXX>:-mcmse>
     $<$<COMPILE_LANGUAGE:CXX>:-Wall>
     $<$<COMPILE_LANGUAGE:CXX>:-Wextra>
     $<$<COMPILE_LANGUAGE:CXX>:-Oz>
+    $<$<COMPILE_LANGUAGE:CXX>:-fno-inline-functions-called-once>
     $<$<COMPILE_LANGUAGE:CXX>:-fdata-sections>
     $<$<COMPILE_LANGUAGE:CXX>:-ffunction-sections>
     $<$<COMPILE_LANGUAGE:CXX>:-fomit-frame-pointer>
     $<$<COMPILE_LANGUAGE:CXX>:-g0>
     $<$<COMPILE_LANGUAGE:CXX>:--specs=nano.specs>
-    $<$<COMPILE_LANGUAGE:CXX>:-fno-lto>
+    $<$<COMPILE_LANGUAGE:CXX>:-flto>
     $<$<COMPILE_LANGUAGE:ASM>:-mcpu=cortex-m33>
     $<$<COMPILE_LANGUAGE:ASM>:-mthumb>
     $<$<COMPILE_LANGUAGE:ASM>:-mfpu=fpv5-sp-d16>
@@ -489,7 +539,7 @@ target_link_options(slc INTERFACE
     --specs=nano.specs
     "SHELL:-Xlinker -Map=$<TARGET_FILE_DIR:opendisplay-bg22>/opendisplay-bg22.map"
     "SHELL:-Wl,--wrap=_free_r -Wl,--wrap=_malloc_r -Wl,--wrap=_calloc_r -Wl,--wrap=_realloc_r"
-    -fno-lto
+    -flto
     -Wl,--gc-sections
 )
 

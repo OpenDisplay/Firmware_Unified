@@ -15,8 +15,7 @@
 
 #include "od_config_read.h"
 #include "od_nfc.h"
-#include "od_session.h"
-#include "od_session_app.h"
+#include "od_sec2.h"
 #include "od_txq.h"
 #include "od_xfer.h"
 
@@ -26,5 +25,5 @@ void od_core_reset(void)
     od_xfer_reset();
     od_config_read_cancel();
     od_txq_reset();
-    od_session_clear(od_session_app_state());
+    od_sec2_disconnect();
 }

@@ -8,8 +8,9 @@
 
 #include "od_config_read.h"
 
-#include "od_session.h"
-#include "od_session_app.h"
+#include "od_sec2.h"
+#include "od_sec2_app.h"
+#include "sec2_client.h"
 #include "session_fake.h"
 
 #include <stdio.h>
@@ -35,6 +36,7 @@ static const char *g_case = "(none)";
 #define SENT_MAX 128u
 static struct { uint16_t len; uint8_t data[OD_TX_FRAME_MAX]; } g_sent[SENT_MAX];
 static unsigned g_sent_n;
+static unsigned g_pop;
 static bool     g_radio_stalled;      /* RETRY everything, so the queue fills */
 static bool     g_tag_dead;           /* the link dies mid-read */
 
@@ -62,27 +64,23 @@ void od_txq_app_dropped(const od_reply_t *rp, uint16_t len, od_radio_result_t wh
     (void)rp; (void)len; (void)why;
 }
 
-/* ------------------------------------------------------------------ fake od_session_app seam --- */
+bool sec2c_radio_pop(uint8_t *buf, uint16_t *len)
+{
+    if (g_pop >= g_sent_n) { return false; }
+    memcpy(buf, g_sent[g_pop].data, g_sent[g_pop].len);
+    *len = g_sent[g_pop].len;
+    ++g_pop;
+    return true;
+}
 
-static struct od_session g_app_session;
-static bool     g_security_on;
+/* ------------------------------------------------------------------------- od_sec2_app hooks --- */
+
 static uint32_t g_now_ms = 1000u;
 
-struct od_session *od_session_app_state(void) { return &g_app_session; }
-const struct SecurityConfig *od_session_app_security(void)
-{
-    return g_security_on ? &g_sec : NULL;
-}
-uint32_t od_session_app_now_ms(void) { return g_now_ms; }
-void od_session_app_device_id(uint8_t out[OD_SESSION_DEVICE_ID_LEN])
-{
-    memcpy(out, DEVICE_ID, OD_SESSION_DEVICE_ID_LEN);
-}
-void od_session_app_report(enum od_session_app_op op, int result, uint16_t cmd,
-                           const struct od_session_report *report)
-{
-    (void)op; (void)result; (void)cmd; (void)report;
-}
+uint32_t od_sec2_app_now_ms(void) { return g_now_ms; }
+void od_sec2_app_uid(uint8_t uid[8]) { memcpy(uid, UID, 8u); }
+uint8_t od_sec2_app_dflags(void) { return OD_SEC2_DFLAG_HAS_PANEL; }
+const struct SecurityConfig *od_sec2_app_security(void) { return &g_sec; }
 
 /* --------------------------------------------------------------------------------- helpers --- */
 
@@ -93,21 +91,29 @@ static const od_reply_t BLE = { OD_ORIGIN_BLE, 5u };
  * 3.1 KB, so a 1.4 KB read simply completes and proves nothing. OD_CONFIG_MAX_SIZE is 4096. */
 static uint8_t g_blob[4096];
 
-static void setup(bool security_on)
+static struct sec2c C;
+
+static void clear_sent(void)
+{
+    memset(g_sent, 0, sizeof g_sent);
+    g_sent_n = 0u;
+    g_pop = 0u;
+}
+
+/* `claimed` boots from a 2.x key (row 4), so od_reply seals over BLE once a session is live. */
+static void setup(bool claimed)
 {
     unsigned i;
 
     fake_reset();
     sec_init(0);
-    memset(&g_app_session, 0, sizeof g_app_session);
-    od_session_init(&g_app_session, 0);
     od_config_read_cancel();
     od_txq_reset();
-    memset(g_sent, 0, sizeof g_sent);
-    g_sent_n = 0u;
+    (void)od_sec2_boot(claimed ? &g_sec : NULL);
+    sec2c_init(&C, MASTER, UID);
+    clear_sent();
     g_radio_stalled = false;
     g_tag_dead = false;
-    g_security_on = security_on;
     for (i = 0; i < sizeof g_blob; ++i) {
         g_blob[i] = (uint8_t)(i * 7u + 3u);   /* position-dependent, so a splice is detectable */
     }
@@ -115,6 +121,13 @@ static void setup(bool security_on)
 
 /* Reassemble the payloads of every captured chunk and compare against the blob. Also checks the
  * header shape of each: chunk numbers ascend by one and only chunk 0 carries the total length. */
+/* SEC_AUTH HELLO + FINISH on BLE; the handshake frames are then forgotten. */
+static void open_session(void)
+{
+    CHECK(sec2c_auth(&C, &BLE) == 0);
+    clear_sent();
+}
+
 static void check_reassembly(uint32_t blob_len)
 {
     static uint8_t got[sizeof g_blob];
@@ -226,15 +239,13 @@ static void test_load_failure(void)
      * independent review caught it. */
     setup(true);
     {
-        uint8_t server_nonce[16];
         od_tx_reservation_t r2;
-        CHECK(handshake(&g_app_session, g_now_ms, server_nonce, false)
-              == OD_SESSION_AUTH_ESTABLISHED);
+        open_session();
         CHECK(od_txq_reserve(1u, &r2) == OD_TXQ_OK);
         CHECK(od_config_read_start(&BLE, &r2, NULL, 0u) == OD_TXQ_OK);
         (void)od_txq_process();
         CHECK(g_sent_n == 1u);
-        CHECK(g_sent[0].len == 4u);                  /* NOT 33 */
+        CHECK(g_sent[0].len == 4u);                  /* NOT sealed */
         CHECK(g_sent[0].data[0] == RESP_NACK);
     }
 }
@@ -285,12 +296,13 @@ static void test_cancel_releases_capacity(void)
 static void test_chunks_are_sealed_when_a_session_is_live(void)
 {
     od_tx_reservation_t r;
-    uint8_t server_nonce[16];
+    uint8_t plain[OD_TX_FRAME_MAX];
+    uint16_t plain_len = 0u;
     unsigned passes = 0u;
 
     CASE("config data is application payload, so a live session seals every chunk");
     setup(true);
-    CHECK(handshake(&g_app_session, g_now_ms, server_nonce, false) == OD_SESSION_AUTH_ESTABLISHED);
+    open_session();
     CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
     CHECK(od_config_read_start(&BLE, &r, g_blob, 300u) == OD_TXQ_OK);
     while (od_config_read_active() && passes < 100u) {
@@ -300,25 +312,29 @@ static void test_chunks_are_sealed_when_a_session_is_live(void)
     }
     (void)od_txq_process();
     CHECK(g_sent_n > 0u);
-    /* Sealing adds 29 bytes, and the two leading bytes are echoed in the clear. */
-    CHECK(g_sent[0].len == MAX_RESPONSE_DATA_SIZE + 29u);
-    CHECK(g_sent[0].data[0] == RESP_ACK);
-    CHECK(g_sent[0].data[1] == RESP_CONFIG_READ);
-    /* And the chunk number is NOT readable in the clear -- it is inside the envelope. */
+    /* [E5][ctr:4][C][T:12]: the whole chunk, opcode and chunk number included, is ciphertext. */
+    CHECK(g_sent[0].len == MAX_RESPONSE_DATA_SIZE + OD_SEC2_D2H_OVERHEAD);
+    CHECK(g_sent[0].data[0] == OD_SEC2_SEALED_STATUS);
     CHECK(!(g_sent[0].data[2] == 0x00u && g_sent[0].data[3] == 0x00u &&
             g_sent[0].data[4] == (uint8_t)(300u & 0xFFu)));
+
+    CASE("and the sealed chunk opens to chunk 0 of the read");
+    CHECK(sec2c_open(&C, g_sent[0].data, g_sent[0].len, plain, &plain_len));
+    CHECK(plain_len == MAX_RESPONSE_DATA_SIZE);
+    CHECK(plain[0] == RESP_ACK);
+    CHECK(plain[1] == RESP_CONFIG_READ);
+    CHECK(plain[2] == 0x00u && plain[3] == 0x00u);
 }
 
 static void test_a_seal_failure_ends_the_read(void)
 {
     od_tx_reservation_t r;
-    uint8_t server_nonce[16];
     unsigned passes = 0u;
     unsigned nacks = 0u;
     unsigned i;
 
     /* THE MECHANISM THAT ACTUALLY BIT, and it is not the dead-tag one. A session that expires
-     * mid-read leaves the producer emitting into od_reply with security still enabled and no
+     * mid-read leaves the producer emitting into od_reply on a claimed device with no
      * session: it substitutes a plaintext hard NACK and reports SEAL_FAILED. Treated as retryable,
      * that is an unbounded NACK flood -- one per loop pass, forever -- while od_dispatch defers
      * every config read and write behind the read that will never finish.
@@ -326,14 +342,14 @@ static void test_a_seal_failure_ends_the_read(void)
      * A dead tag cannot show this: od_reply returns GONE without ever queueing a frame. */
     CASE("a session that dies mid-read ends the read instead of flooding NACKs");
     setup(true);
-    CHECK(handshake(&g_app_session, g_now_ms, server_nonce, false) == OD_SESSION_AUTH_ESTABLISHED);
+    open_session();
     CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
     CHECK(od_config_read_start(&BLE, &r, g_blob, 4096u) == OD_TXQ_OK);
     (void)od_txq_process();
     CHECK(g_sent_n == 1u);                       /* chunk 0 went out sealed */
     CHECK(od_config_read_active());
 
-    od_session_clear(&g_app_session);            /* the session expires mid-read */
+    od_sec2_teardown();                          /* the session ends mid-read */
     CHECK(od_config_read_pump() == OD_TXQ_SEAL_FAILED);
     CHECK(!od_config_read_active());             /* terminal, not pending */
 

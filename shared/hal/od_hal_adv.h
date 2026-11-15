@@ -2,7 +2,8 @@
  *
  * Three link-time C functions, not a vtable: shared/ is plain C and binds to the target
  * implementation at link time (CLAUDE.md § "The one rule"). The single deliberate
- * function-pointer exception in this tree is od_panel_ops, and this is not it.
+ * function-pointer exception in this tree is the panel bus (od_epd_cfg_bus_t / od_epd_io_t),
+ * and this is not it.
  *
  * THE DIVISION OF LABOUR. The target owns AD-record packing and the stack calls, because
  * PDU layout and update APIs differ across NimBLE, Bluefruit, Zephyr and BGAPI. The shared

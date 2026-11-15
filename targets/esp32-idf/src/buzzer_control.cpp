@@ -150,6 +150,32 @@ od_cmd_result_t handleBuzzerActivate(const od_cmd_ctx_t *ctx, uint8_t *data, uin
 
 /* ---------------------------------------------------------------- shutdown chirp --- */
 
+/* Short A5 chirp on a physical button press, from the first buzzer that opted in with
+ * OD_BUZZER_FLAG_BUTTON_PRESS. Blocking (60 ms); interrupts any playback. */
+void passiveBuzzerButtonPressAlert(void)
+{
+    const BuzzerConfig *b = nullptr;
+
+    for (uint8_t i = 0u; i < globalConfig.passive_buzzer_count; i++) {
+        const BuzzerConfig *cand = &globalConfig.passive_buzzers[i];
+
+        if (cand->drive_pin == 0u || cand->drive_pin == OD_PIN_UNUSED) continue;
+        if ((cand->flags & OD_BUZZER_FLAG_BUTTON_PRESS) == 0u) continue;
+        b = cand;
+        break;
+    }
+    if (b == nullptr) {
+        return;
+    }
+    od_buzzer_stop();
+    s_buzzer_running = false;
+    buzzer_set_enable(b, true);
+    (void)buzzer_hw_tone_start(b->drive_pin, od_buzzer_index_centihz(nA5), b->duty_percent);
+    od_hal_delay_ms(60u);
+    buzzer_hw_tone_stop(b->drive_pin);
+    buzzer_set_enable(b, false);
+}
+
 void passiveBuzzerPowerOffAlert(void)
 {
     const BuzzerConfig *b = nullptr;

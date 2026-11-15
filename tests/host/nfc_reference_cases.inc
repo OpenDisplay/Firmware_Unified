@@ -59,8 +59,8 @@ typedef struct {
     bool     foreign_origin;  /* submit under a different origin entirely */
     bool     reset_first;     /* run the target's transport reset before this frame */
     bool     reply_fails;     /* submit with a spent reservation, so the reply cannot be queued */
-    bool     sealed;          /* authenticate first, so replies cross od_session */
-    bool     unseal_reply;    /* decrypt the reply and compare the APPLICATION frame it carries */
+    bool     sealed;          /* claim + open a SEC2 session first, so replies are sealed */
+    bool     unseal_reply;    /* open the reply and compare the APPLICATION frame it carries */
 
     /* --- what is expected ----------------------------------------------------------------- */
     uint8_t  reply_head[6];
@@ -346,15 +346,16 @@ static const ref_case_t REF_CASES[] = {
 
 /* ------------------------------------------------------------------ protected session --- */
 /* The 218-byte cap is applied in BOTH modes on purpose, so the answer's size does not depend on
- * whether the session happens to be encrypted. Sealed, the same record is the 253-byte maximum:
- * the envelope adds exactly 29 bytes to the 224-byte plain frame. */
-/* The sealed frame is unsealed with the reference CCM and the key the device loaded, then the
- * application frame inside it is compared to the plaintext one byte for byte. Asserting 253 alone
- * would pass on any correctly sized ciphertext, including one carrying the wrong record. */
+ * whether the session happens to be encrypted. Sealed, the 224-byte plain frame becomes 241: the
+ * D->H record adds [E5][ctr:4] and a 12-byte tag. */
+/* The sealed frame is opened by the SEC2 client and the application frame inside it is compared to
+ * the plaintext one byte for byte. Asserting 241 alone would pass on any correctly sized
+ * ciphertext, including one carrying the wrong record. The 219-byte refusal is a plaintext NACK
+ * (od_nfc sends error frames through od_reply_plain), so it stays 4 bytes inside a session. */
 { "the 218-byte cap holds in a protected session", REF_BOTH, {
     { .sub = NFC_SUB_READ, .read_len = 218, .sealed = true, .unseal_reply = true,
       .reply_head = { 0x00u, RESP_NFC_ENDPOINT, 0x80u, 0x01u, 0x00u, 218u },
-      .reply_head_len = 6u, .reply_len = 253u,
+      .reply_head_len = 6u, .reply_len = 224u + OD_SEC2_D2H_OVERHEAD,
       .reply_fill = 0x5Au, .reply_check_fill = true, .expect_ok = true } }, 1u },
 { "a 219-byte read is refused in a protected session too", REF_BG22, {
     { .sub = NFC_SUB_READ, .read_len = 219, .sealed = true,

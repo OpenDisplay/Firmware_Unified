@@ -1,4 +1,10 @@
+#include "od_claim_mode.h"
+#include "od_sec2_trace.h"
+#include "config_parser.h"
+#include "od_smp.h"
+#include "od_health_app.h"
 #include "main.h"
+#include "od_display_esp.h"
 #include "boot_screen.h"
 #include "buzzer_control.h"
 #include "communication.h"
@@ -6,14 +12,17 @@
 #include "display_service.h"
 #include "power_latch.h"
 #include "wake_button.h"
+#include "rtc_pcf8563.h"
 #include "touch_input.h"
 #include "encryption.h"
 #include "ble_transport.h"
 #include "link_owner.h"
 #include "session_guard.h"
 #include "od_log.h"
+#include "od_action.h"
 #include "od_watchdog_app.h"
 #include "od_config_read.h"
+#include "od_sec2.h"
 #include "od_txq.h"
 
 /* The log port itself lives in hal/od_hal_log.c now -- including the UART-number choice and
@@ -27,10 +36,53 @@
 #include "od_hal_i2c.h"
 #include "od_hal_i2c_esp.h"
 #include "od_hal_gpio.h"
+#include "driver/gpio.h"
 #include "od_hal_time.h"
 #include "od_hal_sleep.h"
 
 #include "esp_heap_caps.h"
+#include "sdkconfig.h"
+#if CONFIG_PM_ENABLE
+#include "esp_pm.h"
+#endif
+#if OD_SEC2_TRACE_BUILD
+#include "driver/uart.h"
+#include "esp_task_wdt.h"
+#include <stdlib.h>
+/* Bench fault hooks, trace build only: "!P" panics (abort), "!I" spins with interrupts off
+ * (interrupt watchdog), "!T" shortens the task watchdog to 3 s and spins in loop() (task
+ * watchdog). They produce the reset causes the gesture logic must not count. */
+static void sec2TestFaultHooks() {
+    static uint8_t prev = 0;
+    uint8_t ch;
+    while (uart_read_bytes(UART_NUM_0, &ch, 1, 0) == 1) {
+        if (prev == '!') {
+            if (ch == 'P') {
+                OD_SEC2_TRACE("fault hook: abort() -> panic reset");
+                od_log_flush();
+                abort();
+            } else if (ch == 'I') {
+                OD_SEC2_TRACE("fault hook: interrupts off, spin -> interrupt watchdog");
+                od_log_flush();
+                portDISABLE_INTERRUPTS();
+                for (;;) {
+                }
+            } else if (ch == 'T') {
+                esp_task_wdt_config_t cfg = {};
+                cfg.timeout_ms = 3000;
+                cfg.idle_core_mask = 0;
+                cfg.trigger_panic = true;
+                (void)esp_task_wdt_reconfigure(&cfg);
+                OD_SEC2_TRACE("fault hook: task watchdog 3 s, loop() spins -> task watchdog");
+                od_log_flush();
+                for (;;) {
+                }
+            }
+        }
+        prev = ch;
+    }
+}
+#endif
 
 // Distinguishes a hidden mid-cycle reset (PANIC/WDT/BROWNOUT/SW) from a real
 // power-on or deep-sleep wake; any reset here clears the wake cause, so the
@@ -96,6 +148,10 @@ static void logHeapUsage(const char *when)
                 (unsigned)psram_total);
 }
 
+// od_claim_mode_defer_boot_screen() held the boot refresh back; loop() draws it.
+static bool s_bootScreenDeferred = false;
+void od_esp_reset_note_rtc_wake(void);   // od_claim_app_esp.cpp
+
 void setup() {
     #if defined(OPENDISPLAY_LOG_UART)
     od_hal_log_open();
@@ -113,6 +169,7 @@ void setup() {
     od_hal_log_open();
     od_log_init();
     #endif
+    OD_SEC2_TRACE_BANNER();
     od_log_info("=== FIRMWARE INFO ===");
     uint8_t fwMajor = getFirmwareMajor();
     uint8_t fwMinor = getFirmwareMinor();
@@ -143,6 +200,8 @@ void setup() {
     esp_reset_reason_t reset_reason = esp_reset_reason();
     const char* resetReasonStr = resetReasonName(reset_reason);
     od_log_info("Reset reason: %s (%d)", resetReasonStr, (int)reset_reason);
+    OD_SEC2_TRACE("esp_reset_reason()=%d (%s) esp_sleep_get_wakeup_cause()=%d",
+                  (int)reset_reason, resetReasonStr, (int)esp_sleep_get_wakeup_cause());
     esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
     is_deep_sleep_wake = (wakeup_reason != ESP_SLEEP_WAKEUP_UNDEFINED);
     if (is_deep_sleep_wake) {
@@ -184,8 +243,23 @@ void setup() {
     // deep-sleep-wake path, which share this stretch of setup().
     odLanReserveRxBuffer();
 #endif
+    // A cold boot raised by the RTC (power-off sleep, see enterDeepSleep()) is a
+    // timer wake in all but the ESP32's own wake cause. Always called when an RTC
+    // is configured: it also clears the flag that holds INT (and the rail) on.
+    // RTC memory died with the rail, so displayed_etag is 0 (the host sends a
+    // full image) and rebootFlag stays clear -- this is not a reboot.
+    const bool rtc_power_off_wake = rtcConsumeWake();
+    if (rtc_power_off_wake && !is_deep_sleep_wake) {
+        is_deep_sleep_wake = true;
+        woke_from_deep_sleep = true;
+        deep_sleep_count++;
+        rebootFlag = 0;
+        od_log_info("=== WOKE FROM RTC POWER-OFF ===");
+    }
     if (is_deep_sleep_wake) { od_log_info("[wake] << full_config_init >> initio"); od_log_flush(); }
     initio();
+    if (rtc_power_off_wake) od_esp_reset_note_rtc_wake();
+    securityBoot();
     if (!is_deep_sleep_wake) {
         // Arm here rather than at declaration: this branch is the boot screen
         // redraw, and every real reset (power-on, panic, WDT, SW) clears the
@@ -194,11 +268,23 @@ void setup() {
         rebootFlag = 1;
         // Wake keeps the panel image; skipping initDisplay() (EPD rail power +
         // full refresh) is the wake path's main energy saving.
-        initDisplay();
-        od_log_info("Display initialized");
+        //
+        // Claim mode draws its own screen. A boot that may be one step of a power-cycle
+        // pattern defers its refresh until the pattern can no longer continue
+        // (od_claim_mode.h), so the pattern costs no e-paper refresh per quick boot.
+        if (od_claim_mode_defer_boot_screen()) {
+            s_bootScreenDeferred = !od_claim_mode_active();
+        } else if (!od_claim_mode_active()) {
+            OD_SEC2_TRACE("draw NORMAL boot screen (initDisplay)");
+            initDisplay();
+            od_log_info("Display initialized");
+        }
     }
     // Full BLE after display: ESP32 queues commands for loop() until setup returns.
     if (is_deep_sleep_wake) { od_log_info("[wake] >> ble_begin"); od_log_flush(); }
+    /* An OTA image stays PENDING_VERIFY until it serves a GATT write (shared/core/od_health.h);
+     * one whose links carry no ATT is reverted. Before the radio, so no link predates it. */
+    od_health_app_boot();
     {
         char bleDeviceName[3 + OD_CHIP_ID_HEX_LEN + 1] = "OD";
         getChipIdHex(bleDeviceName + 2, sizeof(bleDeviceName) - 2);
@@ -221,6 +307,9 @@ void setup() {
     updatemsdata();
     if (is_deep_sleep_wake) { od_log_info("[wake] >> initButtons"); od_log_flush(); }
     initButtons();
+    if (woke_by_button) {
+        buttonWakeDeliverSyntheticClick();
+    }
     if (is_deep_sleep_wake) { od_log_info("[wake] >> initTouchInput"); od_log_flush(); }
     initTouchInput();
     if (is_deep_sleep_wake) {
@@ -245,6 +334,10 @@ void setup() {
         minWakeWindowActive = true;
         minWakeWindowStartMs = od_hal_uptime_ms();
     }
+    // BOOT fires on a power-on or reset, not on a deep-sleep wake: every timer wake re-runs
+    // setup(), and a BOOT entry repeated on each one would cost battery for a "once" trigger.
+    // Claim mode runs none of the device's own content sources (SECURITY_V2 7.4).
+    if (!is_deep_sleep_wake && !od_claim_mode_active()) od_action_trigger(OD_TRIG_BOOT, 0u);
     // Both sleep paths measure quiet time from here, not from power-on.
     lastActivityMs = od_hal_uptime_ms();
     od_log_info("=== Setup completed successfully ===");
@@ -292,6 +385,12 @@ void requestTransferSessionCleanup(void) {
 
 void requestAdvertisingRestart(void) {
     s_advertisingRestartPending = true;
+}
+
+void notifyConfigChangedOverBle(void) {
+    // A config write changes the same on-device state a reboot does, so it raises the same flag.
+    rebootFlag = 1;
+    updatemsdata();
 }
 
 // Minimum awake window (first boot / button wake). A floor layered UNDER the
@@ -373,7 +472,7 @@ static void pollActivity() {
 
 // Services the deferred BLE-disconnect session teardown flagged by
 // the BLE transport's disconnect event. Runs on the loop() task so the heavyweight
-// EPD force-off (bbepSleep/delay/SPI.end/rail cut) and partial/pipe cleanup never
+// EPD force-off (sleep sequence, bleed, bus release, rail cut) and partial/pipe cleanup never
 // race SPI streaming or pipe-frame processing on the stack callback task.
 // Deferred while a refresh is mid-flight; the flag stays set until a later pass
 // clears it. Also raised by the LAN transport, so it is not a BLE-only path.
@@ -859,9 +958,25 @@ void loop() {
     /* First statement in the pass, so no early return below can skip it and so the feed is
      * evidence that loop() itself is running rather than that some subset of it completed. */
     od_watchdog_app_service();
+#if OD_SEC2_TRACE_BUILD
+    sec2TestFaultHooks();
+#endif
+    od_claim_mode_tick();
+    serviceSecurityPolicyReload();
+    if (s_bootScreenDeferred && !od_claim_mode_defer_boot_screen()) {
+        OD_SEC2_TRACE("deferred NORMAL boot screen now due");
+        s_bootScreenDeferred = false;
+        initDisplay();
+    }
     serviceBleEvents();
+    od_health_app_tick();
     processLedFlash();
+    // Claim mode runs none of the device's own content sources (SECURITY_V2 7.4).
+    if (!od_claim_mode_active()) {
+        (void)od_action_service(od_hal_uptime_ms());   // at most one step; every step yields
+    }
     epdSessionTick();   // od_hal_uptime_ms()-poll: power the panel down screen_timeout_seconds after last release
+    displayServiceDeferredBoot();   // boot screen owed by a config write that brought drive packets
     buzzerService();
 
     // Reconcile advertising before any branch can claim the pass: this is the only path to
@@ -914,6 +1029,7 @@ void loop() {
     // behind it permanently.
     (void)od_txq_process();
     (void)od_config_read_pump();
+    od_sec2_pump();
     if (s_msdUpdatePending) {
         s_msdUpdatePending = false;
         updatemsdata();
@@ -1020,6 +1136,7 @@ void idleDelay(uint32_t delayMs) {
         processButtonEvents();
         processTouchInput();
         processLedFlash();
+        (void)od_action_service(od_hal_uptime_ms());
         epdSessionTick();   // expire the keep-alive window while a long idleDelay blocks
         buzzerService();
         // Keep responses moving: loop() is the queue's only drainer, so a long
@@ -1031,6 +1148,7 @@ void idleDelay(uint32_t delayMs) {
         // read for the whole delay while its consumer sat here draining an empty queue.
         (void)od_txq_process();
         (void)od_config_read_pump();
+        od_sec2_pump();
         // RX and transport events are deliberately NOT serviced here -- return to
         // loop() and let serviceBleEvents()/serviceBleRx() handle them at top
         // level. Dispatching RX inside idleDelay would make command handlers
@@ -1063,25 +1181,6 @@ void fullSetupAfterConnection() {
 #ifdef OPENDISPLAY_HAS_WIFI
     initWiFi(false);
 #endif
-#if defined(OPENDISPLAY_FASTEPD)
-    if (globalConfig.display_count > 0 && fastepd_driver_used()) {
-        od_log_info("Panel: FastEPD (bb_epaper not used)");
-        od_log_info("=== Full setup completed ===");
-        return;
-    }
-#endif
-    if (globalConfig.display_count > 0) {
-        memset(&bbep, 0, sizeof(BBEPDISP));
-        int panelType = mapEpd(globalConfig.displays[0].panel_ic_type);
-        od_log_info("Panel type: %d", panelType);
-        bbepSetPanelType(&bbep, panelType);
-        if ((bbep.iFlags & BBEP_SPLIT_BUFFER) != 0u) {
-            od_log_error("Split-panel transport is not hardware-qualified on this target");
-            memset(&bbep, 0, sizeof(BBEPDISP));
-            return;
-        }
-        bbepSetRotation(&bbep, globalConfig.displays[0].rotation * 90);
-    }
     od_log_info("=== Full setup completed ===");
 }
 
@@ -1107,6 +1206,18 @@ void enterDeepSleep(bool force, uint16_t overrideSleepSeconds) {
     // awake with the radio dark. force (host 0x0053) bypasses the hold.
     if (!force && minWakeHoldActive()) {
         od_log_debug("Skipping deep sleep - minimum wake window active");
+        return;
+    }
+    // Claim mode stays awake; otherwise an armed power-cycle count ends here (SECURITY_V2 7.2).
+    if (!od_claim_mode_before_sleep()) {
+        od_log_debug("Skipping deep sleep - claim mode");
+        return;
+    }
+    // A wake boot would roll back an image still PENDING_VERIFY: stay awake while it can still be
+    // proven (od_health_app.h). Re-arming the idle clock spaces the retries one idle window apart.
+    if (!od_health_app_before_sleep()) {
+        od_log_info("Skipping deep sleep - updated image not yet confirmed");
+        lastActivityMs = od_hal_uptime_ms();
         return;
     }
     // Panel power-down MUST sit below every early-return above (including the
@@ -1179,12 +1290,24 @@ void enterDeepSleep(bool force, uint16_t overrideSleepSeconds) {
     // manipulation then cannot disturb freshly configured RTC pulls, and its
     // gpio_hold_en() touches only the latch pin, never the wake pads.
     armButtonWakeSources();
-    od_log_info("Entering deep sleep for %u seconds%s", sleepSeconds,
-                overrideSleepSeconds ? " (host override, one cycle)" : " (config)");
+    // RTC power-off (PCF8563/BM8563 + MOSFET latch): the RTC switches the board
+    // back on, so the latch is released instead of held. On an I2C failure the
+    // rail stays held and this is a plain timer deep sleep. The ESP32 timer
+    // above stays armed either way: it is what wakes a USB-powered board.
+    const bool rtcPowerOff = rtcArmWake(sleepSeconds);
+    od_log_info("Entering deep sleep for %u seconds%s%s", sleepSeconds,
+                overrideSleepSeconds ? " (host override, one cycle)" : " (config)",
+                rtcPowerOff ? ", RTC power-off" : "");
     logHeapUsage("(pre-sleep)");
     od_log_flush(); // drain UART/Serial prior to deep sleep
     od_hal_delay_ms(100); // Brief delay to ensure serial output is sent
-    powerLatchHoldForSleep();
+    if (rtcPowerOff) {
+        powerLatchReleaseForRtcSleep();
+    } else {
+        powerLatchHoldForSleep();
+    }
+    touchPrepareForDeepSleep();
+    nm420HoldForSleep();
     esp_deep_sleep_start();
 }
 
@@ -1192,7 +1315,7 @@ void enterDeepSleep(bool force, uint16_t overrideSleepSeconds) {
 static void configureDisplayPinsLowPower() {
     const DisplayConfig& d = globalConfig.displays[0];
     const uint8_t pins[] = {
-        d.cs_pin, d.clk_pin, d.data_pin, d.dc_pin, d.reset_pin,
+        d.cs_pin, d.cs_pin_2, d.clk_pin, d.data_pin, d.dc_pin, d.reset_pin,
     };
     for (uint8_t pin : pins) {
         if (pin == 0xFF) continue;
@@ -1224,7 +1347,7 @@ void pwrmgm(bool onoff){
     // of truth). Makes every legacy caller safe: a same-state call becomes a no-op,
     // while a real transition (true-after-false, or the boot true/false/true rail
     // cycle) always proceeds because each call flips the state. pwrmgm owns the
-    // OFF<->(ACTIVE) transitions; epdSessionAcquire/Release own ACTIVE<->WARM.
+    // OFF<->(ACTIVE) transitions; od_display_esp.cpp owns ACTIVE<->WARM.
     if (onoff  && pwrmgmState != PWR_OFF) return;   // already powered (WARM or ACTIVE)
     if (!onoff && pwrmgmState == PWR_OFF) return;   // already off
     displayPowerState = onoff;
@@ -1273,6 +1396,9 @@ void pwrmgm(bool onoff){
             if (disp.cs_pin != 0xFF) {
                 od_hal_gpio_config_output(disp.cs_pin, true);
             }
+            if (disp.cs_pin_2 != 0xFF) {
+                od_hal_gpio_config_output(disp.cs_pin_2, true);
+            }
             if (disp.dc_pin != 0xFF) {
                 od_hal_gpio_config_output(disp.dc_pin, false);
             }
@@ -1313,6 +1439,102 @@ void xiaoinit(){
     //od_hal_gpio_config_input(14, false, false);
     od_hal_gpio_config_output(13, false); //that actually does something
     //od_hal_gpio_config_input(17, false, false);
+}
+
+// RockBase IoT NM-EPD-420 (ESP32-S3 + 4.2in panel), DEVICE_FLAG_NM420_INIT.
+//
+// The board carries a LoRa module, an ES8311 codec, an audio PA and an AHT20 power gate whose
+// enable lines no config packet can describe. Left at the reset default (input, no pull) each
+// rail floats to whatever the board's resistor decides, so drive them OFF. All active HIGH:
+//   GPIO47 MODULE_EN (LoRa)   GPIO44 CODEC_EN   GPIO41 PA_CTRL   GPIO40 TEMP_CTL (AHT20 gate)
+//   GPIO43 ADC_EN (battery divider; pulsed HIGH only while measuring)
+// Panel 1/2/4/5/6/46, I2C 38/39 and the USER key 45 belong to their own init blocks.
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+static constexpr uint8_t kNm420OffPins[] = {47, 44, 41, 40, 43};
+#endif
+
+void nm420_init(){
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+    for (uint8_t pin : kNm420OffPins) {
+        gpio_hold_dis((gpio_num_t)pin);
+        od_hal_gpio_config_output(pin, false);
+    }
+    od_log_info("NM-EPD-420 init: peripheral enables and battery ADC gate LOW");
+#endif
+}
+
+void nm420HoldForSleep() {
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+    if (!globalConfig.loaded || !(globalConfig.system_config.device_flags & DEVICE_FLAG_NM420_INIT)) return;
+    for (uint8_t pin : kNm420OffPins) {
+        od_hal_gpio_write(pin, false);
+        gpio_hold_en((gpio_num_t)pin);
+    }
+    gpio_deep_sleep_hold_en();
+#endif
+}
+
+// Original M5Stack M5Paper (classic ESP32 + IT8951), selected by panel IC
+// OD_PANEL_IC_M5PAPER_960X540 (the panel only ships on this board). The power
+// button only switches the board on while it is held: GPIO2 (main-power hold)
+// must be driven HIGH to keep it on, and GPIO5 enables the Grove 5 V boost.
+// GPIO23 (IT8951 power) is driven by the panel driver as its EN pin. Deep-sleep
+// hold and power-off of GPIO2 go through the MOSFET latch
+// (DEVICE_FLAG_BATTERY_LATCH, pwr_pin_2 = 2), so the preset sets both flags.
+//
+// The on-board BM8563 RTC (0x51 on I2C bus 0) runs from VBAT_IN, and its INT
+// line also pulls the power-switch gate low: an alarm or timer left armed (the
+// M5Stack factory firmware leaves a repeating timer) switches the board back on
+// after every power-off, and it survives a flash erase. m5paper_init() therefore
+// turns both interrupts off, clears the flags, stops the timer and disables the
+// alarm. With RTC power-off configured it leaves that to rtcConsumeWake(),
+// which needs the flags to recognise an RTC wake.
+//
+// The CPU is clamped to 80 MHz once the hold is up: BLE needs no more, and the
+// wake window is mostly idle polling. The clamp goes through esp_pm_configure()
+// (max = min = 80, no light sleep), so it needs CONFIG_PM_ENABLE in the board's
+// sdkconfig; a build without it keeps the default clock.
+#if defined(CONFIG_IDF_TARGET_ESP32)
+static void m5paperRtcQuiesce() {
+    static const uint8_t kCtrl2[] = {0x01, 0x00};                    // AIE/TIE off, AF/TF cleared
+    static const uint8_t kTimer[] = {0x0E, 0x03};                    // timer off, 1/60 Hz
+    static const uint8_t kAlarm[] = {0x09, 0x80, 0x80, 0x80, 0x80};  // every alarm field disabled
+    if (!initOrRestoreWireForBus(0)) {
+        od_log_warn("M5Paper init: no I2C bus 0, RTC left as is");
+        return;
+    }
+    const bool ok = od_hal_i2c_write(0, 0x51, kCtrl2, sizeof(kCtrl2)) == 0 &&
+                    od_hal_i2c_write(0, 0x51, kTimer, sizeof(kTimer)) == 0 &&
+                    od_hal_i2c_write(0, 0x51, kAlarm, sizeof(kAlarm)) == 0;
+    if (ok) {
+        od_log_info("M5Paper init: RTC interrupts, timer and alarm cleared");
+    } else {
+        od_log_warn("M5Paper init: RTC not reachable at 0x51 on bus 0, left as is");
+    }
+}
+#endif
+
+void m5paper_init(){
+#if defined(CONFIG_IDF_TARGET_ESP32)
+    // Level before direction so the hold pin never glitches LOW.
+    od_hal_gpio_write(2, true);
+    od_hal_gpio_config_output(2, true);
+    gpio_hold_dis(GPIO_NUM_2);
+    gpio_hold_dis(GPIO_NUM_5);
+    od_hal_gpio_config_output(5, false);
+    od_log_info("M5Paper init: main-power hold HIGH, Grove boost off");
+#if CONFIG_PM_ENABLE
+    // After the GPIO2 hold, so the power-button hold time does not grow.
+    const esp_pm_config_t pm = {.max_freq_mhz = 80, .min_freq_mhz = 80, .light_sleep_enable = false};
+    const esp_err_t pm_err = esp_pm_configure(&pm);
+    if (pm_err == ESP_OK) {
+        od_log_info("M5Paper init: CPU clamped to 80 MHz");
+    } else {
+        od_log_warn("M5Paper init: CPU clamp failed (%d), clock left as is", (int)pm_err);
+    }
+#endif
+    if (!rtcWakeConfigured()) m5paperRtcQuiesce();
+#endif
 }
 
 void ws_pp_init(){
@@ -1357,4 +1579,9 @@ bool powerDownExternalFlash(uint8_t mosiPin, uint8_t misoPin, uint8_t sckPin, ui
     od_log_warn("External flash power-down not implemented for ESP32");
     return false;
     return false;
+}
+
+extern "C" void od_smp_note_activity(void) {
+    linkStampOwnerCommand();
+    lastActivityMs = od_hal_uptime_ms();
 }

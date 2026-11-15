@@ -1,15 +1,16 @@
 /* BG22 implementations of every shared command hook. */
 
+#include "od_claim_mode.h"
 #include "od_cmd_app.h"
 
 #include "od_config_read.h"
 #include "od_dispatch.h"
+#include "od_ident_app.h"
 #include "od_reply.h"
-#include "od_session.h"
-#include "od_session_app.h"
 #include "od_txq.h"
 #include "opendisplay_ble.h"
 #include "opendisplay_config_parser.h"
+#include "od_config_store.h"
 #include "opendisplay_config_storage.h"
 #include "opendisplay_constants.h"
 #include "opendisplay_led.h"
@@ -24,11 +25,6 @@
 #define OPENDISPLAY_BUILD_ID "bg22-dev"
 #endif
 
-static bool authenticated(void)
-{
-  return od_session_authenticated(od_session_app_state());
-}
-
 static od_txq_status_t reply(const od_cmd_ctx_t *ctx, const uint8_t *frame, uint16_t len)
 {
   return od_reply(ctx->r, &ctx->rp, frame, len);
@@ -37,11 +33,6 @@ static od_txq_status_t reply(const od_cmd_ctx_t *ctx, const uint8_t *frame, uint
 static od_txq_status_t reply_plain(const od_cmd_ctx_t *ctx, const uint8_t *frame, uint16_t len)
 {
   return od_reply_plain(ctx->r, &ctx->rp, frame, len);
-}
-
-static od_txq_status_t config_ack(const od_cmd_ctx_t *ctx, const uint8_t *frame, uint16_t len)
-{
-  return authenticated() ? reply(ctx, frame, len) : reply_plain(ctx, frame, len);
 }
 
 static od_cmd_result_t persist_config(const od_cmd_ctx_t *ctx, uint8_t response,
@@ -53,13 +44,15 @@ static od_cmd_result_t persist_config(const od_cmd_ctx_t *ctx, uint8_t response,
 
   /* Persistence is the commit point. A success response must never get ahead of it. */
   if (!saveConfig((uint8_t *)(uintptr_t)data, len)) {
+    err[2] = od_config_store_save_error();
     (void)reply_plain(ctx, err, sizeof(err));
     return OD_CMD_NACK;
   }
-  /* Seal while the old key/session is still live, then load the new config and retire it. */
-  qrc = config_ack(ctx, ok, sizeof(ok));
+  /* Queued (and sealed, on a claimed device) before the reload. A config save does not end the
+   * session: the key is not in the config record (SECURITY_V2 9.6), so the v1 rule "keep the
+   * session only if 0x27 is byte-identical" (v3/reconnect-fix) has no SEC2 counterpart. */
+  qrc = reply(ctx, ok, sizeof(ok));
   opendisplay_ble_reload_config_from_nvm();
-  od_session_clear(od_session_app_state());
   return qrc == OD_TXQ_OK ? OD_CMD_OK : OD_CMD_NACK;
 }
 
@@ -83,6 +76,12 @@ od_cmd_result_t od_cmd_app_firmware_version(const od_cmd_ctx_t *ctx, od_span_t b
   return OD_CMD_OK;
 }
 
+/* CMD_READ_IDENT 0x0046 is shared (od_cmd_ident.c); this is its config accessor. */
+const struct od_config *od_ident_app_config(void)
+{
+  return opendisplay_get_global_config();
+}
+
 od_cmd_result_t od_cmd_app_read_msd(const od_cmd_ctx_t *ctx, od_span_t body)
 {
   uint8_t rsp[18] = { RESP_ACK, RESP_MSD_READ };
@@ -95,6 +94,7 @@ od_cmd_result_t od_cmd_app_read_msd(const od_cmd_ctx_t *ctx, od_span_t body)
 od_cmd_result_t od_cmd_app_reboot(const od_cmd_ctx_t *ctx, od_span_t body)
 {
   (void)ctx; (void)body;
+  (void)od_claim_mode_before_reboot();   /* OS2C, or END(CLAIMED); disarms the count */
   NVIC_SystemReset();
   return OD_CMD_OK;
 }
@@ -155,7 +155,7 @@ od_cmd_result_t od_cmd_app_config_write(const od_cmd_ctx_t *ctx, od_span_t body)
   case OD_CONFIG_ASM_SINGLE:
     return persist_config(ctx, RESP_CONFIG_WRITE, body.p, (uint32_t)body.n);
   case OD_CONFIG_ASM_ACCEPTED:
-    (void)config_ack(ctx, ack, sizeof(ack));
+    (void)reply(ctx, ack, sizeof(ack));
     return OD_CMD_OK;
   case OD_CONFIG_ASM_COMPLETE:
     return persist_config(ctx, RESP_CONFIG_WRITE, s->buffer, s->received);
@@ -174,7 +174,7 @@ od_cmd_result_t od_cmd_app_config_chunk(const od_cmd_ctx_t *ctx, od_span_t body)
   uint8_t err[] = { RESP_NACK, RESP_CONFIG_CHUNK, 0u, 0u };
 
   if (result == OD_CONFIG_ASM_ACCEPTED) {
-    (void)config_ack(ctx, ack, sizeof(ack));
+    (void)reply(ctx, ack, sizeof(ack));
     return OD_CMD_OK;
   }
   if (result == OD_CONFIG_ASM_COMPLETE) {
@@ -196,23 +196,14 @@ od_cmd_result_t od_cmd_app_config_clear(const od_cmd_ctx_t *ctx, od_span_t body)
     return OD_CMD_NACK;
   }
   od_config_asm_reset(opendisplay_config_assembler());
-  qrc = config_ack(ctx, ok, sizeof(ok));
+  qrc = reply(ctx, ok, sizeof(ok));
   opendisplay_ble_reload_config_from_nvm();
-  od_session_clear(od_session_app_state());
   return qrc == OD_TXQ_OK ? OD_CMD_OK : OD_CMD_NACK;
 }
 
 bool od_cmd_mutates_config(uint16_t cmd)
 {
   return cmd == CMD_CONFIG_WRITE || cmd == CMD_CONFIG_CHUNK || cmd == CMD_CONFIG_CLEAR;
-}
-
-bool od_cmd_allow_unauthenticated(uint16_t cmd)
-{
-  /* BG22 has never shipped the Nordic physical/key-loss rewrite policy. Do not silently create
-   * an unauthenticated storage mutation merely because the wire config contains the same flag. */
-  (void)cmd;
-  return false;
 }
 
 od_cmd_result_t od_cmd_app_led_activate(const od_cmd_ctx_t *ctx, od_span_t body)

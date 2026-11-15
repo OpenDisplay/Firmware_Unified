@@ -1,14 +1,26 @@
+#include "od_sec2.h"
+#include "od_claim_mode.h"
+#include "od_diag.h"
+#include "od_fmt.h"
 #include "opendisplay_ble.h"
 #include "od_hal_i2c.h"
 #include "od_nfc_app.h"
 #include "opendisplay_config_parser.h"
 #include "opendisplay_display.h"
+#include "od_cfg_index.h"
+#include "od_net_a.h"
+#include "od_net_g.h"
+#include "od_imgstore.h"
+#include "od_action.h"
+#include "od_color.h"
 #include "opendisplay_led.h"
 #include "opendisplay_pipe.h"
 #include "opendisplay_constants.h"
 #include "od_advert.h"
 #include "od_adv_app.h"
 #include "od_hal_time.h"
+#include "od_health.h"
+#include "sl_memory_manager.h"
 #include "app.h"
 #include "app_assert.h"
 #include "gatt_db.h"
@@ -27,10 +39,11 @@
 #define MSD_PAYLOAD_LEN        OD_ADVERT_MSD_LEN
 #define OD_NAME_PREFIX         "OD"
 #ifndef OD_FW_VERSION
-#define OD_FW_VERSION ""
+#include "od_fw_version.h"
+#define OD_FW_VERSION OD_FW_VERSION_DEFAULT
 #endif
 #ifndef OD_APP_VERSION
-#define OD_APP_VERSION         0x0100u
+#define OD_APP_VERSION         0x0300u
 #endif
 
 static const char *fw_build_version_string(void)
@@ -180,6 +193,8 @@ static uint8_t msd_payload[MSD_PAYLOAD_LEN];
 static uint8_t msd_loop_counter;
 static uint8_t dynamic_return[OD_ADVERT_DYNAMIC_LEN];
 static uint8_t reboot_flag = 1u;
+static bool s_config_changed;        /* od_claim_app_config_changed(): reload from the loop */
+static bool s_boot_screen_deferred;  /* od_claim_mode_defer_boot_screen() held it back */
 static uint8_t connection_requested = 0u;
 
 static uint16_t g_od_pipe_char;
@@ -189,7 +204,95 @@ static char s_dev_name[16];
 static struct GlobalConfig s_od_global_config;
 static uint32_t s_last_msd_refresh_ms;
 static uint32_t s_adv_boost_until_ms;
+/* Connectable advertising held off by opendisplay_ble_set_connectable(false). */
+static bool s_adv_paused;
 static bool s_pending_dfu;
+
+/* GATT health gate (shared/core/od_health.h, docs/BG22_RAM_BUDGET.md section 4). The verdict
+ * state is a named global so a debugger can read it. The retained record sits in .noinit behind
+ * a check word, so it survives a soft reset (an ENTER_DFU / health entry into the AppLoader and
+ * back, a fault reset) and a power-on reset (or a bootloader that reused the RAM) reads as zero:
+ *   forced     forced updater entries this power-on (bits 0-7) and the last reason (bits 8-15)
+ *   exhausted  the Bluetooth stack's sl_bt_evt_system_resource_exhausted reports since power-on,
+ *              saturating: heap-allocation failures (bits 0-15), buffer + message allocation
+ *              failures and discarded buffers (bits 16-31)
+ * Clients cannot read it (no wire field carries it in 3.0, docs/BG22_RAM_BUDGET.md section 4.5);
+ * a debugger reads s_health_ret and tools/bg22_ram_dump.py decodes it. */
+struct od_bg22_health_retained {
+  uint32_t magic;
+  uint32_t forced;
+  uint32_t exhausted;
+  uint32_t check;
+};
+#define OD_BG22_HEALTH_MAGIC 0x4F444847u
+static struct od_bg22_health_retained s_health_ret __attribute__((section(".noinit")));
+struct od_health od_bg22_health __attribute__((used));
+/* Free heap and the memory manager's high-water mark once boot is complete, for the debugger
+ * and the RAM budget (docs/BG22_RAM_BUDGET.md section 3). Volatile and used: nothing reads them
+ * but a debugger, and LTO drops write-only globals. */
+volatile uint32_t od_bg22_heap_free_at_boot __attribute__((used));
+volatile uint32_t od_bg22_heap_hwm_at_boot __attribute__((used));
+#if OD_HEALTH_UPDATE_PATTERN_SHORT_BOOTS != 0u
+#if OD_HEALTH_UPDATE_PATTERN_SHORT_BOOTS <= OD_CM_GESTURE_SHORT_BOOTS || \
+    (OD_FR_PATTERN_SHORT_BOOTS != 0u && OD_HEALTH_UPDATE_PATTERN_SHORT_BOOTS >= OD_FR_PATTERN_SHORT_BOOTS)
+#error "the update pattern must sit strictly between the claim gesture and the factory reset"
+#endif
+static uint8_t s_boot_short_boots;
+static bool s_boot_unclaimed;
+static bool s_pattern_checked;
+#endif
+
+static uint32_t health_ret_check(void)
+{
+  return s_health_ret.forced ^ (s_health_ret.exhausted * 0x9E3779B1u) ^ ~OD_BG22_HEALTH_MAGIC;
+}
+
+static void health_ret_seal(void)
+{
+  s_health_ret.magic = OD_BG22_HEALTH_MAGIC;
+  s_health_ret.check = health_ret_check();
+}
+
+/* Validates the record once per boot; an invalid one restarts from zero. Returns the forced
+ * count for od_health_init(). */
+static uint8_t health_retained_load(void)
+{
+  if (s_health_ret.magic != OD_BG22_HEALTH_MAGIC || s_health_ret.check != health_ret_check() ||
+      (s_health_ret.forced & 0xFFu) > OD_HEALTH_FORCED_MAX) {
+    s_health_ret.forced = 0u;
+    s_health_ret.exhausted = 0u;
+    health_ret_seal();
+  }
+  return (uint8_t)(s_health_ret.forced & 0xFFu);
+}
+
+static void health_retain(uint8_t forced, uint8_t reason)
+{
+  s_health_ret.forced = (uint32_t)forced | ((uint32_t)reason << 8);
+  health_ret_seal();
+}
+
+static uint32_t sat_add16(uint32_t field, uint32_t n)
+{
+  return (field + n > 0xFFFFu || n > 0xFFFFu) ? 0xFFFFu : field + n;
+}
+
+/* Counts one stack resource-exhausted report into the retained record. */
+static void health_retain_exhausted(uint32_t heap, uint32_t other)
+{
+  const uint32_t e = s_health_ret.exhausted;
+
+  s_health_ret.exhausted = sat_add16(e & 0xFFFFu, heap) | (sat_add16(e >> 16, other) << 16);
+  health_ret_seal();
+}
+
+/* Any gatt (class 0x09) or gatt_server (class 0x0a) event means ATT traffic reached the
+ * application on this link: the MTU exchange the stack requests at every connect is one. */
+static bool health_is_gatt_event(uint32_t id)
+{
+  const uint32_t cls = (id >> 16) & 0xFFu;
+  return (id & 0xFFu) == 0xA0u && (cls == 0x09u || cls == 0x0Au);
+}
 static bool s_pending_deep_sleep;
 static uint32_t s_connection_open_ms;
 static bool s_connection_timeout_close_requested;
@@ -256,7 +359,50 @@ static uint8_t s_button_count;
 static volatile bool s_button_msd_dirty;
 
 static sl_status_t build_and_apply_adv(uint8_t adv_set, const char *name, bool quick);
+/* Mount the image store. Geometry-hashed so a board re-provisioned onto a different panel
+ * reformats rather than serving plane sets that would render as noise. */
+static void od_mount_imgstore(void)
+{
+  const struct DisplayConfig *d0 =
+      (s_od_global_config.display_count > 0u) ? &s_od_global_config.displays[0] : NULL;
+  const struct FlashConfig *fc = NULL;
+  for (uint8_t i = 0; i < s_od_global_config.flash_config_count; i++) {
+    if ((s_od_global_config.flash_configs[i].flags & OD_FLASH_FLAG_ENABLED) != 0u) {
+      fc = &s_od_global_config.flash_configs[i];
+      break;
+    }
+  }
+  if (d0 != NULL && fc != NULL) {
+    od_color_geometry_t g;
+    if (od_color_direct_geometry(d0->color_scheme, d0->pixel_width, d0->pixel_height, &g)
+        == OD_COLOR_OK) {
+      /* MISO is reserved[0]: canonical FlashConfig stops at `mode`, and the toolbox writes
+       * miso/wp/hold into the first three reserved bytes. */
+      const od_hal_spi_pins_t pins = {
+        .mosi = fc->mosi_pin, .miso = fc->reserved[0],
+        .sck = fc->sck_pin, .cs = fc->cs_pin,
+      };
+      const uint32_t ghash = ((uint32_t)d0->pixel_width << 16) ^
+                             ((uint32_t)d0->pixel_height << 4) ^
+                             (uint32_t)d0->color_scheme;
+      (void)od_imgstore_mount(&pins, ghash, g.total_bytes);
+    }
+  }
+}
+
+/* FACTORY_RESET.md R5a: every slot. A store that is not configured or does not mount has
+ * nothing to erase. */
+bool opendisplay_ble_erase_images(void)
+{
+  if (!od_imgstore_status()->mounted) {
+    od_mount_imgstore();
+  }
+  return !od_imgstore_status()->mounted || od_imgstore_erase_all();
+}
+
 static sl_status_t od_apply_advertising_timing(uint8_t adv_handle, uint32_t now_ms);
+/* The interval last programmed is the boost one (od_apply_advertising_timing). */
+static bool s_adv_timing_boosted;
 
 #if defined(__GNUC__)
 extern uint32_t __ResetReasonStart__;
@@ -288,8 +434,7 @@ static bool od_advertising_api_ok(sl_status_t sc, const char *operation)
   if (sc == SL_STATUS_OK) {
     return true;
   }
-  printf("[OD] FATAL: %s failed sc=0x%04lX; entering bootloader\r\n",
-         operation, (unsigned long)sc);
+  OD_DIAG_FATAL_SC(operation, sc);
   od_enter_gecko_bootloader();
   return false;
 }
@@ -360,6 +505,11 @@ static void od_button_irq_callback(uint8_t int_no, void *context)
             | ((st->current_state & 0x01u) << BUTTON_STATE_SHIFT));
   dynamic_return[st->byte_index] = encoded;
   s_button_msd_dirty = true;
+  /* Press edge only. A release is a separate trigger the table can ask for, and
+   * firing both on one entry would run every button action twice. */
+  if (logical_state != 0u) {
+    od_action_trigger(OD_TRIG_BUTTON_PRESS, (uint16_t)(1u << st->button_id));
+  }
   app_proceed();
 }
 
@@ -389,7 +539,7 @@ static void od_buttons_init_from_config(void)
   s_button_count = 0u;
   s_button_msd_dirty = false;
   memset(s_buttons, 0, sizeof(s_buttons));
-  printf("[OD][BTN] init: binary_input_count=%u\r\n", (unsigned)cfg->binary_input_count);
+  OD_DIAG("[OD][BTN] init: binary_input_count=%u\r\n", (unsigned)cfg->binary_input_count);
   for (i = 0; i < cfg->binary_input_count; i++) {
     const struct BinaryInputs *input = &cfg->binary_inputs[i];
     const uint8_t local_pins[8] = {
@@ -397,13 +547,13 @@ static void od_buttons_init_from_config(void)
       input->input_pin_5, input->input_pin_6, input->input_pin_7, input->input_pin_8
     };
     if (input->input_type != 1u || input->button_data_byte_index >= sizeof(dynamic_return)) {
-      printf("[OD][BTN] skip instance=%u input_type=%u byte_index=%u\r\n",
+      OD_DIAG("[OD][BTN] skip instance=%u input_type=%u byte_index=%u\r\n",
              (unsigned)input->instance_number,
              (unsigned)input->input_type,
              (unsigned)input->button_data_byte_index);
       continue;
     }
-    printf("[OD][BTN] instance=%u byte_index=%u invert=0x%02X pullup=0x%02X pulldown=0x%02X\r\n",
+    OD_DIAG("[OD][BTN] instance=%u byte_index=%u invert=0x%02X pullup=0x%02X pulldown=0x%02X\r\n",
            (unsigned)input->instance_number,
            (unsigned)input->button_data_byte_index,
            (unsigned)input->invert,
@@ -421,7 +571,7 @@ static void od_buttons_init_from_config(void)
         continue;
       }
       if (pin_cfg == GPIO_PIN_UNUSED) {
-        printf("[OD][BTN] skip used slot=%u pin=0xFF (not configured)\r\n", (unsigned)bi);
+        OD_DIAG("[OD][BTN] skip used slot=%u pin=0xFF (not configured)\r\n", (unsigned)bi);
         continue;
       }
       st = &s_buttons[s_button_count];
@@ -440,7 +590,7 @@ static void od_buttons_init_from_config(void)
       st->current_state = pressed ? 1u : 0u;
       dynamic_return[st->byte_index] =
         (uint8_t)((st->button_id & BUTTON_ID_MASK) | ((st->current_state & 0x01u) << BUTTON_STATE_SHIFT));
-      printf("[OD][BTN] arm idx=%u slot=%u pin=0x%02X button_id=%u pin_state=%s init_state=%u\r\n",
+      OD_DIAG("[OD][BTN] arm idx=%u slot=%u pin=0x%02X button_id=%u pin_state=%s init_state=%u\r\n",
              (unsigned)s_button_count,
              (unsigned)bi,
              (unsigned)pin_cfg,
@@ -459,22 +609,22 @@ static void od_buttons_init_from_config(void)
                                                  od_button_irq_callback,
                                                  st) == SL_STATUS_OK) {
           st->int_no = int_no;
-          printf("[OD][BTN] irq ok idx=%u int_no=%ld\r\n",
+          OD_DIAG("[OD][BTN] irq ok idx=%u int_no=%ld\r\n",
                  (unsigned)s_button_count, (long)st->int_no);
         } else {
-          printf("[OD][BTN] irq fail idx=%u pin=0x%02X\r\n",
+          OD_DIAG("[OD][BTN] irq fail idx=%u pin=0x%02X\r\n",
                  (unsigned)s_button_count, (unsigned)pin_cfg);
         }
       }
       s_button_count++;
     }
   }
-  printf("[OD][BTN] init done active_buttons=%u\r\n", (unsigned)s_button_count);
+  OD_DIAG("[OD][BTN] init done active_buttons=%u\r\n", (unsigned)s_button_count);
 }
 
 static void od_publish_button_msd(uint8_t adv_handle, uint32_t now_ms)
 {
-  if (!s_button_msd_dirty || adv_handle == 0xFFu || g_connection != 0xFFu) {
+  if (!s_button_msd_dirty || adv_handle == 0xFFu || g_connection != 0xFFu || s_adv_paused) {
     return;
   }
   s_button_msd_dirty = false;
@@ -514,12 +664,12 @@ static void od_buttons_arm_em4_wakeup(void)
                                                 st);
     if (sc == SL_STATUS_OK) {
       st->em4_int_no = em4_int_no;
-      printf("[OD][BTN] EM4 wake armed pin=0x%02X em4_int=%ld polarity=%s\r\n",
+      OD_DIAG("[OD][BTN] EM4 wake armed pin=0x%02X em4_int=%ld polarity=%s\r\n",
              (unsigned)st->pin_cfg,
              (long)em4_int_no,
              wake_polarity_high ? "high" : "low");
     } else {
-      printf("[OD][BTN] EM4 wake arm failed pin=0x%02X sc=0x%04lX\r\n",
+      OD_DIAG("[OD][BTN] EM4 wake arm failed pin=0x%02X sc=0x%04lX\r\n",
              (unsigned)st->pin_cfg, (unsigned long)sc);
     }
   }
@@ -554,11 +704,11 @@ static void od_nfc_boot_dump_ndef_t3(GPIO_Port_TypeDef scl_port, uint8_t scl_pin
   unsigned need_blocks;
 
   if (!od_nfc_type3_paged_block_read16(bus_id, 0x48u, 0x00u, ai)) {
-    printf("[OD] NFC ndef AI @0x48 sub=0: NACK\r\n");
+    OD_DIAG("[OD] NFC ndef AI @0x48 sub=0: NACK\r\n");
     return;
   }
   if (ai[0] != 0x10u) {
-    printf("[OD] NFC ndef AI ver=%02x (not 1.x) — skip decode\r\n", ai[0]);
+    OD_DIAG("[OD] NFC ndef AI ver=%02x (not 1.x) — skip decode\r\n", ai[0]);
     return;
   }
   ln = ((uint32_t)ai[11] << 16) | ((uint32_t)ai[12] << 8) | (uint32_t)ai[13];
@@ -567,12 +717,12 @@ static void od_nfc_boot_dump_ndef_t3(GPIO_Port_TypeDef scl_port, uint8_t scl_pin
   for (unsigned i = 0; i < 14u; i++) {
     sum_calc = (uint16_t)(sum_calc + ai[i]);
   }
-  printf("[OD] NFC ndef AI Ver=%u.%u Nbr=%u Nbw=%u Nmaxb=%u RWFlag=%02x Ln=%lu Sum=%04x (calc %04x %s)\r\n",
+  OD_DIAG("[OD] NFC ndef AI Ver=%u.%u Nbr=%u Nbw=%u Nmaxb=%u RWFlag=%02x Ln=%lu Sum=%04x (calc %04x %s)\r\n",
          (unsigned)(ai[0] >> 4), (unsigned)(ai[0] & 0x0Fu), (unsigned)ai[1], (unsigned)ai[2],
          (unsigned)(((uint16_t)ai[3] << 8) | ai[4]), ai[10], (unsigned long)ln, (unsigned)sum_read,
          (unsigned)sum_calc, sum_calc == sum_read ? "OK" : "BAD");
   if (ln == 0u || ln > sizeof(data)) {
-    printf("[OD] NFC ndef Ln=%lu out of range (max %u)\r\n",
+    OD_DIAG("[OD] NFC ndef Ln=%lu out of range (max %u)\r\n",
            (unsigned long)ln, (unsigned)sizeof(data));
     return;
   }
@@ -585,20 +735,20 @@ static void od_nfc_boot_dump_ndef_t3(GPIO_Port_TypeDef scl_port, uint8_t scl_pin
     sl_udelay_wait(500);
     if (!od_nfc_type3_paged_block_read16(bus_id, 0x40u,
                                          byte_off, &data[b * 16u])) {
-      printf("[OD] NFC ndef blk%u @0x40 sub=%02x: NACK\r\n", b + 1u, (unsigned)byte_off);
+      OD_DIAG("[OD] NFC ndef blk%u @0x40 sub=%02x: NACK\r\n", b + 1u, (unsigned)byte_off);
       return;
     }
-    printf("[OD] NFC ndef blk%u %04x:", b + 1u, b * 16u);
+    OD_DIAG("[OD] NFC ndef blk%u %04x:", b + 1u, b * 16u);
     for (unsigned j = 0; j < 16u; j++) {
-      printf(" %02x", data[b * 16u + j]);
+      OD_DIAG(" %02x", data[b * 16u + j]);
     }
-    printf("\r\n");
+    OD_DIAG("\r\n");
     sl_udelay_wait(200);
   }
   {
     uint8_t tnf0 = data[0] & 0x07u;
     if (ln < 4u || tnf0 == 0u || tnf0 >= 6u) {
-      printf("[OD] NFC ndef record too short or bad TNF (ln=%lu hdr=%02x tnf=%u)\r\n",
+      OD_DIAG("[OD] NFC ndef record too short or bad TNF (ln=%lu hdr=%02x tnf=%u)\r\n",
              (unsigned long)ln, data[0], tnf0);
       return;
     }
@@ -617,7 +767,7 @@ static void od_nfc_boot_dump_ndef_t3(GPIO_Port_TypeDef scl_port, uint8_t scl_pin
       off = 3u;
     } else {
       if (ln < 6u) {
-        printf("[OD] NFC ndef long-format truncated\r\n");
+        OD_DIAG("[OD] NFC ndef long-format truncated\r\n");
         return;
       }
       plen = ((unsigned)data[2] << 24) | ((unsigned)data[3] << 16) | ((unsigned)data[4] << 8) | data[5];
@@ -625,25 +775,25 @@ static void od_nfc_boot_dump_ndef_t3(GPIO_Port_TypeDef scl_port, uint8_t scl_pin
     }
     if (il) {
       if (ln < off + 1u) {
-        printf("[OD] NFC ndef IL truncated\r\n");
+        OD_DIAG("[OD] NFC ndef IL truncated\r\n");
         return;
       }
       ilen = data[off];
       off += 1u;
     }
     if (off + tlen + ilen + plen > ln) {
-      printf("[OD] NFC ndef fields exceed Ln (off=%u tlen=%u il=%u plen=%u ln=%lu)\r\n",
+      OD_DIAG("[OD] NFC ndef fields exceed Ln (off=%u tlen=%u il=%u plen=%u ln=%lu)\r\n",
              off, tlen, ilen, plen, (unsigned long)ln);
       return;
     }
-    printf("[OD] NFC ndef rec TNF=%u SR=%u IL=%u tlen=%u plen=%u type=\"%.*s\"\r\n",
+    OD_DIAG("[OD] NFC ndef rec TNF=%u SR=%u IL=%u tlen=%u plen=%u type=\"%.*s\"\r\n",
            tnf, (unsigned)sr, (unsigned)il, tlen, plen, tlen, (const char *)&data[off]);
     off += tlen + ilen;
     if (tnf == 0x01u && tlen == 1u && data[off - tlen - ilen] == 'T' && plen >= 1u) {
       unsigned stat = data[off];
       unsigned lang_len = stat & 0x3Fu;
       if (1u + lang_len <= plen) {
-        printf("[OD] NFC ndef Text lang=\"%.*s\" utf%u text=\"%.*s\"\r\n",
+        OD_DIAG("[OD] NFC ndef Text lang=\"%.*s\" utf%u text=\"%.*s\"\r\n",
                lang_len, (const char *)&data[off + 1u], (stat & 0x80u) ? 16u : 8u,
                (unsigned)(plen - 1u - lang_len), (const char *)&data[off + 1u + lang_len]);
       }
@@ -693,7 +843,7 @@ static bool od_nfc_write_ndef_text_en(GPIO_Port_TypeDef scl_port, uint8_t scl_pi
   unsigned need_blocks;
 
   if (tlen == 0u || tlen > 25u) {
-    printf("[OD] NFC write: text len %u out of range (1..25)\r\n", (unsigned)tlen);
+    OD_DIAG("[OD] NFC write: text len %u out of range (1..25)\r\n", (unsigned)tlen);
     return false;
   }
   plen = 1u + 2u + (unsigned)tlen;
@@ -730,10 +880,10 @@ static bool od_nfc_write_ndef_text_en(GPIO_Port_TypeDef scl_port, uint8_t scl_pi
   ai[15] = (uint8_t)(sum & 0xFFu);
 
   need_blocks = (recln + 15u) / 16u;
-  printf("[OD] NFC write: Ln=%u RWFlag=%02x text=\"%s\" (%u blk)\r\n",
+  OD_DIAG("[OD] NFC write: Ln=%u RWFlag=%02x text=\"%s\" (%u blk)\r\n",
          recln, ai[10], text, need_blocks);
   if (!od_nfc_type3_paged_block_write16(bus_id, 0x48u, 0x00u, ai)) {
-    printf("[OD] NFC write: AI @0x48 sub=0 NACK\r\n");
+    OD_DIAG("[OD] NFC write: AI @0x48 sub=0 NACK\r\n");
     return false;
   }
   sl_udelay_wait(10000);
@@ -741,12 +891,12 @@ static bool od_nfc_write_ndef_text_en(GPIO_Port_TypeDef scl_port, uint8_t scl_pi
     uint8_t byte_off = (uint8_t)(0x10u + i * 0x10u);
     if (!od_nfc_type3_paged_block_write16(bus_id, 0x40u, byte_off,
                                           &blocks[i * 16u])) {
-      printf("[OD] NFC write: blk%u @0x40 sub=%02x NACK\r\n", i + 1u, (unsigned)byte_off);
+      OD_DIAG("[OD] NFC write: blk%u @0x40 sub=%02x NACK\r\n", i + 1u, (unsigned)byte_off);
       return false;
     }
     sl_udelay_wait(10000);
   }
-  printf("[OD] NFC write: OK\r\n");
+  OD_DIAG("[OD] NFC write: OK\r\n");
   return true;
 }
 #endif /* OD_TNB132M_WRITE_NDEF */
@@ -805,10 +955,10 @@ static void od_nfc_field_detect_init_from_config(const struct NfcConfig *nfc_cfg
                                              SL_GPIO_INTERRUPT_RISING_FALLING_EDGE,
                                              od_nfc_field_detect_irq_callback,
                                              &s_od_nfc_field_detect) == SL_STATUS_OK) {
-      printf("[OD][NFC] field-detect IRQ enabled int_no=%ld\r\n", (long)s_od_nfc_field_detect.int_no);
+      OD_DIAG("[OD][NFC] field-detect IRQ enabled int_no=%ld\r\n", (long)s_od_nfc_field_detect.int_no);
     } else {
       s_od_nfc_field_detect.int_no = -1;
-      printf("[OD][NFC] field-detect IRQ setup failed; falling back to polling\r\n");
+      OD_DIAG("[OD][NFC] field-detect IRQ setup failed; falling back to polling\r\n");
     }
   }
   {
@@ -823,7 +973,7 @@ static void od_nfc_field_detect_init_from_config(const struct NfcConfig *nfc_cfg
     }
     (void)logical;
   }
-  printf("[OD][NFC] field-detect pin=0x%02X state=%u byte_index=%u button_id=%u\r\n",
+  OD_DIAG("[OD][NFC] field-detect pin=0x%02X state=%u byte_index=%u button_id=%u\r\n",
          (unsigned)s_od_nfc_field_detect.pin_cfg,
          (unsigned)s_od_nfc_field_detect.state,
          (unsigned)s_od_nfc_field_detect.adv_button_byte_index,
@@ -862,13 +1012,14 @@ static bool od_nfc_field_detect_refresh(uint32_t now_ms, bool force_log)
   if (logical != 0u && prev_state == 0u) {
     s_od_nfc_field_scan_counter = (uint32_t)((s_od_nfc_field_scan_counter + 1u) & 0x7Fu);
     scan_event = true;
+    od_action_trigger(OD_TRIG_NFC_FIELD, 0u);
   }
   dynamic_return[s_od_nfc_field_detect.adv_button_byte_index] =
     (uint8_t)((logical & 0x01u)
               | (((s_od_nfc_field_scan_counter & 0x7Fu) << 1) & 0xFEu));
 
   if (force_log) {
-    printf("[OD][NFC] field-detect sample pin=0x%02X raw=%u state=%u ctr7=%lu adv=0x%02X (active_%s)\r\n",
+    OD_DIAG("[OD][NFC] field-detect sample pin=0x%02X raw=%u state=%u ctr7=%lu adv=0x%02X (active_%s)\r\n",
            (unsigned)s_od_nfc_field_detect.pin_cfg,
            (unsigned)pin_state,
            (unsigned)logical,
@@ -876,7 +1027,7 @@ static bool od_nfc_field_detect_refresh(uint32_t now_ms, bool force_log)
            (unsigned)dynamic_return[s_od_nfc_field_detect.adv_button_byte_index],
            s_od_nfc_field_detect.active_high ? "high" : "low");
   } else {
-    printf("[OD][NFC] field-detect pin=0x%02X raw=%u state %u->%u ctr7=%lu adv=0x%02X%s (active_%s)\r\n",
+    OD_DIAG("[OD][NFC] field-detect pin=0x%02X raw=%u state %u->%u ctr7=%lu adv=0x%02X%s (active_%s)\r\n",
            (unsigned)s_od_nfc_field_detect.pin_cfg,
            (unsigned)pin_state,
            (unsigned)prev_state,
@@ -918,12 +1069,12 @@ static void od_nfc_field_detect_arm_em4_wakeup(void)
                                               &s_od_nfc_field_detect);
   if (sc == SL_STATUS_OK) {
     s_od_nfc_field_detect.em4_int_no = em4_int_no;
-    printf("[OD][NFC] EM4 wake armed on field-detect pin=0x%02X em4_int=%ld polarity=%s\r\n",
+    OD_DIAG("[OD][NFC] EM4 wake armed on field-detect pin=0x%02X em4_int=%ld polarity=%s\r\n",
            (unsigned)s_od_nfc_field_detect.pin_cfg,
            (long)em4_int_no,
            s_od_nfc_field_detect.active_high ? "high" : "low");
   } else {
-    printf("[OD][NFC] EM4 wake arm failed pin=0x%02X sc=0x%04lX\r\n",
+    OD_DIAG("[OD][NFC] EM4 wake arm failed pin=0x%02X sc=0x%04lX\r\n",
            (unsigned)s_od_nfc_field_detect.pin_cfg, (unsigned long)sc);
   }
 }
@@ -959,7 +1110,7 @@ static void od_nfc_autoinit_from_config(const struct GlobalConfig *cfg)
   s_od_nfc_field_detect.int_no = -1;
 
   if (cfg == NULL || !cfg->loaded || cfg->nfc_config_count == 0u) {
-    printf("[OD][NFC] no NFC config packet (0x2A); NFC init disabled\r\n");
+    OD_DIAG("[OD][NFC] no NFC config packet (0x2A); NFC init disabled\r\n");
     return;
   }
 
@@ -970,7 +1121,7 @@ static void od_nfc_autoinit_from_config(const struct GlobalConfig *cfg)
     }
   }
   if (nfc_cfg == NULL) {
-    printf("[OD][NFC] NFC configs present, but none enabled; NFC init disabled\r\n");
+    OD_DIAG("[OD][NFC] NFC configs present, but none enabled; NFC init disabled\r\n");
     return;
   }
 
@@ -981,12 +1132,12 @@ static void od_nfc_autoinit_from_config(const struct GlobalConfig *cfg)
   bus = od_config_data_bus(cfg, nfc_cfg->bus_instance);
   s_od_nfc_bus_instance = nfc_cfg->bus_instance;
   if (bus == NULL || bus->bus_type != OD_BUS_TYPE_I2C) {
-    printf("[OD][NFC] bus instance=%u missing/non-I2C; NFC init disabled\r\n", (unsigned)nfc_cfg->bus_instance);
+    OD_DIAG("[OD][NFC] bus instance=%u missing/non-I2C; NFC init disabled\r\n", (unsigned)nfc_cfg->bus_instance);
     return;
   }
   if (!od_pin_decode(bus->pin_1, &s_od_nfc_scl_port, &s_od_nfc_scl_pin)
       || !od_pin_decode(bus->pin_2, &s_od_nfc_sda_port, &s_od_nfc_sda_pin)) {
-    printf("[OD][NFC] bad bus pins for instance=%u; NFC init disabled\r\n", (unsigned)nfc_cfg->bus_instance);
+    OD_DIAG("[OD][NFC] bad bus pins for instance=%u; NFC init disabled\r\n", (unsigned)nfc_cfg->bus_instance);
     return;
   }
 
@@ -1004,12 +1155,12 @@ static void od_nfc_autoinit_from_config(const struct GlobalConfig *cfg)
   }
 
   if (s_od_nfc_ic_type != OD_NFC_IC_AUTO && s_od_nfc_ic_type != OD_NFC_IC_TNB132M) {
-    printf("[OD][NFC] ic_type=%u unsupported yet; NFC init disabled\r\n", (unsigned)s_od_nfc_ic_type);
+    OD_DIAG("[OD][NFC] ic_type=%u unsupported yet; NFC init disabled\r\n", (unsigned)s_od_nfc_ic_type);
     return;
   }
   s_od_nfc_enabled = true;
   od_nfc_field_detect_init_from_config(nfc_cfg);
-  printf("[OD][NFC] enabled: bus=%u ic_type=%u scl=0x%02X sda=0x%02X pwr=%s\r\n",
+  OD_DIAG("[OD][NFC] enabled: bus=%u ic_type=%u scl=0x%02X sda=0x%02X pwr=%s\r\n",
          (unsigned)nfc_cfg->bus_instance,
          (unsigned)s_od_nfc_ic_type,
          (unsigned)bus->pin_1,
@@ -1062,7 +1213,7 @@ static void od_nfc_init_sequence(void)
   }
 
   sl_udelay_wait(14000);
-  (void)od_nfc_field_detect_refresh(sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count()), true);
+  (void)od_nfc_field_detect_refresh(od_hal_uptime_ms(), true);
 
   if (s_od_nfc_has_pwr_pin) {
     GPIO_PinOutClear(s_od_nfc_pwr_port, s_od_nfc_pwr_pin);
@@ -1410,7 +1561,7 @@ static void od_flash_autoinit_from_config(const struct GlobalConfig *cfg)
 
   s_od_flash_enabled = false;
   if (cfg == NULL || !cfg->loaded || cfg->flash_config_count == 0u) {
-    printf("[OD][FLASH] no flash config packet (0x2B); flash deep-sleep config disabled\r\n");
+    OD_DIAG("[OD][FLASH] no flash config packet (0x2B); flash deep-sleep config disabled\r\n");
     return;
   }
   for (i = 0u; i < cfg->flash_config_count; i++) {
@@ -1420,17 +1571,17 @@ static void od_flash_autoinit_from_config(const struct GlobalConfig *cfg)
     }
   }
   if (flash_cfg == NULL) {
-    printf("[OD][FLASH] flash configs present, but none enabled\r\n");
+    OD_DIAG("[OD][FLASH] flash configs present, but none enabled\r\n");
     return;
   }
   if (!od_pin_decode(flash_cfg->mosi_pin, &s_od_flash_mosi_port, &s_od_flash_mosi_pin)
       || !od_pin_decode(flash_cfg->sck_pin, &s_od_flash_sck_port, &s_od_flash_sck_pin)
       || !od_pin_decode(flash_cfg->cs_pin, &s_od_flash_cs_port, &s_od_flash_cs_pin)) {
-    printf("[OD][FLASH] bad MOSI/SCK/CS pins in flash config; flash deep-sleep config disabled\r\n");
+    OD_DIAG("[OD][FLASH] bad MOSI/SCK/CS pins in flash config; flash deep-sleep config disabled\r\n");
     return;
   }
   s_od_flash_enabled = true;
-  printf("[OD][FLASH] enabled mosi=0x%02X sck=0x%02X cs=0x%02X\r\n",
+  OD_DIAG("[OD][FLASH] enabled mosi=0x%02X sck=0x%02X cs=0x%02X\r\n",
          (unsigned)flash_cfg->mosi_pin, (unsigned)flash_cfg->sck_pin, (unsigned)flash_cfg->cs_pin);
 }
 
@@ -1490,12 +1641,39 @@ const struct GlobalConfig *opendisplay_get_global_config(void)
 void opendisplay_ble_reload_config_from_nvm(void)
 {
   if (!loadGlobalConfig(&s_od_global_config)) {
-    printf("[OD] config: reload after save failed\r\n");
+    OD_DIAG("[OD] config: reload after save failed\r\n");
   }
+
+  /* REBUILD BEFORE ANYTHING READS CONFIG BYTES. od_cfg_index holds byte offsets into the
+   * stored payload, so after a write they describe the PREVIOUS config. Two configs that both
+   * carry drive packets resolve stale offsets to plausible wrong bytes rather than to an
+   * error -- the failure that does not announce itself. */
+  (void)od_cfg_index_build();
+
+  /* Each network's address and payload are derived from its key, which a config write can
+   * change. Invalidate first or the sync sees "already started" and keeps advertising the
+   * old key. */
+  od_net_a_invalidate();
+  od_net_a_sync(od_config_findmy(&s_od_global_config));
+  od_net_g_invalidate();
+  od_net_g_sync(od_config_findmy(&s_od_global_config));
+  /* After od_cfg_index_build: the table is read through that index, so reloading
+   * in the other order would validate against the previous config's offsets. */
+  od_action_reload();
+
   od_buttons_init_from_config();
   opendisplay_display_park_pins();
   opendisplay_led_init();
-  opendisplay_display_boot_apply();
+  /* Not while claim mode owns the panel, nor while a power-cycle pattern holds the boot screen
+   * back: the loop requests it once the pattern can no longer continue. */
+  if (!od_claim_mode_active() && !s_boot_screen_deferred) {
+    opendisplay_display_boot_request();
+  }
+}
+
+void opendisplay_ble_config_changed(void)
+{
+  s_config_changed = true;
 }
 
 static sl_status_t od_apply_advertising_timing(uint8_t adv_handle, uint32_t now_ms)
@@ -1507,7 +1685,8 @@ static sl_status_t od_apply_advertising_timing(uint8_t adv_handle, uint32_t now_
   if (adv_handle == 0xFFu) {
     return SL_STATUS_OK;
   }
-  if (s_adv_boost_until_ms != 0u && now_ms < s_adv_boost_until_ms) {
+  s_adv_timing_boosted = (s_adv_boost_until_ms != 0u && now_ms < s_adv_boost_until_ms);
+  if (s_adv_timing_boosted) {
     min_slots = OD_ADV_INTERVAL_BOOST_MIN;
     max_slots = OD_ADV_INTERVAL_BOOST_MAX;
   } else {
@@ -1517,7 +1696,7 @@ static sl_status_t od_apply_advertising_timing(uint8_t adv_handle, uint32_t now_
   }
   sc = sl_bt_advertiser_set_timing(adv_handle, min_slots, max_slots, 0, 0);
   if (sc != SL_STATUS_OK) {
-    printf("[OD] advertiser_set_timing sc=0x%04lX\r\n", (unsigned long)sc);
+    OD_DIAG("[OD] advertiser_set_timing sc=0x%04lX\r\n", (unsigned long)sc);
   }
   return sc;
 }
@@ -1538,23 +1717,18 @@ void od_adv_app_boost(void)
  * entry points, which a loop reconciler is not. */
 static void od_advertising_interval_tick(uint8_t adv_handle, uint32_t now_ms)
 {
-  static bool was_boosted = false;
   bool boosting = (s_adv_boost_until_ms != 0u && now_ms < s_adv_boost_until_ms);
 
-  if (boosting) {
-    was_boosted = true;
+  /* Both edges: a boost requested without a publish (claim mode, SECURITY_V2 7.3) engages here,
+   * and an expired one drops back to the idle interval. */
+  if (boosting == s_adv_timing_boosted) {
     return;
   }
-  if (!was_boosted) {
-    return;
-  }
-  was_boosted = false;
-  s_adv_boost_until_ms = 0u;
   if (!od_advertising_api_ok(od_apply_advertising_timing(adv_handle, now_ms),
                              "advertising boost timing")) {
     return;
   }
-  if (g_connection == 0xFFu) {
+  if (g_connection == 0xFFu && !s_adv_paused) {
     (void)sl_bt_advertiser_stop(adv_handle);
     (void)od_advertising_api_ok(sl_bt_legacy_advertiser_start(
                                    adv_handle, sl_bt_legacy_advertiser_connectable),
@@ -1566,17 +1740,18 @@ static void chip_id_hex6(char out[7])
 {
   uint64_t u = SYSTEM_GetUnique();
   uint32_t id = (uint32_t)(u & 0xFFFFFFu);
-  snprintf(out, 7, "%06lX", (unsigned long)id);
+  *od_fmt_hex(out, id, 6u) = '\0';
 }
 
 static void update_msd_payload(bool quick)
 {
   float chip_temperature = EMU_TemperatureGet();
-  uint32_t now_ms = sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count());
+  uint32_t now_ms = od_hal_uptime_ms();
   bool measure_batt = !quick
                       && ((s_batt_voltage_mv_cache == 0u)
                           || ((now_ms - s_last_batt_measure_ms) > OD_MSD_UPDATE_INTERVAL_MS));
   struct od_advert_inputs adv_in;
+  struct od_advert_device_state adv_st;
   uint32_t sample;
   IADC_Init_t init = IADC_INIT_DEFAULT;
   IADC_AllConfigs_t initAllConfigs = IADC_ALLCONFIGS_DEFAULT;
@@ -1586,7 +1761,10 @@ static void update_msd_payload(bool quick)
   if (measure_batt) {
     CMU_ClockEnable(cmuClock_IADC0, true);
     IADC_reset(IADC0);
-    CMU_ClockSelectSet(cmuClock_IADCCLK, cmuSelect_FSRCO);
+    /* What CMU_ClockSelectSet(cmuClock_IADCCLK, cmuSelect_FSRCO) does, without linking its
+     * every-clock switch (~800 B) for this one call. */
+    CMU->IADCCLKCTRL = (CMU->IADCCLKCTRL & ~_CMU_IADCCLKCTRL_CLKSEL_MASK)
+                       | CMU_IADCCLKCTRL_CLKSEL_FSRCO;
     init.warmup = iadcWarmupNormal;
     init.srcClkPrescale = IADC_calcSrcClkPrescale(IADC0, 20000000, 0);
     initAllConfigs.configs[0].reference = iadcCfgReferenceInt1V2;
@@ -1621,6 +1799,9 @@ static void update_msd_payload(bool quick)
   adv_in.reboot_flag = (reboot_flag != 0u);
   adv_in.connection_requested = (connection_requested != 0u);
   adv_in.loop_counter = msd_loop_counter;
+  /* Status bits 2 (CLAIM_MODE) and 3 (SESSION_REQUIRED): SECURITY_V2 5.3, shared. */
+  od_advert_device_state_now(&adv_st);
+  od_advert_apply_device_state(&adv_in, &adv_st);
   od_advert_build(&adv_in, msd_payload);
 
   msd_loop_counter = od_advert_advance_counter(msd_loop_counter);
@@ -1733,7 +1914,7 @@ static sl_status_t build_and_apply_adv(uint8_t adv_set, const char *name, bool q
                                         ai,
                                         adv);
   if (sc != SL_STATUS_OK) {
-    printf("[OD] legacy_advertiser_set_data(adv) sc=0x%04lX len=%u\r\n",
+    OD_DIAG("[OD] legacy_advertiser_set_data(adv) sc=0x%04lX len=%u\r\n",
            (unsigned long)sc, (unsigned)ai);
     return sc;
   }
@@ -1742,7 +1923,7 @@ static sl_status_t build_and_apply_adv(uint8_t adv_set, const char *name, bool q
                                         si,
                                         sr);
   if (sc != SL_STATUS_OK) {
-    printf("[OD] legacy_advertiser_set_data(sr) sc=0x%04lX len=%u\r\n",
+    OD_DIAG("[OD] legacy_advertiser_set_data(sr) sc=0x%04lX len=%u\r\n",
            (unsigned long)sc, (unsigned)si);
   }
   return sc;
@@ -1754,24 +1935,32 @@ void opendisplay_ble_on_boot(uint8_t advertising_set_handle)
   sl_status_t sc;
   uint16_t selected_mtu = 0u;
 
+  od_health_init(&od_bg22_health, health_retained_load());
+  if (s_health_ret.forced != 0u || s_health_ret.exhausted != 0u) {
+    OD_DIAG("[OD] since power-on: %u forced updater entries (last reason %u), stack heap "
+            "failures %lu, other stack resource failures %lu\r\n",
+            (unsigned)(s_health_ret.forced & 0xFFu), (unsigned)((s_health_ret.forced >> 8) & 0xFFu),
+            (unsigned long)(s_health_ret.exhausted & 0xFFFFu),
+            (unsigned long)(s_health_ret.exhausted >> 16));
+  }
+
   /* An API failure and a smaller selected maximum are different outcomes. The first means the
    * application cannot establish what the stack supports, so hand control to the independently
    * installed Gecko AppLoader. The second is a valid stack result: continue with the selected
    * ceiling and let each connection narrow it further through ATT MTU exchange. */
   sc = sl_bt_gatt_server_set_max_mtu(OD_BLE_MAX_FRAME, &selected_mtu);
   if (sc != SL_STATUS_OK) {
-    printf("[OD] FATAL: max ATT MTU API failed request=%u sc=0x%04lX; entering bootloader\r\n",
-           (unsigned)OD_BLE_MAX_FRAME, (unsigned long)sc);
+    OD_DIAG_FATAL_SC("max ATT MTU API", sc);
     od_enter_gecko_bootloader();
     return;
   }
   if (selected_mtu != OD_BLE_MAX_FRAME) {
     /* This is not an API failure. The stack enforces the resulting bound on every notification,
      * so a lower selection is a degraded operating maximum, not a broken device. */
-    printf("[OD] DEGRADED: max ATT MTU request=%u selected=%u; large replies may be refused\r\n",
+    OD_DIAG("[OD] DEGRADED: max ATT MTU request=%u selected=%u; large replies may be refused\r\n",
            (unsigned)OD_BLE_MAX_FRAME, (unsigned)selected_mtu);
   } else {
-    printf("[OD] max ATT MTU selected=%u (value max=%u)\r\n", (unsigned)selected_mtu,
+    OD_DIAG("[OD] max ATT MTU selected=%u (value max=%u)\r\n", (unsigned)selected_mtu,
            (unsigned)(selected_mtu - 3u));
   }
 
@@ -1783,15 +1972,32 @@ void opendisplay_ble_on_boot(uint8_t advertising_set_handle)
     /* This is a boot-time stack configuration API failure, not a peer negotiation result. Running
      * without it cannot satisfy D5's on-air completion contract, so remain recoverable through the
      * independently installed AppLoader instead of asserting or exposing a partial application. */
-    printf("[OD] FATAL: connection TX report API failed sc=0x%04lX; entering bootloader\r\n",
-           (unsigned long)sc);
+    OD_DIAG_FATAL_SC("connection TX report API", sc);
     od_enter_gecko_bootloader();
     return;
   }
   opendisplay_pipe_set_tx_report_available(true);
 
-  if (loadGlobalConfig(&s_od_global_config)) {
-    printf("[OD] config: loaded displays=%u leds=%u buses=%u nfc=%u flash=%u ver=%u.%u\r\n",
+  bool config_loaded = loadGlobalConfig(&s_od_global_config);
+  /* SECURITY_V2 7.1 / 10.1, FACTORY_RESET.md 3.1: reset pin, boot history, a pending or
+   * triggered factory reset, the boot decision and claim-mode entry, before advertising. */
+  {
+    struct od_security_boot_report rep;
+
+    od_security_boot(config_loaded ? od_get_parsed_security() : NULL, config_loaded, false, &rep);
+#if OD_HEALTH_UPDATE_PATTERN_SHORT_BOOTS != 0u
+    s_boot_short_boots = rep.short_boots;
+    s_boot_unclaimed = rep.state == OD_SEC2_UNCLAIMED;
+#endif
+    OD_DIAG("[OD] sec2: cause=0x%03lX k=%u state=%u claim=%u\r\n", (unsigned long)rep.cause,
+            (unsigned)rep.short_boots, (unsigned)rep.state, (unsigned)rep.kind);
+  }
+  if (s_config_changed) {
+    s_config_changed = false;
+    config_loaded = loadGlobalConfig(&s_od_global_config);
+  }
+  if (config_loaded) {
+    OD_DIAG("[OD] config: loaded displays=%u leds=%u buses=%u nfc=%u flash=%u ver=%u.%u\r\n",
            (unsigned)s_od_global_config.display_count,
            (unsigned)s_od_global_config.led_count,
            (unsigned)s_od_global_config.data_bus_count,
@@ -1800,52 +2006,79 @@ void opendisplay_ble_on_boot(uint8_t advertising_set_handle)
            (unsigned)s_od_global_config.version,
            (unsigned)s_od_global_config.minor_version);
   } else {
-    printf("[OD] config: none or invalid (defaults)\r\n");
+    OD_DIAG("[OD] config: none or invalid (defaults)\r\n");
   }
 
   od_init_aux_peripherals();
 
   s_adv_handle = advertising_set_handle;
-  printf("[OD] BLE boot: adv_set=%u\r\n", (unsigned)advertising_set_handle);
+  OD_DIAG("[OD] BLE boot: adv_set=%u\r\n", (unsigned)advertising_set_handle);
+
+  /* Boot needs the same two steps as a config write. Wiring only the write path leaves a
+   * device that is findable until it reboots and silently is not afterwards -- and these
+   * devices deep-sleep and reset far more often than they are reconfigured.
+   *
+   * After the stack is up, because od_hal_adv2 creates its advertising set on demand. */
+  (void)od_cfg_index_build();
+  od_net_a_invalidate();
+  od_net_a_sync(od_config_findmy(&s_od_global_config));
+  od_net_g_invalidate();
+  od_net_g_sync(od_config_findmy(&s_od_global_config));
+
+  od_mount_imgstore();
+
+  /* Claim mode runs none of the device's own content sources (SECURITY_V2 7.4). */
+  if (!od_claim_mode_active()) {
+    od_action_reload();
+    od_action_trigger(OD_TRIG_BOOT, 0u);
+  }
 
   chip_id_hex6(hex);
-  snprintf(s_dev_name, sizeof(s_dev_name), "%s%s", OD_NAME_PREFIX, hex);
-  printf("[OD] GAP name: %s\r\n", s_dev_name);
+  _Static_assert(sizeof(s_dev_name) >= sizeof(OD_NAME_PREFIX) + 6u, "GAP name buffer");
+  memcpy(s_dev_name, OD_NAME_PREFIX, sizeof(OD_NAME_PREFIX) - 1u);
+  memcpy(s_dev_name + sizeof(OD_NAME_PREFIX) - 1u, hex, 7u);
+  OD_DIAG("[OD] GAP name: %s\r\n", s_dev_name);
 
   sc = set_gap_device_name(s_dev_name);
   if (sc != SL_STATUS_OK) {
-    printf("[OD] set_gap_device_name sc=0x%04lX\r\n", (unsigned long)sc);
+    OD_DIAG("[OD] set_gap_device_name sc=0x%04lX\r\n", (unsigned long)sc);
   }
   app_assert_status(sc);
 
   sc = install_opendisplay_gatt();
   if (sc != SL_STATUS_OK) {
-    printf("[OD] install_opendisplay_gatt sc=0x%04lX", (unsigned long)sc);
+    OD_DIAG("[OD] install_opendisplay_gatt sc=0x%04lX", (unsigned long)sc);
     if (sc == SL_STATUS_NOT_SUPPORTED) {
-      printf(" (SL_STATUS_NOT_SUPPORTED: add bluetooth_feature_dynamic_gattdb)\r\n");
+      OD_DIAG(" (SL_STATUS_NOT_SUPPORTED: add bluetooth_feature_dynamic_gattdb)\r\n");
     } else {
-      printf("\r\n");
+      OD_DIAG("\r\n");
     }
   }
   app_assert_status(sc);
-  printf("[OD] GATT 0x2446 ok, pipe_char=%u\r\n", (unsigned)g_od_pipe_char);
+  OD_DIAG("[OD] GATT 0x2446 ok, pipe_char=%u\r\n", (unsigned)g_od_pipe_char);
   opendisplay_pipe_set_characteristic(g_od_pipe_char);
 
   od_buttons_init_from_config();
   opendisplay_display_park_pins();
   opendisplay_led_init();
-  opendisplay_display_boot_apply();
+  /* Claim mode draws its own screen; a boot that may be one step of a power-cycle pattern
+   * waits until the pattern can no longer continue, so the pattern costs no refresh. */
+  if (od_claim_mode_defer_boot_screen()) {
+    s_boot_screen_deferred = !od_claim_mode_active();
+  } else if (!od_claim_mode_active()) {
+    opendisplay_display_boot_apply();
+  }
 
   if (!od_advertising_api_ok(build_and_apply_adv(advertising_set_handle, s_dev_name, false),
                              "boot advertising data setup")) {
     return;
   }
-  printf("[OD] advertising + scan rsp set\r\n");
+  OD_DIAG("[OD] advertising + scan rsp set\r\n");
 
   if (!od_advertising_api_ok(
           od_apply_advertising_timing(
               advertising_set_handle,
-              sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count())),
+              od_hal_uptime_ms()),
           "boot advertising timing")) {
     return;
   }
@@ -1854,7 +2087,11 @@ void opendisplay_ble_on_boot(uint8_t advertising_set_handle)
   if (!od_advertising_api_ok(sc, "boot advertising start")) {
     return;
   }
-  printf("[OD] advertising started (~1 s interval while idle)\r\n");
+  OD_DIAG("[OD] advertising started (~1 s interval while idle)\r\n");
+  od_bg22_heap_free_at_boot = (uint32_t)sl_memory_get_free_heap_size();
+  od_bg22_heap_hwm_at_boot = (uint32_t)sl_memory_get_heap_high_watermark();
+  OD_DIAG("[OD] heap after boot: free=%lu high-water=%lu\r\n",
+          (unsigned long)od_bg22_heap_free_at_boot, (unsigned long)od_bg22_heap_hwm_at_boot);
 }
 
 static bool opendisplay_ble_restart_advertising(uint8_t advertising_set_handle)
@@ -1866,7 +2103,7 @@ static bool opendisplay_ble_restart_advertising(uint8_t advertising_set_handle)
       !od_advertising_api_ok(
           od_apply_advertising_timing(
               advertising_set_handle,
-              sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count())),
+              od_hal_uptime_ms()),
           "advertising restart timing")) {
     return false;
   }
@@ -1878,37 +2115,88 @@ static bool opendisplay_ble_restart_advertising(uint8_t advertising_set_handle)
   return true;
 }
 
+static void health_enter_update(void)
+{
+  health_retain(od_bg22_health.forced, od_bg22_health.reason);
+  OD_DIAG("[OD] HEALTH: GATT not served (reason %u, %u dead links, %lu stack heap failures): "
+          "entering the AppLoader\r\n", (unsigned)od_bg22_health.reason,
+          (unsigned)od_bg22_health.dead_links, (unsigned long)od_bg22_health.heap_failures);
+  opendisplay_ble_schedule_dfu();
+}
+
 void opendisplay_ble_on_event(sl_bt_msg_t *evt)
 {
+  const uint32_t id = SL_BT_MSG_ID(evt->header);
+
   opendisplay_pipe_handle_gatt_event(evt);
 
-  switch (SL_BT_MSG_ID(evt->header)) {
+  if (health_is_gatt_event(id)) {
+    od_health_att_seen(&od_bg22_health);
+  }
+  switch (id) {
+    case sl_bt_evt_system_resource_exhausted_id:
+      /* Handled, not ignored: it feeds the health gate (a heap failure on a link that carries
+       * no ATT is the stranding) and the retained counters a debugger reads. */
+      od_health_stack_heap_failure(
+          &od_bg22_health, evt->data.evt_system_resource_exhausted.num_heap_allocation_failures);
+      health_retain_exhausted(
+          evt->data.evt_system_resource_exhausted.num_heap_allocation_failures,
+          (uint32_t)evt->data.evt_system_resource_exhausted.num_buffers_discarded +
+              evt->data.evt_system_resource_exhausted.num_buffer_allocation_failures +
+              evt->data.evt_system_resource_exhausted.num_message_allocation_failures);
+      OD_DIAG("[OD] stack resource exhausted: discarded=%u buf_fail=%u heap_fail=%u msg_fail=%u\r\n",
+              (unsigned)evt->data.evt_system_resource_exhausted.num_buffers_discarded,
+              (unsigned)evt->data.evt_system_resource_exhausted.num_buffer_allocation_failures,
+              (unsigned)evt->data.evt_system_resource_exhausted.num_heap_allocation_failures,
+              (unsigned)evt->data.evt_system_resource_exhausted.num_message_allocation_failures);
+      break;
     case sl_bt_evt_connection_opened_id:
+      od_health_link_opened(&od_bg22_health, od_hal_uptime_ms());
       g_connection = evt->data.evt_connection_opened.connection;
-      s_connection_open_ms = sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count());
+      s_connection_open_ms = od_hal_uptime_ms();
       s_connection_timeout_close_requested = false;
       reboot_flag = 0u;
-      printf("[OD] connection opened handle=%u\r\n", (unsigned)g_connection);
+      OD_DIAG("[OD] connection opened handle=%u\r\n", (unsigned)g_connection);
       /* Connectable advertising stops automatically when this event is generated. */
       break;
     case sl_bt_evt_connection_closed_id:
+      if (od_health_link_closed(&od_bg22_health, od_hal_uptime_ms()) == OD_HEALTH_RECOVER) {
+        health_enter_update();
+      }
       g_connection = 0xFF;
       s_connection_open_ms = 0u;
       s_connection_timeout_close_requested = false;
       /* opendisplay_pipe_handle_gatt_event() already reset the shared transport/session at the
        * top of this function. Repeating it here advances the TXQ generation twice and aborts the
        * display twice for one close event. */
-      printf("[OD] connection closed reason=0x%02X\r\n",
+      OD_DIAG("[OD] connection closed reason=0x%02X\r\n",
              (unsigned)evt->data.evt_connection_closed.reason);
+      s_adv_paused = false;
       if (s_adv_handle != 0xFFu) {
         if (opendisplay_ble_restart_advertising(s_adv_handle)) {
-          printf("[OD] advertising resumed after disconnect\r\n");
+          OD_DIAG("[OD] advertising resumed after disconnect\r\n");
         }
       }
       break;
     default:
       (void)g_od_pipe_char;
       break;
+  }
+}
+
+void opendisplay_ble_set_connectable(bool connectable)
+{
+  if (s_adv_handle == 0xFFu) {
+    return;
+  }
+  if (!connectable) {
+    s_adv_paused = true;
+    (void)sl_bt_advertiser_stop(s_adv_handle);
+    return;
+  }
+  s_adv_paused = false;
+  if (g_connection == 0xFFu) {
+    (void)opendisplay_ble_restart_advertising(s_adv_handle);
   }
 }
 
@@ -1926,7 +2214,16 @@ void opendisplay_ble_process(void)
 {
   opendisplay_pipe_process();
   opendisplay_led_process();
-  uint32_t now_ms = sl_sleeptimer_tick_to_ms(sl_sleeptimer_get_tick_count());
+  od_claim_mode_tick();
+  if (s_config_changed) {
+    s_config_changed = false;
+    opendisplay_ble_reload_config_from_nvm();
+  }
+  if (s_boot_screen_deferred && !od_claim_mode_defer_boot_screen()) {
+    s_boot_screen_deferred = false;
+    opendisplay_display_boot_request();
+  }
+  uint32_t now_ms = od_hal_uptime_ms();
   od_publish_button_msd(s_adv_handle, now_ms);
   if (s_adv_handle != 0xFFu) {
     od_advertising_interval_tick(s_adv_handle, now_ms);
@@ -1952,13 +2249,21 @@ void opendisplay_ble_process(void)
     sl_status_t sc = sl_bt_connection_close(g_connection);
     if (sc == SL_STATUS_OK) {
       s_connection_timeout_close_requested = true;
-      printf("[OD] connection timeout (%lu ms): closing handle=%u\r\n",
+      OD_DIAG("[OD] connection timeout (%lu ms): closing handle=%u\r\n",
              (unsigned long)OD_MAX_CONNECTION_MS, (unsigned)g_connection);
     } else {
-      printf("[OD] connection timeout close failed sc=0x%04lX\r\n", (unsigned long)sc);
+      OD_DIAG("[OD] connection timeout close failed sc=0x%04lX\r\n", (unsigned long)sc);
     }
   }
 
+#if OD_HEALTH_UPDATE_PATTERN_SHORT_BOOTS != 0u
+  if (!s_pattern_checked && now_ms >= OD_CM_T_CLEAR_MS) {
+    s_pattern_checked = true;
+    if (od_health_update_pattern(&od_bg22_health, s_boot_short_boots, s_boot_unclaimed)) {
+      health_enter_update();
+    }
+  }
+#endif
   if (s_pending_dfu || s_pending_deep_sleep) {
     if (g_connection != 0xFFu) {
       (void)sl_bt_connection_close(g_connection);
@@ -1966,12 +2271,16 @@ void opendisplay_ble_process(void)
     }
     if (s_pending_dfu) {
       s_pending_dfu = false;
-      printf("[OD] DFU: entering bootloader\r\n");
+      OD_DIAG("[OD] DFU: entering bootloader\r\n");
+      (void)od_claim_mode_before_reboot();
       od_enter_gecko_bootloader();
       return;
     }
     if (s_pending_deep_sleep) {
       s_pending_deep_sleep = false;
+      if (!od_claim_mode_before_sleep()) {
+        return;                      /* claim mode stays awake (SECURITY_V2 7.3) */
+      }
       opendisplay_display_power_off();
       od_buttons_arm_em4_wakeup();
       od_nfc_field_detect_arm_em4_wakeup();

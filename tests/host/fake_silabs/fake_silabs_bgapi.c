@@ -1,7 +1,7 @@
 #include "fake_silabs.h"
 
+#include "opendisplay_protocol.h"
 #include "sl_bt_api.h"
-#include "od_session.h"
 
 #include <string.h>
 
@@ -40,6 +40,8 @@ void fake_silabs_bgapi_reset(void)
 
 uint32_t sl_sleeptimer_get_tick_count(void) { return fake_silabs_now_ms; }
 uint32_t sl_sleeptimer_tick_to_ms(uint32_t ticks) { return ticks; }
+/* The target's millisecond clock (od_hal_time.c in production), on the same fake time base. */
+uint32_t od_hal_uptime_ms(void) { return fake_silabs_now_ms; }
 
 void sl_bt_run(void)
 {

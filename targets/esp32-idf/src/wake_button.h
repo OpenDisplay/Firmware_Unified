@@ -20,3 +20,6 @@ void armButtonWakeSources();
 // the button causes (EXT0/EXT1/GPIO). Takes esp_sleep_wakeup_cause_t as int so
 // this header also compiles on targets without esp_sleep.h.
 bool detectButtonWake(int wakeupCause);
+
+// Map the last button-wake cause to a configured buttonStates[] index, or -1.
+int wakeButtonFindIndex(void);

@@ -21,4 +21,8 @@ void touchResumeAfterEpdRefresh(void);
  */
 void touchForceResume(void);
 
+/** Drive every configured touch reset/enable line to its off level and pad-hold it, so the IC
+ *  stays in reset through deep sleep. Call right before esp_deep_sleep_start(). */
+void touchPrepareForDeepSleep(void);
+
 #endif

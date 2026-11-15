@@ -56,6 +56,20 @@ void od_config_reset(struct od_config *cfg)
     memset(cfg, 0, sizeof(*cfg));
 }
 
+const struct FindMyConfig *od_config_findmy(const struct od_config *cfg)
+{
+#if OD_CONFIG_WITH_FINDMY
+    /* Guarded HERE, in the one translation unit that defines the struct, so the answer cannot
+     * depend on whether a caller happened to see the macro. */
+    if (cfg != NULL && cfg->findmy_loaded) {
+        return &cfg->findmy;
+    }
+#else
+    (void)cfg;
+#endif
+    return NULL;
+}
+
 bool od_config_security_key_set(const struct SecurityConfig *sec)
 {
     unsigned i;
@@ -198,6 +212,14 @@ enum od_config_apply od_config_apply_packet(struct od_config *cfg, uint8_t packe
 #if OD_CONFIG_WITH_WIFI
         return store_single(&cfg->wifi_config, (uint16_t)sizeof cfg->wifi_config,
                             body, &cfg->wifi_config_loaded);
+#else
+        return OD_CONFIG_APPLY_NOT_BUILT;
+#endif
+
+    case 0x2D:
+#if OD_CONFIG_WITH_FINDMY
+        return store_single(&cfg->findmy, (uint16_t)sizeof cfg->findmy,
+                            body, &cfg->findmy_loaded);
 #else
         return OD_CONFIG_APPLY_NOT_BUILT;
 #endif

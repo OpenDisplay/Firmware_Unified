@@ -41,7 +41,7 @@ typedef enum {
  *    activity. Treating either as ACCEPTED lets a discovery poll hold the exclusive link forever.
  *  - AUTH_ESTABLISHED is separate again: it resets the abuse run but still does not stamp.
  *  - AUTH_REQUIRED and CRYPTO_FAILED are separate because only the first advances the abuse run.
- *    od_session already counts a bad tag toward its own three-strike rule; dispatch must not add
+ *    od_sec2 already counts a bad tag toward its own three-strike rule; dispatch must not add
  *    a second strike for the same frame.
  *  - CRYPTO_DROPPED is the deliberate silence: a replayed or out-of-window PIPE data frame is
  *    ordinary packet loss, and answering it with a fatal NACK kills the upload.

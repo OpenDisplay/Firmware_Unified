@@ -24,4 +24,7 @@ bool loadConfig(uint8_t *config_data, uint32_t *len);
 
 bool clearStoredConfig(void);
 
+/* The record workspace saveConfig uses, lent to the SEC2 policy (od_claim_app_workspace). */
+uint8_t *opendisplay_config_workspace(uint32_t *cap);
+
 #endif

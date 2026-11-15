@@ -1,0 +1,80 @@
+name: CI
+
+# The gate tools/check.sh describes, run on every push and pull request: the host suites,
+# sanitizers, fuzz targets and wire corpus here, and all four firmware targets through
+# build.yml. tools/ci_check.sh keeps the split honest: the host job tolerates exactly the four
+# target-build skips (build.yml covers them) and fails on any other skip, so coverage cannot
+# quietly shrink.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host:
+    name: host gate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # clang is what the sanitizer and fuzz checks need; without it they SKIP, and
+      # tools/ci_check.sh treats an unexpected skip as a failure.
+      #
+      # python3-yaml and python3-cryptography are not optional either: bench_dispatch_gate and
+      # nfc_read_tool import the esp32 CLI tooling, which imports both (tools/requirements-host.txt).
+      # Without them check.sh reports a SKIP, and tools/ci_check.sh refuses an unexpected skip.
+      - name: Install host toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang cmake ninja-build python3 python3-pip python3-venv python3-yaml python3-cryptography
+
+      # uv runs the wire corpus against the pinned py-opendisplay (and fetches the Python 3.13
+      # it needs). Without it that check SKIPs, which ci_check.sh rightly refuses.
+      - uses: astral-sh/setup-uv@v6
+
+      # The panel-data check regenerates panels/generated from bb_epaper at the reference
+      # revision (panels/tools/pdlib.py BBEP_REF_REV) and reads it from a clone with git archive.
+      # Without the clone the check fails; it is fetched by full commit id so a moved branch
+      # cannot change what is compared.
+      - name: Fetch bb_epaper reference revision
+        run: |
+          git init -q "$RUNNER_TEMP/bb_epaper"
+          git -C "$RUNNER_TEMP/bb_epaper" fetch -q --depth=1 \
+            https://github.com/bitbank2/bb_epaper.git 4edfa7fe9f86aaf7211dddb06103db69fad2adcc
+          echo "OD_BBEP_UPSTREAM=$RUNNER_TEMP/bb_epaper" >> "$GITHUB_ENV"
+
+      - name: check.sh (boundary, host suites, sanitizers, fuzz, wire corpus)
+        run: tools/ci_check.sh --fuzz-time 120
+
+  targets:
+    name: targets
+    uses: ./.github/workflows/build.yml
+
+  gate:
+    name: all green
+    runs-on: ubuntu-24.04
+    needs: [host, targets]
+    if: always()
+    steps:
+      # One required status check for branch protection, so adding a job above does not mean
+      # re-editing the protection rule. `needs` alone is not enough: a skipped or cancelled
+      # dependency does not fail a job that only lists it.
+      - name: Fail unless every job succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "job results: $RESULTS"
+          for r in $RESULTS; do
+            [ "$r" = "success" ] || { echo "::error::a required job did not succeed ($r)"; exit 1; }
+          done
+          echo "all required jobs succeeded"

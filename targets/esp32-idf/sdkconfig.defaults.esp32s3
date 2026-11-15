@@ -61,3 +61,11 @@ CONFIG_ESP32S3_UNIVERSAL_MAC_ADDRESSES_TWO=y
 # 160 MHz with -Og. They are not comparable to the reference firmware's, and they are not
 # comparable to this build's either -- re-measure on hardware.
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
+# WIFI TX: a fixed pool of 8 static buffers (~12.8 KB internal DRAM, resident) instead of up to 32
+# dynamic ones malloc'd per frame. Same profile as the Arduino S3 build after upstream Firmware
+# 2ecc42b (WiFi.useStaticBuffers(true)): the part dies on transients, not on baseline -- an
+# inbound mDNS burst once took the last internal DRAM through the dynamic TX allocator. RX stays
+# as configured; the cache-TX buffers only exist for dynamic TX from PSRAM.
+CONFIG_ESP_WIFI_STATIC_TX_BUFFER=y
+CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=8

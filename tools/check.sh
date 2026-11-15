@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # check.sh -- every gate this repo has, run locally.
 #
-# There is no CI. The checks that used to live in .github/workflows/ are here instead, which
-# means NOTHING RUNS UNLESS SOMEONE RUNS IT. Run this before you push.
+# CI (.github/workflows/ci.yml) runs this same gate on every push and pull request, via
+# tools/ci_check.sh, with the three target builds split out into build.yml. Run it locally
+# before you push anyway: CI is the backstop, not the first look.
 #
 #   tools/check.sh                 boundary + host suites + sanitizers + fuzz + arduino-free
-#   tools/check.sh --targets       also builds ESP32, Nordic, and Silabs targets. Required before
-#                                  merge.
+#   tools/check.sh --targets       also builds ESP32, Nordic, Silabs and Telink targets. Required
+#                                  before merge.
 #   tools/check.sh --esp32         ESP32 only, as --targets used to be
+#   tools/check.sh --telink        Telink only (needs TC32_DIR and TELINK_SDK_DIR)
 #   tools/check.sh --fuzz-time 300 longer fuzz budget per target (default 60 s)
 #   tools/check.sh --latest        also replay the corpus against the NEWEST py-opendisplay
 #   tools/check.sh --list          print the checks and exit
@@ -27,6 +29,7 @@ FUZZ_TIME=60
 DO_ESP32=0
 DO_NORDIC=0
 DO_SILABS=0
+DO_TELINK=0
 DO_LATEST=0
 
 while [ $# -gt 0 ]; do
@@ -34,7 +37,8 @@ while [ $# -gt 0 ]; do
         --esp32)      DO_ESP32=1 ;;
         --nordic)     DO_NORDIC=1 ;;
         --silabs)     DO_SILABS=1 ;;
-        --targets)    DO_ESP32=1; DO_NORDIC=1; DO_SILABS=1 ;;
+        --telink)     DO_TELINK=1 ;;
+        --targets)    DO_ESP32=1; DO_NORDIC=1; DO_SILABS=1; DO_TELINK=1 ;;
         --latest)     DO_LATEST=1 ;;
         --fuzz-time)  FUZZ_TIME="${2:?--fuzz-time needs a value}"; shift ;;
         --list)
@@ -80,7 +84,7 @@ boundary_includes() {
     # ESP-IDF families beyond esp_*: driver/, soc/, hal/, rom/ and freertos/ are all IDF-only.
     # miniz.h is the ROM tinfl header -- the portable inflate engine belongs in shared/core, the ROM
     # binding does not. Panel libraries are target-layer: shared/ reaches the panel only through
-    # od_hal_panel.
+    # the od_drive_app / od_epd_cfg bus seams.
     local pattern='#[[:space:]]*include[[:space:]]*[<"]([[:space:]]*)?(esp_|esp32|driver/|soc/|hal/|rom/|miniz|freertos/|nrf_|nrfx|nrf\.h|sl_|sli_|em_|zephyr/|Arduino\.h|WiFi\.h|ESPmDNS|bluefruit\.h|Adafruit|NimBLE|bb_epaper|FastEPD|TFT_eSPI|Seeed)'
     # shared/hal's own headers are od_hal_*.h and may legitimately be included as
     # "hal/od_hal_panel.h", which the IDF `hal/` family above would otherwise flag. Anchor the
@@ -143,24 +147,24 @@ check "shared boundary: no vendor includes"   boundary_includes
 check "shared boundary: C only, no String"    boundary_c_only
 check "shared boundary: protocol headers"     boundary_protocol
 
-# od_session.c compares attacker-supplied bytes -- an auth proof and a session id -- and must do
-# it in od_ct_equal, whose fixed-iteration volatile loop is the whole defence. A HOST TEST CANNOT
-# CATCH THIS: replacing od_ct_equal with memcmp passes the entire suite, verified by mutation.
+# od_sec2.c compares attacker-supplied bytes -- handshake tags and the confirmation tag -- and must
+# do it in ct_equal, whose fixed-iteration volatile loop is the whole defence. A HOST TEST CANNOT
+# CATCH THIS: a memcmp in place of ct_equal is functionally identical, so every suite passes.
 # It is exactly the regression AUDIT_NORDIC_ZEPHYR_2026-08-14.md:259 records shipping unnoticed on
 # another target, so the enforcement has to be structural.
 session_constant_time() {
     local hits
-    hits=$(grep -nE '\bmemcmp[[:space:]]*\(' shared/core/od_session.c || true)
+    hits=$(grep -nE '\bmemcmp[[:space:]]*\(' shared/core/od_sec2.c || true)
     if [ -n "$hits" ]; then
         echo "$hits"
         echo
-        echo "memcmp in od_session.c: comparisons of attacker-supplied bytes belong in"
-        echo "od_ct_equal(), which is fixed-iteration with a volatile accumulator. If this is a"
+        echo "memcmp in od_sec2: comparisons of attacker-supplied bytes belong in"
+        echo "ct_equal(), which is fixed-iteration with a volatile accumulator. If this is a"
         echo "comparison of non-secret data, move it behind a helper with a name that says so."
         return 1
     fi
 }
-check "shared boundary: od_session uses no memcmp"  session_constant_time
+check "shared boundary: od_sec2 uses no memcmp"  session_constant_time
 
 # od_hal_time is the two-function ambient/busy-wait seam. Millisecond sleep stays private until
 # ESP32's unsigned round-up contract is reconciled with Nordic's signed k_msleep contract, and the
@@ -209,6 +213,17 @@ time_hal_structure() {
         echo "BG22 time HAL reintroduced the 32-bit tick-domain clock"
         rc=1
     fi
+    # Uptime converted from the 32-bit tick count wraps at the tick rollover (~36 h at
+    # 32.768 kHz), not at 2^32 ms, so now-then arithmetic across it breaks. A tick DELTA
+    # converted afterwards (tick_to_ms(get_tick_count() - t0)) is wrap-safe and allowed.
+    hits=$(grep -rnE 'sl_sleeptimer_tick_to_ms\(sl_sleeptimer_get_tick_count\(\)\)' \
+           --include='*.c' --include='*.cpp' --exclude-dir='cmake_gcc' \
+           targets/efr32bg22-slc 2>/dev/null || true)
+    if [ -n "$hits" ]; then
+        echo "$hits"
+        echo "BG22 uptime read from the 32-bit tick domain; use od_hal_uptime_ms()"
+        rc=1
+    fi
 
     return "$rc"
 }
@@ -240,12 +255,12 @@ c11_structure() {
     # od_reply_t and pass it.
     scan "implicit frame context" '\b(g_commandOrigin|g_commandInstance|commandOrigin|imageDataWritten)\b' \
          "build an od_reply_t at the ingress and pass it to od_dispatch_app_frame()."
-    # The session object is private to its od_session_app translation unit. A name reachable from
+    # The session state is private to od_sec2.c. A name reachable from
     # elsewhere is one a caller can memset -- and memset is not teardown here: the key lives in an
     # od_hal_crypto slot, so zeroing the struct strands a prepared key in a finite pool and loses
-    # the slot index with it. od_session_clear() is the only teardown.
+    # the slot index with it. od_sec2_teardown() is the only teardown.
     scan "exported session singleton" '\b(g_session|od_pipe_session|od_pipe_device_id)\b' \
-         "reach the session through od_session_app_state()."
+         "end a session with od_sec2_teardown()."
     # Confidentiality is chosen at the CALL SITE. Inferring it from response bytes is how this
     # firmware once sealed its own rejection frames, which the host then validated as ACKs.
     scan "byte-inferred sealing" 'response\[(0|2)\][[:space:]]*==[[:space:]]*(RESP_NACK|0xFF)' \
@@ -398,6 +413,54 @@ bg22_has_no_buzzer_runner() {
     fi
 }
 check "silabs: BG22 has no buzzer runner" bg22_has_no_buzzer_runner
+# PERMANENT. The BG22 heap is whatever RAM the statics leave (linkerfile.ld), and the Bluetooth
+# stack allocates each connection's ATT bearer from it at connect time: an image whose heap is
+# too small links, boots and advertises, then serves no GATT and cannot be commanded into the
+# AppLoader. docs/BG22_RAM_BUDGET.md has the budget and the floor. The CMake post-build step is
+# the gate; this proves it is still wired, still self-consistent, and that the last image built
+# here passes it. The floor in ram_budget.json changes only with a hardware heap measurement.
+bg22_ram_budget() {
+    local img=targets/efr32bg22-slc/cmake_gcc/build/base/opendisplay-bg22.out
+    local base=targets/efr32bg22-slc/ram_budget.json
+    python3 tools/bg22_ram_budget.py --selftest || return 1
+    grep -q 'tools/bg22_ram_budget.py' targets/efr32bg22-slc/cmake_gcc/CMakeLists.txt || {
+        echo "the BG22 build no longer runs tools/bg22_ram_budget.py after the link"; return 1; }
+    python3 - "$base" <<'PY' || return 1
+import json, sys
+b = json.load(open(sys.argv[1]))
+assert b["heap_min_bytes"] >= 9600, "heap floor lowered below 9600 B without a measurement"
+assert b["stack_bytes"] == 2752, "stack baseline changed; SL_STACK_SIZE is 2752"
+assert b["stack_bytes"] + b["static_ram_max_bytes"] + b["heap_min_bytes"] <= 32768, "baseline cannot fit"
+PY
+    if [ -f "$img" ]; then
+        python3 tools/bg22_ram_budget.py --elf "$img" --baseline "$base"
+    else
+        echo "no BG22 image at $img: wiring and baseline checked, image not evaluated"
+    fi
+}
+check "silabs: BG22 RAM budget gate" bg22_ram_budget
+# PERMANENT. One image-trust rule on every target (shared/core/od_health.h): an image is trusted
+# only after a link has carried GATT traffic. A confirm at boot or at advertising start is how a
+# GATT-dead image made itself permanent; only the od_health adapters (and an explicit SMP confirm
+# command or bench console) may confirm.
+image_trust_evidence_only() {
+    local rc=0 hits
+    hits=$(git grep -n 'boot_write_img_confirmed' -- targets/nordic-zephyr/src \
+        ':!targets/nordic-zephyr/src/od_health_app.c' ':!targets/nordic-zephyr/src/od_test_bench.c')
+    [ -n "$hits" ] && { echo "$hits"; echo "nordic: an MCUboot confirm outside od_health_app.c"; rc=1; }
+    hits=$(git grep -n 'esp_ota_mark_app_valid_cancel_rollback' -- targets/esp32-idf/src targets/esp32-idf/ble \
+        ':!targets/esp32-idf/src/od_health_app.cpp' ':!targets/esp32-idf/src/od_smp.cpp')
+    [ -n "$hits" ] && { echo "$hits"; echo "esp32: a rollback cancel outside od_health_app.cpp / the SMP command"; rc=1; }
+    if git grep -n 'od_smp_confirm_running()' -- targets/esp32-idf/src/main.cpp; then
+        echo "esp32 main.cpp confirms the image at boot again"; rc=1
+    fi
+    grep -q 'od_health_app_boot();' targets/esp32-idf/src/main.cpp || { echo "esp32: od_health_app_boot() not called"; rc=1; }
+    grep -q 'od_health_app_boot();' targets/nordic-zephyr/src/main.c || { echo "nordic: od_health_app_boot() not called"; rc=1; }
+    grep -q 'od_health_app_before_sleep()' targets/esp32-idf/src/main.cpp || { echo "esp32: deep sleep ignores the image hold"; rc=1; }
+    grep -q 'od_health_link_closed' targets/efr32bg22-slc/opendisplay_ble.c || { echo "bg22: health gate unwired"; rc=1; }
+    return $rc
+}
+check "health: image trusted only on GATT evidence (every target)" image_trust_evidence_only
 # PERMANENT. One entry point for "advertise sooner, something happened".
 #
 # THE FIRST VERSION OF THIS RULE LISTED TWO RETIRED NAMES AND PASSED WHILE A THIRD SURVIVED --
@@ -537,7 +600,7 @@ transfer_logging_target_strings_absent() {
     absent_or_fail "retired target-owned transfer diagnostic returned" \
         'Shared transfer timeout - aborting session|dw init begin|Refresh timed out' \
         targets/esp32-idf/src/display_service.cpp \
-        targets/nordic-zephyr/src/opendisplay_display.cpp
+        targets/nordic-zephyr/src/opendisplay_display.c
 }
 check "transfer: retired target logging strings absent" transfer_logging_target_strings_absent
 
@@ -744,14 +807,16 @@ silabs_c13_config() {
         echo "Silabs tracked PSA CCM selection missing"; return 1; }
     grep -A2 -q 'id: psa_crypto_ccm' targets/efr32bg22-slc/opendisplay-bg22.slcp || {
         echo "Silabs SLC project no longer selects PSA CCM"; return 1; }
-    grep -q '^#define SL_PSA_KEY_USER_SLOT_COUNT[[:space:]]\+1$' \
+    # Three: the SEC2 H->D and D->H record keys plus the ephemeral ECDH key, all live at once
+    # during FINISH/CONFIRM. Each slot costs RAM on a 32 KB part, so the count is pinned.
+    grep -q '^#define SL_PSA_KEY_USER_SLOT_COUNT[[:space:]]\+3$' \
         targets/efr32bg22-slc/config/psa_crypto_config.h || {
-        echo "Silabs application PSA key-slot reserve is not one"; return 1; }
+        echo "Silabs application PSA key-slot reserve is not three"; return 1; }
     grep -A1 -q "name: SL_PSA_KEY_USER_SLOT_COUNT[[:space:]]*$" \
         targets/efr32bg22-slc/opendisplay-bg22.slcp || {
         echo "Silabs SLC project lost its PSA key-slot setting"; return 1; }
     grep -A1 "name: SL_PSA_KEY_USER_SLOT_COUNT[[:space:]]*$" \
-        targets/efr32bg22-slc/opendisplay-bg22.slcp | grep -q "value: '1'" || {
+        targets/efr32bg22-slc/opendisplay-bg22.slcp | grep -q "value: '3'" || {
         echo "Silabs SLC project would regenerate the PSA key-slot reserve incorrectly"; return 1; }
     grep -q '^#define SL_BGAPI_MAX_PAYLOAD_SIZE[[:space:]]\+(263)$' \
         targets/efr32bg22-slc/config/sl_bgapi_config.h || {
@@ -781,7 +846,9 @@ check "config storage: one record framing" config_store_target_framing_absent
 # name is the same defect. Both spellings, because a table-driven version reverses the constant.
 # Checked in two directions -- absent from targets/, and in exactly ONE file under shared/ -- so
 # that neither "a target grew one back" nor "shared grew a second" can pass.
-CONFIG_STORE_CRC_FILES=$'shared/core/od_config_store.c\nshared/core/od_config_store.h'
+# opendisplay_protocol.h names the polynomial in prose (the CMD_FLASH_LIST slot digest) and is a
+# byte-for-byte canonical copy, so it is listed rather than edited.
+CONFIG_STORE_CRC_FILES=$'shared/core/od_config_store.c\nshared/core/od_config_store.h\nshared/protocol/opendisplay_protocol.h'
 config_store_single_crc32() {
     local files rc
     absent_or_fail "a second CRC-32 returned to a target; od_config_store_crc32 is the one" \
@@ -869,8 +936,16 @@ silabs_advertising_ownership() {
     fi
     count=$(grep -c '\bopendisplay_ble_restart_advertising[[:space:]]*(' \
         targets/efr32bg22-slc/opendisplay_ble.c)
-    if [ "$count" -ne 2 ]; then
-        echo "Silabs restart must have one private definition and one close-event call; found $count"
+    # Definition, the close-event call, and the resume after a panel job that paused
+    # connectable advertising (opendisplay_ble_set_connectable, same file).
+    if [ "$count" -ne 3 ]; then
+        echo "Silabs restart must have one private definition, one close-event call and one resume call; found $count"
+        return 1
+    fi
+    if [ "$(sed -n '/^void opendisplay_ble_set_connectable(/,/^}/p' \
+            targets/efr32bg22-slc/opendisplay_ble.c \
+            | grep -c '\bopendisplay_ble_restart_advertising[[:space:]]*(')" -ne 1 ]; then
+        echo "Silabs advertising resume must live in opendisplay_ble_set_connectable()"
         return 1
     fi
     close_calls=$(sed -n '/case sl_bt_evt_connection_closed_id:/,/^[[:space:]]*break;/p' \
@@ -988,7 +1063,7 @@ log_hal_structure() {
     fi
 
     hits=$(grep -rInE '\b(od_hal_log_room|od_log_set_ready_hook|od_log_set_loop_task)[[:space:]]*\(|\[DROP:' \
-           shared targets/esp32-idf/src targets/esp32-idf/hal targets/esp32-idf/panel \
+           shared targets/esp32-idf/src targets/esp32-idf/hal \
            targets/nordic-zephyr/src targets/nordic-zephyr/panel \
            targets/efr32bg22-slc --include='*.c' --include='*.cpp' --include='*.h' \
            --include='*.inl' --exclude-dir='build*' 2>/dev/null || true)
@@ -1071,17 +1146,8 @@ check "log profile: one compile-time selector" log_profile_selector
 
 nordic_epd_spi_ownership() {
     local rc=0 hits count
-    local adapter=targets/nordic-zephyr/panel/od_bbep_zephyr_io.inl
     local backend=targets/nordic-zephyr/src/od_epd_spi_nrfx.c
     local fallback=targets/nordic-zephyr/src/od_epd_spi_bitbang.c
-
-    hits=$(grep -nE '\bbb_spi_bitbang\b|od_gpio_write[[:space:]]*\([[:space:]]*pBBEP->i(CLK|MOSI)' \
-           "$adapter" || true)
-    if [ -n "$hits" ]; then
-        echo "$hits"
-        echo "bb_epaper adapter regained a per-edge generic GPIO loop"
-        rc=1
-    fi
 
     hits=$(grep -nE '\bod_(pin_decode|gpio_write)[[:space:]]*\(|\bgpio_pin_(set|configure)[[:space:]]*\(' \
            "$fallback" || true)
@@ -1137,7 +1203,64 @@ nordic_epd_spi_ownership() {
 }
 check "nordic: EPD SPI ownership" nordic_epd_spi_ownership
 
+# PERMANENT. Nordic drives every panel from the config's drive packets (shared/core/od_display.c).
+# A panel library, a panel-id table or a framebuffer renderer coming back is a second display path
+# that a config without drive packets would silently fall into.
+nordic_panel_library_absent() {
+    local rc=0
+    absent_or_fail "bb_epaper or a panel-id table returned to the Nordic build" \
+        '\bbb_epaper\b|\bBBEPDISP\b|\bbbep[A-Z][A-Za-z]*[[:space:]]*\(|\bopendisplay_map_epd\b' \
+        targets/nordic-zephyr/src targets/nordic-zephyr/panel || rc=1
+    if grep -nE 'bb_epaper|Group5' targets/nordic-zephyr/zephyr/CMakeLists.txt; then
+        echo "Nordic CMake compiles or includes bb_epaper again"
+        rc=1
+    fi
+    return $rc
+}
+check "nordic: no panel library" nordic_panel_library_absent
+
+# PERMANENT. ESP32 drives every SPI panel from the config's drive packets the same way. FastEPD
+# stays, for the IT8951 and parallel panels on its built-in drivers (display_fastepd.cpp is the
+# only file that may name it); bb_epaper, a panel-id table or the od_hal_panel vtable coming back
+# is a second SPI display path.
+esp32_panel_library_absent() {
+    local rc=0
+    absent_or_fail "bb_epaper or a panel-id table returned to the ESP32 build" \
+        '\bbb_epaper\b|\bBBEPDISP\b|\bbbep(Init|Set|Write|Send|Refresh|Sleep|Wake|Fill|Start|CMD|Wait|DeInit|IsBusy)[A-Za-z]*[[:space:]]*\(|\bmapEpd\b|\bod_panel_ops\b|\bod_hal_panel_' \
+        targets/esp32-idf/src targets/esp32-idf/hal targets/esp32-idf/main || rc=1
+    if [ -d targets/esp32-idf/panel ]; then
+        echo "targets/esp32-idf/panel/ is back (it held the bb_epaper backend)"
+        rc=1
+    fi
+    if grep -nE 'bb_epaper' targets/esp32-idf/main/CMakeLists.txt targets/esp32-idf/CMakeLists.txt; then
+        echo "ESP32 CMake compiles or includes bb_epaper again"
+        rc=1
+    fi
+    return $rc
+}
+check "esp32: no panel library" esp32_panel_library_absent
+
 # ================================================================================== host suites ==
+# Two host tests (bench_dispatch_gate, nfc_read_tool) import the ESP32 bench CLI, which needs
+# PyYAML and cryptography in the Python CMake picks (tools/requirements-host.txt; CI installs
+# python3-yaml + python3-cryptography). Missing modules are an environment gap, not a code
+# failure, so those two are excluded and reported as one SKIP below rather than as failures.
+OD_PY_TOOL_TESTS='^(bench_dispatch_gate|nfc_read_tool)$'
+OD_PY_TOOL_MISSING=""
+host_ctest() {
+    local dir="$1"; shift
+    local py
+    py="$(sed -n 's/^_\{0,1\}Python3_EXECUTABLE:[A-Z]*=//p' "$dir/CMakeCache.txt" | head -1)"
+    if [ -n "$py" ] && ! "$py" -c 'import yaml, cryptography' >/dev/null 2>&1; then
+        echo "NOTE: $py lacks PyYAML/cryptography -- excluding $OD_PY_TOOL_TESTS"
+        echo "$py" > "$BUILD_ROOT/py-tool-deps-missing"
+        ctest --test-dir "$dir" -E "$OD_PY_TOOL_TESTS" "$@"
+    else
+        ctest --test-dir "$dir" "$@"
+    fi
+}
+rm -f "$BUILD_ROOT/py-tool-deps-missing"
+
 # The real boundary enforcement: shared/ compiled for the host at -std=c99 -Wall -Wextra -Werror
 # under BOTH compilers. A GNU-ism gcc accepts is a failure discovered later on a target instead.
 host_suite() {
@@ -1145,7 +1268,7 @@ host_suite() {
     command -v "$cc" >/dev/null 2>&1 || return 127
     cmake -S tests/host -B "$dir" -DCMAKE_C_COMPILER="$cc" >/dev/null \
         && cmake --build "$dir" -j"$(nproc)" \
-        && ctest --test-dir "$dir" --output-on-failure --no-tests=error
+        && host_ctest "$dir" --output-on-failure --no-tests=error
 }
 
 for cc in gcc clang; do
@@ -1271,7 +1394,7 @@ nfc_off_link_proof() {
 check "host: NFC capability-off link proof" nfc_off_link_proof
 
 # ASan + UBSan over every host test at once -- including the two PRE-AUTH parsers, od_config_tlv
-# and od_session, whose inputs an unauthenticated peer controls. halt_on_error is not decoration:
+# and od_sec2, whose inputs an unauthenticated peer controls. halt_on_error is not decoration:
 # UBSan's default is to print a diagnostic and carry on with status 0.
 host_sanitizers() {
     local dir="$BUILD_ROOT/host-asan"
@@ -1281,18 +1404,26 @@ host_sanitizers() {
         && cmake --build "$dir" -j"$(nproc)" \
         && UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
            ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=1}" \
-           ctest --test-dir "$dir" --output-on-failure --no-tests=error
+           host_ctest "$dir" --output-on-failure --no-tests=error
 }
 check "host suite (ASan + UBSan)" host_sanitizers
+if [ -f "$BUILD_ROOT/py-tool-deps-missing" ]; then
+    skip "host: python tool tests (bench_dispatch_gate, nfc_read_tool)" \
+         "$(cat "$BUILD_ROOT/py-tool-deps-missing") has no PyYAML/cryptography; pip install -r tools/requirements-host.txt"
+fi
 
 # ======================================================================================== fuzz ==
 # MIGRATION.md Gate 1 requires fuzz coverage for anything reachable pre-authentication. Clang
 # only: -fsanitize=fuzzer is a Clang feature and gcc has no libFuzzer. The corpora under
 # tests/fuzz/corpus/ are committed, so each run starts from the coverage the last one found.
+# They are READ-ONLY here: libFuzzer writes new coverage into its FIRST corpus directory, so
+# that is a scratch directory under build/, and the committed corpus comes second. Promote
+# worthwhile inputs deliberately, e.g.
+#   od_fuzz_<t> -merge=1 tests/fuzz/corpus/<t> build/check/fuzz/new-corpus/<t>
 #
 # A crash writes its input to ./crash-<sha1>. Commit it to the corpus AND pin it as a numbered
 # case in the corresponding ordinary host test, so the regression fails without fuzzing too.
-FUZZ_TARGETS=(session_open_raw session_open_sealed session_auth pipe_start pipe_data)
+FUZZ_TARGETS=(sec2_frames pipe_start pipe_data config_drive cfg_policy)
 
 fuzz_all() {
     local dir="$BUILD_ROOT/fuzz" t
@@ -1308,9 +1439,11 @@ fuzz_all() {
     done
     for t in "${FUZZ_TARGETS[@]}"; do
         echo "--- $t (${FUZZ_TIME}s)"
+        mkdir -p "$dir/new-corpus/$t"
         UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
             "$dir/fuzz/od_fuzz_$t" -max_total_time="$FUZZ_TIME" -runs=2000000 \
-            -print_final_stats=1 "tests/fuzz/corpus/$t" || return 1
+            -print_final_stats=1 "$dir/new-corpus/$t" "tests/fuzz/corpus/$t" || return 1
+        echo "    new inputs (not committed): $(find "$dir/new-corpus/$t" -type f | wc -l)"
     done
 }
 
@@ -1319,6 +1452,95 @@ if command -v clang >/dev/null 2>&1; then
 else
     skip "fuzz: pre-auth surface" "clang not installed; libFuzzer is Clang-only"
 fi
+
+# ===================================================================================== release ==
+# One version string for every target (tools/release/version.sh), and the asset collector that
+# enforces docs/RELEASE_ARTEFACTS.md -- including the refusal to ship a 2.x asset name, which is
+# what stops an old updater from pushing 3.x onto a 2.x device.
+# The SEC2 test trace prints the claim code on the serial console (shared/core/od_sec2_trace.h).
+# It is off unless one ESP32 configure flag names it, and that configure step refuses CI and
+# versioned (release) builds. This keeps every other way in shut: no board fragment, sdkconfig,
+# profile, build or release script, workflow or source file may set it, the header default stays
+# 0, and the CMake refusal and the boot banner stay in place. tools/release/collect.py refuses
+# any artefact that carries the trace tag, which covers a stale bench image in a build dir.
+sec2_trace_release_off() {
+    # ONE ratchet, ONE naming scheme for every test-only build on every target:
+    #   build options  OD_SEC2_TEST_{TRACE,CM_WINDOW_MS,REVERT_S} -- named only by the
+    #                  owners below, refused in a versioned/CI build, never cached;
+    #   derived macros OD_SEC2_TRACE_BUILD (od_sec2_trace.h), OD_SEC2_BENCH_BUILD (defined only by
+    #                  the Nordic CMakeLists) -- what target code tests.
+    # Every such image carries the tag "[SEC2-TEST]", which tools/release/collect.py refuses.
+    local rc=0 hits
+    hits=$(git grep --untracked -nE 'OD_SEC2_TEST_(TRACE|CM_WINDOW_MS|REVERT_S)' -- . \
+        ':!shared/core/od_sec2_trace.h' ':!targets/esp32-idf/main/CMakeLists.txt' \
+        ':!targets/nordic-zephyr/zephyr/CMakeLists.txt' ':!targets/nordic-zephyr/src/od_test_bench.c' \
+        ':!tools/check.sh' ':!docs/*' ':!*.md')
+    if [ -n "$hits" ]; then
+        echo "$hits"; echo "a test-only build option (OD_SEC2_TEST_*) is named outside its owners"; rc=1
+    fi
+    hits=$(git grep --untracked -nE 'OD_SEC2_TEST_REVERT_S' -- shared targets/esp32-idf targets/efr32bg22-slc)
+    if [ -n "$hits" ]; then
+        echo "$hits"; echo "OD_SEC2_TEST_REVERT_S belongs to the Nordic bench only"; rc=1
+    fi
+    hits=$(git grep --untracked -nE 'OD_SEC2_BENCH_BUILD[[:space:]]*=|define[[:space:]]+OD_SEC2_BENCH_BUILD|OD_SEC2_TRACE_BUILD[[:space:]]*=' -- . \
+        ':!targets/nordic-zephyr/zephyr/CMakeLists.txt' ':!tools/check.sh' ':!docs/*' ':!*.md')
+    if [ -n "$hits" ]; then
+        echo "$hits"; echo "a derived test-build macro is defined outside its owner"; rc=1
+    fi
+    if grep -rnE 'OD_SEC2_(TEST|BENCH|TRACE)' targets/*/boards targets/esp32-idf/sdkconfig.defaults* \
+        targets/nordic-zephyr/zephyr/*.conf targets/nordic-zephyr/zephyr/boards 2>/dev/null \
+        | grep -v 'prj_test_bench.conf'; then
+        echo "a board fragment / Kconfig file enables a test-only build"; rc=1
+    fi
+    if [ "$(grep -cE '^#define OD_SEC2_TEST_TRACE 0$' shared/core/od_sec2_trace.h)" != 1 ] \
+        || grep -qE '^#define OD_SEC2_TEST_TRACE [^0]' shared/core/od_sec2_trace.h; then
+        echo "od_sec2_trace.h: the default must be '#define OD_SEC2_TEST_TRACE 0'"; rc=1
+    fi
+    local f
+    for f in targets/esp32-idf/main/CMakeLists.txt targets/nordic-zephyr/zephyr/CMakeLists.txt; do
+        if ! grep -q 'DEFINED ENV{OD_FW_VERSION} OR DEFINED ENV{CI}' "$f" \
+            || ! grep -q 'STREQUAL "I_ACCEPT_CLAIM_CODE_ON_SERIAL"' "$f"; then
+            echo "$f: the trace's acknowledgement / release refusal is gone"; rc=1
+        fi
+    done
+    if ! grep -q 'unset(OD_SEC2_TEST_TRACE CACHE)' targets/esp32-idf/main/CMakeLists.txt; then
+        echo "esp32 CMakeLists: the no-cache guard is gone"; rc=1
+    fi
+    if grep -nE 'CACHE' targets/nordic-zephyr/zephyr/CMakeLists.txt | grep -E 'OD_SEC2_'; then
+        echo "nordic CMakeLists: a test-only option is cached"; rc=1
+    fi
+    for f in targets/esp32-idf/src/main.cpp targets/nordic-zephyr/src/main.c; do
+        if ! grep -q 'OD_SEC2_TRACE_BANNER();' "$f"; then
+            echo "$f: a trace build must print the NOT FOR RELEASE banner at boot"; rc=1
+        fi
+    done
+    if ! grep -q '"\[SEC2-TEST\] BENCH IMAGE' targets/nordic-zephyr/src/od_test_bench.c; then
+        echo "nordic od_test_bench.c: a bench image must carry the [SEC2-TEST] tag"; rc=1
+    fi
+    if ! grep -q 'TEST_TRACE_TAG = b"\[SEC2-TEST\]"' tools/release/collect.py; then
+        echo "collect.py no longer refuses a trace image"; rc=1
+    fi
+    return $rc
+}
+check "release: test-only builds off in every release configuration" sec2_trace_release_off
+
+# SECURITY_V2 7.2: the power-cycle count is written at T_ARM / T_CLEAR from the loop, and a panel
+# refresh can block that loop for 20-35 s. Every target keeps the count on time from the place it
+# waits for the panel: ESP32 and BG22 from the panel bus delay, Nordic (whose boot screen draws on
+# a work queue) from the loop's sliced wait for it. host claim_mode_test covers the shared half.
+sec2_boot_count_independent_of_screen() {
+    local rc=0 f
+    for f in targets/esp32-idf/src/od_epd_esp.cpp targets/efr32bg22-slc/od_epd_io_silabs.c \
+             targets/nordic-zephyr/src/opendisplay_ble.c; do
+        if ! grep -q 'od_claim_mode_tick_count()' "$f"; then
+            echo "$f: no od_claim_mode_tick_count() -- a refresh would delay the boot count"; rc=1
+        fi
+    done
+    return $rc
+}
+check "sec2: boot count independent of the panel refresh" sec2_boot_count_independent_of_screen
+check "release: in-source version defaults agree" tools/release/version.sh --check
+check "release: artefact collector selftest" bash tools/release/selftest.sh
 
 # ============================================================================== wire corpus ==
 # The cross-repo wire contract: the same vectors decoded by this repo's C core and by the
@@ -1357,6 +1579,15 @@ if [ "$DO_LATEST" = 1 ]; then
     fi
 fi
 
+# ================================================================================ panel data ==
+# panels/generated/drive_presets.json: schema, packet layout + CRC, the od_epd replay against the
+# recorded bb_epaper streams, the config size budget, and the glass entries' website bytes.
+if command -v python3 >/dev/null 2>&1; then
+    check "panel data: drive presets vs od_epd" python3 tests/panels/test_panels.py
+else
+    skip "panel data: drive presets vs od_epd" "python3 not installed"
+fi
+
 # ======================================================================================= esp32 ==
 # THE SHIM IS GONE, and this is what keeps it gone. It replaces compat/ratchet.sh, whose metric
 # was "how many files INCLUDE a shim header" -- a count that reached 0 while three call sites
@@ -1364,9 +1595,9 @@ fi
 # OD-PATCH in third_party/bb_epaper/src/bb_epaper.h, not by any header the ratchet grepped for.
 # So this checks CALLS, which is the property that actually matters.
 #
-# panel/ and vendor/ are exempt BY DESIGN, not by oversight: od_bbep_idf_io.inl and
-# fastepd_adapter.cpp exist precisely to supply these primitives to the two vendored libraries
-# that demand them, and third_party/ is exempt from the one rule (CLAUDE.md, decision 13).
+# vendor/ is exempt BY DESIGN, not by oversight: fastepd_adapter.cpp exists precisely to supply
+# these primitives to the vendored library that demands them, and third_party/ is exempt from
+# the one rule (CLAUDE.md, decision 13).
 arduino_free() {
     local rc=0
 
@@ -1394,10 +1625,9 @@ arduino_free() {
         rc=1
     fi
 
-    # Calls to Arduino primitives in APP code. panel/ and vendor/ are exempt BY DESIGN:
-    # od_bbep_idf_io.inl and fastepd_adapter.cpp exist precisely to supply these to the two
-    # vendored libraries that demand them, and third_party/ is exempt from the one rule
-    # (CLAUDE.md, decision 13).
+    # Calls to Arduino primitives in APP code. vendor/ is exempt BY DESIGN: fastepd_adapter.cpp
+    # exists precisely to supply these to the vendored library that demands them, and
+    # third_party/ is exempt from the one rule (CLAUDE.md, decision 13).
     #
     # The awk pass strips comments before matching. Without it the check fires on prose --
     # "millis()-poll from loop()" in a header comment is not a call, and a gate that cannot
@@ -1446,7 +1676,7 @@ esp32_all_and_baseline() {
 if [ "$DO_ESP32" = 1 ]; then
     check "esp32: all fragments + sdkconfig baseline" esp32_all_and_baseline
 else
-    skip "esp32: all fragments + sdkconfig baseline" "needs --esp32/--targets (builds 10 fragments)"
+    skip "esp32: all fragments + sdkconfig baseline" "needs --esp32/--targets (builds every board fragment)"
 fi
 
 # ====================================================================================== nordic ==
@@ -1471,6 +1701,19 @@ if [ "$DO_SILABS" = 1 ]; then
     check "silabs: BG22 headless build" silabs_bg22
 else
     skip "silabs: BG22 headless build" "needs --silabs/--targets (Simplicity SDK 2025.12.2)"
+fi
+
+# ===================================================================================== telink ==
+# Provisional target. The image check and the RAM-resident install check run inside its build.
+telink_tlsr() {
+    BUILD_DIR="$BUILD_ROOT/telink" targets/telink-tlsr/build.sh
+}
+if [ "$DO_TELINK" = 1 ] && [ -n "${TC32_DIR:-}" ] && [ -n "${TELINK_SDK_DIR:-}" ]; then
+    check "telink: TLSR825x build" telink_tlsr
+elif [ "$DO_TELINK" = 1 ]; then
+    skip "telink: TLSR825x build" "TC32_DIR and TELINK_SDK_DIR not set (targets/telink-tlsr/README.md)"
+else
+    skip "telink: TLSR825x build" "needs --telink/--targets"
 fi
 
 # ===================================================================================== summary ==

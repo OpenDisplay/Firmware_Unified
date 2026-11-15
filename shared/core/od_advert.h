@@ -49,6 +49,16 @@ extern "C" {
  * choose. This module copies it verbatim and never interprets it. */
 #define OD_ADVERT_DYNAMIC_LEN 11u
 
+/* The legacy advertising PDU every target sends (SECURITY_V2 5.3.3): flags + the local name
+ * "OD" + 6 hex + this MSD, in 31 bytes exactly. An AD structure is 1 length + 1 type + payload. */
+#define OD_ADVERT_NAME_LEN        8u    /* "OD1A2B3C" */
+#define OD_ADVERT_AD_FLAGS_LEN    3u
+#define OD_ADVERT_AD_NAME_LEN     (2u + OD_ADVERT_NAME_LEN)
+#define OD_ADVERT_AD_MSD_LEN      (2u + OD_ADVERT_MSD_LEN)
+#define OD_ADVERT_LEGACY_PDU_MAX  31u
+#define OD_ADVERT_ADV_PDU_LEN     (OD_ADVERT_AD_FLAGS_LEN + OD_ADVERT_AD_NAME_LEN + \
+                                   OD_ADVERT_AD_MSD_LEN)
+
 /* THE COMPANY ID BELONGS IN THE PROTOCOL HEADER, and is here only because that header is
  * frozen. Today the value is written in four places -- two per-target #defines, one bare
  * literal in the ESP32 builder, and a same-numbered service UUID that is a DIFFERENT constant
@@ -83,6 +93,8 @@ struct od_advert_inputs {
 
     bool reboot_flag;            /* rebooted since the host last read */
     bool connection_requested;   /* device wants the host to connect */
+    /* App-layer encryption active: encryption_enabled with a non-zero master key. */
+    bool encryption_enabled;
 
     /* Free-running liveness nibble; only the low 4 bits reach the wire. The caller owns the
      * counter because it is per-device state with a target-specific update cadence -- see
@@ -104,6 +116,34 @@ uint16_t od_advert_battery_10mv_from_mv(uint16_t battery_mv);
 
 /* counter + 1, wrapped to the nibble the status byte carries. */
 uint8_t od_advert_advance_counter(uint8_t counter);
+
+/* THE DEVICE-STATE HALF OF THE STATUS BYTE AND THE UNCONFIGURED RULE (SECURITY_V2 5.3), one
+ * function for every target so no target computes them itself:
+ *   status bit 2 CLAIM_MODE        = claim_mode, OR'd onto the caller's connection_requested;
+ *   status bit 3 SESSION_REQUIRED  = session_required (CLAIMED or LOCKED), replacing whatever the
+ *                                    caller put in encryption_enabled;
+ *   dynamic[11] = 0xFF x 11        when !display_drivable (protocol 2.2 "no display configured";
+ *                                    its 3.0 meaning is SECURITY_V2 5.3.2).
+ * The state is a plain struct so this stays in the PURE tier; od_advert_device_state_now()
+ * (od_advert_state.c, APP_IDENT tier) fills it from the live security state and config. */
+struct od_advert_device_state {
+    bool claim_mode;         /* od_claim_mode_active() */
+    bool session_required;   /* od_sec2_needs_session() */
+    bool display_drivable;   /* od_ident_display_drivable() */
+};
+
+void od_advert_apply_device_state(struct od_advert_inputs *in,
+                                  const struct od_advert_device_state *st);
+
+/* The live state (od_advert_state.c). */
+void od_advert_device_state_now(struct od_advert_device_state *out);
+
+/* SECURITY_V2 5.3.2 (od_advert_state.c): at least one display of `cfg` can be driven -- it has
+ * drive data (0xB1 + mode-0 0xAE, od_cfg_has_drive_data) or a built-in controller driver (0xB3,
+ * OD_IDENT_NATIVE_PANELS). false for NULL, a config that is not loaded, or no display packet.
+ * The one predicate behind the MSD FF x 11, dflags HAS_PANEL and READ_IDENT's display state. */
+struct od_config;
+bool od_ident_display_drivable(const struct od_config *cfg);
 
 /* Encode into out[OD_ADVERT_MSD_LEN]. Writes exactly 16 bytes and touches nothing else.
  *

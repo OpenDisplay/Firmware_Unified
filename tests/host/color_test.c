@@ -81,6 +81,11 @@ static void classification_matrix(void)
                      2u, OD_COLOR_PLANE_0, false, w, w);
       check_geometry(OD_COLOR_SCHEME_BWRY, w, h, OD_COLOR_LAYOUT_PACKED_ROWS, 2u, 1u,
                      OD_COLOR_PLANE_1, false, w, 0u);
+      /* BWRY16 is ONE pass of BWRY packing. The pass count lives on the display_mode, so the
+       * geometry of the two schemes must be identical -- asserted field-by-field below as well,
+       * because a host dithering for 10 and a device packing for 3 have to agree byte for byte. */
+      check_geometry(OD_COLOR_SCHEME_BWRY16, w, h, OD_COLOR_LAYOUT_PACKED_ROWS, 2u, 1u,
+                     OD_COLOR_PLANE_1, false, w, 0u);
       check_geometry(OD_COLOR_SCHEME_BWGBRY, w, h, OD_COLOR_LAYOUT_PACKED_ROWS, 4u, 1u,
                      OD_COLOR_PLANE_1, false, w, 0u);
       check_geometry(OD_COLOR_SCHEME_GRAY16, w, h, OD_COLOR_LAYOUT_PACKED_ROWS, 4u, 1u,
@@ -90,6 +95,14 @@ static void classification_matrix(void)
       check_geometry(OD_COLOR_SCHEME_BWGBRY_SPLIT, w, h, OD_COLOR_LAYOUT_SPLIT_HALVES, 4u,
                      2u, OD_COLOR_PLANE_NONE, false, w / 2u, w - w / 2u);
       check_unsupported(OD_COLOR_SCHEME_GRAY8, w, h);
+      {
+        /* The equality itself, not two copies of the same expectation: this fails if either
+         * arm is ever edited without the other. */
+        od_color_geometry_t bwry, bwry16;
+        CHECK(od_color_direct_geometry(OD_COLOR_SCHEME_BWRY, w, h, &bwry) == OD_COLOR_OK);
+        CHECK(od_color_direct_geometry(OD_COLOR_SCHEME_BWRY16, w, h, &bwry16) == OD_COLOR_OK);
+        CHECK(memcmp(&bwry, &bwry16, sizeof bwry) == 0);
+      }
     }
   }
 }
@@ -108,6 +121,10 @@ static void fixed_vectors(void)
   CHECK(g.part_bytes[0] == 4000u && g.part_bytes[1] == 4000u && g.total_bytes == 8000u);
   CHECK(od_color_direct_geometry(OD_COLOR_SCHEME_BWRY, 122u, 250u, &g) == OD_COLOR_OK);
   CHECK(g.part_bytes[0] == 7750u && g.total_bytes == 7750u);
+  /* ONE pass, not three: total_bytes is a single frame and the drive path multiplies by the
+   * mode's pass count. If this ever reports 23250 the multiplication has leaked in here. */
+  CHECK(od_color_direct_geometry(OD_COLOR_SCHEME_BWRY16, 122u, 250u, &g) == OD_COLOR_OK);
+  CHECK(g.part_bytes[0] == 7750u && g.total_bytes == 7750u);
   CHECK(od_color_direct_geometry(OD_COLOR_SCHEME_SEVEN_COLOR, 122u, 250u, &g)
         == OD_COLOR_OK);
   CHECK(g.part_bytes[0] == 15250u && g.total_bytes == 15250u);
@@ -124,7 +141,8 @@ static void rejected_and_invalid(void)
     OD_COLOR_SCHEME_RGB565,
     OD_COLOR_SCHEME_RGB888,
     OD_COLOR_SCHEME_RGB16BPC,
-    10u,
+    /* 10 (BWRY16) used to sit here as "not implemented". It is implemented now and packs as
+     * BWRY, asserted in direct_geometry(); leaving it here would assert the opposite. */
     0xFFu,
   };
   od_color_geometry_t g;

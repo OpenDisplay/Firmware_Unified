@@ -8,6 +8,8 @@
  * ABOUT an opcode before any handler runs, so they stay on od_dispatch.h rather than moving here.
  */
 
+#include "od_claim_mode.h"
+#include "od_reply.h"
 #include "od_cmd_app.h"
 
 #include "buzzer_control.h"
@@ -38,6 +40,7 @@ extern "C" od_cmd_result_t od_cmd_app_reboot(const od_cmd_ctx_t *ctx, od_span_t 
     (void)ctx; (void)body;
     /* Replies by not returning. The delay is the shipped one: it exists so a queued response to an
      * EARLIER command has a chance to leave before the reset. */
+    (void)od_claim_mode_before_reboot();   /* OS2C, or END(CLAIMED); disarms the count */
     od_hal_delay_ms(100);
     reboot();
     return OD_CMD_OK;
@@ -57,8 +60,11 @@ extern "C" od_cmd_result_t od_cmd_app_read_msd(const od_cmd_ctx_t *ctx, od_span_
 
 extern "C" od_cmd_result_t od_cmd_app_enter_dfu(const od_cmd_ctx_t *ctx, od_span_t body)
 {
-    (void)ctx; (void)body;
-    enterDFUMode();                   /* also does not return on success */
+    const uint8_t ok[] = { 0x00u, RESP_ENTER_DFU };
+
+    (void)body;
+    (void)od_reply(ctx->r, &ctx->rp, ok, sizeof(ok));
+    enterDFUMode();
     return OD_CMD_OK;
 }
 
@@ -134,13 +140,3 @@ extern "C" bool od_cmd_mutates_config(uint16_t cmd)
     }
 }
 
-extern "C" bool od_cmd_allow_unauthenticated(uint16_t cmd)
-{
-    /* NOTHING, on this target. Its key-loss recovery is not a gate exemption: configWriteGate()
-     * runs INSIDE handleWriteConfig, so it is reachable only for frames that already passed the
-     * session gate -- which in practice means the TLS-LAN channel, where the transport is the
-     * authentication. Returning true for anything here would open a plaintext-BLE path that
-     * ESP32 has never had. */
-    (void)cmd;
-    return false;
-}

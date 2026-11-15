@@ -55,6 +55,51 @@ elseif(OD_DEBUG_BUILD OR (DEFINED PROFILE AND PROFILE STREQUAL "debug"))
   set(OD_DEBUG_BUILD ON)
 endif()
 
+# ------------------------------------------------------------- TEST-ONLY bench build ---
+# Test-only build options share ONE naming scheme on every target, OD_SEC2_TEST_<what>, and one
+# ratchet (tools/check.sh "release: test-only builds off in every release configuration"). Here
+# they are read from the ENVIRONMENT only (sysbuild does not forward a plain -D to the app image;
+# never a cache variable, never a board file), so a reconfigure without them builds a release
+# image again:
+#   OD_SEC2_TEST_TRACE=I_ACCEPT_CLAIM_CODE_ON_SERIAL   print the SEC2 trace (claim code, screen
+#                                                       kinds, boot-history decisions) on the
+#                                                       USB console (shared/core/od_sec2_trace.h)
+#   OD_SEC2_TEST_REVERT_S=<seconds>                     no-touch way back: an unconfirmed image
+#                                                       resets after <seconds> so MCUboot
+#                                                       reverts it (src/od_test_bench.c)
+# Either one adds src/od_test_bench.c (console commands: od stat|confirm|blind|reboot|por|pin|dfu|
+# panic|hang), prj_test_bench.conf and the derived define OD_SEC2_BENCH_BUILD. Both are refused in
+# a versioned (OD_FW_VERSION) or CI build, like the ESP32 options in
+# targets/esp32-idf/main/CMakeLists.txt.
+set(OD_BENCH_DEFINES "")
+set(od_bench_build OFF)
+if(DEFINED ENV{OD_SEC2_TEST_TRACE} AND NOT "$ENV{OD_SEC2_TEST_TRACE}" MATCHES "^(|0|OFF|[Nn][Oo])$")
+  if(NOT "$ENV{OD_SEC2_TEST_TRACE}" STREQUAL "I_ACCEPT_CLAIM_CODE_ON_SERIAL")
+    message(FATAL_ERROR "od: OD_SEC2_TEST_TRACE must be I_ACCEPT_CLAIM_CODE_ON_SERIAL "
+                        "(a test-only build that prints the claim code)")
+  endif()
+  list(APPEND OD_BENCH_DEFINES OD_SEC2_TEST_TRACE=1)
+  set(od_bench_build ON)
+  message(WARNING "od: SEC2 TEST-TRACE BUILD -- prints the claim code on the console. NOT FOR RELEASE.")
+endif()
+if(DEFINED ENV{OD_SEC2_TEST_REVERT_S} AND NOT "$ENV{OD_SEC2_TEST_REVERT_S}" STREQUAL "")
+  if(NOT "$ENV{OD_SEC2_TEST_REVERT_S}" MATCHES "^[1-9][0-9]*$")
+    message(FATAL_ERROR "od: OD_SEC2_TEST_REVERT_S must be a positive number of seconds")
+  endif()
+  list(APPEND OD_BENCH_DEFINES OD_SEC2_TEST_REVERT_S=$ENV{OD_SEC2_TEST_REVERT_S}u)
+  set(od_bench_build ON)
+  message(WARNING "od: TEST IMAGE -- does not confirm itself; resets for an MCUboot revert after "
+                  "$ENV{OD_SEC2_TEST_REVERT_S} s unless confirmed. NOT FOR RELEASE.")
+endif()
+if(od_bench_build)
+  if(DEFINED ENV{OD_FW_VERSION} OR DEFINED ENV{CI})
+    message(FATAL_ERROR "od: bench build (OD_SEC2_TEST_TRACE / OD_SEC2_TEST_REVERT_S) refused in a "
+                        "release/CI build")
+  endif()
+  list(APPEND OD_BENCH_DEFINES OD_SEC2_BENCH_BUILD=1)
+  list(APPEND EXTRA_CONF_FILE ${CMAKE_CURRENT_LIST_DIR}/prj_test_bench.conf)
+endif()
+
 list(APPEND BOARD_ROOT ${CMAKE_CURRENT_LIST_DIR}/..)
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
@@ -104,14 +149,21 @@ target_include_directories(app PRIVATE
   ${OD_SHARED_INCLUDE_DIRS}
   ${SRC_DIR}
   ${THIRD_PARTY_DIR}
-  ${THIRD_PARTY_DIR}/bb_epaper/src
   ${PANEL_DIR}
   ${THIRD_PARTY_DIR}/uzlib/src
   ${GEN_DIR}
 )
 
 target_compile_definitions(app PRIVATE
-  OD_APP_VERSION=0x0100
+  OD_APP_VERSION=0x0300
+  # Every display path runs on od_epd from the drive packets (shared/core/od_display.h); there
+  # is no panel library and no panel-id table on this target.
+  OD_CAP_DRIVE_WRITE=1
+  OD_CAP_SPI_RAW=1
+  OD_CAP_READ_IDENT=1
+  # The boot render runs on a work queue beside config writes on main: the config-write hold
+  # and a save's check-then-write share a k_mutex (opendisplay_config_storage.c).
+  OD_CONFIG_STORE_LOCKING=1
 )
 
 if(OD_EPD_SPI_REQUIRE_SPIM)
@@ -131,13 +183,19 @@ if(CONFIG_OD_PLATFORM_NRF52840)
   target_compile_definitions(app PRIVATE
     OD_PLATFORM_NRF52840
     OD_BOARD_XIAO_NRF52840
+    # The module's QSPI flash. The nRF54 boards have no flash wired to this path.
+    OD_CAP_IMGSTORE=1
+    OD_IMGSTORE_WRITE_ONCE_HEADER=1
     OD_PLATFORM_NAME=\"nRF52840\"
-    OPENDISPLAY_BUILD_ID=\"nrf52840\")
+    OPENDISPLAY_BUILD_ID=\"nrf52840\"
+    # READ_IDENT byte 3: one value per MCU family.
+    OD_IDENT_TARGET=OD_IDENT_TARGET_NRF52840)
 elseif(CONFIG_OD_PLATFORM_NRF54)
   target_compile_definitions(app PRIVATE
     OD_PLATFORM_NRF54
     OD_PLATFORM_NAME=\"nRF54\"
-    OPENDISPLAY_BUILD_ID=\"nrf54\")
+    OPENDISPLAY_BUILD_ID=\"nrf54\"
+    OD_IDENT_TARGET=OD_IDENT_TARGET_NRF54)
   if(CONFIG_SOC_NRF54LM20A)
     target_compile_definitions(app PRIVATE OD_BOARD_NRF54LM20A)
   elseif(CONFIG_SOC_NRF54L15)
@@ -157,6 +215,10 @@ else()
   target_compile_definitions(app PRIVATE OD_LOG_LEVEL=OD_LOG_INFO)
 endif()
 target_compile_definitions(app PRIVATE OD_LOG_TEXT_MAX=253u OD_LOG_RAW_TEXT_MAX=255u)
+if(od_bench_build)
+  target_compile_definitions(app PRIVATE ${OD_BENCH_DEFINES})
+  target_sources(app PRIVATE ${SRC_DIR}/od_test_bench.c)
+endif()
 
 # Default BLE TX power in dBm, used when the stored config leaves PowerOption.tx_power at 0.
 #
@@ -232,11 +294,10 @@ target_sources(app PRIVATE
   ${SRC_DIR}/opendisplay_button.c
   ${SRC_DIR}/opendisplay_config_parser.c
   ${SRC_DIR}/opendisplay_config_storage.c
-  ${SRC_DIR}/opendisplay_display.cpp
+  ${SRC_DIR}/opendisplay_display.c
   ${SRC_DIR}/od_epd_spi_nrfx.c
+  ${SRC_DIR}/od_epd_nordic.c
   ${SRC_DIR}/od_inflate_app.c
-  ${SRC_DIR}/boot_screen.cpp
-  ${SRC_DIR}/opendisplay_epd_map.c
   ${SRC_DIR}/opendisplay_led.c
   ${SRC_DIR}/od_touch_app.c
   ${SRC_DIR}/opendisplay_buzzer.c
@@ -244,7 +305,10 @@ target_sources(app PRIVATE
   ${SRC_DIR}/od_cmd_device.c
   ${SRC_DIR}/od_cmd_config.c
   ${SRC_DIR}/od_rxq_app.c
-  ${SRC_DIR}/od_session_app.c
+  ${SRC_DIR}/od_sec2_app.c
+  ${SRC_DIR}/od_health_app.c
+  ${SRC_DIR}/od_claim_app_nordic.c
+  ${SRC_DIR}/od_hal_secret.c
   ${SRC_DIR}/od_hal_radio.c
   ${SRC_DIR}/od_cmd_reply.c
   ${SRC_DIR}/opendisplay_cs.c
@@ -252,9 +316,6 @@ target_sources(app PRIVATE
   ${SRC_DIR}/factory_config.c
   ${GEN_DIR}/factory_config_data.c
   ${THIRD_PARTY_DIR}/qrcode/qrcode.c
-  # OUR glue TU, not the vendored bb_epaper.cpp -- see panel/od_bbep_zephyr.cpp for why.
-  ${PANEL_DIR}/od_bbep_zephyr.cpp
-  ${THIRD_PARTY_DIR}/bb_epaper/src/Group5.cpp
 )
 
 if(NOT OD_EPD_SPI_REQUIRE_SPIM)
@@ -274,7 +335,7 @@ endif()
 # APP_RXQ joins at C9: the inbound ring is shared, and this target implements its two seam
 # predicates in src/od_rxq_app.c. It needs no HAL -- the ring logs its own arrivals and drops.
 # C10 adds HAL_RADIO and APP_SESSION: this target now implements od_hal_radio (src/od_hal_radio.c)
-# and the od_session_app seam (src/od_session_app.c), so it takes the shared egress, gate,
+# and the od_sec2_app seam (src/od_sec2_app.c), so it takes the shared egress, gate,
 # dispatcher and config-read producer rather than its own copies.
 target_sources(app PRIVATE ${OD_SHARED_SOURCES_PURE} ${OD_SHARED_SOURCES_HAL_CRYPTO}
                            ${OD_SHARED_SOURCES_HAL_NVS}
@@ -286,6 +347,11 @@ target_sources(app PRIVATE ${OD_SHARED_SOURCES_PURE} ${OD_SHARED_SOURCES_HAL_CRY
                            ${OD_SHARED_SOURCES_APP_BUZZER}
                            ${OD_SHARED_SOURCES_APP_SENSOR}
                            ${OD_SHARED_SOURCES_APP_TOUCH}
+                           ${OD_SHARED_SOURCES_APP_EPD}
+                           ${OD_SHARED_SOURCES_APP_DRIVE}
+                           ${OD_SHARED_SOURCES_APP_DISPLAY}
+                           ${OD_SHARED_SOURCES_APP_IDENT}
+                           ${OD_SHARED_SOURCES_APP_SPI_RAW}
                            ${OD_SHARED_SOURCES_HAL_LOG})
 
 # The per-source INCLUDE_DIRECTORIES property that used to sit here is GONE, and its removal is
@@ -298,7 +364,10 @@ target_sources(app PRIVATE ${OD_SHARED_SOURCES_PURE} ${OD_SHARED_SOURCES_HAL_CRY
 if(CONFIG_OD_PLATFORM_NRF52840)
   target_sources(app PRIVATE
     ${SRC_DIR}/platform/nrf52840/od_board_nrf52840.c
-    ${SRC_DIR}/platform/nrf52840/od_pin_codec_nrf52840.c)
+    ${SRC_DIR}/platform/nrf52840/od_pin_codec_nrf52840.c
+    ${SRC_DIR}/od_hal_spi.c
+    ${SRC_DIR}/od_cmd_flash.c
+    ${OD_SHARED_SOURCES_APP_IMGSTORE})
 elseif(CONFIG_SOC_NRF54LM20A)
   target_sources(app PRIVATE
     ${SRC_DIR}/platform/nrf54/od_board_nrf54lm20a.c

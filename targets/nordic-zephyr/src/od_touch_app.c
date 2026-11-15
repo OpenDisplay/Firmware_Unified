@@ -158,7 +158,7 @@ void opendisplay_touch_resume_after_refresh(void)
 	const uint32_t now = k_uptime_get_32();
 
 	/* REESTABLISH, NOT RESUME. This target's refresh hook is unpaired -- there is one call site
-	 * (opendisplay_display.cpp) and no suspend anywhere -- so the suspend-counted resume() would
+	 * (opendisplay_display.c) and no suspend anywhere -- so the suspend-counted resume() would
 	 * do nothing at all here. The deleted implementation probed the retained PID unconditionally
 	 * and fell back to a full reset, which is what this restores. */
 	s_next_due_ms = now + od_touch_gt911_reestablish(opendisplay_get_global_config(), now);

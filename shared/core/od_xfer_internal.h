@@ -12,6 +12,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* The error od_xfer_app_note_start_error() recorded since the last call; 0 if none. */
+uint8_t od_xfer_take_start_error(void);
+
 typedef enum {
     OD_XFER_IDLE = 0,
     OD_XFER_DIRECT_FULL,
@@ -60,7 +63,19 @@ typedef enum {
     OD_XFER_START_SPLIT_LAYOUT,
     OD_XFER_START_ZERO_SIZE,
     OD_XFER_START_SIZE_MISMATCH,
+    OD_XFER_START_NEEDS_MIGRATION,
 } od_xfer_start_cause_t;
+
+/* Whether a SPLIT_HALVES geometry may start: only where the target said it streams one. */
+static inline bool split_halves_ok(const od_xfer_panel_info_t *panel)
+{
+#if OD_XFER_SPLIT_HALVES
+    return panel->split_halves_ok;
+#else
+    (void)panel;
+    return false;
+#endif
+}
 
 typedef enum {
     OD_XFER_STREAM_OK = 0,
@@ -106,7 +121,6 @@ struct od_xfer_terminal_snapshot {
 
 od_xfer_state_t *od_xfer_state(void);
 bool od_xfer_owner_matches(const od_cmd_ctx_t *ctx);
-void od_xfer_replace_active(void);
 void od_xfer_clear_state(void);
 void od_xfer_abort_active(od_xfer_abort_reason_t reason, bool clear_etag);
 bool od_xfer_peer_warning_allowed(void);

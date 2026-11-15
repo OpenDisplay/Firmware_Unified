@@ -17,7 +17,7 @@
  * WHAT IS COVERED, AND WHAT IS NOT. main() is the only feeder, so what trips the watchdog is
  * main() ceasing to run. A wedge confined to the display work queue does NOT trip it -- main()
  * keeps feeding beside it -- and that is why the reference's feeds immediately before each
- * bb_epaper call are deliberately NOT reproduced here: on this target those calls happen on a
+ * panel library call are deliberately NOT reproduced here: on this target those calls happen on a
  * thread that is not the feeder, so adding feeds there would only widen the blind spot. The
  * breadcrumb phases ARE reproduced, and they are what names the wedge after the fact. Covering
  * the display thread properly needs a second watchdog channel, which the Zephyr API supports

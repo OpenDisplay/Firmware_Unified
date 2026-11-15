@@ -8,8 +8,10 @@ od_target_load() {
       OD_TARGET_NAME=nrf52840
       OD_TARGET_BOARD=xiao_ble/nrf52840
       OD_TARGET_BUILD_DIR=build-nrf52840
-      OD_TARGET_BOOTLOADER=adafruit
-      OD_TARGET_ARTIFACT=uf2
+      # Default: MCUboot chained behind the Adafruit bootloader (OD_NRF52840_MCUBOOT=0 for
+      # the Adafruit-only layout, whose artefact is a UF2).
+      OD_TARGET_BOOTLOADER=adafruit+mcuboot
+      OD_TARGET_ARTIFACT=signed
       ;;
     nrf54l15|l15)
       OD_TARGET_NAME=nrf54l15

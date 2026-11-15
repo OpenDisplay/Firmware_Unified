@@ -5,8 +5,8 @@
 #include "od_config_asm.h"
 #include "od_color.h"
 #include "od_core.h"
-#include "od_session.h"
-#include "od_session_app.h"
+#include "od_sec2.h"
+#include "od_sec2_app.h"
 #include "od_txq.h"
 #include "od_xfer.h"
 #include "od_xfer_app.h"
@@ -48,8 +48,16 @@ static struct od_config_asm s_assembler;
 static uint32_t s_xfer_written;
 static uint8_t s_inflate_scratch[256];
 
+struct od_config fake_silabs_global_config;
+
+const struct GlobalConfig *opendisplay_get_global_config(void)
+{
+    return &fake_silabs_global_config;
+}
+
 void fake_silabs_reset(void)
 {
+    memset(&fake_silabs_global_config, 0, sizeof fake_silabs_global_config);
     fake_silabs_store_ok = true;
     fake_silabs_store_attempts = 0u;
     fake_silabs_store_saves = 0u;
@@ -73,6 +81,7 @@ void fake_silabs_reset(void)
     memset(fake_silabs_nfc_write_data, 0, sizeof fake_silabs_nfc_write_data);
     fake_silabs_store_len = 0u;
     memset(fake_silabs_store_blob, 0, sizeof fake_silabs_store_blob);
+    fake_silabs_reload_hook = NULL;
     od_config_asm_reset(&s_assembler);
 }
 
@@ -114,12 +123,14 @@ uint16_t opendisplay_ble_get_app_version(void) { return 0x0105u; }
 uint8_t opendisplay_ble_get_app_version_patch(void) { return 3u; }
 void opendisplay_ble_schedule_dfu(void) { }
 void opendisplay_ble_schedule_deep_sleep(void) { }
+void (*fake_silabs_reload_hook)(void);
+
 void opendisplay_ble_reload_config_from_nvm(void)
 {
     fake_silabs_reload_saw_queued = od_txq_depth() != 0u;
-    fake_silabs_reload_saw_authenticated =
-        od_session_authenticated(od_session_app_state());
+    fake_silabs_reload_saw_authenticated = od_sec2_session_live(NULL);
     ++fake_silabs_store_reloads;
+    if (fake_silabs_reload_hook != NULL) fake_silabs_reload_hook();
 }
 void opendisplay_ble_copy_msd_bytes(uint8_t out[16]) { memset(out, 0, 16u); }
 
@@ -206,7 +217,7 @@ bool od_xfer_app_refresh(uint8_t mode, bool *completed)
     return true;
 }
 
-uint32_t od_xfer_app_now_ms(void) { return od_session_app_now_ms(); }
+uint32_t od_xfer_app_now_ms(void) { return od_sec2_app_now_ms(); }
 
 void opendisplay_display_abort(void)
 { ++fake_silabs_aborts; fake_silabs_xfer_active = false; }

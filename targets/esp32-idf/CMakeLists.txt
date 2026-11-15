@@ -75,6 +75,9 @@ endif()
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
+if(NOT DEFINED PROJECT_VER)
+    set(PROJECT_VER "3.0.0")
+endif()
 project(opendisplay)
 
 # ---------------------------------------------------------------------------------------
@@ -111,6 +114,27 @@ add_custom_target(od_merged_bin ALL
 # reads a partly-written or absent bootloader.
 add_dependencies(od_merged_bin
     gen_project_binary      # the app .bin (not `app`, which is the phony umbrella)
+    bootloader
+    partition_table_bin
+    blank_ota_data)
+
+# ---------------------------------------------------------------------------------------
+# Per-region parts + esp-web-tools manifest, and the app-only OTA image.
+# ---------------------------------------------------------------------------------------
+# The merged image above is for a bench flash to a blank part: it spans 0x0 to the end of
+# the app, so it also overwrites NVS (0x9000-0xDFFF) with 0xFF and loses the config. The web
+# flasher writes these parts at their own offsets instead and leaves NVS alone. The app part
+# doubles as the BLE (SMP) OTA image. tools/web_flash_parts.py has the details.
+idf_build_get_property(od_python PYTHON)
+add_custom_target(od_web_parts ALL
+    COMMAND ${od_python} ${CMAKE_CURRENT_LIST_DIR}/tools/web_flash_parts.py
+            --build-dir "${CMAKE_BINARY_DIR}" --board "${OD_BOARD}"
+            --chip "${OD_IDF_TARGET}" --version "${PROJECT_VER}"
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    COMMENT "od: web-flasher parts + manifest -> web/opendisplay-${OD_BOARD}-*"
+    VERBATIM)
+add_dependencies(od_web_parts
+    gen_project_binary
     bootloader
     partition_table_bin
     blank_ota_data)

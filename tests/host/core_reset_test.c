@@ -21,12 +21,13 @@
 #include "od_reply.h"
 #include "od_rxq.h"
 #include "od_rxq_app.h"
-#include "od_session.h"
-#include "od_session_app.h"
+#include "od_sec2.h"
+#include "od_sec2_app.h"
 #include "od_txq.h"
 #include "od_xfer.h"
 #include "od_xfer_app_test_stub.h"
 #include "od_xfer_internal.h"
+#include "sec2_client.h"
 #include "session_fake.h"
 
 #include <stdio.h>
@@ -56,6 +57,13 @@ static bool     g_radio_accepts = true;
 static uint8_t  g_last[8];
 static uint16_t g_last_len;
 
+/* Every accepted frame, for the SEC2 client's handshake replies. */
+#define CAP_MAX 8u
+static uint8_t  g_cap[CAP_MAX][OD_TX_FRAME_MAX];
+static uint16_t g_cap_len[CAP_MAX];
+static unsigned g_cap_n;
+static unsigned g_cap_pop;
+
 od_radio_result_t od_hal_radio_send(od_origin_t origin, uint32_t tag,
                                     const uint8_t *frame, uint16_t len)
 {
@@ -67,6 +75,11 @@ od_radio_result_t od_hal_radio_send(od_origin_t origin, uint32_t tag,
      * acceptance whose reply merely failed to queue -- both are OD_CMD_NACK. */
     g_last_len = len > sizeof g_last ? (uint16_t)sizeof g_last : len;
     memcpy(g_last, frame, g_last_len);
+    if (g_cap_n < CAP_MAX) {
+        memcpy(g_cap[g_cap_n], frame, len);
+        g_cap_len[g_cap_n] = len;
+        ++g_cap_n;
+    }
     ++g_sent_n;
     return OD_RADIO_SENT;
 }
@@ -74,6 +87,17 @@ od_radio_result_t od_hal_radio_send(od_origin_t origin, uint32_t tag,
 bool od_hal_radio_tag_is_live(od_origin_t origin, uint32_t tag)
 {
     (void)origin; (void)tag;
+    return true;
+}
+
+bool sec2c_radio_pop(uint8_t *buf, uint16_t *len)
+{
+    if (g_cap_pop >= g_cap_n) {
+        return false;
+    }
+    memcpy(buf, g_cap[g_cap_pop], g_cap_len[g_cap_pop]);
+    *len = g_cap_len[g_cap_pop];
+    ++g_cap_pop;
     return true;
 }
 
@@ -88,41 +112,35 @@ void od_txq_app_dropped(const od_reply_t *rp, uint16_t len, od_radio_result_t wh
 bool od_rxq_app_encryption_enabled(void) { return false; }
 bool od_rxq_app_quiet(uint16_t cmd) { (void)cmd; return false; }
 
-/* ------------------------------------------------------------------------- fake app session --- */
+/* ------------------------------------------------------------------------- od_sec2_app hooks --- */
 
-static struct od_session g_app_session;
-static bool     g_security_on = true;
-static uint32_t g_now_ms = 1000u;
-
-struct od_session *od_session_app_state(void) { return &g_app_session; }
-const struct SecurityConfig *od_session_app_security(void)
-{
-    return g_security_on ? &g_sec : NULL;
-}
-uint32_t od_session_app_now_ms(void) { return g_now_ms; }
-void od_session_app_device_id(uint8_t out[OD_SESSION_DEVICE_ID_LEN])
-{
-    memcpy(out, DEVICE_ID, OD_SESSION_DEVICE_ID_LEN);
-}
-void od_session_app_report(enum od_session_app_op op, int result, uint16_t cmd,
-                           const struct od_session_report *report)
-{
-    (void)op; (void)result; (void)cmd; (void)report;
-}
+uint32_t od_sec2_app_now_ms(void) { return 1000u; }
+void od_sec2_app_uid(uint8_t uid[8]) { memcpy(uid, UID, 8u); }
+uint8_t od_sec2_app_dflags(void) { return OD_SEC2_DFLAG_HAS_PANEL; }
+const struct SecurityConfig *od_sec2_app_security(void) { return &g_sec; }
 
 /* --------------------------------------------------------------------------------- helpers --- */
 
 static const od_reply_t BLE = { OD_ORIGIN_BLE, 9u };
 static uint8_t g_blob[2048];
+static struct sec2c C;
 
+/* SEC_AUTH HELLO + FINISH on BLE; the handshake frames are then forgotten. */
+static bool authenticate(void)
+{
+    const bool ok = sec2c_auth(&C, &BLE) == 0;
+
+    g_cap_n = 0u;
+    g_cap_pop = 0u;
+    g_sent_n = 0u;
+    return ok && od_sec2_session_live(&BLE);
+}
+
+/* A claimed device (2.x key, row 4) with a live session on BLE. */
 static void setup(void)
 {
-    uint8_t server_nonce[16];
-
     fake_reset();
     sec_init(0);
-    memset(&g_app_session, 0, sizeof g_app_session);
-    od_session_init(&g_app_session, 0);
     od_config_read_cancel();
     od_xfer_reset();
     od_test_xfer_app_reset();
@@ -130,9 +148,11 @@ static void setup(void)
     g_sent_n = 0u;
     g_radio_accepts = true;
     memset(g_blob, 0x5Au, sizeof g_blob);
-
-    CHECK(handshake(&g_app_session, g_now_ms, server_nonce, false)
-          == OD_SESSION_AUTH_ESTABLISHED);
+    (void)od_sec2_boot(&g_sec);
+    sec2c_init(&C, MASTER, UID);
+    g_cap_n = 0u;
+    g_cap_pop = 0u;
+    CHECK(authenticate());
 }
 
 static void start_an_owned_transfer(void)
@@ -214,7 +234,7 @@ static void test_reset_clears_all_five(void)
     start_an_owned_transfer();
     start_a_stuck_read();
     stage_a_partial_nfc_assembly();
-    CHECK(od_session_authenticated(&g_app_session));
+    CHECK(od_sec2_session_live(&BLE));
 
     od_core_reset();
 
@@ -223,7 +243,7 @@ static void test_reset_clears_all_five(void)
     CHECK(od_test_xfer_app_abort_calls() == 1u);
     CHECK(od_txq_depth() == 0u);
     CHECK(od_txq_reserved() == 0u);
-    CHECK(!od_session_authenticated(&g_app_session));
+    CHECK(!od_sec2_session_live(&BLE));
 
     /* LAST, because proving this costs a frame. The assembly is gone in the only way a client can
      * observe it -- the DATA that would have completed it is answered as having no active START --
@@ -234,24 +254,22 @@ static void test_reset_clears_all_five(void)
 
 static void test_reset_releases_the_key_slot(void)
 {
-    CASE("the session goes through od_session_clear(), so its HAL key slot is released");
+    CASE("the reset tears the session down, so both record-key slots are released");
     setup();
-    CHECK(g_key_set_calls == 1u);
+    CHECK(fake_slot_loaded(0u) && fake_slot_loaded(1u));
     {
         const unsigned clears_before = g_key_clear_calls;
         od_core_reset();
-        /* A memset would have left the prepared key in the pool with nothing naming it. This is
-         * the assertion that says the reset is a teardown rather than a zeroing. */
-        CHECK(g_key_clear_calls == clears_before + 1u);
+        /* A zeroed session struct would leave the record keys in the HAL with nothing naming
+         * them. This is the assertion that says the reset is a teardown rather than a zeroing. */
+        CHECK(g_key_clear_calls >= clears_before + 2u);
+        CHECK(!fake_slot_loaded(0u));
+        CHECK(!fake_slot_loaded(1u));
     }
 
-    CASE("and the slot index survives, so the next handshake reuses it");
-    {
-        uint8_t server_nonce[16];
-        CHECK(handshake(&g_app_session, g_now_ms, server_nonce, false)
-              == OD_SESSION_AUTH_ESTABLISHED);
-        CHECK(g_app_session.slot == 0u);
-    }
+    CASE("and the next handshake loads both slots again");
+    CHECK(authenticate());
+    CHECK(fake_slot_loaded(0u) && fake_slot_loaded(1u));
 }
 
 static void test_reset_does_not_touch_rx(void)
@@ -284,7 +302,7 @@ static void test_reset_is_idempotent(void)
     CHECK(od_test_xfer_app_abort_calls() == 0u);
     CHECK(od_txq_depth() == 0u);
     CHECK(od_txq_reserved() == 0u);
-    CHECK(!od_session_authenticated(&g_app_session));
+    CHECK(!od_sec2_session_live(&BLE));
 }
 
 /* A CANCELLED PRODUCER STAYS CANCELLED. Not an ordering check -- see the header comment -- but the

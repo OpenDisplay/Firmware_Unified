@@ -1,0 +1,80 @@
+/*
+ * nRF52840 flash map for DUAL-SLOT MCUboot chained behind the Adafruit bootloader, with the
+ * SoftDevice erased. Applied to the application and the mcuboot image, for the default
+ * nRF52840 build (OD_NRF52840_MCUBOOT unset or 1).
+ *
+ * Needed alongside pm_static_nrf52840_mcuboot.yml because MCUboot's own CMakeLists requires
+ * the slot0_partition NODELABEL during its configure -- it fails with "required nodelabel not
+ * found: slot0_partition" before Partition Manager has placed anything, and the upstream
+ * xiao_ble board pulls in nrf52840_partition_uf2_sdv7.dtsi, which describes the Adafruit/UF2
+ * layout and has no MCUboot slots. The two descriptions MUST agree: Partition Manager wins at
+ * runtime, and a DT map that disagreed would point MCUboot at a slot the image is not in.
+ *
+ * Addresses: see the header of the pm_static file. The short version is that the Adafruit
+ * bootloader starts the application at 0x1000 once the SoftDevice magic at 0x3004 is gone,
+ * which is hardware-verified, and that frees the 152 kB this layout spends on slot size.
+ */
+
+/delete-node/ &reserved_partition_0;
+/delete-node/ &code_partition;
+/delete-node/ &storage_partition;
+/delete-node/ &boot_partition;
+
+&flash0 {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		/* Nordic MBR. Still required: it owns the reset vector and forwards interrupts to
+		 * whatever the bootloader nominates, which after the SoftDevice erase is 0x1000.
+		 */
+		mbr_partition: partition@0 {
+			label = "mbr";
+			read-only;
+			reg = <0x00000000 0x00001000>;
+		};
+
+		/* MCUboot, where the Adafruit bootloader now jumps. */
+		boot_partition: partition@1000 {
+			label = "mcuboot";
+			reg = <0x00001000 0x0000C000>;
+		};
+
+		slot0_partition: partition@d000 {
+			label = "image-0";
+			reg = <0x0000D000 0x0006E000>;
+		};
+
+		slot1_partition: partition@7b000 {
+			label = "image-1";
+			reg = <0x0007B000 0x0006E000>;
+		};
+
+		/* 44 kB, ending exactly at the bootloader so it stays inside the 40 kB
+		 * DFU_APP_DATA_RESERVED span the bootloader preserves across a serial-DFU update.
+		 */
+		storage_partition: partition@e9000 {
+			label = "storage";
+			reg = <0x000E9000 0x0000B000>;
+		};
+
+		/* Described so nothing is ever placed over it. Erasing this is the one change this
+		 * board cannot recover from over USB: serial DFU only, no mass-storage fallback.
+		 */
+		adafruit_partition: partition@f4000 {
+			label = "adafruit-bootloader";
+			read-only;
+			reg = <0x000F4000 0x0000C000>;
+		};
+	};
+};
+
+/ {
+	chosen {
+		/* The deleted code_partition was the chosen one; without this the build resolves
+		 * zephyr,code-partition to a node that no longer exists.
+		 */
+		zephyr,code-partition = &slot0_partition;
+	};
+};

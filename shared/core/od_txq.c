@@ -145,7 +145,7 @@ od_txq_status_t od_txq_commit(od_tx_reservation_t *r, const od_reply_t *rp,
  * entries discarded while a link is up, which means a reply's tag stopped matching the live owner
  * and points at an identity bug rather than a departed peer.
  *
- * Deliberately not throttled: unlike the nonce lines in od_session.c a peer cannot drive this at
+ * Deliberately not throttled: unlike the record lines in od_sec2.c a peer cannot drive this at
  * will, and losing one of these hides the cause of a client-side timeout. */
 static void log_dropped(const od_reply_t *rp, uint16_t len, od_radio_result_t why)
 {
@@ -231,7 +231,7 @@ od_txq_status_t od_txq_flush(uint32_t now_ms, uint32_t deadline_ms)
     }
     /* Wrap-safe "has now reached the deadline": the difference is taken in the unsigned domain and
      * read as signed, which stays correct across the 49.7-day uint32_t rollover provided both
-     * stamps come from one clock -- the same rule od_session's timeout follows. */
+     * stamps come from one clock -- the same rule the od_sec2 session timeout follows. */
     if ((int32_t)(now_ms - deadline_ms) >= 0) {
         return OD_TXQ_TIMEOUT;        /* entries stay queued: late beats dropped */
     }

@@ -39,7 +39,13 @@
 // <i> Specifically, if the component "bluetooth_feature_periodic_advertiser" is used, its configuration SL_BT_CONFIG_MAX_PERIODIC_ADVERTISERS specifies how many of the SL_BT_CONFIG_USER_ADVERTISERS advertising sets are capable of periodic advertising. Similarly, if the component bluetooth_feature_pawr_advertiser is used, its configuration SL_BT_CONFIG_MAX_PAWR_ADVERTISERS specifies how many of the periodic advertising sets are capable of Periodic Advertising with Responses.
 // <i>
 // <i> The configuration values must satisfy the condition SL_BT_CONFIG_USER_ADVERTISERS >= SL_BT_CONFIG_MAX_PERIODIC_ADVERTISERS >= SL_BT_CONFIG_MAX_PAWR_ADVERTISERS.
-#define SL_BT_CONFIG_USER_ADVERTISERS     (1)
+// THREE SETS: the OpenDisplay advertiser, network A and network G (od_hal_adv2.c), as in
+// Firmware_Silabs 2.3.0. One short and the last sl_bt_advertiser_create_set() returns
+// NO_MORE_RESOURCE, and that network retries forever -- the device runs normally and is
+// simply never
+// findable. No build, host test or device log shows that; it presents only as an absent
+// advertisement on a scanner.
+#define SL_BT_CONFIG_USER_ADVERTISERS     (3)
 // <<< end of configuration section >>>
 
 #endif

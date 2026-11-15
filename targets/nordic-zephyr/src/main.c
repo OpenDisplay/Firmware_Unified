@@ -1,3 +1,4 @@
+#include "od_claim_mode.h"
 #include "od_board.h"
 #include "od_hal_log.h"
 #include "od_log.h"
@@ -7,6 +8,10 @@
 #include "opendisplay_idle_wake.h"
 #include "od_runtime_types.h"
 #include "od_watchdog_app.h"
+#include "od_test_bench.h"
+#include "od_epd_nordic.h"
+#include "od_health_app.h"
+#include "od_sec2_trace.h"
 
 #include <stdio.h>
 #include <zephyr/kernel.h>
@@ -22,6 +27,7 @@ enum idle_wait_result {
 static enum idle_wait_result idle_wait_until(int64_t deadline_ms)
 {
 	const uint32_t chunk_ms = 1000u;
+	const uint32_t settle_step_ms = 5u;
 
 	for (;;) {
 		int64_t now_ms;
@@ -46,6 +52,11 @@ static enum idle_wait_result idle_wait_until(int64_t deadline_ms)
 		}
 		remaining_ms = deadline_ms - now_ms;
 		step_ms = (remaining_ms > (int64_t)chunk_ms) ? chunk_ms : (uint32_t)remaining_ms;
+		/* An MSD refresh is stop -> program -> start, one step per pass. Sleeping a full
+		 * chunk between steps leaves the advertiser off for the whole refresh interval. */
+		if (opendisplay_ble_advertising_settling() && step_ms > settle_step_ms) {
+			step_ms = settle_step_ms;
+		}
 		if (opendisplay_idle_wait(step_ms)) {
 			return IDLE_WAIT_INTERRUPTED;
 		}
@@ -66,6 +77,8 @@ int main(void)
 
 	od_hal_log_open();
 	od_log_init();
+	/* A test-trace image says so first, on every boot (tools/check.sh requires this line). */
+	OD_SEC2_TRACE_BANNER();
 #if defined(OD_DEBUG_BUILD)
 	od_log_info("OpenDisplay %s DEBUG starting", od_board_name());
 #else
@@ -78,10 +91,19 @@ int main(void)
 	od_watchdog_app_arm();
 
 	od_board_early_init();
+	/* MCUboot image confirmation is EVIDENCE-BASED (shared/core/od_health.h): a swapped-in
+	 * image confirms on the first GATT write it serves (or after 24 h with no dead link), and
+	 * one whose links carry no ATT resets so MCUboot reverts it. Confirming here, before any
+	 * link had carried GATT, let an image with a dead GATT server confirm itself and become
+	 * unrecoverable over the air -- the BG22 stranding. Without the image manager (one slot,
+	 * nothing to revert to) this is a no-op. */
+	od_health_app_boot();   /* before the radio: no link can predate its callbacks */
+	/* A setup screen drawn on this thread must keep the power-cycle count on time. */
+	od_epd_nordic_bind_loop_thread();
 	opendisplay_ble_init();
-#if defined(CONFIG_BOOTLOADER_MCUBOOT)
-	/* Confirm running image so MCUboot will not revert after OTA. */
-	(void)boot_write_img_confirmed();
+#if defined(OD_SEC2_BENCH_BUILD) && OD_SEC2_BENCH_BUILD
+	/* Bench image: the no-touch revert timer on top (src/od_test_bench.c). */
+	od_test_bench_image_boot();
 #endif
 
 	while (1) {
@@ -89,6 +111,8 @@ int main(void)
 		int64_t now_ms;
 
 		od_watchdog_app_service();
+		od_test_bench_tick();
+		opendisplay_ble_security_tick();
 		cfg = opendisplay_get_global_config();
 		configured_msd_interval_ms =
 			(cfg != NULL && cfg->loaded) ? cfg->power_option.sleep_timeout_ms : 0u;
@@ -114,7 +138,11 @@ int main(void)
 			msd_deadline_ms = now_ms + (int64_t)msd_interval_ms;
 		}
 
-		if (!opendisplay_ble_advertising_active()) {
+		if (od_claim_mode_active() || now_ms < (int64_t)OD_CM_T_CLEAR_MS + 1000) {
+			/* Claim mode's deadline and screens, and the boot-history writes at T_ARM and
+			 * T_CLEAR, are driven from this loop: keep the pass rate up while they are due. */
+			(void)idle_wait_ms(100u);
+		} else if (!opendisplay_ble_advertising_active()) {
 			/* Advertising not yet confirmed running -- e.g. a RETRY right after a
 			 * disconnect (shared/core/od_adv_control.c). Poll promptly instead of the
 			 * full idle chunk below, so a delayed restart attempt doesn't stall

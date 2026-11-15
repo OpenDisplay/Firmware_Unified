@@ -16,8 +16,7 @@
 #include "od_log.h"
 #include "od_cmd_test_ctx.h"
 #include "od_reply.h"
-#include "od_session.h"
-#include "od_session_app.h"
+#include "od_sec2_app.h"
 #include "od_txq.h"
 #include "session_fake.h"
 
@@ -78,15 +77,11 @@ bool od_nfc_app_write(uint8_t type, const uint8_t *data, uint16_t len)
     return false;
 }
 
-static struct od_session g_session;
-struct od_session *od_session_app_state(void) { return &g_session; }
-const struct SecurityConfig *od_session_app_security(void) { return NULL; }
-uint32_t od_session_app_now_ms(void) { return 1000u; }
-void od_session_app_device_id(uint8_t out[OD_SESSION_DEVICE_ID_LEN])
-{ memcpy(out, DEVICE_ID, OD_SESSION_DEVICE_ID_LEN); }
-void od_session_app_report(enum od_session_app_op op, int result, uint16_t cmd,
-                           const struct od_session_report *report)
-{ (void)op; (void)result; (void)cmd; (void)report; }
+/* The od_sec2_app target hooks: an unclaimed device, so od_reply never seals. */
+uint32_t od_sec2_app_now_ms(void) { return 1000u; }
+void od_sec2_app_uid(uint8_t uid[8]) { memcpy(uid, UID, 8u); }
+uint8_t od_sec2_app_dflags(void) { return 0u; }
+const struct SecurityConfig *od_sec2_app_security(void) { return NULL; }
 
 int main(void)
 {

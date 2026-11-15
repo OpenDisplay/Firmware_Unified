@@ -160,6 +160,9 @@ const char *od_board_name(void)
 
 void od_board_early_init(void)
 {
+	/* The XIAO's QSPI flash is on the always-on 3V3 and nothing here uses it. The driver only
+	 * enters deep power-down under CONFIG_PM_DEVICE, so standby would otherwise be permanent. */
+	od_board_flash_powerdown(0x14u, 0x15u, 0x19u, 0x18u, 0x16u, 0x17u); /* P0.20/21/25/24/22/23 */
 	/* The donor Bluefruit firmware's xiaoinit() drives this line low before
 	 * any display work. It selects the EPD boost path on deployed hardware. */
 	od_gpio_configure_output(NRF52840_EPD_BS_PIN, false);

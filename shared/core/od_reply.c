@@ -3,8 +3,7 @@
 #include "od_reply.h"
 
 #include "od_log.h"
-#include "od_session.h"
-#include "od_session_app.h"
+#include "od_sec2.h"
 
 #include <string.h>
 
@@ -38,6 +37,8 @@ static void log_nack_queue_result(od_txq_status_t rc, uint8_t cmd_low)
     ((void)(rc_), (void)(frame_), (void)(len_))
 #define log_nack_queue_result(rc_, cmd_) ((void)(rc_), (void)(cmd_))
 #endif
+
+static bool s_plain_scope;
 
 static od_txq_status_t queue_response(od_tx_reservation_t *r, const od_reply_t *rp,
                                       const uint8_t *frame, uint16_t len)
@@ -75,14 +76,17 @@ od_txq_status_t od_reply_plain(od_tx_reservation_t *r, const od_reply_t *rp,
     return queue_response(r, rp, frame, len);
 }
 
+void od_reply_plain_scope(bool on)
+{
+    s_plain_scope = on;
+}
+
 od_txq_status_t od_reply(od_tx_reservation_t *r, const od_reply_t *rp,
                          const uint8_t *frame, uint16_t len)
 {
-    uint8_t sealed[OD_SESSION_SEALED_MAX];
+    uint8_t sealed[OD_SEC2_SEALED_MAX];
     uint16_t sealed_len = 0u;
-    struct od_session_report report;
-    struct od_session *s;
-    enum od_session_seal rc;
+    enum od_sec2_seal rc;
 
     if (r == NULL || rp == NULL || frame == NULL || len == 0u) {
         od_log_error("Application response arguments are invalid "
@@ -91,57 +95,32 @@ od_txq_status_t od_reply(od_tx_reservation_t *r, const od_reply_t *rp,
                      frame != NULL ? 1u : 0u, (unsigned)len);
         return OD_TXQ_INVARIANT;
     }
-    /* TLS already protects this frame; a second envelope would leave the host unable to decode
-     * either layer. SECTION 9 rule 4. */
-    if (rp->origin == OD_ORIGIN_LAN_TLS) {
+    /* Sealing applies to BLE on a claimed (or LOCKED) device, outside the plaintext set. TLS
+     * already protects LAN-TLS, and a claimed device answers LAN-plain only with plaintext-set
+     * frames and FE. */
+    if (rp->origin != OD_ORIGIN_BLE || s_plain_scope || od_sec2_state() == OD_SEC2_UNCLAIMED) {
         return queue_response(r, rp, frame, len);
     }
-    /* No security configured is ordinary unencrypted operation, not a failure to protect. */
-    if (!od_session_security_enabled(od_session_app_security())) {
-        return queue_response(r, rp, frame, len);
+    if (len < 2u) {
+        return OD_TXQ_INVARIANT;          /* no opcode to echo in a NACK */
+    }
+    if (!od_sec2_session_live(rp)) {
+        /* Meant to be protected and there is no session: never in the clear. */
+        return queue_hard_nack(r, rp, frame[1], OD_TXQ_SEAL_FAILED);
     }
 
-    s = od_session_app_state();
-    rc = od_session_seal(s, od_span_make(frame, len), sealed, sizeof sealed, &sealed_len,
-                         od_session_app_now_ms(), &report);
-    od_session_app_report(OD_SESSION_APP_SEAL, (int)rc, (uint16_t)(((uint16_t)frame[0] << 8) |
-                          (len > 1u ? frame[1] : 0u)), &report);
-
+    rc = od_sec2_seal(od_span_make(frame, len), sealed, sizeof sealed, &sealed_len);
     switch (rc) {
-    case OD_SESSION_SEAL_OK:
+    case OD_SEC2_SEAL_OK:
         return queue_response(r, rp, sealed, sealed_len);
-
-    case OD_SESSION_SEAL_TOO_SHORT:
-        /* Under two bytes there is no opcode to echo, so no honest NACK can be built. Emit
-         * nothing and leave the unit for the caller's mandatory release. */
-        return OD_TXQ_INVARIANT;
-
-    case OD_SESSION_SEAL_TOO_LONG:
-    case OD_SESSION_SEAL_NO_ROOM:
-        /* A producer built something no frame can carry. Detected before a nonce was drawn, so
-         * nothing was spent but the reply itself. */
+    case OD_SEC2_SEAL_TOO_LONG:
+    case OD_SEC2_SEAL_NO_ROOM:
         return queue_hard_nack(r, rp, frame[1], OD_TXQ_TOO_LARGE);
-
-    case OD_SESSION_SEAL_NO_SESSION:
-        /* Security is on and this response was meant to be protected, so it must NOT go out in
-         * the clear -- that would leak to an unauthenticated peer exactly the payload the session
-         * exists to hide. */
-        return queue_hard_nack(r, rp, frame[1], OD_TXQ_SEAL_FAILED);
-
-    case OD_SESSION_SEAL_CRYPTO_ERROR:
-        /* May have spent one counter value. Never resealed and never retried: a second attempt
-         * would spend another, and the counter is what makes the nonce unique. */
-        return queue_hard_nack(r, rp, frame[1], OD_TXQ_SEAL_FAILED);
-
-    case OD_SESSION_SEAL_COUNTER_EXHAUSTED:
-        /* The next nonce would wrap to zero and repeat one already used under this key, which is
-         * total CCM failure. Force re-authentication rather than emit it. */
-        od_session_clear(s);
+    case OD_SEC2_SEAL_NO_SESSION:
+    case OD_SEC2_SEAL_CRYPTO_ERROR:   /* the counter value is spent; never resealed */
+    case OD_SEC2_SEAL_EXHAUSTED:      /* the session is gone; the client re-runs HELLO */
         return queue_hard_nack(r, rp, frame[1], OD_TXQ_SEAL_FAILED);
     }
-    /* NO DEFAULT LABEL, deliberately -- the same -Wswitch ratchet od_gate.c relies on. A default
-     * here would let a new od_session_seal result compile straight into "hard NACK" whatever its
-     * required disposition is, which is how a new failure mode silently inherits another's wire
-     * behaviour. Unreachable. */
+    /* No default above: -Wswitch fails the build on a new od_sec2_seal result. Unreachable. */
     return queue_hard_nack(r, rp, frame[1], OD_TXQ_SEAL_FAILED);
 }

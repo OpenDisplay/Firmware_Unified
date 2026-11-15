@@ -9,8 +9,9 @@
 #include "od_reply.h"
 
 #include "od_log.h"
-#include "od_session.h"
-#include "od_session_app.h"
+#include "od_sec2.h"
+#include "od_sec2_app.h"
+#include "sec2_client.h"
 #include "session_fake.h"
 
 #include <stdarg.h>
@@ -78,6 +79,7 @@ static unsigned log_count_exact(int level, const char *text)
 
 static struct { uint16_t len; uint8_t data[OD_TX_FRAME_MAX]; } g_sent[SENT_MAX];
 static unsigned g_sent_n;
+static unsigned g_pop;
 static bool     g_tag_live;
 
 od_radio_result_t od_hal_radio_send(od_origin_t origin, uint32_t tag,
@@ -98,35 +100,24 @@ bool od_hal_radio_tag_is_live(od_origin_t origin, uint32_t tag)
     return g_tag_live;
 }
 
-/* ------------------------------------------------------------------- fake od_session_app seam --- */
-
-static struct od_session g_app_session;
-static bool     g_security_on;
-static uint32_t g_now_ms;
-static unsigned g_reports;
-static int      g_last_seal_result;
-
-struct od_session *od_session_app_state(void) { return &g_app_session; }
-
-const struct SecurityConfig *od_session_app_security(void)
+/* The SEC2 client reads the handshake replies from here. */
+bool sec2c_radio_pop(uint8_t *buf, uint16_t *len)
 {
-    return g_security_on ? &g_sec : NULL;
+    if (g_pop >= g_sent_n) {
+        return false;
+    }
+    memcpy(buf, g_sent[g_pop].data, g_sent[g_pop].len);
+    *len = g_sent[g_pop].len;
+    ++g_pop;
+    return true;
 }
 
-uint32_t od_session_app_now_ms(void) { return g_now_ms; }
+/* ------------------------------------------------------------------------- od_sec2_app hooks --- */
 
-void od_session_app_device_id(uint8_t out[OD_SESSION_DEVICE_ID_LEN])
-{
-    memcpy(out, DEVICE_ID, OD_SESSION_DEVICE_ID_LEN);
-}
-
-void od_session_app_report(enum od_session_app_op op, int result, uint16_t cmd,
-                           const struct od_session_report *report)
-{
-    (void)cmd; (void)report;
-    ++g_reports;
-    if (op == OD_SESSION_APP_SEAL) { g_last_seal_result = result; }
-}
+uint32_t od_sec2_app_now_ms(void) { return 1000u; }
+void od_sec2_app_uid(uint8_t uid[8]) { memcpy(uid, UID, 8u); }
+uint8_t od_sec2_app_dflags(void) { return OD_SEC2_DFLAG_HAS_PANEL; }
+const struct SecurityConfig *od_sec2_app_security(void) { return &g_sec; }
 
 /* od_txq's drop seam. Counted so a test can assert that a discarded entry was REPORTED, not just
  * that it vanished -- the difference between a diagnosable failure and a silent one. */
@@ -142,31 +133,30 @@ void od_txq_app_dropped(const od_reply_t *rp, uint16_t len, od_radio_result_t wh
 static const od_reply_t BLE  = { OD_ORIGIN_BLE, 7u };
 static const od_reply_t TLS  = { OD_ORIGIN_LAN_TLS, 7u };
 
-static void setup(bool security_on, bool open_session)
-{
-    uint8_t server_nonce[16];
+static struct sec2c C;
 
+/* `claimed` boots from a 2.x key (row 4); `open_session` then runs SEC_AUTH HELLO + FINISH. */
+static void setup(bool claimed, bool open_session)
+{
     fake_reset();
     sec_init(0);
-    memset(&g_app_session, 0, sizeof g_app_session);
-    od_session_init(&g_app_session, 0);
     od_txq_reset();
     memset(g_sent, 0, sizeof g_sent);
     g_sent_n = 0u;
+    g_pop = 0u;
     g_tag_live = true;
-    g_security_on = security_on;
-    g_now_ms = 1000u;
-    g_reports = 0u;
-    g_last_seal_result = -1;
+    (void)od_sec2_boot(claimed ? &g_sec : NULL);
+    sec2c_init(&C, MASTER, UID);
 
     if (open_session) {
-        CHECK(handshake(&g_app_session, g_now_ms, server_nonce, false)
-              == OD_SESSION_AUTH_ESTABLISHED);
+        CHECK(sec2c_auth(&C, &BLE) == 0);
     }
+    g_sent_n = 0u;
+    g_pop = 0u;
     logs_reset();
 }
 
-/* [cmd:2][payload] -- what od_session_seal takes and what a handler produces. */
+/* [cmd:2][payload] -- what a handler produces. */
 static const uint8_t FRAME[6] = { 0x00u, 0x71u, 0xDEu, 0xADu, 0xBEu, 0xEFu };
 
 /* ----------------------------------------------------------------------------------- cases --- */
@@ -175,7 +165,7 @@ static void test_plain_when_security_is_off(void)
 {
     od_tx_reservation_t r;
 
-    CASE("no security configured: the response goes out verbatim");
+    CASE("unclaimed device: the response goes out verbatim");
     setup(false, false);
     CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
     CHECK(od_reply(&r, &BLE, FRAME, sizeof FRAME) == OD_TXQ_OK);
@@ -188,7 +178,7 @@ static void test_plain_when_security_is_off(void)
 static void test_sealed_when_session_is_live(void)
 {
     od_tx_reservation_t r;
-    uint8_t plain[OD_SESSION_PLAIN_MAX];
+    uint8_t plain[256];
     uint16_t plain_len = 0u;
 
     CASE("live session: the response is sealed, and round-trips back to the original");
@@ -197,22 +187,30 @@ static void test_sealed_when_session_is_live(void)
     CHECK(od_reply(&r, &BLE, FRAME, sizeof FRAME) == OD_TXQ_OK);
     CHECK(od_txq_process() == 1u);
     CHECK(g_sent_n == 1u);
-    /* Sealing adds exactly 29 bytes to the plain frame. */
-    CHECK(g_sent[0].len == sizeof FRAME + 29u);
+    /* [E5][ctr:4][C][T:12]: sealing adds exactly 17 bytes and hides the opcode too. */
+    CHECK(g_sent[0].len == sizeof FRAME + OD_SEC2_D2H_OVERHEAD);
+    CHECK(g_sent[0].data[0] == OD_SEC2_SEALED_STATUS);
     CHECK(memcmp(g_sent[0].data, FRAME, sizeof FRAME) != 0);   /* it is NOT the plaintext */
-    /* The two command bytes are echoed in the clear; the rest is the envelope. */
-    CHECK(g_sent[0].data[0] == 0x00u);
-    CHECK(g_sent[0].data[1] == 0x71u);
-    CHECK(g_reports >= 1u);
-    CHECK(g_last_seal_result == (int)OD_SESSION_SEAL_OK);
 
     CASE("and what was sealed is exactly what the handler produced");
-    CHECK(od_session_open(&g_app_session, 0x0071u,
-                          od_span_make(g_sent[0].data + 2, (size_t)(g_sent[0].len - 2u)),
-                          plain, sizeof plain, &plain_len, g_now_ms, NULL)
-          == OD_SESSION_OPEN_OK);
-    CHECK(plain_len == sizeof FRAME - 2u);
-    CHECK(memcmp(plain, FRAME + 2, plain_len) == 0);
+    CHECK(sec2c_open(&C, g_sent[0].data, g_sent[0].len, plain, &plain_len));
+    CHECK(plain_len == sizeof FRAME);
+    CHECK(memcmp(plain, FRAME, plain_len) == 0);
+}
+
+static void test_plain_scope_never_seals(void)
+{
+    od_tx_reservation_t r;
+
+    CASE("inside the plaintext scope od_reply leaves the frame alone with a live session");
+    setup(true, true);
+    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
+    od_reply_plain_scope(true);
+    CHECK(od_reply(&r, &BLE, FRAME, sizeof FRAME) == OD_TXQ_OK);
+    od_reply_plain_scope(false);
+    CHECK(od_txq_process() == 1u);
+    CHECK(g_sent[0].len == sizeof FRAME);
+    CHECK(memcmp(g_sent[0].data, FRAME, sizeof FRAME) == 0);
 }
 
 static void test_reply_plain_never_seals(void)
@@ -238,7 +236,7 @@ static void test_reply_plain_never_seals(void)
         CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
         CHECK(od_reply_plain(&r, &BLE, nack, sizeof nack) == OD_TXQ_OK);
         CHECK(od_txq_process() == 1u);
-        CHECK(g_sent[0].len == 3u);                     /* NOT 32 */
+        CHECK(g_sent[0].len == 3u);                     /* NOT sealed */
         CHECK(g_sent[0].data[2] == 0xFFu);              /* the host can still see the marker */
     }
 }
@@ -260,7 +258,7 @@ static void test_no_session_substitutes_a_nack(void)
 {
     od_tx_reservation_t r;
 
-    CASE("security ON but no session: the payload must NOT go out in the clear");
+    CASE("claimed but no session: the payload must NOT go out in the clear");
     setup(true, false);
     CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
     CHECK(od_reply(&r, &BLE, FRAME, sizeof FRAME) == OD_TXQ_SEAL_FAILED);
@@ -277,23 +275,23 @@ static void test_no_session_substitutes_a_nack(void)
 static void test_oversized_becomes_a_nack(void)
 {
     od_tx_reservation_t r;
-    static uint8_t big[OD_SESSION_PLAIN_FRAME_MAX + 8];
+    static uint8_t big[OD_SEC2_PLAIN_RESP_MAX + 8];
 
     memset(big, 0x5Au, sizeof big);
     big[0] = 0x00u;
     big[1] = 0x71u;
 
-    CASE("exactly OD_SESSION_PLAIN_FRAME_MAX seals to the 253-byte ceiling");
+    CASE("exactly OD_SEC2_PLAIN_RESP_MAX seals to the 253-byte ceiling");
     setup(true, true);
     CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
-    CHECK(od_reply(&r, &BLE, big, OD_SESSION_PLAIN_FRAME_MAX) == OD_TXQ_OK);
+    CHECK(od_reply(&r, &BLE, big, OD_SEC2_PLAIN_RESP_MAX) == OD_TXQ_OK);
     CHECK(od_txq_process() == 1u);
-    CHECK(g_sent[0].len == OD_SESSION_SEALED_MAX);
+    CHECK(g_sent[0].len == OD_SEC2_SEALED_MAX);
 
     CASE("one byte more is refused and becomes a NACK, with no second reply");
     setup(true, true);
     CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
-    CHECK(od_reply(&r, &BLE, big, OD_SESSION_PLAIN_FRAME_MAX + 1u) == OD_TXQ_TOO_LARGE);
+    CHECK(od_reply(&r, &BLE, big, OD_SEC2_PLAIN_RESP_MAX + 1u) == OD_TXQ_TOO_LARGE);
     CHECK(od_txq_process() == 1u);
     CHECK(g_sent_n == 1u);                        /* exactly one frame, the NACK */
     CHECK(g_sent[0].len == 3u);
@@ -301,17 +299,17 @@ static void test_oversized_becomes_a_nack(void)
     CHECK(r.remaining == 0u);                     /* the unit went to the NACK */
 }
 
-static void test_counter_exhaustion_clears_the_session(void)
+static void test_torn_down_session_substitutes_a_nack(void)
 {
     od_tx_reservation_t r;
 
-    CASE("a spent TX counter forces re-authentication rather than reusing a nonce");
+    CASE("a session torn down mid-exchange: the response becomes a NACK, never cleartext");
     setup(true, true);
-    g_app_session.tx_counter = UINT64_MAX;
+    od_sec2_teardown();
     CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
     CHECK(od_reply(&r, &BLE, FRAME, sizeof FRAME) == OD_TXQ_SEAL_FAILED);
-    CHECK(!od_session_authenticated(&g_app_session));   /* cleared, so the client must re-auth */
     CHECK(od_txq_process() == 1u);
+    CHECK(g_sent[0].len == 3u);
     CHECK(g_sent[0].data[0] == RESP_NACK);
 }
 
@@ -398,10 +396,11 @@ int main(void)
     test_plain_when_security_is_off();
     test_sealed_when_session_is_live();
     test_reply_plain_never_seals();
+    test_plain_scope_never_seals();
     test_tls_lan_is_never_double_wrapped();
     test_no_session_substitutes_a_nack();
     test_oversized_becomes_a_nack();
-    test_counter_exhaustion_clears_the_session();
+    test_torn_down_session_substitutes_a_nack();
     test_argument_and_accounting();
     test_nack_substitution_failure_is_visible();
     test_queue_failure_is_visible();

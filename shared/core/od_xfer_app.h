@@ -12,6 +12,7 @@
 #include "od_color.h"
 #include "od_span.h"
 #include "od_txq.h"
+#include "opendisplay_protocol.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -20,12 +21,34 @@
 extern "C" {
 #endif
 
+/* 1 on a target whose display path can take a SPLIT_HALVES frame (dual-controller panels whose
+ * drive sequence routes each half with CS_SELECT + IMAGE_SLICE). 0 keeps the START refusal and
+ * the code exactly as before. */
+#ifndef OD_XFER_SPLIT_HALVES
+#define OD_XFER_SPLIT_HALVES 0
+#endif
+
 typedef struct {
     od_color_geometry_t geometry;
     uint16_t width;
     uint16_t height;
     bool partial_enabled;
+    /* The config has a display but no drive packets for it (od_display_needs_migration()).
+     * Every upload start refuses with OD_ERR_NEEDS_MIGRATION before the panel is touched. */
+    bool needs_migration;
+#if OD_XFER_SPLIT_HALVES
+    /* The target streams SPLIT_HALVES frames (left half, then right half, as od_color lays
+     * them out); without it a split layout is refused at START. */
+    bool split_halves_ok;
+#endif
 } od_xfer_panel_info_t;
+
+/* The START NACK data bytes OD_ERR_NEEDS_MIGRATION (0x08) and OD_ERR_PANEL_BUSY (0x09) are in
+ * opendisplay_protocol.h section 4h. */
+
+/* Called by od_xfer_app_begin_full / _begin_partial before returning false, to give the START
+ * NACK a specific data byte (OD_ERR_PANEL_BUSY). Without a call the NACK is the generic one. */
+void od_xfer_app_note_start_error(uint8_t err);
 
 typedef enum {
     OD_XFER_BARRIER_PROCEED = 0,

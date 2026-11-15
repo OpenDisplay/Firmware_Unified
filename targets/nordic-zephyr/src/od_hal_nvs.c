@@ -10,10 +10,12 @@
 
 #include "od_hal_nvs.h"
 
+#include <errno.h>
 #include <string.h>
 #include <zephyr/settings/settings.h>
 
 #include "od_config_asm.h"   /* OD_CONFIG_MAX_SIZE */
+#include "od_log.h"
 
 #define OD_SETTINGS_KEY "od/config"
 
@@ -113,8 +115,35 @@ int od_hal_nvs_read(uint32_t offset, void *buf, uint32_t len)
 	return OD_HAL_NVS_OK;
 }
 
+/* NVS stores the new value before retiring the old one, so both must fit at once. The settings
+ * area can be two 4 kB sectors, where a record over about half a sector cannot replace itself, so
+ * the old record is retired first and restored if the new one still does not fit. This gives up
+ * power-fail atomicity for records this large only: a reset between the delete and the save
+ * leaves no config. */
+static int replace_without_overlap(const void *record, uint32_t len)
+{
+	const int fill = cache_fill();
+	int rc;
+
+	if (fill != OD_HAL_NVS_OK && fill != OD_HAL_NVS_ENOENT) {
+		return -EIO;
+	}
+	rc = settings_delete(OD_SETTINGS_KEY);
+	if (rc != 0) {
+		return rc;
+	}
+	rc = settings_save_one(OD_SETTINGS_KEY, record, len);
+	if (rc != 0 && fill == OD_HAL_NVS_OK &&
+	    settings_save_one(OD_SETTINGS_KEY, s_cache, s_cache_len) != 0) {
+		od_log_error("Previous config could not be restored");
+	}
+	return rc;
+}
+
 int od_hal_nvs_write(const void *record, uint32_t len)
 {
+	int rc;
+
 	if (record == NULL || len == 0u) {
 		return OD_HAL_NVS_EIO;
 	}
@@ -125,7 +154,13 @@ int od_hal_nvs_write(const void *record, uint32_t len)
 		return OD_HAL_NVS_EIO;
 	}
 
-	if (settings_save_one(OD_SETTINGS_KEY, record, len) != 0) {
+	rc = settings_save_one(OD_SETTINGS_KEY, record, len);
+	if (rc == -ENOSPC) {
+		od_log_info("Config replace: retiring the old record first");
+		rc = replace_without_overlap(record, len);
+	}
+	if (rc != 0) {
+		od_log_error("settings save failed: %d", rc);
 		/* Commit the cache only after the medium accepts the write, and do not assume a
 		 * rejected write changed nothing: settings_nvs_save() writes the value entry
 		 * before the name entry, so a failure can leave either record in place. The next

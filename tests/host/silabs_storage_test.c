@@ -15,6 +15,8 @@
 #include "nvm3_default.h"
 #include "od_config_asm.h"
 #include "od_config_store.h"
+#include "od_hal_crypto.h"
+#include "od_sec2.h"
 #include "od_span.h"
 
 #include <stdio.h>
@@ -63,6 +65,17 @@ static void setup(void)
     od_config_asm_reset(opendisplay_config_assembler());
 }
 
+/* Byte i of a `total`-byte test payload: `seed + i`, except one length-prefixed packet header at
+ * 3..6 ([num][0xF0][len LE]) that makes the whole payload a walkable config blob -- the config
+ * policy in the save funnel refuses anything else. */
+static uint8_t pat(uint8_t seed, uint32_t i, uint32_t total)
+{
+    if (i == 4u) return 0xF0u;
+    if (i == 5u) return (uint8_t)((total - 9u) & 0xffu);
+    if (i == 6u) return (uint8_t)((total - 9u) >> 8);
+    return (uint8_t)(seed + i);
+}
+
 /* Drive a real chunked CONFIG_WRITE into the shared assembler, exactly as od_cmd_app_config_write
  * does, and return the assembled length. `seed` varies the payload so a stale buffer cannot pass. */
 static uint32_t assemble(uint16_t total, uint8_t seed)
@@ -75,7 +88,7 @@ static uint32_t assemble(uint16_t total, uint8_t seed)
     frame[0] = (uint8_t)(total & 0xffu);
     frame[1] = (uint8_t)(total >> 8);
     for (uint32_t i = 0u; i < CONFIG_CHUNK_SIZE; ++i) {
-        frame[2u + i] = (uint8_t)(seed + i);
+        frame[2u + i] = pat(seed, i, total);
     }
     rc = od_config_asm_start(s, od_span_make(frame, sizeof frame));
     CHECK(rc == OD_CONFIG_ASM_ACCEPTED);
@@ -85,7 +98,7 @@ static uint32_t assemble(uint16_t total, uint8_t seed)
         uint32_t n = total - written;
         if (n > CONFIG_CHUNK_SIZE) n = CONFIG_CHUNK_SIZE;
         for (uint32_t i = 0u; i < n; ++i) {
-            frame[i] = (uint8_t)(seed + written + i);
+            frame[i] = pat(seed, written + i, total);
         }
         rc = od_config_asm_chunk(s, od_span_make(frame, n));
         written += n;
@@ -98,7 +111,7 @@ static uint32_t assemble(uint16_t total, uint8_t seed)
 static bool payload_matches(const uint8_t *p, uint32_t len, uint8_t seed)
 {
     for (uint32_t i = 0u; i < len; ++i) {
-        if (p[i] != (uint8_t)(seed + i)) return false;
+        if (p[i] != pat(seed, i, len)) return false;
     }
     return true;
 }
@@ -159,7 +172,7 @@ static void test_aliased_and_external_saves_agree(void)
 
     setup();
     memset(s->buffer, 0xeeu, 1000u);
-    for (uint32_t i = 0u; i < sizeof external; ++i) external[i] = (uint8_t)(0x40u + i);
+    for (uint32_t i = 0u; i < sizeof external; ++i) external[i] = pat(0x40u, i, sizeof external);
     CHECK(saveConfig(external, sizeof external));
     CHECK(nvm3_fake_last_write_len == sizeof via_overlay);
     CHECK(memcmp(nvm3_fake_last_write, via_overlay, sizeof via_overlay) == 0);
@@ -249,6 +262,33 @@ static void test_load_rejects_damaged_records(void)
 }
 
 /* ------------------------------------------------------------------------- failure behaviour */
+
+/* A damaged stored record never blocks its replacement: saveConfig reads nothing back, so a
+ * client can always repair a device by writing a whole config over it. */
+static void test_damaged_record_is_overwritten(void)
+{
+    static const unsigned pokes[] = { 0u, 8u, 12u, HDR_LEN + 100u };
+    struct od_config_asm *s = opendisplay_config_assembler();
+    uint32_t out_len;
+
+    CASE("a new config write replaces a damaged stored record");
+    for (unsigned i = 0u; i < sizeof pokes / sizeof pokes[0]; ++i) {
+        setup();
+        (void)assemble(600u, 0x21u);
+        CHECK(saveConfig(s->buffer, 600u));
+        nvm3_fake_object[pokes[i]] ^= 0xffu;
+        simulate_reboot();
+        out_len = OD_CONFIG_MAX_SIZE;
+        CHECK(!loadConfig(s->buffer, &out_len));
+        (void)assemble(400u, 0x43u);
+        CHECK(saveConfig(s->buffer, 400u));
+        simulate_reboot();
+        out_len = OD_CONFIG_MAX_SIZE;
+        CHECK(loadConfig(s->buffer, &out_len));
+        CHECK(out_len == 400u);
+        CHECK(payload_matches(s->buffer, 400u, 0x43u));
+    }
+}
 
 static void test_write_failure_preserves_prior_record(void)
 {
@@ -404,12 +444,35 @@ static void test_load_into_a_live_assembler_destroys_it(void)
     CHECK(s->buffer[0] == 0x21u);       /* the in-flight chunk is gone */
 }
 
+/* The production funnel runs the real config policy (od_cfg_policy.c) in place over the overlay.
+ * Its od_sec2 queries are answered for an UNCLAIMED device without LEGACY_SECRETS, so od_sec2.o
+ * and its crypto stay out of this suite. */
+enum od_sec2_state od_sec2_state(void) { return OD_SEC2_UNCLAIMED; }
+bool od_sec2_legacy_secrets(void) { return false; }
+bool od_sec2_key_is(const uint8_t key[16]) { (void)key; return false; }
+bool od_sec2_k_v1(uint8_t out[16]) { (void)out; return false; }
+bool od_sec2_k_dev(uint8_t out[16]) { (void)out; return false; }
+const struct SecurityConfig *od_sec2_app_security(void) { return NULL; }
+enum od_hal_crypto_status od_hal_crypto_random(uint8_t *buf, uint16_t len)
+{
+    memset(buf, 0x5A, len);
+    return OD_HAL_CRYPTO_OK;
+}
+enum od_hal_crypto_status od_hal_crypto_cmac(const uint8_t key[16], const uint8_t *msg,
+                                             uint32_t len, uint8_t out[16])
+{
+    (void)key; (void)msg; (void)len;
+    memset(out, 0, 16u);
+    return OD_HAL_CRYPTO_OK;
+}
+
 int main(void)
 {
     test_header_overwrites_live_assembler_state();
     test_aliased_and_external_saves_agree();
     test_read_back_across_reboot();
     test_load_rejects_damaged_records();
+    test_damaged_record_is_overwritten();
     test_write_failure_preserves_prior_record();
     test_on_demand_open();
     test_clear();

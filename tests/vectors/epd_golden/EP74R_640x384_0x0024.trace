@@ -1,0 +1,70 @@
+# EP74R_640x384_0x0024: 1 modes, code_map 00 01 02 03, idle 1
+# mode 0 passes 1 scheme 1 frame 61440
+R 10
+C 65
+D 01
+C ab
+C 65
+D 00
+C 04
+C 01
+D 37 00
+C 00
+D cf 08
+C 06
+D c7 cc 28
+C 30
+D 3c
+C 41
+D 00
+C 50
+D 77
+C 60
+D 22
+C 61
+D 02 80 01 80
+C 82
+D 1e
+C e5
+D 03
+C 04
+C 13
+C 13
+D[20480] crc32=c606b94c
+D[10240] crc32=6d229496
+C 10
+D[30720] crc32=ad7f2397
+C 65
+D 01
+C ab
+C 65
+D 00
+C 04
+C 01
+D 37 00
+C 00
+D cf 08
+C 06
+D c7 cc 28
+C 30
+D 3c
+C 41
+D 00
+C 50
+D 77
+C 60
+D 22
+C 61
+D 02 80 01 80
+C 82
+D 1e
+C e5
+D 03
+C 04
+C 12
+# sleep
+C 50
+D 17
+C 02
+C 07
+D a5

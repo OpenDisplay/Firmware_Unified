@@ -2,6 +2,7 @@
 
 #include "od_config_read.h"
 
+#include "od_cfg_policy.h"
 #include "od_reply.h"
 
 #include <string.h>
@@ -45,11 +46,13 @@ static od_txq_status_t emit_chunk(od_tx_reservation_t *r)
     take = (remaining < (uint32_t)room) ? (uint16_t)remaining : room;
     if (take > 0u) {
         memcpy(frame + n, s.blob + s.offset, take);
+        od_cfg_policy_read_view(s.blob, s.blob_len, s.offset, frame + n, take);   /* 10.2 */
         n = (uint16_t)(n + take);
     }
 
     {
         const od_txq_status_t rc = od_reply(r, &s.rp, frame, n);
+        memset(frame, 0, sizeof frame);   /* a claimed read view carries K_dev */
         if (rc != OD_TXQ_OK) {
             return rc;               /* the chunk is NOT advanced; the pass retries it */
         }

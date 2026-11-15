@@ -434,6 +434,35 @@ static void test_corruption(void)
     CHECK(load(sizeof(g_out), &len) == OD_CONFIG_STORE_TOO_BIG);
 }
 
+/* A config write never reads the stored record, so whatever state it is in -- bad CRC, bad
+ * magic, truncated, over-long header -- a new write replaces it. That is the repair path for a
+ * device whose record is damaged. */
+static void test_damaged_record_is_overwritten(void)
+{
+    uint32_t len;
+
+    for (unsigned damage = 0u; damage < 4u; ++damage) {
+        CASE("a new config write replaces a damaged stored record");
+        medium_reset();
+        fill(g_payload, 256u, 0x31u);
+        CHECK(save(g_payload, 256u) == OD_CONFIG_STORE_OK);
+        switch (damage) {
+        case 0u: g_medium[16 + 128u] ^= 0x01u; break;   /* CRC */
+        case 1u: g_medium[0] ^= 0xFFu; break;            /* magic */
+        case 2u: g_medium_len = 15u; break;              /* shorter than the header */
+        default: g_medium[13] = 0x01u; g_medium[12] = 0xFFu; break;   /* data_len overrun */
+        }
+        CHECK(load(sizeof(g_out), &len) != OD_CONFIG_STORE_OK);
+        fill(g_payload, 100u, 0x77u);
+        g_reads = 0;
+        CHECK(save(g_payload, 100u) == OD_CONFIG_STORE_OK);
+        CHECK(g_reads == 0u);
+        CHECK(load(sizeof(g_out), &len) == OD_CONFIG_STORE_OK);
+        CHECK(len == 100u);
+        CHECK(memcmp(g_out, g_payload, 100u) == 0);
+    }
+}
+
 static void test_oversized_physical_record(void)
 {
     uint32_t len;
@@ -600,6 +629,7 @@ int main(void)
     test_caps();
     test_empty_device();
     test_corruption();
+    test_damaged_record_is_overwritten();
     test_oversized_physical_record();
     test_truncated_and_oversize_together();
     test_version_is_carried_not_checked();

@@ -315,7 +315,10 @@ target's logic, there is no longer an untouched reference to capture from, and t
 becomes a description of what the unified firmware does rather than a regression baseline for
 what the fleet did. Bench time is the scarce input, not engineering effort.
 
-### 3.5 FastEPD writes no pixels to an IT8951 panel — *high severity, S3-only*
+### 3.5 ~~FastEPD writes no pixels to an IT8951 panel~~ — resolved
+
+IT8951 panels no longer use FastEPD (`targets/esp32-idf/src/display_it8951.cpp`), confirmed on an E1003 2026-11-08. The text below is the original report.
+
 
 All three `it8951WriteFramebuffer{1,2,4}Bit` functions in `third_party/FastEPD/src/FastEPD.inl`
 have `#ifdef ARDUINO` guards that fall through to **nothing** under ESP-IDF — 9 sites: `:2199`,
@@ -679,7 +682,10 @@ PIPE.
 
 ## 7. `Firmware_Unified` / BG22 — uptime wraps in the hardware-tick domain
 
-**Status:** open, pre-existing target defect; not caused by the shared logging/time-HAL plan.
+**Status:** FIXED in code — every listed BG22 call site now reads `od_hal_uptime_ms()`
+(`opendisplay_display.cpp`'s `od_xfer_app_now_ms` included), and `tools/check.sh`
+`time_hal_structure` refuses the 32-bit form in `targets/efr32bg22-slc`. The dead bb_epaper
+adapter that also had it (`panel/od_bbep_efr32_io.inl`) is deleted. Hardware known-interval check open.
 **Evidence:** `verified` against all current BG22 call sites and Simplicity SDK 2025.12.2's
 sleeptimer implementation. **Severity:** latent correctness failure on long-running devices.
 
@@ -709,7 +715,8 @@ Affected consumers:
 - `targets/efr32bg22-slc/opendisplay_pipe.c` — the two-second END barrier deadline;
 - `targets/efr32bg22-slc/opendisplay_display.cpp` — transfer `started_ms`;
 - `targets/efr32bg22-slc/opendisplay_ble.c` — six connection-age, NFC and timeout uses; and
-- `targets/efr32bg22-slc/panel/od_bbep_efr32_io.inl` — the `bb_epaper` `millis()` adapter.
+- `targets/efr32bg22-slc/panel/od_bbep_efr32_io.inl` — the `bb_epaper` `millis()` adapter
+  (since deleted with the rest of `panel/`).
 
 ### Fix
 
@@ -1583,3 +1590,210 @@ on targets that cannot sleep. That is a wire-behaviour change needing its own pl
 update in step, so it is filed rather than done here.
 
 **Sequencing:** answer Q3 before py-opendisplay moves to `0x0053`, not after.
+
+---
+
+## Duplicate `0xB2` action tables resolve by first-match, silently
+
+**Status: fix (1) done, host-tested** — `0x004C` byte 9 `tables` counts the
+`0xB2` packets (needs the canonical `ActionInfoResponse` updated); (2) and (3)
+open. Observed on OD58FFC4, 2026-11-06.
+
+`od_cfg_find` returns the first packet with a given id, so a config carrying two
+action tables runs the **older** one and ignores the newer one. Nothing reports
+it: `0x004C` faithfully describes the table it loaded, and a shadowed table is
+indistinguishable from a write that never happened.
+
+This is not a theoretical ordering concern — the obvious client code produces it.
+py-opendisplay round-trips unknown `0x80+` packets through `unknown_ex_packets`,
+so `interrogate()` → append → `write_config()` keeps the old table and adds a new
+one. Three successive writes left **four** tables on the device, the config grew
+by exactly 24 B each time (1964 → 1988 → 2012 B), and the device ran the original
+table throughout. Against the BG22's 2048-byte cap, that path also walks the
+config into an outright refusal in a few more writes.
+
+Debugging it cost most of a session, because every individual signal looked fine:
+the write returned success, a modeled field written alongside it read back
+changed, and `0x004C` reported a valid table with a plausible entry count.
+
+**Three separable fixes, none done:**
+
+1. **Make it observable.** `0x004C` should report how many `0xB2` packets the
+   index found. A count of 2 is then a diagnosis instead of a mystery. Cheapest
+   of the three and worth doing even if the others are rejected.
+2. **Decide the semantics and state them.** First-match is defensible, but so is
+   last-wins (a newer table replacing an older one is what a client writing one
+   intends). Either way `od_cfg_index` should not leave it implicit.
+3. **Fix the host.** py-opendisplay should model the action table, or refuse to
+   serialize two packets with an id the device resolves by first-match.
+
+Until (1) lands, a client replacing the table must drop the existing entries
+rather than append — see `docs/BG22_ACTION_SYSTEM.md`.
+
+---
+
+## Temperature action triggers chatter at the window edge
+
+**Status: FIXED in firmware, host-tested only** — per-entry state and 3 C
+exit-side hysteresis in `od_action.c`, `tests/host/action_test.c`. Needs a
+hardware re-run of the ramp. Measured on OD58FFC4, 2026-11-06.
+
+A 32..48 C window, cooled through its lower edge **once**, fired **four times**
+— alternating EXIT/ENTER. `od_action.c`'s `temp_in_window()` is a bare
+`t >= lo && t <= hi` with no deadband, `TEMP_POLL_MS` is 2000, and the BG22 die
+reading dithers by about +/-2 C (`39 40 38 39 ... 35 34 36 35 ... 33 32 33`
+across one slow ramp). A reading parked near an edge crosses it repeatedly, and
+each crossing is a genuine edge to the runner.
+
+This cancels the reason the trigger is an edge. `docs/BG22_ACTION_SYSTEM.md`
+argues edges over levels because a level "would re-fire every poll and turn a
+warm room into a refresh loop that flattens the battery" — chatter rebuilds that
+loop in a narrow band around the boundary. A `DISPLAY_SLOT` step on a
+temperature trigger is several 20-second panel refreshes, at the board's peak
+current, each time ambient drifts past the edge.
+
+**Fix: a deadband, not a faster poll.** Enter at `lo`, leave only below
+`lo - N`, symmetrically at `hi`; or require N consecutive samples on the new
+side. One byte of state either way. N must exceed the sensor noise, so 3 C is
+the floor given these measurements.
+
+**Also: `0x004C` cannot diagnose this.** One cumulative `fires` count and a
+`last` trigger make "fired once" and "fired four times, alternating"
+indistinguishable. Per-trigger counters would have shown the chatter in a single
+poll. Same observability gap as the duplicate-`0xB2` item above, and worth
+fixing in the same change.
+
+**Test-harness note, so the next person does not repeat it:** a BLE poll every
+~38 s cannot order events that the firmware generates every 2 s. The run that
+found this reported "WRONG TRIGGER" — it expected EXIT first and sampled
+`last=TEMP_ENTER` — which was the harness being too slow, not the firmware
+picking the wrong trigger. The real signal was `fires` jumping 0 -> 4. Any
+future edge test should assert on per-trigger counts, not on `last`.
+
+---
+
+## MCUboot on nRF52840: dual-slot is cramped, firmware-updater mode is blocked upstream
+
+> **SUPERSEDED by `ee1e783` (2026-11-06).** Erasing the s140 SoftDevice moves the application
+> start to 0x1000 and gives dual-slot 440 kB slots (app 85% full at the 3.0 build). BLE OTA and
+> rollback are verified on an EN04 (checklist § "`xiao_ble` / EN04 — BLE OTA via dual-slot
+> MCUboot"), and dual-slot is the nRF52840 default from 3.0. The firmware-updater analysis
+> below is kept as a record of the dead end; nothing in it is open.
+
+**Status (as written before `ee1e783`): BLOCKED on an NCS v3.3.1 inconsistency, not on our configuration.** Measured
+2026-11-06 against an EN04. Everything below is opt-in behind `OD_NRF52840_MCUBOOT=1`; the
+default build is unchanged and verified at 356,956 B.
+
+### The flash is fixed at both ends
+
+The Adafruit bootloader sits at `0xF4000` and jumps to `0x27000`, with MBR + SoftDevice s140
+below. MCUboot must therefore be chained at `0x27000`, leaving `0x27000..0xF4000` for MCUboot,
+the application and settings. Measured on the board: bootloader 0.10.6 + s140 7.3.0, **serial
+DFU only, no mass-storage interface**, so a failed bootloader rewrite has no UF2 fallback. That
+is why MCUboot is chained rather than installed at `0x0`.
+
+The application is 356,956 B and MCUboot is 27,660 B of a 48 kB slot.
+
+### Dual-slot works and is tight
+
+Two equal slots give **368 kB each, about 5% headroom**. It builds, but there is no room to
+grow and no margin for a debug build.
+
+### Firmware-updater mode would fix that, and cannot be made to work
+
+`SB_CONFIG_MCUBOOT_MODE_FIRMWARE_UPDATER` replaces the staging copy with a small permanent
+loader, which should give the application ~540 kB (35% headroom). Getting there needed four
+Partition Manager constraints, all now encoded in `pm_static_nrf52840_mcuboot.yml`:
+
+1. A static map named `pm_static_<board>.yml` is auto-applied to EVERY build of that board and
+   broke the default one. Pass it explicitly with `-DPM_STATIC_YML_FILE`.
+2. Hand-written `mcuboot_pad` / `mcuboot_primary_app` displace the entries the signing rules
+   attach to: `'_sysbuild/mcuboot_primary_app_hex' ... missing and no known rule to make it`.
+3. PM needs **exactly one gap** in a static map to place dynamic partitions into.
+4. PM creates `mcuboot_secondary` with `share_size` even in this mode, halving that gap and
+   leaving the application 278 kB -- *smaller* than dual-slot. Pinning the secondary to a 4 kB
+   stub reclaims it, and the application then builds at 357,272 B in a 552,448 B slot.
+
+**The loader image is where it dies.** `zephyr/subsys/dfu/boot/mcuboot.c` resolves which slot
+it is running from by comparing `PM_ADDRESS` against `PM_MCUBOOT_PRIMARY_ADDRESS` and
+`PM_MCUBOOT_SECONDARY_ADDRESS` and nothing else; an image in a `firmware_loader` partition
+matches neither and stops at `#error Missing partition definitions`. Moving the loader into
+`mcuboot_secondary` to satisfy that comparison is refused outright by Partition Manager:
+
+> Partition image 'firmware_loader' is a container with a span of one or more images, but has
+> the same name of its image. Container partitions are not allowed to share the name of the
+> image that defines it.
+
+So PM insists the loader lives in `firmware_loader`, and the DFU library the loader exists to
+run refuses to compile anywhere but primary or secondary. Two Nordic components disagree and
+no configuration reconciles them.
+
+**Ways forward, none attempted:** teach `dfu/boot/mcuboot.c` about `PM_FIRMWARE_LOADER_ADDRESS`
+and carry it as an NCS patch or upstream it; write a loader that does not use Zephyr's
+`img_mgmt`; or stay on dual-slot and accept 5%.
+
+### What to use meanwhile
+
+Nothing here is required for updates today. `CMD_ENTER_DFU` now reboots into the Adafruit
+bootloader over BLE (hardware-verified round trip), so a device is reflashable over serial DFU
+without physical access. That closed the problem this work was chasing; MCUboot would only add
+atomic rollback and signature enforcement.
+
+## `Firmware_Silabs` — Unified implements three sequence escapes the Silabs branch still refuses
+
+Firmware_Unified's shared `od_epd` executor now runs `CS_SELECT` (`0x08`), `READ_SCRATCH`
+(`0x09`) and `WRITE_SCRATCH` (`0x0A`); Firmware_Silabs `feat/od-epd-driver` still has them
+capability-absent / refused at pre-scan. A `panels.yaml` sequence using them therefore drives a
+Unified BG22 device and is refused (`07 SEQ_UNSUPPORTED`) by a Firmware_Silabs one -- the same
+config, two answers.
+
+Either backport `seq_start()`, the two escape arms and the `read_bytes` io hook (plus
+`od_epd_io_silabs_set_cs2/_cs_select/_read`) to `newdriver/Firmware_Silabs`, or retire that
+branch in favour of Unified on BG22. Also extend `panels/seq_conformance.{c,py}` with the
+cases in `tests/host/epd_seq_test.c`, so the Python model agrees with the executor.
+
+Neither escape has run on hardware: no split-controller or read-back panel is on the bench
+(`HARDWARE_VERIFICATION_CHECKLIST.md`, BG22 parity section).
+
+## `Firmware_Unified` / BG22 — action-system defects found while landing `0xB2` canonically
+
+Found while specifying protocol 2.4 / structs 2.3 from `od_action.{h,c}` and `od_cmd_flash.c`;
+none is fixed here.
+
+- **BUTTON_PRESS matches by equality on `1 << button_id`** (FIXED, host-tested: now a mask
+  match), so a multi-button mask (as the trigger's documented `arg`) never fired, and `button_id` is masked to 3 bits, so buttons on
+  different BinaryInputs instances alias.
+- **BUTTON_LONG is never emitted** (now reported INACTIVE at load, host-tested; emitting it is still open).
+- **Comments disagree with the walk:** they say a bad slot / LED argument is rejected and one bad
+  entry is dropped "never the table"; the code validates neither and stops the whole walk at the
+  first malformed entry. `temp_poll` claims per-entry edge state; one shared bit is used.
+- **`ACTION_INFO.rejected` is 0 or 1**, and nothing reports how many `0xB2` copies a config holds
+  (see "Duplicate `0xB2` action tables" above).
+- **Silent failures:** `FLASH_INFO` returned stale stride/capacity when the store is unmounted (FIXED: zeros unless mounted);
+  `FLASH_DISPLAY` and the DISPLAY_SLOT effect fail without a report.
+- **Wire ambiguity, now in the canonical spec:** a `FLASH_ERASE` of all slots ACKs `[00][49][FF]`,
+  and an `ACTION_FIRE` `host_id` of `0xFE`/`0xFF` echoes as `[00][4D][FE|FF]` -- both the same
+  bytes as the session gate's 3-byte refusal frames. py-opendisplay disambiguates (accepts the
+  erase-all ACK only with no live session; limits `host_id` to `0x00`-`0xFD`); a cleaner fix is a
+  protocol change.
+
+## `Firmware_Unified` / telink-tlsr — what the provisional Telink target still needs outside it
+
+The target (`targets/telink-tlsr/`, README there) builds and is host-tested; these are the
+pieces that belong elsewhere or wait on hardware.
+
+- **`../opendisplay-protocol`:** reserve `OD_IDENT_TARGET_TELINK` = `0x06` (READ_IDENT
+  `fw_target`, `docs/PROTOCOL_CHANGES_3.0.md` row 10), then sync the vendored header and drop the
+  number from the target's `CMakeLists.txt`.
+- **`py-opendisplay` and the website:** map `fw_target` `0x06` to "Telink TLSR825x".
+- **`shared/profiles.cmake`:** move `OD_PROFILE_TELINK` there from the target's `CMakeLists.txt`
+  once the target is accepted, so one file defines every profile.
+- **OTA trust:** the updater is unauthenticated and outside the `od_health` rule. Gating it on
+  SEC2, and trusting a new image only after it has served a GATT request, is open design.
+- **Hardware-only questions:** whether the ROM falls back to the image at `0x40000` when sector 0
+  has no boot flag, which is what protects a power cut during install; the sw_ecc shared-secret
+  byte order; the TRNG's entropy; whether a link survives the per-sector erase with interrupts
+  off.
+- **CI:** `tools/check.sh --telink` builds the target when `TC32_DIR` and `TELINK_SDK_DIR` are
+  set. `build.yml` does not, because the toolchain is not redistributable without carrying GPL
+  obligations (Telink publishes no source for its TC32 backend).

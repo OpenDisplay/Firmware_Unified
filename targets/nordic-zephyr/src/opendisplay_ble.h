@@ -15,9 +15,23 @@ void opendisplay_ble_process(void);
 void opendisplay_ble_advertising_tick(void);
 bool opendisplay_ble_is_connected(void);
 bool opendisplay_ble_advertising_active(void);
+/* True while od_adv_process() still has a step to take toward the wanted advertiser state (a
+ * stop, a payload install or a start). Each opendisplay_ble_process() pass takes one step, so an
+ * idle wait must keep passes short until this clears or the advertiser stays off air. */
+bool opendisplay_ble_advertising_settling(void);
 
 const struct od_config *opendisplay_get_global_config(void);
 void opendisplay_ble_reload_config_from_nvm(void);
+
+/* The SEC2 policy rewrote the stored config: reload it at the next security tick (or, at boot,
+ * right after od_security_boot). */
+void opendisplay_ble_config_changed(void);
+
+/* Factory reset R5b: delete every bond once the BT stack and settings are up. */
+void opendisplay_ble_request_unpair_all(void);
+
+/* Every main-loop pass: claim mode and the boot-history clock (od_claim_mode_tick). */
+void opendisplay_ble_security_tick(void);
 
 uint16_t opendisplay_ble_get_app_version(void);
 uint8_t opendisplay_ble_get_app_version_patch(void);

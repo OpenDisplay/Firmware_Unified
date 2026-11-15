@@ -29,8 +29,11 @@
 #ifndef OD_CONFIG_STORE_H
 #define OD_CONFIG_STORE_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#include "opendisplay_protocol.h"
 
 #include "od_config_asm.h"   /* OD_CONFIG_MAX_SIZE, OD_STATIC_ASSERT, struct od_config_asm */
 
@@ -62,7 +65,10 @@ enum od_config_store_result {
      * truncated (docs/MEMORY_CONSTRAINTS.md item 3). */
     OD_CONFIG_STORE_TOO_BIG,
     /* The medium failed. */
-    OD_CONFIG_STORE_IO
+    OD_CONFIG_STORE_IO,
+    /* Refused, nothing written: a display pass is paused on the stored bytes
+     * (od_config_store_hold_writes). The write NACKs like any other refused write. */
+    OD_CONFIG_STORE_BUSY
 };
 
 /* Where the payload lives inside a caller's workspace. */
@@ -86,14 +92,58 @@ enum od_config_store_result od_config_store_save(void *workspace, uint32_t works
  * stored length out; it is set to 0 on every non-OK return. */
 enum od_config_store_result od_config_store_load(uint8_t *payload, uint32_t *len);
 
-/* Remove the stored record. Succeeds when there was nothing to remove. */
+/* Remove the stored record. Succeeds when there was nothing to remove. Never held: the erase
+ * ahead of an unauthenticated rewrite is a security step, so a pass reading through it fails on
+ * the generation check instead. */
 enum od_config_store_result od_config_store_clear(void);
+
+/* Bumped by every save attempt that reaches the medium (before and after the write, so a reader
+ * that sampled it mid-write still sees a change) and by every clear. A reader that streams
+ * stored bytes across a pause compares it with the value it started from: equal means the bytes
+ * under its offsets are the ones it validated. */
+uint32_t od_config_store_generation(void);
+
+/* A target whose display pass and config writes run on different threads (Nordic: the boot
+ * render runs on a work queue) sets OD_CONFIG_STORE_LOCKING=1 and implements the two hooks with
+ * its own mutex. The hold flag and a save's check-then-write are taken under it, so a write
+ * either completes before a pass takes the hold or sees the hold. Without it they are no-ops. */
+#ifndef OD_CONFIG_STORE_LOCKING
+#define OD_CONFIG_STORE_LOCKING 0
+#endif
+#if OD_CONFIG_STORE_LOCKING
+void od_config_store_app_lock(void);
+void od_config_store_app_unlock(void);
+#else
+#define od_config_store_app_lock()   ((void)0)
+#define od_config_store_app_unlock() ((void)0)
+#endif
+
+/* While held, od_config_store_save() refuses with OD_CONFIG_STORE_BUSY before touching the
+ * workspace (BG22's workspace is the live config assembler). Held by the display binding for
+ * exactly the span of a pass, which streams its sequence from the medium and pauses at the image
+ * marker while the frame arrives. */
+void od_config_store_hold_writes(bool held);
+
+/* The config-write NACK data byte ([FF][41|42][err][00]) for the most recent failed save, read
+ * once (the call clears it):
+ * OD_ERR_CONFIG_WRITE_BUSY when the hold refused it (transient: retry once the refresh is
+ * done), else OD_ERR_CONFIG_WRITE_FAILED. */
+uint8_t od_config_store_save_error(void);
+
+/* Set the byte od_config_store_save_error() reports next: a refusal decided before the store was
+ * reached (the SEC2 config policy's 0x10 / 0x11, od_cfg_policy.h). */
+void od_config_store_set_save_error(uint8_t err);
 
 /* CRC-32 (reflected, polynomial 0xEDB88320) over the payload. Bit-serial deliberately: a table
  * costs 1 KB of flash on a part with 480 B of RAM headroom, and this runs once per config
  * write. Exposed because it is the record's checksum, not an implementation detail -- host
  * tests and tooling build records with it. */
 uint32_t od_config_store_crc32(const uint8_t *data, uint32_t len);
+
+/* The same CRC-32, resumable. Seed with 0 and feed consecutive spans; the value returned is
+ * final at every step. Here rather than in the caller because this file is the one home for
+ * the polynomial -- a second copy is what tools/check.sh's ratchet exists to catch. */
+uint32_t od_config_store_crc32_update(uint32_t crc, const uint8_t *data, uint32_t len);
 
 #ifdef __cplusplus
 }

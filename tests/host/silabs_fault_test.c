@@ -3,15 +3,19 @@
 #include "fake_silabs.h"
 #include "od_cmd_app.h"
 #include "od_cmd_test_ctx.h"
+#include "od_config.h"
 #include "od_config_read.h"
 #include "od_nfc.h"
 #include "od_reply.h"
-#include "od_session.h"
-#include "od_session_app.h"
+#include "od_sec2.h"
+#include "od_sec2_app.h"
+#include "od_sec2_wire.h"
 #include "od_txq.h"
 #include "od_xfer.h"
+#include "od_link_policy.h"
 #include "opendisplay_display.h"
 #include "opendisplay_pipe.h"
+#include "sec2_client.h"
 #include "session_fake.h"
 #include "sl_bt_api.h"
 
@@ -36,18 +40,25 @@ static void exchange_mtu(uint8_t connection, uint16_t mtu);
     } while (0)
 #define CASE(name) (g_case = (name))
 
-static struct od_session g_session;
-static bool g_security_on;
+uint32_t od_sec2_app_now_ms(void) { return fake_silabs_now_ms; }
+void od_sec2_app_uid(uint8_t uid[8]) { memcpy(uid, UID, 8u); }
+uint8_t od_sec2_app_dflags(void) { return OD_SEC2_DFLAG_HAS_PANEL; }
+const struct SecurityConfig *od_sec2_app_security(void) { return &g_sec; }
 
-struct od_session *od_session_app_state(void) { return &g_session; }
-const struct SecurityConfig *od_session_app_security(void)
-{ return g_security_on ? &g_sec : NULL; }
-uint32_t od_session_app_now_ms(void) { return fake_silabs_now_ms; }
-void od_session_app_device_id(uint8_t out[OD_SESSION_DEVICE_ID_LEN])
-{ memcpy(out, DEVICE_ID, OD_SESSION_DEVICE_ID_LEN); }
-void od_session_app_report(enum od_session_app_op op, int result, uint16_t cmd,
-                           const struct od_session_report *report)
-{ (void)op; (void)result; (void)cmd; (void)report; }
+/* The SEC2 client reads its handshake replies from the vendor-notify capture. */
+static unsigned g_pop;
+bool sec2c_radio_pop(uint8_t *buf, uint16_t *len)
+{
+    if (g_pop >= fake_silabs_sent_n || g_pop >= FAKE_SILABS_SENT_MAX) {
+        return false;
+    }
+    memcpy(buf, fake_silabs_sent[g_pop].data, fake_silabs_sent[g_pop].len);
+    *len = fake_silabs_sent[g_pop].len;
+    ++g_pop;
+    return true;
+}
+
+static struct sec2c C;
 
 static void open_connection(uint8_t connection)
 {
@@ -78,8 +89,7 @@ static void setup(void)
     fake_silabs_reset();
     fake_silabs_bgapi_reset();
     sec_init(0u);
-    g_security_on = false;
-    memset(&g_session, 0, sizeof g_session);
+    (void)od_sec2_boot(NULL);
     /* Boot-contract results are static and survive a characteristic reset, so restate them here
      * rather than leaving cases to undo each other's degradation. Deliberately NO MTU exchange:
      * every large-frame case below therefore runs on a connection that never negotiated, which is
@@ -93,14 +103,23 @@ static void setup(void)
     fake_silabs_resets = 0u;
 }
 
+/* Claim the device (a 2.x key migrated at boot) and run SEC_AUTH on the pipe's connection, so
+ * every later reply on that tag is sealed. */
 static void authenticate(void)
 {
-    uint8_t nonce[16];
-    g_security_on = true;
-    CHECK(handshake(&g_session, fake_silabs_now_ms, nonce, false) ==
-          OD_SESSION_AUTH_ESTABLISHED);
-    CHECK(od_session_authenticated(&g_session));
+    const od_reply_t rp = { OD_ORIGIN_BLE, opendisplay_pipe_connection_tag() };
+
+    (void)od_sec2_boot(&g_sec);
+    sec2c_init(&C, MASTER, UID);
+    fake_silabs_sent_n = 0u;
+    g_pop = 0u;
+    CHECK(sec2c_auth(&C, &rp) == 0);
+    CHECK(od_sec2_session_live(&rp));
+    fake_silabs_sent_n = 0u;
+    g_pop = 0u;
 }
+
+static void change_key(void) { g_sec.encryption_key[0] ^= 0x01u; }
 
 static void test_config_persist_before_queue(void)
 {
@@ -109,7 +128,7 @@ static void test_config_persist_before_queue(void)
     od_cmd_ctx_t ctx = od_test_cmd_ctx((od_reply_t){ OD_ORIGIN_BLE, 0u },
                                         &r, 0u, false);
 
-    CASE("config success persists before queue, then reloads before clearing the old session");
+    CASE("config success persists before queue, then reloads with the session kept");
     setup();
     authenticate();
     CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
@@ -126,13 +145,43 @@ static void test_config_persist_before_queue(void)
     CHECK(fake_silabs_store_reloads == 1u);
     CHECK(fake_silabs_reload_saw_queued);
     CHECK(fake_silabs_reload_saw_authenticated);
-    CHECK(!od_session_authenticated(&g_session));
+    /* The key is not in the config record (SECURITY_V2 9.6), so a config write ends no session. */
+    CHECK(od_sec2_session_live(NULL));
     CHECK(od_txq_depth() == 1u);
     CHECK(od_txq_process() == 1u);
     CHECK(fake_silabs_sent_n == 1u);
-    CHECK(fake_silabs_sent[0].len > 4u); /* success ACK was sealed under the old session */
+    {
+        /* The success ACK left sealed, and carries the 4-byte ACK. */
+        uint8_t plain[256];
+        uint16_t plain_n = 0u;
 
-    CASE("config persistence failure cannot emit success, reload, clear, or alter old storage");
+        CHECK(fake_silabs_sent[0].data[0] == OD_SEC2_SEALED_STATUS);
+        CHECK(sec2c_open(&C, fake_silabs_sent[0].data, fake_silabs_sent[0].len, plain, &plain_n));
+        CHECK(plain_n == 4u);
+        CHECK(plain[0] == RESP_ACK && plain[1] == RESP_CONFIG_WRITE);
+    }
+
+    CASE("config success that changes the 0x27 key bytes keeps the SEC2 session (9.6)");
+    /* The v1 image retires its session when 0x27 changes (v3/reconnect-fix). SEC2 keys live in
+     * the secret store, not in the config record, so the same write leaves the session live and
+     * the ACK still leaves sealed. */
+    setup();
+    authenticate();
+    fake_silabs_reload_hook = change_key;
+    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
+    ctx = od_test_cmd_ctx((od_reply_t){ OD_ORIGIN_BLE,
+                                         opendisplay_pipe_connection_tag() },
+                          &r, 2u, false);
+    CHECK(od_cmd_app_config_write(&ctx, od_span_make(config, sizeof config)) == OD_CMD_OK);
+    od_txq_release(&r);
+    fake_silabs_reload_hook = NULL;
+    CHECK(fake_silabs_reload_saw_authenticated);
+    CHECK(od_sec2_session_live(NULL));
+    CHECK(od_txq_process() == 1u);
+    CHECK(fake_silabs_sent_n == 1u);
+    CHECK(fake_silabs_sent[0].data[0] == OD_SEC2_SEALED_STATUS);
+
+    CASE("config persistence failure cannot emit success, reload, or alter old storage");
     setup();
     authenticate();
     fake_silabs_store_blob[0] = 0xa5u;
@@ -149,14 +198,14 @@ static void test_config_persist_before_queue(void)
     CHECK(fake_silabs_store_len == 1u);
     CHECK(fake_silabs_store_blob[0] == 0xa5u);
     CHECK(fake_silabs_store_reloads == 0u);
-    CHECK(od_session_authenticated(&g_session));
+    CHECK(od_sec2_session_live(NULL));
     CHECK(od_txq_process() == 1u);
     CHECK(fake_silabs_sent_n == 1u);
     CHECK(fake_silabs_sent[0].len == 4u);
     CHECK(fake_silabs_sent[0].data[0] == RESP_NACK);
     CHECK(fake_silabs_sent[0].data[1] == RESP_CONFIG_WRITE);
 
-    CASE("CONFIG_CLEAR uses the same persist/queue/reload/clear ordering");
+    CASE("CONFIG_CLEAR uses the same persist/queue/reload ordering and keeps the session");
     setup();
     authenticate();
     fake_silabs_store_blob[0] = 0x5au;
@@ -171,7 +220,7 @@ static void test_config_persist_before_queue(void)
     CHECK(fake_silabs_store_len == 0u);
     CHECK(fake_silabs_reload_saw_queued);
     CHECK(fake_silabs_reload_saw_authenticated);
-    CHECK(!od_session_authenticated(&g_session));
+    CHECK(od_sec2_session_live(NULL));
 
     CASE("CONFIG_CLEAR persistence failure preserves both stored config and the live session");
     setup();
@@ -189,7 +238,7 @@ static void test_config_persist_before_queue(void)
     CHECK(fake_silabs_store_len == 1u);
     CHECK(fake_silabs_store_blob[0] == 0x5au);
     CHECK(fake_silabs_store_reloads == 0u);
-    CHECK(od_session_authenticated(&g_session));
+    CHECK(od_sec2_session_live(NULL));
     CHECK(od_txq_process() == 1u);
     CHECK(fake_silabs_sent_n == 1u);
     CHECK(fake_silabs_sent[0].len == 4u);
@@ -203,7 +252,7 @@ static void test_nfc_exact_limit(void)
     od_cmd_ctx_t ctx = od_test_cmd_ctx((od_reply_t){ OD_ORIGIN_BLE, 0u },
                                         &r, 0u, false);
 
-    CASE("an NFC record of exactly 218 bytes produces the 224-byte maximum plaintext frame");
+    CASE("an NFC record of exactly 218 bytes produces the 224-byte plaintext frame");
     setup();
     fake_silabs_nfc_read_len = 218u;
     CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
@@ -214,7 +263,7 @@ static void test_nfc_exact_limit(void)
     od_txq_release(&r);
     CHECK(od_txq_process() == 1u);
     CHECK(fake_silabs_sent_n == 1u);
-    CHECK(fake_silabs_sent[0].len == OD_SESSION_PLAIN_FRAME_MAX);
+    CHECK(fake_silabs_sent[0].len == (OD_NFC_READ_MAX + 6u));
     CHECK(fake_silabs_sent[0].data[0] == RESP_ACK);
     CHECK(fake_silabs_sent[0].data[1] == RESP_NFC_ENDPOINT);
 
@@ -307,6 +356,10 @@ static od_cmd_result_t ref_submit(const uint8_t *body, uint16_t n, bool foreign_
 }
 
 static void ref_authenticate(void) { authenticate(); fake_silabs_sent_n = 0u; }
+static bool ref_open_reply(const uint8_t *f, uint16_t n, uint8_t *out, uint16_t *out_n)
+{
+    return sec2c_open(&C, f, n, out, out_n);
+}
 
 #include "nfc_reference_cases.inc"
 #include "nfc_reference_runner.inc"
@@ -467,7 +520,7 @@ static void test_transport_deadlines(void)
                      fake_silabs_sent[0].len) == 0);
     }
     CHECK(od_txq_depth() == 0u);
-    CHECK(!od_session_authenticated(&g_session));
+    CHECK(!od_sec2_session_live(NULL));
     CHECK(fake_silabs_aborts == 1u);
     CHECK(sl_bt_can_process_event(8u));
 
@@ -489,7 +542,7 @@ static void test_transport_deadlines(void)
     opendisplay_pipe_process();
     CHECK(!od_config_read_active());
     CHECK(od_txq_depth() == 0u);
-    CHECK(!od_session_authenticated(&g_session));
+    CHECK(!od_sec2_session_live(NULL));
     CHECK(fake_silabs_aborts == 1u);
 }
 
@@ -557,8 +610,8 @@ static void test_degraded_boot_contracts(void)
     CASE("no MTU exchange ever happens, and the stack still carries a 224-byte reply");
     /* THE REGRESSION GUARD. The application keeps no MTU mirror, so it cannot refuse on a stale
      * one. A mirror would sit at the ATT default of 23 here -- the exchange event is a gatt-CLIENT
-     * class event and this device is only a server -- and every sealed reply, all of which are at
-     * least 31 bytes, would be dropped on a link that carries 253. */
+     * class event and this device is only a server -- and every reply above 20 bytes, sealed ones
+     * included, would be dropped on a link that carries 253. */
     setup();
     fake_silabs_nfc_read_len = 218u;
     CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
@@ -572,7 +625,7 @@ static void test_degraded_boot_contracts(void)
     od_txq_release(&r);
     CHECK(od_txq_process() == 1u);
     CHECK(fake_silabs_sent_n == 1u);
-    CHECK(fake_silabs_sent[0].len == OD_SESSION_PLAIN_FRAME_MAX);
+    CHECK(fake_silabs_sent[0].len == (OD_NFC_READ_MAX + 6u));
     CHECK(fake_silabs_delivered_n == 1u);     /* accepted, not merely offered */
     CHECK(od_txq_depth() == 0u);
 
@@ -617,7 +670,7 @@ static void test_degraded_boot_contracts(void)
     od_txq_release(&r);
     CHECK(od_txq_process() == 1u);
     CHECK(fake_silabs_sent_n == 1u);
-    CHECK(fake_silabs_sent[0].len == OD_SESSION_PLAIN_FRAME_MAX);
+    CHECK(fake_silabs_sent[0].len == (OD_NFC_READ_MAX + 6u));
     CHECK(od_txq_depth() == 0u);
 
     CASE("without TX completion reporting, END refuses instead of refreshing on an unproven ACK");
@@ -649,8 +702,206 @@ static void test_degraded_boot_contracts(void)
     }
 }
 
+static void test_read_ident(void)
+{
+    od_tx_reservation_t r;
+    od_cmd_ctx_t ctx = od_test_cmd_ctx((od_reply_t){ OD_ORIGIN_BLE, 0u }, &r, 0u, false);
+    const uint8_t *f;
+
+    CASE("READ_IDENT with no loaded config answers display_count 0, not an error");
+    setup();
+    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
+    ctx = od_test_cmd_ctx((od_reply_t){ OD_ORIGIN_BLE, opendisplay_pipe_connection_tag() },
+                          &r, 2u, false);
+    CHECK(od_cmd_app_read_ident(&ctx, od_span_make(NULL, 0u)) == OD_CMD_OK);
+    od_txq_release(&r);
+    CHECK(od_txq_process() == 1u);
+    CHECK(fake_silabs_sent_n == 1u);
+    f = fake_silabs_sent[0].data;
+    CHECK(fake_silabs_sent[0].len == 11u);
+    CHECK(f[0] == RESP_ACK && f[1] == RESP_READ_IDENT);
+    CHECK(f[2] == (uint8_t)OD_PROTOCOL_VERSION_MINOR && f[3] == OD_IDENT_TARGET_SILABS);
+    CHECK(f[4] == 0u);
+    /* config-driven firmware; no display, so nothing to migrate; SEC_V2 (unclaimed, normal mode) */
+    CHECK(f[5] == (0x01u | OD_IDENT_FLAG_SEC_V2));
+    /* The tail: BG22's limits, so a host needs no table. 3120 B config, 128 steps, no
+     * WINDOW/FILL compiled in. */
+    CHECK(f[6] == (3120u & 0xFFu) && f[7] == (3120u >> 8));
+    CHECK(f[8] == 128u && f[9] == 0u);
+    CHECK(f[10] == 0u);
+
+    CASE("READ_IDENT reports each display's ic type, geometry and colour scheme, LE, PLAINTEXT");
+    setup();
+    authenticate();   /* still plaintext: identity is answered before any key is known */
+    fake_silabs_global_config.loaded = true;
+    fake_silabs_global_config.display_count = 1u;
+    fake_silabs_global_config.displays[0].panel_ic_type = 0x001Eu;
+    fake_silabs_global_config.displays[0].pixel_width = 168u;
+    fake_silabs_global_config.displays[0].pixel_height = 384u;
+    fake_silabs_global_config.displays[0].color_scheme = 3u;
+    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
+    ctx = od_test_cmd_ctx((od_reply_t){ OD_ORIGIN_BLE, opendisplay_pipe_connection_tag() },
+                          &r, 2u, false);
+    CHECK(od_cmd_app_read_ident(&ctx, od_span_make(NULL, 0u)) == OD_CMD_OK);
+    od_txq_release(&r);
+    CHECK(od_txq_process() == 1u);
+    f = fake_silabs_sent[0].data;
+    CHECK(fake_silabs_sent[0].len == 18u);
+    CHECK(f[4] == 1u);
+    CHECK(f[5] == 0x1Eu && f[6] == 0x00u);
+    CHECK(f[7] == 168u && f[8] == 0u);
+    CHECK(f[9] == 0x80u && f[10] == 0x01u);
+    CHECK(f[11] == 3u);
+    /* no drive packets stored: needs migration; claimed (authenticate() above) */
+    CHECK(f[12] == (0x03u | OD_IDENT_FLAG_SEC_V2 | OD_IDENT_FLAG_CLAIMED));
+}
+
+/* ---- config write -> reconnect -> authenticate while the boot-screen pass is pending -------- *
+ * The loop below is opendisplay_display_service()'s boot branch, driven by the production
+ * policy (od_link_policy.c) and the production transport (opendisplay_pipe.c). The panel pass
+ * itself is a counter: on the device it blocks the superloop for a whole refresh, which is
+ * exactly why it must never run while a link is open or connectable advertising is on. */
+static struct od_panel_defer g_boot_defer;
+static unsigned g_panel_passes;
+static bool g_connectable;
+static bool g_pass_saw_link;
+static bool g_pass_saw_connectable;
+
+static void request_boot_screen(void) { od_panel_defer_request(&g_boot_defer); }
+
+static void service_pass(void)
+{
+    switch (od_panel_defer_poll(&g_boot_defer, opendisplay_pipe_connection() != 0xFFu,
+                                od_txq_depth() != 0u || od_xfer_active())) {
+    case OD_PANEL_DEFER_PAUSE_ADV:
+        g_connectable = false;
+        break;
+    case OD_PANEL_DEFER_RUN:
+        ++g_panel_passes;
+        g_pass_saw_link = g_pass_saw_link || opendisplay_pipe_connection() != 0xFFu;
+        g_pass_saw_connectable = g_pass_saw_connectable || g_connectable;
+        if (od_panel_defer_done(&g_boot_defer)) g_connectable = true;
+        break;
+    case OD_PANEL_DEFER_IDLE:
+    case OD_PANEL_DEFER_WAIT:
+        break;
+    }
+}
+
+static void close_connection(void)
+{
+    sl_bt_msg_t evt;
+    memset(&evt, 0, sizeof evt);
+    evt.header = sl_bt_evt_connection_closed_id;
+    evt.data.evt_connection_closed.reason = 0x13u;
+    opendisplay_pipe_handle_gatt_event(&evt);
+    g_connectable = true;   /* opendisplay_ble_on_event() restarts advertising on close */
+}
+
+static void gatt_write(const uint8_t *frame, uint8_t len)
+{
+    sl_bt_msg_t evt;
+    memset(&evt, 0, sizeof evt);
+    evt.header = sl_bt_evt_gatt_server_attribute_value_id;
+    evt.data.evt_gatt_server_attribute_value.attribute = opendisplay_pipe_characteristic();
+    evt.data.evt_gatt_server_attribute_value.att_opcode = sl_bt_gatt_write_request;
+    evt.data.evt_gatt_server_attribute_value.value.len = len;
+    memcpy(evt.data.evt_gatt_server_attribute_value.value.data, frame, len);
+    opendisplay_pipe_handle_gatt_event(&evt);
+}
+
+static void test_reconnect_after_config_write(void)
+{
+    const uint8_t config[] = { 0x55u };
+    const uint8_t fw_version[] = { 0x00u, 0x43u };
+    od_tx_reservation_t r;
+    unsigned sent;
+
+    CASE("config write -> reconnect -> authenticate while the boot-screen pass is pending");
+    setup();
+    memset(&g_boot_defer, 0, sizeof g_boot_defer);
+    g_panel_passes = 0u;
+    g_connectable = true;
+    g_pass_saw_link = false;
+    g_pass_saw_connectable = false;
+    fake_silabs_reload_hook = request_boot_screen;
+    authenticate();
+
+    /* The write that brings the first drive data: ACK queued, reload requests the boot screen. */
+    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
+    od_cmd_ctx_t ctx = od_test_cmd_ctx(
+        (od_reply_t){ OD_ORIGIN_BLE, opendisplay_pipe_connection_tag() }, &r, 2u, false);
+    CHECK(od_cmd_app_config_write(&ctx, od_span_make(config, sizeof config)) == OD_CMD_OK);
+    od_txq_release(&r);
+    service_pass();                       /* ACK still queued: the pass must wait */
+    CHECK(g_panel_passes == 0u);
+    CHECK(od_txq_process() == 1u);
+    CHECK(fake_silabs_sent_n == 1u);
+
+    /* The writer stays on the link and keeps working: nothing starves it, and its session
+     * survived the apply (SECURITY_V2 9.6: a config save ends no session). */
+    for (unsigned i = 0u; i < 5u; i++) service_pass();
+    CHECK(g_panel_passes == 0u);
+    CHECK(g_connectable);
+    CHECK(od_sec2_session_live(NULL));
+    sent = fake_silabs_sent_n;
+    gatt_write(fw_version, sizeof fw_version);
+    CHECK(fake_silabs_sent_n == sent + 1u);
+
+    /* Writer leaves. The first pass pauses advertising; a client the controller accepted just
+     * before the stop has its "opened" event delivered before the second pass. */
+    close_connection();
+    service_pass();
+    CHECK(!g_connectable);
+    CHECK(g_panel_passes == 0u);
+    open_connection(8u);
+    set_notifications(true);
+    service_pass();
+    CHECK(g_panel_passes == 0u);          /* the race cancelled the run */
+
+    /* The writer's session died with its link; the new client is answered at once: a full
+     * SEC2 HELLO/FINISH (not BUSY, not silence), and the plaintext set keeps answering. */
+    CHECK(!od_sec2_session_live(NULL));
+    {
+        const od_reply_t rp8 = { OD_ORIGIN_BLE, opendisplay_pipe_connection_tag() };
+        g_pop = fake_silabs_sent_n;
+        sec2c_init(&C, MASTER, UID);
+        CHECK(sec2c_auth(&C, &rp8) == 0);
+        CHECK(od_sec2_session_live(&rp8));
+    }
+    sent = fake_silabs_sent_n;
+    gatt_write(fw_version, sizeof fw_version);
+    CHECK(fake_silabs_sent_n == sent + 1u);
+    CHECK(fake_silabs_sent[sent].data[0] == RESP_ACK);
+    for (unsigned i = 0u; i < 5u; i++) service_pass();
+    CHECK(g_panel_passes == 0u);
+
+    /* It leaves too: pause, then the pass runs with no link and advertising off, then resumes. */
+    close_connection();
+    service_pass();
+    CHECK(!g_connectable);
+    service_pass();
+    CHECK(g_panel_passes == 1u);
+    CHECK(!g_pass_saw_link);
+    CHECK(!g_pass_saw_connectable);
+    CHECK(g_connectable);
+    service_pass();
+    CHECK(g_panel_passes == 1u);          /* one request, one pass */
+}
+
+static void test_link_policy_units(void)
+{
+    CASE("link policy: only BWR/BWY boot screens send a blank second plane");
+    CHECK(od_boot_has_blank_second_plane(OD_COLOR_SCHEME_BWR));
+    CHECK(od_boot_has_blank_second_plane(OD_COLOR_SCHEME_BWY));
+    CHECK(!od_boot_has_blank_second_plane(OD_COLOR_SCHEME_BWRY));
+    CHECK(!od_boot_has_blank_second_plane(OD_COLOR_SCHEME_MONO));
+    CHECK(!od_boot_has_blank_second_plane(OD_COLOR_SCHEME_GRAY4));
+}
+
 int main(void)
 {
+    test_read_ident();
     test_config_persist_before_queue();
     test_nfc_exact_limit();
     ref_run_table();
@@ -658,6 +909,8 @@ int main(void)
     test_transport_deadlines();
     test_transport_pressure_policy();
     test_degraded_boot_contracts();
+    test_reconnect_after_config_write();
+    test_link_policy_units();
     printf("silabs_fault: %u checks, %u failures\n", g_checks, g_failures);
     return g_failures == 0u ? 0 : 1;
 }

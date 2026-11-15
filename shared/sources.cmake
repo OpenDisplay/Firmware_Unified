@@ -63,13 +63,8 @@
 #                         three targets already broadcast, now pinned by a differential host
 #                         test instead of by a comment citing another target's line numbers.
 #                         Not a reordering of anything that parses or alters wire BEHAVIOUR.)
-#   core/od_session.c     auth, KDF, nonce/replay              (LANDED — moved AHEAD of
-#                         od_dispatch.c, deliberately. The dispatcher's own encryption gate is
-#                         written in terms of this module: it asks od_session_security_enabled()
-#                         and od_session_alive() before routing, and calls od_session_open() /
-#                         od_session_seal() around every handler. Landing dispatch first would
-#                         mean writing that gate against three targets' private session state and
-#                         then rewriting it, so the ordering is a dependency, not a preference.)
+#   core/od_sec2*.c       SEC2: KDF, code, P-256 check, key records, claim/auth/records
+#                         (docs/SECURITY_V2.md is the spec.)
 #   core/od_txq.c         response queue, reservation, drain   (LANDED — egress before dispatch,
 #                         because the dispatcher reserves capacity BEFORE it calls a handler and
 #                         cannot be written against a queue that does not exist yet. No wire
@@ -135,6 +130,7 @@ set(OD_SHARED_SOURCES_PURE
     "${CMAKE_CURRENT_LIST_DIR}/core/od_advert.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_config.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_config_log.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_health.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_zlib_inflate.c"
 )
 
@@ -143,7 +139,9 @@ set(OD_SHARED_SOURCES_HAL_ADV
 )
 
 set(OD_SHARED_SOURCES_HAL_CRYPTO
-    "${CMAKE_CURRENT_LIST_DIR}/core/od_session.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_sec2_kdf.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_sec2_code.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_sec2_p256.c"
 )
 
 set(OD_SHARED_SOURCES_HAL_RADIO
@@ -156,11 +154,20 @@ set(OD_SHARED_SOURCES_HAL_NVS
     "${CMAKE_CURRENT_LIST_DIR}/core/od_config_store.c"
 )
 
-# APP_SESSION needs MORE than a HAL: the target must supply the od_session_app seam and pair this
-# tier with APP_XFER. Dispatch routes the mandatory direct/partial opcode family straight to
+# APP_SESSION needs MORE than a HAL: the target must supply the od_sec2_app seam and
+# od_hal_secret, take HAL_CRYPTO and HAL_NVS (key records use its CRC), and pair this tier with
+# APP_XFER. Claim mode, the factory reset and the config policy (od_claim_mode / od_factory_reset /
+# od_cfg_policy) add two more seams: od_claim_app.h and od_hal_reset.h. Dispatch routes the mandatory direct/partial opcode family straight to
 # od_xfer, so a consumer taking APP_SESSION must also implement od_xfer_app. APP_XFER in turn
 # requires APP_INFLATE. These are source-list dependencies, not optional target policy.
 set(OD_SHARED_SOURCES_APP_SESSION
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_sec2.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_sec2_rec.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_cfg_policy.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_claim_mode.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_factory_reset.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_sec2_hooks.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_boot_key.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_reply.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_gate.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_config_read.c"
@@ -251,6 +258,83 @@ set(OD_SHARED_SOURCES_HAL_LOG
 
 set(OD_SHARED_SOURCES_HAL_WDT
     "${CMAKE_CURRENT_LIST_DIR}/core/od_watchdog.c"
+)
+
+# APP_EPD is the config-driven panel driver. od_epd holds no panel constants: every command
+# byte, waveform, pass count and colour code map arrives in the device config, so a new panel is
+# a config change rather than a firmware release. The target fills the seam (SPI, D/C, RST,
+# BUSY) and supplies the od_epd vtable.
+#
+# od_cfg_index comes with it and is not optional: od_epd reads packet bodies on demand instead
+# of holding them, because one waveform is 539 bytes against 32 KB of RAM on BG22. It needs
+# HAL_NVS for the medium.
+#
+# A config without drive packets drives nothing: there is no fallback panel table, and such a
+# device reports "needs migration" (docs/CONFIG_DRIVEN_DISPLAY.md).
+set(OD_SHARED_SOURCES_APP_EPD
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_cfg_index.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_epd.c"
+)
+
+# APP_NET_A is the finding-network advertising policy, network A (od_net_a) and network G /
+# FMDN (od_net_g): what makes each network
+# active, how the advertised address derives from the key, and the 31-byte record. It needs
+# shared/hal/od_hal_adv2.h -- a SECOND advertising set, declinable, because the finding record
+# is 31 network-defined bytes on a key-derived address and od_hal_adv installs 16 bytes of MSD
+# on the device identity. Only BG22 takes this tier today; the others answer false from
+# od_hal_adv2_supported() and link none of it.
+# APP_DRIVE binds od_epd to the stored config (od_epd_cfg) and carries the CMD_DRIVE_WRITE_START
+# handler over it. Needs APP_EPD and the od_drive_app.h seam. BG22 has its own adapter and
+# handler and does not take this tier.
+set(OD_SHARED_SOURCES_APP_DRIVE
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_cmd_drive.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_epd_cfg.c"
+)
+
+# APP_DISPLAY is the config-driven display path every target shares (od_display.h): ordinary and
+# partial uploads, multi-pass drive transfers, the boot screen and the image store, all from the
+# drive packets. It implements the panel half of od_boot_app.h, so a target taking it supplies
+# only the identity half. Needs APP_EPD, APP_DRIVE, APP_BOOT and the od_display_app.h seam.
+set(OD_SHARED_SOURCES_APP_DISPLAY
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_display.c"
+)
+
+# APP_IDENT is the CMD_READ_IDENT (0x0046) handler. Needs the od_ident_app.h seam and an
+# OD_IDENT_TARGET definition. Compiles to nothing unless OD_CAP_READ_IDENT.
+set(OD_SHARED_SOURCES_APP_IDENT
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_cmd_ident.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_advert_state.c"
+)
+
+# APP_SPI_RAW is the CMD_SPI_RAW wire handler. Needs the od_spi_raw_app.h seam and
+# od_epd_desc_diag() (BG22's panel adapter, or od_epd_cfg.c from APP_DRIVE). Compiles to nothing
+# unless OD_CAP_SPI_RAW.
+set(OD_SHARED_SOURCES_APP_SPI_RAW
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_cmd_spi_raw.c"
+)
+
+# APP_IMGSTORE is the external SPI NOR image store: a real NOR driver and fixed-slot storage
+# over shared/hal/od_hal_spi.h. Needs a flash chip on config-named pins and a target
+# implementation of the SPI seam, so it is gated by OD_CAP_IMGSTORE and only BG22 takes it.
+set(OD_SHARED_SOURCES_APP_IMGSTORE
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_flash_nor.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_imgstore.c"
+)
+
+# APP_ACTION is the trigger -> effect table: the generalisation of the
+# OD_LED_FLAG_BUTTON_PRESS / NFC flag bits, which spent three of LedFlags' four
+# spare bits on single-purpose reactions. Needs od_action_app.h from the target
+# and od_cfg_index to read the table on demand; od_cmd_action.c answers
+# CMD_ACTION_INFO / CMD_ACTION_FIRE and compiles to nothing unless OD_CAP_ACTION.
+# Taken by efr32bg22-slc and esp32-idf.
+set(OD_SHARED_SOURCES_APP_ACTION
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_action.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_cmd_action.c"
+)
+
+set(OD_SHARED_SOURCES_APP_NET_A
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_net_a.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_net_g.c"
 )
 
 # The aggregate: every tier, for consumers that have every HAL (today: the host tests, which fake

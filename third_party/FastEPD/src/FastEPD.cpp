@@ -37,23 +37,7 @@
 #include "arduino_io.inl"
 #endif // __LINUX__
 #include "FastEPD.inl"
-/* OD-PATCH: FastEPD's copy of the shared drawing layer is given INTERNAL LINKAGE.
- *
- * FastEPD and bb_epaper both carry bb_ep_gfx.inl and define the same symbols
- * (bbepUnicodeTo1252, bbepUnicodeString, RotateCharBox, bbepStretchAndSmooth, ...), so
- * linking both is a duplicate-symbol error. The source repo hid this with
- * -Wl,--allow-multiple-definition, which silently picked whichever the linker saw first.
- *
- * Deleting FastEPD's copy does not work: FastEPD.cpp's own wrappers call into it, even
- * though the application calls none of them. An anonymous namespace keeps both copies,
- * each private to its own library, so there is no collision and no arbitrary winner --
- * at the cost of some duplicated text the linker will mostly discard as unreferenced.
- *
- * See third_party/NOTICE.md § "The Group5 collision".
- */
-namespace {
 #include "bb_ep_gfx.inl"
-}
 
 //#pragma GCC optimize("O2")
 // Display how much time each operation takes on the serial monitor

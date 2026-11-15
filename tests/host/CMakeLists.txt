@@ -18,6 +18,8 @@ project(od_host_tests C CXX)
 
 enable_testing()
 find_package(Threads REQUIRED)
+# The SEC2 fake's P-256 (session_fake.c): nothing else on the host is a reference curve.
+find_package(OpenSSL REQUIRED COMPONENTS Crypto)
 
 # -----------------------------------------------------------------------------------
 # The contract: C99, no compiler extensions, warnings are errors.
@@ -29,6 +31,14 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
 add_compile_options(-Wall -Wextra -Werror)
+# clang 21+ flags a test fake's counter that is written but never asserted. Recording a call
+# nothing checks is harmless in a fake, and the warning would otherwise need one exemption per
+# fixture.
+include(CheckCCompilerFlag)
+check_c_compiler_flag(-Wunused-but-set-global OD_HAS_WUNUSED_BUT_SET_GLOBAL)
+if(OD_HAS_WUNUSED_BUT_SET_GLOBAL)
+    add_compile_options(-Wno-unused-but-set-global)
+endif()
 
 # Both gcc and clang are supported and CI runs both; neither is required locally. Select
 # with -DCMAKE_C_COMPILER=clang. Anything else builds too, it is just not what CI gates on.
@@ -40,11 +50,11 @@ message(STATUS "od: C compiler is ${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERS
 include(${CMAKE_CURRENT_LIST_DIR}/../../shared/sources.cmake)
 
 if(OD_SHARED_SOURCES)
-    add_library(od_shared STATIC ${OD_SHARED_SOURCES})
+    add_library(od_shared STATIC ${OD_SHARED_SOURCES} ${CMAKE_CURRENT_LIST_DIR}/claim_app_weak.c)
     target_include_directories(od_shared PUBLIC ${OD_SHARED_INCLUDE_DIRS})
     # BG22 changes the ABI of cap-sensitive shared structs and the PIPE reservation table. Compile
     # a real second variant; executable-local definitions cannot retroactively change od_shared.
-    add_library(od_shared_silabs STATIC ${OD_SHARED_SOURCES})
+    add_library(od_shared_silabs STATIC ${OD_SHARED_SOURCES} ${CMAKE_CURRENT_LIST_DIR}/claim_app_weak.c)
     target_include_directories(od_shared_silabs PUBLIC ${OD_SHARED_INCLUDE_DIRS})
     # The profile comes from shared/profiles.cmake, the same list the firmware compiles with;
     # OD_BOOT_LOGO_SIZES is host-only, because BG22 declines APP_BOOT and never builds the logo.
@@ -55,7 +65,7 @@ if(OD_SHARED_SOURCES)
     # The classic ESP32 profile negotiates a 16-frame PIPE window. Compile the complete shared
     # archive under that geometry so the derived reorder storage and queue assertions are tested,
     # rather than changing only the test translation unit after the archive was built.
-    add_library(od_shared_pipe_w16 STATIC ${OD_SHARED_SOURCES})
+    add_library(od_shared_pipe_w16 STATIC ${OD_SHARED_SOURCES} ${CMAKE_CURRENT_LIST_DIR}/claim_app_weak.c)
     target_include_directories(od_shared_pipe_w16 PUBLIC ${OD_SHARED_INCLUDE_DIRS})
     target_compile_definitions(od_shared_pipe_w16 PUBLIC
         OD_PIPE_MAX_W=16u
@@ -103,7 +113,12 @@ if(OD_SHARED_SOURCES)
         ${OD_SHARED_SOURCES_PURE}
         ${OD_SHARED_SOURCES_HAL_CRYPTO}
         ${OD_SHARED_SOURCES_HAL_RADIO}
+        ${OD_SHARED_SOURCES_HAL_NVS}
         ${OD_SHARED_SOURCES_APP_SESSION})
+    # HAL_NVS for od_config_store_crc32 (the OS2K/OS2S records use it), over an empty medium.
+    list(APPEND OD_SHARED_DISPATCH_FIXTURE_SOURCES ${CMAKE_CURRENT_LIST_DIR}/nvs_empty_test_stub.c)
+    # Weak, inert claim-mode / reset / display-busy seams (claim_app_weak.c); a test overrides.
+    list(APPEND OD_SHARED_DISPATCH_FIXTURE_SOURCES ${CMAKE_CURRENT_LIST_DIR}/claim_app_weak.c)
     list(FILTER OD_SHARED_DISPATCH_FIXTURE_SOURCES EXCLUDE REGEX "/core/od_core\\.c$")
     add_library(od_shared_dispatch_fixture STATIC ${OD_SHARED_DISPATCH_FIXTURE_SOURCES})
     target_include_directories(od_shared_dispatch_fixture PUBLIC ${OD_SHARED_INCLUDE_DIRS})
@@ -141,6 +156,21 @@ add_executable(od_span_test span_test.c)
 target_link_libraries(od_span_test od_shared)
 add_test(NAME span COMMAND od_span_test)
 
+# health: od_health's verdicts (docs/BG22_RAM_BUDGET.md section 4). The shipped default (escape
+# pattern off) links od_shared; the opt-in pattern is compiled into a second executable directly.
+add_executable(od_health_test health_test.c)
+target_link_libraries(od_health_test od_shared)
+add_test(NAME health COMMAND od_health_test)
+add_executable(od_health_pattern_test health_test.c ${CMAKE_CURRENT_LIST_DIR}/../../shared/core/od_health.c)
+target_include_directories(od_health_pattern_test PRIVATE ${OD_SHARED_INCLUDE_DIRS})
+target_compile_definitions(od_health_pattern_test PRIVATE OD_HEALTH_UPDATE_PATTERN_SHORT_BOOTS=2u)
+add_test(NAME health_pattern COMMAND od_health_pattern_test)
+# health_rollback: the same od_health on a rollback target (Nordic MCUboot, ESP32 OTA rollback):
+# confirm on a served write, revert on dead links, 24 h fallback, the deep-sleep hold.
+add_executable(od_health_rollback_test health_rollback_test.c)
+target_link_libraries(od_health_rollback_test od_shared)
+add_test(NAME health_rollback COMMAND od_health_rollback_test)
+
 add_executable(od_boot_payload_test boot_payload_test.c)
 target_link_libraries(od_boot_payload_test od_shared)
 add_test(NAME boot_payload COMMAND od_boot_payload_test)
@@ -148,6 +178,24 @@ add_test(NAME boot_payload COMMAND od_boot_payload_test)
 add_executable(od_color_test color_test.c)
 target_link_libraries(od_color_test od_shared)
 add_test(NAME color COMMAND od_color_test)
+
+# The source directly, not od_shared: od_net_a_sync() binds od_hal_adv2, and the three pure
+# functions under test need no HAL at all. Keeping the policy half linkable without a fake
+# stack is the point -- the record layout is a network specification, checkable on its own.
+add_executable(od_net_a_test net_a_test.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../shared/core/od_net_a.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../shared/core/od_net_g.c)
+target_link_libraries(od_net_a_test od_shared)
+add_test(NAME net_a COMMAND od_net_a_test)
+
+# od_action over a fake od_cfg_index and fake effects, so od_shared (which carries the real
+# index) is not linked.
+# (v3/bg22's action_test.c; renamed on merge with v3/host-tests, whose action_test.c drives
+# od_action over the real index and registers as `action` in drive_coverage.cmake.)
+add_executable(od_action_fake_index_test action_fake_index_test.c od_log_test_stub.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../shared/core/od_action.c)
+target_include_directories(od_action_fake_index_test PRIVATE ${OD_SHARED_INCLUDE_DIRS})
+add_test(NAME action_fake_index COMMAND od_action_fake_index_test)
 
 add_executable(od_boot_screen_test boot_screen_test.c
     ${CMAKE_CURRENT_LIST_DIR}/../../third_party/qrcode/qrcode.c)
@@ -175,6 +223,17 @@ add_executable(od_qrcode_test qrcode_test.c
 target_include_directories(od_qrcode_test PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/../../third_party/qrcode)
 add_test(NAME qrcode COMMAND od_qrcode_test)
+
+# The BG22 printf family, checked against the host C library. The unit is compiled with its
+# entry points renamed so the host libc stays the reference it is compared with.
+add_library(od_printf_bg22 OBJECT ${CMAKE_CURRENT_LIST_DIR}/../../targets/efr32bg22-slc/od_printf.c)
+target_compile_options(od_printf_bg22 PRIVATE -fno-builtin -U_FORTIFY_SOURCE)
+target_compile_definitions(od_printf_bg22 PRIVATE
+    printf=od_t_printf snprintf=od_t_snprintf vsnprintf=od_t_vsnprintf vprintf=od_t_vprintf
+    puts=od_t_puts putchar=od_t_putchar)
+add_executable(od_printf_bg22_test printf_bg22_test.c $<TARGET_OBJECTS:od_printf_bg22>)
+target_compile_options(od_printf_bg22_test PRIVATE -Wno-format -Wno-format-extra-args)
+add_test(NAME printf_bg22 COMMAND od_printf_bg22_test)
 
 add_executable(od_zlib_pump_test zlib_pump_test.c)
 target_link_libraries(od_zlib_pump_test od_shared)
@@ -205,7 +264,8 @@ add_executable(od_xfer_auto_test xfer_auto_test.c od_log_test_stub.c)
 target_link_libraries(od_xfer_auto_test od_xfer_auto od_shared)
 add_test(NAME xfer_auto COMMAND od_xfer_auto_test)
 
-add_executable(od_xfer_reply_session_test xfer_reply_session_test.c od_log_test_stub.c)
+add_executable(od_xfer_reply_session_test xfer_reply_session_test.c od_log_test_stub.c
+    sec2_client_direct.c nvs_empty_test_stub.c)
 target_link_libraries(od_xfer_reply_session_test od_session_fake)
 add_test(NAME xfer_reply_session COMMAND od_xfer_reply_session_test)
 
@@ -367,11 +427,26 @@ add_executable(od_silabs_storage_test
     fake_silabs/nvm3_fake.c
     ../../targets/efr32bg22-slc/od_hal_nvs.c
     ../../targets/efr32bg22-slc/opendisplay_config_storage.c)
+# The TARGET's own config/ is on the path, not a stub copy of it: the storage guard compares
+# OD_CONFIG_MAX_SIZE against NVM3_DEFAULT_MAX_OBJECT_SIZE, and a hand-mirrored copy of the
+# second one silently stops testing the real relationship the moment either moves.
 target_include_directories(od_silabs_storage_test PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/fake_silabs
-    ../../targets/efr32bg22-slc)
+    ../../targets/efr32bg22-slc
+    ../../targets/efr32bg22-slc/config)
 target_link_libraries(od_silabs_storage_test od_shared_silabs)
 add_test(NAME silabs_storage COMMAND od_silabs_storage_test)
+
+# silabs_purge: the BG22 storage purge over a ring-model NVM3 in which repackNeeded() never
+# clears (the real soft threshold on this layout). Proves the purge ends, turns the ring once and
+# never calls nvm3_repack().
+add_executable(od_silabs_purge_test
+    silabs_purge_test.c
+    ../../targets/efr32bg22-slc/od_nvm3_purge.c)
+target_include_directories(od_silabs_purge_test PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/fake_silabs
+    ../../shared/core)
+add_test(NAME silabs_purge COMMAND od_silabs_purge_test)
 
 # time_silabs: compile the production BG22 adapter over fake sleeptimer/udelay primitives. The
 # load-bearing case crosses the underlying 32-bit tick rollover and proves conversion happens in
@@ -488,6 +563,60 @@ add_executable(od_config_tlv_test config_tlv_test.c)
 target_link_libraries(od_config_tlv_test od_shared)
 add_test(NAME config_tlv COMMAND od_config_tlv_test)
 
+# epd_seq: the shared od_epd sequence executor over a recording io table -- the escapes no panel
+# on the bench exercises (CS_SELECT, READ/WRITE_SCRATCH) and the refuse-before-any-I/O rule.
+# od_epd.c is compiled in directly: it is the APP_EPD tier, which od_shared does not take.
+add_executable(od_epd_seq_test epd_seq_test.c ../../shared/core/od_epd.c)
+target_link_libraries(od_epd_seq_test od_shared)
+add_test(NAME epd_seq COMMAND od_epd_seq_test)
+
+# display: the shared config-driven display path (od_display -> od_epd_cfg -> od_epd) from a
+# stored config record to the bytes on a recorded panel bus, for every colour class, the real
+# panel data in display_presets.inc, the boot screen and a config without drive packets.
+add_executable(od_display_test display_test.c boot_key_stub.c
+    ../../shared/core/od_display.c
+    ../../shared/core/od_epd_cfg.c
+    ../../shared/core/od_epd.c
+    ../../shared/core/od_cfg_index.c
+    od_log_test_stub.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../third_party/qrcode/qrcode.c)
+target_link_libraries(od_display_test od_shared)
+add_test(NAME display COMMAND od_display_test)
+
+# xfer_split: a SPLIT_HALVES upload through od_xfer into od_display on a recorded bus, under
+# OD_XFER_SPLIT_HALVES=1 (ESP32's composition). od_xfer_panel_info_t changes size with the flag,
+# so every unit that includes od_xfer_app.h is compiled again with it, ahead of od_shared.
+add_library(od_xfer_split STATIC
+    ${CMAKE_CURRENT_LIST_DIR}/../../shared/core/od_xfer.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../shared/core/od_xfer_direct.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../shared/core/od_xfer_partial.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../shared/core/od_pipe.c)
+target_include_directories(od_xfer_split PUBLIC ${OD_SHARED_INCLUDE_DIRS})
+target_compile_definitions(od_xfer_split PUBLIC OD_XFER_SPLIT_HALVES=1)
+add_executable(od_xfer_split_test xfer_split_test.c boot_key_stub.c
+    ../../shared/core/od_display.c
+    ../../shared/core/od_epd_cfg.c
+    ../../shared/core/od_epd.c
+    ../../shared/core/od_cfg_index.c
+    od_log_test_stub.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../third_party/qrcode/qrcode.c)
+target_link_libraries(od_xfer_split_test od_xfer_split od_shared)
+add_test(NAME xfer_split COMMAND od_xfer_split_test)
+
+# legacy_upload: what py-opendisplay 7.14.0 (no drive modes) sends for an upload -- 0x70/0x71/0x72
+# compressed and not, and PIPE -- for one panel of every colour class, replayed into od_display:
+# it must render through mode 0 exactly as mode 0 driven directly does
+# (tests/vectors/legacy_uploads.inc, from gen_legacy_uploads.py). Same composition as xfer_split.
+add_executable(od_legacy_upload_test legacy_upload_test.c boot_key_stub.c
+    ../../shared/core/od_display.c
+    ../../shared/core/od_epd_cfg.c
+    ../../shared/core/od_epd.c
+    ../../shared/core/od_cfg_index.c
+    od_log_test_stub.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../third_party/qrcode/qrcode.c)
+target_link_libraries(od_legacy_upload_test od_xfer_split od_shared)
+add_test(NAME legacy_upload COMMAND od_legacy_upload_test)
+
 # config: the parsed aggregate -- instance caps, the Firmware zero-key rule, string termination,
 # and what a truncated blob leaves behind. Downstream of the pre-auth surface od_config_tlv
 # guards, so the cases are the ones where a hostile blob still reaches storage.
@@ -531,25 +660,25 @@ target_include_directories(od_rxq_test PRIVATE ${OD_SHARED_INCLUDE_DIRS})
 target_link_libraries(od_rxq_test Threads::Threads)
 add_test(NAME rxq COMMAND od_rxq_test)
 
-# reply: the seal-or-plain decision, against a fake radio AND a fake od_session_app seam.
+# reply: the seal-or-plain decision, against a fake radio and a real SEC2 session.
 #
-# The property is not "does it encrypt" but "is confidentiality chosen by the CALL". Both targets
-# used to infer it from the response bytes, and Nordic sealed its own rejection frames -- which the
-# host then decrypted and validated as an ACK for a command the device refused. The load-bearing
-# cases are the ones where the bytes would mislead: a {0x00,cmd,0xFF} rejection, a TLS-LAN frame
-# that must not be double-wrapped, and a live session with no security configured.
-add_executable(od_reply_test reply_test.c)
+# The property is not "does it encrypt" but "is confidentiality chosen by the CALL". The
+# load-bearing cases are the ones where the bytes would mislead: a {0x00,cmd,0xFF} rejection, a
+# TLS-LAN frame that must not be double-wrapped, and a claimed device with no session, whose
+# response must become a NACK rather than cleartext.
+add_executable(od_reply_test reply_test.c sec2_client_direct.c nvs_empty_test_stub.c)
 target_link_libraries(od_reply_test od_session_fake)
 add_test(NAME reply COMMAND od_reply_test)
 
-# gate: one case per od_session result, checking the WIRE BYTES and the outcome.
+# gate: one case per row of the SEC2 gating table and per od_sec2_open result, checking the WIRE
+# BYTES and the outcome.
 #
-# The compiler already proves the switches are exhaustive (od_gate.h explains the -Wswitch ratchet,
-# verified by deleting a case and watching the build fail). What it cannot prove is that each
-# member maps to the right action, which is where the consequences are: 0xFE advances the link's
-# auth-abuse run and 0xFF does not, and a replayed PIPE frame must draw SILENCE because the 0x81
-# NACK is fatal to the client's upload loop.
-add_executable(od_gate_test gate_test.c)
+# The compiler already proves the od_sec2_open switch is exhaustive (od_gate.h explains the
+# -Wswitch ratchet). What it cannot prove is that each member maps to the right action: FE goes
+# out plaintext, F1-F3 go out sealed, the third bad tag ends the session, and a no-ack opcode
+# draws SILENCE because the 0x81 NACK is fatal to the client's upload loop.
+add_executable(od_gate_test gate_test.c sec2_client_direct.c nvs_empty_test_stub.c
+    od_log_test_stub.c)
 target_link_libraries(od_gate_test od_session_fake)
 add_test(NAME gate COMMAND od_gate_test)
 
@@ -559,7 +688,8 @@ add_test(NAME gate COMMAND od_gate_test)
 # every chunk in one call and drained the ring between them, which only worked because it could
 # block the loop task it ran on. The reassembly check is what makes a dropped or repeated chunk
 # visible -- a count alone would not.
-add_executable(od_config_read_test config_read_test.c od_log_test_stub.c)
+add_executable(od_config_read_test config_read_test.c od_log_test_stub.c
+    sec2_client_direct.c nvs_empty_test_stub.c)
 target_link_libraries(od_config_read_test od_session_fake)
 add_test(NAME config_read COMMAND od_config_read_test)
 
@@ -572,10 +702,18 @@ add_test(NAME config_read COMMAND od_config_read_test)
 # CRC-valid read-back.
 # The ordinary fixture remains INFO for route/corpus consumers. The ordering executable puts the
 # DEBUG od_dispatch object first and captures records itself; the archive copy then stays unpulled.
-add_library(od_session_fake_dispatch STATIC session_fake.c aes128.c)
-target_link_libraries(od_session_fake_dispatch PUBLIC od_shared_dispatch_fixture)
-add_library(od_session_fake_dispatch_silabs STATIC session_fake.c aes128.c)
-target_link_libraries(od_session_fake_dispatch_silabs PUBLIC od_shared_dispatch_fixture_silabs)
+add_library(od_session_fake_dispatch STATIC session_fake.c sec2_client.c sec2_client_dispatch.c aes128.c)
+target_link_libraries(od_session_fake_dispatch PUBLIC od_shared_dispatch_fixture OpenSSL::Crypto)
+target_include_directories(od_session_fake_dispatch PUBLIC ${CMAKE_CURRENT_LIST_DIR})
+add_library(od_session_fake_dispatch_silabs STATIC session_fake.c sec2_client.c sec2_client_dispatch.c aes128.c)
+target_link_libraries(od_session_fake_dispatch_silabs PUBLIC od_shared_dispatch_fixture_silabs
+    OpenSSL::Crypto)
+target_include_directories(od_session_fake_dispatch_silabs PUBLIC ${CMAKE_CURRENT_LIST_DIR})
+
+# The session fake honours the same buffer rule as the production HALs (crypto_hal_contract).
+add_executable(od_crypto_contract_fake crypto_hal_contract_test.c)
+target_link_libraries(od_crypto_contract_fake od_session_fake_dispatch)
+add_test(NAME crypto_hal_contract_fake COMMAND od_crypto_contract_fake)
 
 add_executable(od_dispatch_test dispatch_test.c)
 target_compile_definitions(od_dispatch_test PRIVATE OD_LOG_LEVEL=OD_LOG_DEBUG)
@@ -585,8 +723,9 @@ add_test(NAME dispatch COMMAND od_dispatch_test)
 # The same ordering suite against BG22's actual shared ABI: 2 KB config buffer, three TX slots,
 # and PIPE/PARTIAL/RXQ declined. This catches a capability define applied only to a test TU instead
 # of to the shared objects whose routing and reservation table it changes.
-add_library(od_session_fake_silabs STATIC session_fake.c aes128.c)
-target_link_libraries(od_session_fake_silabs PUBLIC od_shared_silabs)
+add_library(od_session_fake_silabs STATIC session_fake.c sec2_client.c sec2_client_dispatch.c aes128.c)
+target_link_libraries(od_session_fake_silabs PUBLIC od_shared_silabs OpenSSL::Crypto)
+target_include_directories(od_session_fake_silabs PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 add_executable(od_dispatch_silabs_test dispatch_test.c)
 target_link_libraries(od_dispatch_silabs_test od_session_fake_dispatch_silabs)
 add_test(NAME dispatch_silabs COMMAND od_dispatch_silabs_test)
@@ -606,40 +745,84 @@ add_test(NAME dispatch_route COMMAND od_dispatch_route_test)
 # order.
 #
 # The cases that carry weight are the negative ones: RX must NOT be in it (its producer differs per
-# target, so a shared reset would race one and reorder the other), and the session must go through
-# od_session_clear() rather than a memset, or its prepared HAL key slot is stranded in a finite
-# pool with nothing left naming it.
+# target, so a shared reset would race one and reorder the other), and the session must be torn
+# down through od_sec2_disconnect() rather than zeroed, or its record keys stay in the HAL slots
+# with nothing left naming them.
 add_executable(od_core_reset_test core_reset_test.c od_xfer_app_test_stub.c od_log_test_stub.c
-    od_nfc_app_test_stub.c)
+    od_nfc_app_test_stub.c sec2_client_direct.c nvs_empty_test_stub.c)
 target_link_libraries(od_core_reset_test od_session_fake)
 add_test(NAME core_reset COMMAND od_core_reset_test)
 
-# session: the handshake, KDF, replay window and CCM envelope against a fake crypto HAL built on
-# the host AES core. DIFFERENTIAL where it matters -- the replay window is upstream Firmware's
-# own nonce_window.h, ported verbatim, so this suite exercises the shipped state machine rather
-# than a re-derivation of it.
+# sec2: the SEC2 claim, auth, record layer, fragments, gate and SEC_KEY, driven end to end
+# through od_dispatch_frame() at MTU 23 by tests/host/sec2_client.c -- which is NOT an
+# independent implementation (its header says why). The primitives underneath are independent
+# where it is possible: host AES (FIPS-197 checked below), RFC 4493 CMAC, generic RFC 3610 CCM
+# and OpenSSL's P-256.
 #
-# What a green run does NOT prove: that mbedTLS or PSA is driven correctly, that a PSA key policy
-# is right, or that a real backend's tag matches this one. Those need the targets and C5/C6
-# hardware. With the C0 capture skipped, the reference here is transcription plus a ported header,
-# not bytes a device emitted.
-# session_fake is its own library because tests/fuzz/ links the SAME fake. A second, subtly
-# different fake would make a fuzz finding unreproducible in this suite -- which is where a
-# finding has to land to stay fixed.
-add_library(od_session_fake STATIC session_fake.c aes128.c)
-target_link_libraries(od_session_fake PUBLIC od_shared)
+# What a green run does NOT prove: that PSA, mbedTLS or the Silabs CRYPTOACC driver is driven
+# correctly, or anything about ECDH timing and stack. Those need the targets.
+# session_fake is its own library because tests/fuzz/ links the SAME fake, so a fuzz finding
+# reproduces here.
+add_library(od_session_fake STATIC session_fake.c sec2_client.c sec2_client_dispatch.c aes128.c)
+target_link_libraries(od_session_fake PUBLIC od_shared OpenSSL::Crypto)
 target_include_directories(od_session_fake PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 
-add_executable(od_session_test session_test.c)
-target_link_libraries(od_session_test od_session_fake)
-add_test(NAME session COMMAND od_session_test)
+add_executable(od_sec2_test sec2_test.c od_log_test_stub.c)
+target_link_libraries(od_sec2_test od_session_fake_dispatch)
+add_test(NAME sec2 COMMAND od_sec2_test)
+
+# cfg_policy: the SEC2 config policy over real od_sec2 + od_config_store, checked against
+# py-opendisplay's independent vectors (tests/host/fixtures/sec2_vectors.json -- not tests/vectors/, which holds only wire-corpus
+# files -- copied verbatim from
+# py-opendisplay v3/py f02e380 tests/fixtures) and the branches they do not reach.
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+set(OD_SEC2_VEC_INC ${CMAKE_CURRENT_BINARY_DIR}/sec2_vectors.inc)
+add_custom_command(
+    OUTPUT ${OD_SEC2_VEC_INC}
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/gen_sec2_vectors.py
+            ${CMAKE_CURRENT_LIST_DIR}/fixtures/sec2_vectors.json ${OD_SEC2_VEC_INC}
+    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/gen_sec2_vectors.py ${CMAKE_CURRENT_LIST_DIR}/fixtures/sec2_vectors.json
+    VERBATIM)
+add_executable(od_cfg_policy_test cfg_policy_test.c od_log_test_stub.c ${OD_SEC2_VEC_INC})
+target_include_directories(od_cfg_policy_test PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(od_cfg_policy_test od_session_fake)
+add_test(NAME cfg_policy COMMAND od_cfg_policy_test)
+
+# cfg_policy_core: the same policy compiled with OD_SEC2=0 (a "Core" build, Q14).
+add_executable(od_cfg_policy_core_test cfg_policy_core_test.c od_log_test_stub.c
+    nvs_empty_test_stub.c ../../shared/core/od_cfg_policy.c)
+target_compile_definitions(od_cfg_policy_core_test PRIVATE OD_SEC2=0)
+target_link_libraries(od_cfg_policy_core_test od_shared)
+add_test(NAME cfg_policy_core COMMAND od_cfg_policy_core_test)
+
+# claim_mode: od_security_boot, the boot history (gesture + five-cycle factory reset), the claim
+# session and the factory reset with a power cut at every storage mutation, over the real od_sec2,
+# od_cfg_policy and od_config_store. Its own secret store, medium and inert crypto.
+add_executable(od_claim_mode_test claim_mode_test.c od_log_test_stub.c
+    ../../shared/core/od_advert_state.c)
+# od_advert_state.c is the APP_IDENT tier: it takes the target's OD_IDENT_TARGET like od_cmd_ident.c.
+target_compile_definitions(od_claim_mode_test PRIVATE OD_IDENT_TARGET=OD_IDENT_TARGET_ESP32)
+target_link_libraries(od_claim_mode_test od_shared)
+add_test(NAME claim_mode COMMAND od_claim_mode_test)
+
+# The same suite with the counter ceiling at 5, so exhaustion is reachable: od_sec2.c is compiled
+# into the executable with the override, ahead of the archive copy.
+add_executable(od_sec2_ctr_test sec2_ctr_test.c od_log_test_stub.c ../../shared/core/od_sec2.c)
+target_compile_definitions(od_sec2_ctr_test PRIVATE OD_SEC2_TEST_CTR_MAX=5u)
+target_link_libraries(od_sec2_ctr_test od_session_fake_dispatch)
+add_test(NAME sec2_ctr COMMAND od_sec2_ctr_test)
+
+# nonce_window: the H->D replay window, differential against a brute-force seen-set model.
+add_executable(od_nonce_window_test nonce_window_test.c)
+target_include_directories(od_nonce_window_test PRIVATE ${OD_SHARED_INCLUDE_DIRS})
+add_test(NAME nonce_window COMMAND od_nonce_window_test)
 
 # aes128: FIPS-197 known-answer vectors for the host AES core (tests/host/aes128.c).
 #
 # TEST SUPPORT, not a shared/ module -- but it is registered, and deliberately, because it is the
-# foundation every session expectation is computed on: the KDF, the session id, the auth proof and
-# every CCM tag come out of od_test_aes128_encrypt(). If it were wrong the session suite would
-# still agree with itself and prove nothing, so its vectors are the standard's own rather than
+# foundation every SEC2 expectation is computed on: the KDF, the transcripts' tags and every CCM
+# tag come out of od_test_aes128_encrypt() via session_fake.c. If it were wrong the sec2 suite
+# would still agree with itself and prove nothing, so its vectors are the standard's own rather than
 # values this implementation produced.
 #
 # Never linked into firmware: the targets use mbedTLS and PSA. It is not constant time.
@@ -688,9 +871,24 @@ target_include_directories(od_nordic_crypto_slot_test PRIVATE
 target_link_libraries(od_nordic_crypto_slot_test od_shared od_fake_psa)
 add_test(NAME nordic_crypto_slot COMMAND od_nordic_crypto_slot_test)
 
-# esp_crypto_random: the ESP32 RNG arm, which feeds the AUTHENTICATE challenge. od_session's rule
-# is that a device never offers a challenge it cannot honour, and that rule is unenforceable while
-# the backend cannot report failure.
+# crypto_hal_contract: the od_hal_crypto.h buffer rule (never NULL, even for an empty plaintext)
+# against the Nordic and BG22 production PSA HALs and against the session fake.
+add_executable(od_crypto_contract_nordic crypto_hal_contract_test.c
+    ../../targets/nordic-zephyr/src/od_hal_crypto.c)
+target_include_directories(od_crypto_contract_nordic PRIVATE ../../targets/nordic-zephyr/src)
+target_compile_definitions(od_crypto_contract_nordic PRIVATE OD_CONTRACT_STUB_LOG=1)
+target_link_libraries(od_crypto_contract_nordic od_shared od_fake_psa)
+add_test(NAME crypto_hal_contract_nordic COMMAND od_crypto_contract_nordic)
+add_executable(od_crypto_contract_bg22 crypto_hal_contract_test.c
+    ../../targets/efr32bg22-slc/od_hal_crypto.c)
+target_include_directories(od_crypto_contract_bg22 PRIVATE ../../targets/efr32bg22-slc)
+target_compile_definitions(od_crypto_contract_bg22 PRIVATE OD_BG22_DIAG=0)
+target_link_libraries(od_crypto_contract_bg22 od_shared od_fake_psa)
+add_test(NAME crypto_hal_contract_bg22 COMMAND od_crypto_contract_bg22)
+
+# esp_crypto_random: the ESP32 RNG arm, which feeds the SEC2 handshake nonces. od_sec2's rule is
+# that a device never sends a nonce from a failed draw, and that rule is unenforceable while the
+# backend cannot report failure.
 add_executable(od_esp_crypto_random_test
     esp_crypto_random_test.c
     od_log_test_stub.c
@@ -700,21 +898,18 @@ target_include_directories(od_esp_crypto_random_test PRIVATE
 target_link_libraries(od_esp_crypto_random_test od_shared od_fake_psa)
 add_test(NAME esp_crypto_random COMMAND od_esp_crypto_random_test)
 
-# nordic_session_app: the device-id packing, which is WIRE-VISIBLE -- four bytes of the silicon id
-# feed both the KDF and the AUTHENTICATE proof, so a different selection is a different device to
-# the host and every provisioned tag in a fleet becomes one no stored key opens. C11 moved that
-# arithmetic between files, which is exactly the change that can alter it without altering anything
-# a build or a boot would notice. Expectations are hand-computed, not taken from the code.
-add_executable(od_nordic_session_app_test
-    nordic_session_app_test.c
-    ../../targets/nordic-zephyr/src/od_session_app.c)
-target_include_directories(od_nordic_session_app_test PRIVATE
+# nordic_sec2_app: the SEC2 uid, which is WIRE-VISIBLE -- it is the KDF context of every key, so
+# a different byte selection is a different device to every host. Expectations are hand-written.
+add_executable(od_nordic_sec2_app_test
+    nordic_sec2_app_test.c
+    ../../targets/nordic-zephyr/src/od_sec2_app.c
+    ../../shared/core/od_advert_state.c)
+target_compile_definitions(od_nordic_sec2_app_test PRIVATE OD_IDENT_TARGET=OD_IDENT_TARGET_NRF54)
+target_include_directories(od_nordic_sec2_app_test PRIVATE
     ../../targets/nordic-zephyr/src
     ${CMAKE_CURRENT_LIST_DIR}/fake_zephyr)
-# od_session_fake, not od_shared: this pulls in od_session.c, which binds the crypto HAL at
-# link time. The fake is the one every other session binary already uses.
-target_link_libraries(od_nordic_session_app_test od_session_fake)
-add_test(NAME nordic_session_app COMMAND od_nordic_session_app_test)
+target_link_libraries(od_nordic_sec2_app_test od_shared)
+add_test(NAME nordic_sec2_app COMMAND od_nordic_sec2_app_test)
 
 # nordic_config_parser: the loop thread publishes one derived security byte only after a config
 # load completes; the BT RX thread's debug predicate reads that byte instead of the mutable
@@ -827,6 +1022,7 @@ if(Python3_FOUND)
         ../../targets/nordic-zephyr/src/od_cmd_config.c
         ../../targets/nordic-zephyr/src/od_cmd_reply.c
         ../../targets/nordic-zephyr/src/od_inflate_app.c
+        nvs_empty_test_stub.c
         ${OD_VEC_INC})
     target_include_directories(od_dispatch_corpus_nordic_test PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/fake_nordic
@@ -857,7 +1053,7 @@ if(Python3_FOUND)
     # nfc: the shared 0x0083 machine at OD_CAP_NFC=1, over the programmable tag.
     # This suite captures the shared lifecycle records exactly as well as exercising the wire
     # machine, so it supplies _od_log itself.
-    add_executable(od_nfc_test nfc_test.c)
+    add_executable(od_nfc_test nfc_test.c sec2_client_direct.c nvs_empty_test_stub.c)
     target_link_libraries(od_nfc_test od_fake_nfc_tag od_session_fake)
     add_test(NAME nfc COMMAND od_nfc_test)
 
@@ -875,6 +1071,8 @@ if(Python3_FOUND)
     # NO TAG SINK -- an absence the wire bytes cannot show.
     add_executable(od_nordic_nfc_test
         nordic_nfc_test.c
+        sec2_client_direct.c
+        nvs_empty_test_stub.c
         fake_nordic/fake_nordic.c
         ../../targets/nordic-zephyr/src/od_cmd_reply.c)
     target_include_directories(od_nordic_nfc_test PRIVATE
@@ -889,14 +1087,24 @@ if(Python3_FOUND)
     add_executable(od_dispatch_corpus_silabs_test
         corpus_runner.c
         corpus_profile_silabs.c
+        imgstore_app_test_stub.c
+        drive_display_test_stub.c
+        spi_raw_display_test_stub.c
         fake_silabs/fake_silabs.c
+        ../../targets/efr32bg22-slc/od_cmd_drive.c
+        ../../shared/core/od_cmd_spi_raw.c
         ../../targets/efr32bg22-slc/od_cmd_silabs.c
+        ../../targets/efr32bg22-slc/od_link_policy.c
+        ../../shared/core/od_cmd_ident.c
+        ../../shared/core/od_cfg_index.c
+        nvs_empty_test_stub.c
         ../../targets/efr32bg22-slc/od_inflate_app.c
         ${OD_VEC_INC})
     target_include_directories(od_dispatch_corpus_silabs_test PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/fake_silabs
         ../../targets/efr32bg22-slc)
     target_compile_definitions(od_dispatch_corpus_silabs_test PRIVATE
+        OD_IDENT_TARGET=OD_IDENT_TARGET_SILABS
         OPENDISPLAY_BUILD_ID="1a2b3c4d")
     target_link_libraries(od_dispatch_corpus_silabs_test od_session_fake_silabs)
     add_dependencies(od_dispatch_corpus_silabs_test od_vectors_generated)
@@ -907,9 +1115,18 @@ if(Python3_FOUND)
     # failures are state assertions rather than wire fixtures.
     add_executable(od_silabs_fault_test
         silabs_fault_test.c
+        imgstore_app_test_stub.c
+        drive_display_test_stub.c
+        spi_raw_display_test_stub.c
         fake_silabs/fake_silabs.c
         fake_silabs/fake_silabs_bgapi.c
+        ../../targets/efr32bg22-slc/od_cmd_drive.c
+        ../../shared/core/od_cmd_spi_raw.c
         ../../targets/efr32bg22-slc/od_cmd_silabs.c
+        ../../targets/efr32bg22-slc/od_link_policy.c
+        ../../shared/core/od_cmd_ident.c
+        ../../shared/core/od_cfg_index.c
+        nvs_empty_test_stub.c
         ../../targets/efr32bg22-slc/od_inflate_app.c
         ../../targets/efr32bg22-slc/opendisplay_pipe.c
         ../../targets/efr32bg22-slc/od_hal_radio.c)
@@ -918,6 +1135,7 @@ if(Python3_FOUND)
         ../../targets/efr32bg22-slc)
     target_compile_definitions(od_silabs_fault_test PRIVATE
         OD_TEST_REAL_SILABS_PIPE=1
+        OD_IDENT_TARGET=OD_IDENT_TARGET_SILABS
         OPENDISPLAY_BUILD_ID="1a2b3c4d")
     target_link_libraries(od_silabs_fault_test od_session_fake_silabs)
     add_test(NAME silabs_fault COMMAND od_silabs_fault_test)
@@ -1051,6 +1269,44 @@ elseif(NOT Python3_FOUND)
 else()
     message(WARNING "od: ${OD_REPLAY_SCRIPT} missing — replay_vectors NOT registered.")
 endif()
+
+# Telink TLSR825x (targets/telink-tlsr/). The target's plain-C modules -- the two-bank store,
+# the updater state machine, the software CCM/CMAC -- over host stand-ins for the flash and the
+# AES/P-256 primitives; the SDK-facing files are not host-compiled.
+set(OD_TLSR_SRC ${CMAKE_CURRENT_LIST_DIR}/../../targets/telink-tlsr/src)
+add_library(od_fake_tlsr_flash STATIC fake_tlsr/fake_tlsr_flash.c)
+target_include_directories(od_fake_tlsr_flash PUBLIC ${CMAKE_CURRENT_LIST_DIR}/fake_tlsr ${OD_TLSR_SRC})
+target_link_libraries(od_fake_tlsr_flash PUBLIC od_shared)
+
+# tlsr_store: power cut at every erase/program of a write, an erase and a purge.
+add_executable(od_tlsr_store_test tlsr_store_test.c od_log_test_stub.c)
+target_link_libraries(od_tlsr_store_test od_fake_tlsr_flash)
+add_test(NAME tlsr_store COMMAND od_tlsr_store_test)
+
+# tlsr_ota: the staged boot flag is set only after the whole image verified.
+add_executable(od_tlsr_ota_test tlsr_ota_test.c od_log_test_stub.c nvs_empty_test_stub.c ${OD_TLSR_SRC}/od_tlsr_ota.c)
+target_link_libraries(od_tlsr_ota_test od_fake_tlsr_flash)
+add_test(NAME tlsr_ota COMMAND od_tlsr_ota_test)
+
+# tlsr_mac: the flash UID gives the legacy firmware's address; then the MAC record; then a per-boot random one.
+add_executable(od_tlsr_mac_test tlsr_mac_test.c od_log_test_stub.c)
+target_link_libraries(od_tlsr_mac_test od_fake_tlsr_flash)
+add_test(NAME tlsr_mac COMMAND od_tlsr_mac_test)
+
+# tlsr_crypto: RFC 4493 vectors, a differential against OpenSSL CCM and ECDH; and the shared
+# buffer contract the other production HALs are held to.
+add_library(od_tlsr_crypto_ref STATIC fake_tlsr/tlsr_crypto_ref.c aes128.c
+    ${OD_TLSR_SRC}/od_tlsr_crypto.c)
+target_include_directories(od_tlsr_crypto_ref PUBLIC ${OD_TLSR_SRC} ${CMAKE_CURRENT_LIST_DIR})
+target_link_libraries(od_tlsr_crypto_ref PUBLIC od_shared OpenSSL::Crypto)
+add_executable(od_tlsr_crypto_test tlsr_crypto_test.c od_log_test_stub.c nvs_empty_test_stub.c)
+target_link_libraries(od_tlsr_crypto_test od_tlsr_crypto_ref)
+add_test(NAME tlsr_crypto COMMAND od_tlsr_crypto_test)
+add_executable(od_crypto_contract_telink crypto_hal_contract_test.c od_log_test_stub.c nvs_empty_test_stub.c)
+target_link_libraries(od_crypto_contract_telink od_tlsr_crypto_ref)
+add_test(NAME crypto_hal_contract_telink COMMAND od_crypto_contract_telink)
+
+include(${CMAKE_CURRENT_LIST_DIR}/drive_coverage.cmake)
 
 # --------------------------------------------------------------------------------------------
 # Fuzz targets (tests/fuzz/), Clang only -- -fsanitize=fuzzer is a Clang feature and gcc has no

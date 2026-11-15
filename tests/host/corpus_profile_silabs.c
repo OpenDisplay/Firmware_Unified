@@ -13,12 +13,17 @@
 typedef char silabs_pipe_cap_must_be_zero[(OD_CAP_PIPE == 0) ? 1 : -1];
 typedef char silabs_partial_cap_must_be_zero[(OD_CAP_PARTIAL == 0) ? 1 : -1];
 typedef char silabs_rxq_cap_must_be_zero[(OD_CAP_RXQ == 0) ? 1 : -1];
-typedef char silabs_config_cap_must_be_2048[(OD_CONFIG_MAX_SIZE == 2048u) ? 1 : -1];
+/* Pinned to the exact value, not a range: this executable claims to represent the BG22 ABI,
+ * and OD_CONFIG_MAX_SIZE sizes struct od_config_asm. A mismatch here means the suite is
+ * validating a layout the firmware does not run. Still below the portable profile's 4K, so
+ * od_corpus_profile_caps() withholds OD_VEC_CAP_CONFIG_4K. */
+typedef char silabs_config_cap_must_be_3120[(OD_CONFIG_MAX_SIZE == 3120u) ? 1 : -1];
 typedef char silabs_tx_slots_must_be_three[(OD_TXQ_SLOTS == 3u) ? 1 : -1];
 
 unsigned od_corpus_profile_caps(void)
 {
-    /* NFC is implemented. PIPE, partial, power latch, buzzer, 4K config and RXQ are not. */
+    /* NFC is implemented. PIPE, partial, power latch, buzzer, 4K config and RXQ are not;
+     * the config cap is 3120, which is larger than it was but still not 4K. */
     return OD_VEC_CAP_NFC;
 }
 

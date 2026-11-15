@@ -14,15 +14,15 @@
 
 #include "od_caps.h"
 #include "od_cmd.h"
-#include "od_session.h"
+#include "od_sec2.h"
 #include "od_span.h"
 #include "opendisplay_protocol.h"
 #include "opendisplay_structs.h"
 
-/* The read response is [status][cmd][0x80][rec_type][len:2][data], and od_session caps the whole
- * sealed frame. Derived rather than written down: 218 is wire-visible, so it must move if the
- * envelope ever does, and must not move quietly otherwise. */
-#define OD_NFC_READ_MAX ((uint16_t)(OD_SESSION_PAYLOAD_MAX - 4u))
+/* The read response is [status][cmd][0x80][rec_type][len:2][data]. 218 is wire-visible and stays
+ * what 2.x sent; the assert keeps it inside one sealed SEC2 D->H frame. */
+#define OD_NFC_READ_MAX ((uint16_t)218u)
+OD_STATIC_ASSERT(2u + 4u + 218u <= OD_SEC2_PLAIN_RESP_MAX, "an NFC read fits one sealed frame");
 
 /* A WIRE CONSTANT, not a target tunable. The canonical header documents NFC_ERR_BAD_TOTAL_LEN as
  * "total_len == 0 or > 512" and the client enforces the same number, so unlike OD_CONFIG_MAX_SIZE

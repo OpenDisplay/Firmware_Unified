@@ -306,3 +306,24 @@ void od_sensor_sht40_poll(const struct od_config *cfg, uint32_t now_ms)
         }
     }
 }
+
+bool od_sensor_sht40_read_temp_c(const struct od_config *cfg, int *temp_c_out)
+{
+    if (cfg == NULL || temp_c_out == NULL) {
+        return false;
+    }
+    for (uint8_t i = 0; i < cfg->sensor_count; i++) {
+        int16_t temp_centi = 0;
+        uint16_t rh_centi = 0;
+
+        if (cfg->sensors[i].sensor_type != OD_SENSOR_TYPE_SHT40) {
+            continue;
+        }
+        if (!sht40_sample(&cfg->sensors[i], &temp_centi, &rh_centi, NULL)) {
+            return false;
+        }
+        *temp_c_out = (temp_centi >= 0) ? ((temp_centi + 50) / 100) : ((temp_centi - 50) / 100);
+        return true;
+    }
+    return false;
+}

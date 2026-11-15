@@ -4,7 +4,7 @@
  * the rest of the HAL is mbedTLS and does not build on a workstation.
  *
  * PSA RATHER THAN esp_fill_random(), FOR ONE REASON: esp_fill_random() returns void. An adapter
- * built on it can only ever report success, so od_session's rule -- never offer a challenge the
+ * built on it can only ever report success, so the session rule -- never offer a nonce the
  * device cannot honour -- has nothing to act on, and a failed draw becomes a challenge that is
  * predictable or stale. psa_generate_random() returns a status, so the failure reaches the caller
  * and the handshake answers AUTH_STATUS_ERROR instead.

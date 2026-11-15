@@ -2,14 +2,12 @@
  *
  * WHY THIS EXISTS. tests/host/ links nothing but od_shared: there is no crypto library on the
  * host at all. The target backends are mbedTLS (esp32-idf) and PSA (nordic-zephyr), neither of
- * which exists in a host build, so without this the session tests cannot compute a single
+ * which exists in a host build, so without this the SEC2 tests cannot compute a single
  * expected byte. Two consumers need it:
  *
- *   - the fake od_hal_crypto, which must implement cmac/aes_ecb/ccm for real. A stub cannot
- *     exercise the KDF (CMAC then one ECB block under the master key) and cannot produce a CCM
- *     tag that od_session will accept.
- *   - session_ccm_reference.inc, the RFC 3610 soft CCM preserved from targets/nordic-zephyr.
- *     That file is only a MODE; aes_ecb_encrypt_16() is the primitive it calls.
+ *   - the fake od_hal_crypto (session_fake.c), which must implement cmac/aes_ecb/ccm for real. A
+ *     stub cannot exercise the SEC2 KDF (CMAC) and cannot produce a CCM tag od_sec2 will accept.
+ *   - the SEC2 test client (sec2_client.c), which computes every expected tag on the same core.
  *
  * NEVER LINKED INTO FIRMWARE. No target builds this file, and it must not acquire a consumer
  * under targets/ or shared/ -- the targets have hardware-accelerated implementations and this

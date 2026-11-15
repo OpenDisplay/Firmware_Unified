@@ -268,3 +268,68 @@ psa_status_t psa_generate_random(uint8_t *out, size_t out_len)
     }
     return PSA_SUCCESS;
 }
+
+psa_status_t psa_generate_key(const psa_key_attributes_t *attr, psa_key_id_t *key)
+{
+    uint8_t priv[32];
+    unsigned i;
+
+    for (i = 0u; i < sizeof priv; ++i) {
+        priv[i] = (uint8_t)(s_next_id + i);
+    }
+    return psa_import_key(attr, priv, sizeof priv, key);
+}
+
+static const uint8_t *key_bytes(psa_key_id_t id)
+{
+    unsigned i;
+
+    for (i = 0u; i < FAKE_PSA_MAX_KEYS; ++i) {
+        if (s_keys[i].live && s_keys[i].id == id) {
+            return s_keys[i].key;
+        }
+    }
+    return NULL;
+}
+
+psa_status_t psa_export_public_key(psa_key_id_t key, uint8_t *data, size_t data_size,
+                                   size_t *data_len)
+{
+    const uint8_t *k = key_bytes(key);
+    unsigned i;
+
+    if (k == NULL || data == NULL || data_len == NULL || data_size < 65u) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    data[0] = 0x04u;
+    for (i = 0u; i < 64u; ++i) {
+        data[1u + i] = (uint8_t)(k[i % 32u] ^ 0xA5u ^ i);
+    }
+    *data_len = 65u;
+    return PSA_SUCCESS;
+}
+
+psa_status_t psa_raw_key_agreement(psa_algorithm_t alg, psa_key_id_t key,
+                                   const uint8_t *peer, size_t peer_len,
+                                   uint8_t *out, size_t out_size, size_t *out_len)
+{
+    const uint8_t *k = key_bytes(key);
+    uint8_t any = 0u;
+    unsigned i;
+
+    if (alg != PSA_ALG_ECDH || k == NULL || peer == NULL || peer_len != 65u || peer[0] != 0x04u ||
+        out == NULL || out_len == NULL || out_size < 32u) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    for (i = 0u; i < 32u; ++i) {
+        any |= peer[1u + i];
+    }
+    if (any == 0u) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    for (i = 0u; i < 32u; ++i) {
+        out[i] = (uint8_t)(k[i] ^ peer[1u + i]);
+    }
+    *out_len = 32u;
+    return PSA_SUCCESS;
+}

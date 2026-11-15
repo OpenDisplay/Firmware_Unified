@@ -27,6 +27,26 @@ static uint32_t get_u32le(const uint8_t *p)
          | ((uint32_t)p[3] << 24);
 }
 
+uint32_t od_config_store_crc32_update(uint32_t crc_in, const uint8_t *data, uint32_t len)
+{
+    /* The running value is the FINALISED one, so a caller can stop and resume without
+     * tracking whether the inversion has been applied. Streaming consumers need that: the
+     * image store CRCs a frame it never holds in one piece. */
+    uint32_t crc = ~crc_in;
+
+    for (uint32_t i = 0; i < len; ++i) {
+        crc ^= data[i];
+        for (int bit = 0; bit < 8; ++bit) {
+            if (crc & 1u) {
+                crc = (crc >> 1) ^ 0xEDB88320u;
+            } else {
+                crc >>= 1;
+            }
+        }
+    }
+    return ~crc;
+}
+
 uint32_t od_config_store_crc32(const uint8_t *data, uint32_t len)
 {
     uint32_t crc = 0xFFFFFFFFu;
@@ -42,6 +62,39 @@ uint32_t od_config_store_crc32(const uint8_t *data, uint32_t len)
         }
     }
     return ~crc;
+}
+
+static uint32_t s_generation;
+static bool     s_writes_held;
+static bool     s_last_save_busy;
+static uint8_t  s_last_save_err = OD_ERR_CONFIG_WRITE_FAILED;
+
+uint32_t od_config_store_generation(void)
+{
+    return s_generation;
+}
+
+void od_config_store_hold_writes(bool held)
+{
+    od_config_store_app_lock();
+    s_writes_held = held;
+    od_config_store_app_unlock();
+}
+
+uint8_t od_config_store_save_error(void)
+{
+    const bool busy = s_last_save_busy;
+    const uint8_t err = s_last_save_err;
+
+    s_last_save_busy = false;
+    s_last_save_err = OD_ERR_CONFIG_WRITE_FAILED;
+    return busy ? OD_ERR_CONFIG_WRITE_BUSY : err;
+}
+
+void od_config_store_set_save_error(uint8_t err)
+{
+    s_last_save_busy = false;
+    s_last_save_err = err;
 }
 
 static enum od_config_store_result from_hal(int rc)
@@ -72,6 +125,8 @@ enum od_config_store_result od_config_store_save(void *workspace, uint32_t works
     uint32_t total;
     uint32_t crc;
 
+    s_last_save_busy = false;
+    s_last_save_err = OD_ERR_CONFIG_WRITE_FAILED;
     if (ws == NULL || payload == NULL) {
         od_log_error("Config save rejected: invalid arguments");
         return OD_CONFIG_STORE_IO;
@@ -86,6 +141,15 @@ enum od_config_store_result od_config_store_save(void *workspace, uint32_t works
         od_log_error("Config save rejected: workspace is %u bytes, need %u",
                      (unsigned)workspace_cap, (unsigned)total);
         return OD_CONFIG_STORE_TOO_BIG;
+    }
+    /* From the hold check to the end of the write under one lock, so a pass cannot take the
+     * hold between the check and the medium write. */
+    od_config_store_app_lock();
+    if (s_writes_held) {
+        od_config_store_app_unlock();
+        od_log_warn("Config save refused: a display pass is reading the stored config");
+        s_last_save_busy = true;
+        return OD_CONFIG_STORE_BUSY;
     }
 
     /* Before the header is written: on a target whose workspace overlays the config assembler,
@@ -106,7 +170,12 @@ enum od_config_store_result od_config_store_save(void *workspace, uint32_t works
     put_u32le(ws + 12, len);
 
     {
-        const enum od_config_store_result rc = from_hal(od_hal_nvs_write(ws, total));
+        enum od_config_store_result rc;
+
+        ++s_generation;
+        rc = from_hal(od_hal_nvs_write(ws, total));
+        ++s_generation;
+        od_config_store_app_unlock();
 
         if (rc == OD_CONFIG_STORE_OK) {
             od_log_info("Config stored: %u bytes", (unsigned)len);
@@ -206,8 +275,11 @@ enum od_config_store_result od_config_store_load(uint8_t *payload, uint32_t *len
 
 enum od_config_store_result od_config_store_clear(void)
 {
-    const enum od_config_store_result rc = from_hal(od_hal_nvs_erase());
+    enum od_config_store_result rc;
 
+    ++s_generation;
+    rc = from_hal(od_hal_nvs_erase());
+    ++s_generation;
     if (rc == OD_CONFIG_STORE_OK) {
         od_log_info("Stored config cleared");
     } else {

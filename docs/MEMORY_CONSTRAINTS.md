@@ -7,6 +7,9 @@ builds, not estimated.
 
 ## The BG22 budget (measured)
 
+**Current numbers, the heap floor and what the Bluetooth stack takes from the heap:
+docs/BG22_RAM_BUDGET.md** (the figures below are from an earlier image).
+
 From `arm-none-eabi-size` on the shipped `cmake_gcc/build/base/opendisplay-bg22.out` and the
 `.map`:
 
@@ -19,8 +22,10 @@ text 236316   data 492   bss 31792     (bss as reported includes the NOLOAD heap
   and `heap_size` is literally *whatever RAM is left* (`linkerfile.ld`: `RAM_end − __HeapBase`).
   **Every static byte `shared/core` adds comes straight out of the 10.3 KB heap**, which the BT
   stack already draws 3150 B from (`SL_BT_CONFIG_BUFFER_SIZE`).
-- **Flash: 236.8 KB of 272 KB, ~87 %, ~35 KB headroom.** Enough for shared code, but not
-  unlimited — measure `.text` after each subsystem swap.
+- **Flash: 236.8 KB of 272 KB, ~87 %, ~35 KB headroom** at the time of this measurement, which
+  is against the 272 KB slot and ignores the 24 KB NVM3 region inside it. **The real ceiling is
+  253,952 B, and at `6df2d6e` the image is 247,104 B: 6,848 B of headroom.** Measure `.text`
+  after each subsystem swap, against 253,952 and not against the build script's figure.
 - App code owns **~11.6 KB of the 21.2 KB static** (61 %). That is the negotiating room.
 
 ### The app-owned statics that `shared/core` competes with (BG22, measured via `nm`)
@@ -157,6 +162,10 @@ buffer with the CCM plaintext buffer, and shrink the replay window (below).
   at the end — a few KB over the hand-written original is a link failure, not a tuning task.
 
 ## Dependency policy: bb_epaper and FastEPD under ESP-IDF
+
+> 3.0: only FastEPD is still compiled (ESP32 IT8951 / parallel boards). No target links
+> bb_epaper; SPI panels run from config drive packets through `shared/core/od_epd.c`, and the
+> Group5 collision below no longer arises. The bb_epaper half is the import-time record.
 
 Both are Arduino-origin panel libraries; both must work under ESP-IDF (the ESP32 target drops
 Arduino). Findings verified against the clones at `/home/davelee/opendisplay/{bb_epaper,FastEPD}`.

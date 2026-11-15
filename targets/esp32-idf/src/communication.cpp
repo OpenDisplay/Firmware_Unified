@@ -1,4 +1,8 @@
+#include "od_sec2_trace.h"
+#include "od_claim_mode.h"
+#include "od_smp.h"
 #include "communication.h"
+#include "od_display_esp.h"
 #include "structs.h"
 #include "config_parser.h"
 #include "encryption.h"
@@ -21,13 +25,12 @@
 
 /* Chunked CONFIG_WRITE reassembly, promoted to shared/core (F3). */
 #include "od_config_asm.h"
+#include "od_config_store.h"
 #include "od_config_read.h"
 #include "od_dispatch.h"   /* od_dispatch_budget, for the migration's legacy reservations */
 #include "od_cmd_reply.h"
 
-/* The CCM envelope, both directions. The session itself is od_session_app.cpp's. */
-#include "od_session.h"
-#include "od_session_app.h"
+#include "od_sec2.h"
 #include "od_span.h"
 #include "od_xfer.h"
 #include "encryption_state.h"
@@ -182,12 +185,16 @@ static void reloadConfigAfterSave(void) {
         return;
     }
     od_log_info("Config reloaded from storage after save");
-    // Live-disable takes effect now: with keep-alive off, drop a still-warm panel
-    // here instead of waiting out the stale (<=30 s) deadline armed by the last push.
-    if (globalConfig.power_option.screen_timeout_seconds == 0 && epdSessionIsWarm()) {
+    // A warm panel was brought up under the old config, whose pins and drive packets may no
+    // longer describe it: power it down now rather than at the stale deadline.
+    if (epdSessionIsWarm()) {
         epdSessionForceOff();
     }
-    od_session_clear(od_session_app_state());
+    // A boot screen skipped for want of drive packets is shown once a config brings them.
+    // Not in claim mode: it owns the panel until the reboot that ends it (SECURITY_V2 7.3).
+    if (!od_claim_mode_active()) {
+        displayRequestBootAfterConfigWrite();
+    }
 #ifdef OPENDISPLAY_HAS_WIFI
     // Non-blocking: a config write arrives over a live BLE link, and the blocking
     // form stalls the loop task for up to 36 s of connect retries, freezing BLE
@@ -195,7 +202,6 @@ static void reloadConfigAfterSave(void) {
     initWiFi(false);
 #endif
 }
-void secureEraseConfig();
 // chunked_write_state_t comes from config_parser.h; this file used to redefine it
 // with a hardcoded 4096 in place of OD_CONFIG_MAX_SIZE.
 extern uint8_t configReadResponseBuffer[128];
@@ -204,7 +210,8 @@ float readBatteryVoltage();
 
 
 #ifndef BUILD_VERSION
-#define BUILD_VERSION "1.0.0"
+#include "od_fw_version.h"
+#define BUILD_VERSION OD_FW_VERSION_DEFAULT
 #endif
 #ifndef SHA
 #define SHA ""
@@ -388,7 +395,6 @@ od_cmd_result_t handleReadConfig(const od_cmd_ctx_t *ctx) {
 // Outcome of "is this frame allowed to MUTATE stored configuration?".
 enum ConfigWriteGate {
     CONFIG_WRITE_ALLOWED,        // proceed as-is
-    CONFIG_WRITE_ALLOWED_ERASE,  // proceed, but wipe the old record first (rewrite policy)
     CONFIG_WRITE_DENIED,         // answer RESP_AUTH_REQUIRED
 };
 
@@ -412,17 +418,10 @@ static ConfigWriteGate configWriteGate(const od_cmd_ctx_t *ctx) {
         return CONFIG_WRITE_ALLOWED;
     }
 #endif
-    // BLE and plaintext LAN keep the pre-TLS rule unchanged.
-    // od_session_alive() is MUTATING: it clears a session that has expired, which is the
-    // liveness semantics this gate has always had. Do not reorder the short-circuit, and do
-    // not swap in od_session_authenticated() -- that one is pure and would leave an expired
-    // session standing.
-    if (!od_session_security_enabled(od_session_app_security()) ||
-        od_session_alive(od_session_app_state(), od_hal_uptime_ms(), NULL)) {
-        return CONFIG_WRITE_ALLOWED;
-    }
-    const bool rewriteAllowed = (securityConfig.flags & (1 << 0)) != 0;
-    return rewriteAllowed ? CONFIG_WRITE_ALLOWED_ERASE : CONFIG_WRITE_DENIED;
+    // The SEC2 gate already admitted this frame: an unclaimed device, a claimed one with a
+    // verified record, or LAN TLS. The 2.x REWRITE_ALLOWED erase-and-write path is gone; key
+    // loss is recovered by factory reset (SECURITY_V2 13.5).
+    return CONFIG_WRITE_ALLOWED;
 }
 
 od_cmd_result_t handleWriteConfig(const od_cmd_ctx_t *ctx, uint8_t* data, uint16_t len) {
@@ -436,9 +435,6 @@ od_cmd_result_t handleWriteConfig(const od_cmd_ctx_t *ctx, uint8_t* data, uint16
         uint8_t response[] = {RESP_ACK, (uint8_t)(CMD_CONFIG_WRITE & 0xFF), RESP_AUTH_REQUIRED};
         (void)od_cmd_reply_plain(ctx, response, sizeof(response));
         return OD_CMD_AUTH_REJECTED;
-    }
-    if (gate == CONFIG_WRITE_ALLOWED_ERASE) {
-        secureEraseConfig();
     }
 
     uint8_t responseOk[]  = {RESP_ACK,  RESP_CONFIG_WRITE, 0x00, 0x00};
@@ -462,8 +458,10 @@ od_cmd_result_t handleWriteConfig(const od_cmd_ctx_t *ctx, uint8_t* data, uint16
          * final while the session that sent the write is still the one answering it. */
             const od_txq_status_t rc = od_cmd_reply(ctx, responseOk, sizeof(responseOk));
             reloadConfigAfterSave();
+            notifyConfigChangedOverBle();
             return (rc == OD_TXQ_OK) ? OD_CMD_OK : OD_CMD_NACK;
         }
+        responseErr[2] = od_config_store_save_error();
         (void)od_cmd_reply_plain(ctx, responseErr, sizeof(responseErr));
         return OD_CMD_NACK;
     }
@@ -485,8 +483,10 @@ od_cmd_result_t handleWriteConfig(const od_cmd_ctx_t *ctx, uint8_t* data, uint16
          * final while the session that sent the write is still the one answering it. */
             const od_txq_status_t rc = od_cmd_reply(ctx, responseOk, sizeof(responseOk));
             reloadConfigAfterSave();
+            notifyConfigChangedOverBle();
             return (rc == OD_TXQ_OK) ? OD_CMD_OK : OD_CMD_NACK;
         }
+        responseErr[2] = od_config_store_save_error();
         (void)od_cmd_reply_plain(ctx, responseErr, sizeof(responseErr));
         return OD_CMD_NACK;
     }
@@ -530,15 +530,16 @@ od_cmd_result_t handleWriteConfigChunk(const od_cmd_ctx_t *ctx, uint8_t* data, u
             (void)od_cmd_reply_plain(ctx, response, sizeof(response));
             return OD_CMD_AUTH_REJECTED;
         }
-        if (gate == CONFIG_WRITE_ALLOWED_ERASE) {
-            secureEraseConfig();
-        }
     }
 
     switch (od_config_asm_chunk(&g_configAsm, od_span_make(data, len))) {
-    case OD_CONFIG_ASM_ACCEPTED:
-        (void)od_cmd_reply(ctx, ok_resp, sizeof(ok_resp));
+    case OD_CONFIG_ASM_ACCEPTED: {
+        const od_txq_status_t rc = od_cmd_reply(ctx, ok_resp, sizeof(ok_resp));
+        OD_SEC2_TRACE("CONFIG_CHUNK accepted (%u B, %u of %u) ack rc=%d", (unsigned)len,
+                      (unsigned)g_configAsm.received, (unsigned)g_configAsm.total_size, (int)rc);
+        (void)rc;
         return OD_CMD_OK;
+    }
     case OD_CONFIG_ASM_COMPLETE: {
         /* Committed on an EXACT byte count, never a chunk count -- the F3 fix. */
         const bool saved = saveConfig(g_configAsm.buffer, (uint16_t)g_configAsm.total_size);
@@ -552,8 +553,10 @@ od_cmd_result_t handleWriteConfigChunk(const od_cmd_ctx_t *ctx, uint8_t* data, u
          * final while the session that sent the write is still the one answering it. */
             const od_txq_status_t rc = od_cmd_reply(ctx, ok_resp, sizeof(ok_resp));
             reloadConfigAfterSave();
+            notifyConfigChangedOverBle();
             return (rc == OD_TXQ_OK) ? OD_CMD_OK : OD_CMD_NACK;
         }
+        err_resp[2] = od_config_store_save_error();
         (void)od_cmd_reply_plain(ctx, err_resp, sizeof(err_resp));
         return OD_CMD_NACK;
     }
@@ -619,11 +622,6 @@ extern "C" void od_core_frame_done(const od_reply_t *rp, od_frame_outcome_t outc
     }
     if (p.stamp_activity) {
         linkStampOwnerCommand();
-        /* BOTH clocks, and the session one is not redundant. od_session_open() touches it on the
-         * encrypted BLE path, but an accepted TLS-LAN command never reaches od_session_open at all
-         * (SECTION 9 rule 4 gates it out), so without this the session's activity clock would stop
-         * for exactly the traffic that is keeping the link busy. */
-        od_session_touch(od_session_app_state(), od_hal_uptime_ms());
     }
     /* BLE ONLY, and the origin gate is not decoration: the same auth gate is reachable from
      * plaintext LAN, and counting those would let LAN traffic drop a BLE client. */
@@ -675,4 +673,11 @@ od_frame_outcome_t od_dispatch_app_frame(const od_reply_t *rp, uint8_t* data, ui
         od_txq_reset();
     }
     return outcome;
+}
+
+// SECURITY_V2 6.1: from the security state, never from the 0x27 bytes. The bytes said "open"
+// on a LOCKED device whose config has encryption_enabled = 0 (boot row 7) and in claim mode;
+// both served SMP image upload to any peer on the bench.
+extern "C" bool od_smp_encryption_on(void) {
+    return od_sec2_dfu_needs_unlock();
 }

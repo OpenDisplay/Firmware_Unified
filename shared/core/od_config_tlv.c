@@ -38,6 +38,19 @@ uint16_t od_config_tlv_body_size(uint8_t packet_id)
     case 0x2A: return (uint16_t)sizeof(struct NfcConfig);
     case 0x2B: return (uint16_t)sizeof(struct FlashConfig);
     case 0x2C: return (uint16_t)sizeof(struct DataExtended);
+    /* 0x2D findmy_config, the LAST id in the frozen range. It is here for the same reason
+     * 0x2A is: a target sizes every canonical packet whether or not it can act on it. Leaving
+     * it out is not neutral -- 0x2D sorts after every other legacy packet and before the
+     * length-prefixed range, so a device carrying findmy would abandon its blob exactly where
+     * the drive packets begin and come up with no panel data at all. */
+    case 0x2D: return (uint16_t)sizeof(struct FindMyConfig);
+    /* Burned 0x2E-0x31 (reserved; no struct, hence literals). Sized only so a config carrying
+     * them walks past instead of abandoning the 0xAE-0xB1 packets that sort after them. Never
+     * delivered -- see od_config_tlv_is_burned(). Matches Firmware_Silabs. */
+    case OD_CFG_TLV_BURNED_2E: return OD_CFG_TLV_BURNED_2E_SIZE;
+    case OD_CFG_TLV_BURNED_2F: return OD_CFG_TLV_BURNED_2F_SIZE;
+    case OD_CFG_TLV_BURNED_30: return OD_CFG_TLV_BURNED_30_SIZE;
+    case OD_CFG_TLV_BURNED_31: return OD_CFG_TLV_BURNED_31_SIZE;
     default:   return 0u;
     }
 }
@@ -77,22 +90,36 @@ enum od_config_tlv_result od_config_tlv_walk(od_span_t blob,
     od_span_t hdr;
     while (od_span_split(rest, 2u, &hdr, &rest)) {
         const uint8_t packet_id = hdr.p[1];    /* hdr.p[0] is the reserved byte */
+        uint16_t body_size;
 
-        const uint16_t body_size = od_config_tlv_body_size(packet_id);
-        if (body_size == 0u) {
-            /* Unknown id: abandon the remainder. Current fleet behaviour, preserved
-             * deliberately -- the size-table skip that would let the walk continue is an
-             * incompatible wire change and is deferred (D4). Not an error: a config carrying a
-             * packet this build does not know is newer, not corrupt.
+        if (packet_id >= OD_CFG_TLV_LEN_PREFIXED_MIN) {
+            /* [number][id][length:2 LE][body]. The declared length is what lets an id this
+             * build does not know be STEPPED OVER rather than end the walk -- the whole reason
+             * the range exists, and why every packet added after 0x2D lives in it.
              *
-             * HISTORY, kept because it is the one case that showed what this branch costs. This
-             * comment used to say 0x2A (nfc_config) was deliberately absent from the table as "a
-             * known packet no target here implements". That was wrong on its facts -- Nordic and
-             * Silabs both parsed it and continued -- so the table encoded the ESP32's behaviour
-             * as if it were the fleet's, and this branch silently made the rest of a config
-             * depend on whether the device had NFC hardware. Settled 2026-08-13: every canonical
-             * packet is parsed and stored whether or not the target can act on it, so 0x2A is in
-             * the table above and only genuinely-unknown ids reach here. */
+             * The length is attacker-controlled: the blob is parsed at boot from storage a
+             * client can write. It is never added to an offset here -- the split below compares
+             * against what remains, so an oversized declaration truncates the walk instead of
+             * reaching past the body region. */
+            od_span_t len_field;
+            if (!od_span_split(rest, 2u, &len_field, &rest)) {
+                return OD_CFG_TLV_TRUNCATED;
+            }
+            body_size = (uint16_t)((uint16_t)len_field.p[0] |
+                                   ((uint16_t)len_field.p[1] << 8));
+        } else {
+            body_size = od_config_tlv_body_size(packet_id);
+        }
+
+        if (packet_id < OD_CFG_TLV_LEN_PREFIXED_MIN && body_size == 0u) {
+            /* Unknown id in the FROZEN legacy range: abandon the remainder. There is no length
+             * on the wire below 0x80, so a walk that cannot size a packet cannot find the next
+             * one. Not an error: a config carrying a packet this build does not know is newer,
+             * not corrupt.
+             *
+             * This is why the legacy range is frozen at 0x2D and every later packet is
+             * length-prefixed. A new packet added here would put every packet after it behind a
+             * wall on any device that predates it. */
             if (unknown_id_out) {
                 *unknown_id_out = packet_id;
             }
@@ -108,12 +135,22 @@ enum od_config_tlv_result od_config_tlv_walk(od_span_t blob,
             return OD_CFG_TLV_TRUNCATED;
         }
 
+        /* Burned ids were sized only so the walk can get past them. Delivering one would hand a
+         * consumer a body whose layout no longer exists. */
+        if (od_config_tlv_is_burned(packet_id)) {
+            continue;
+        }
         if (!fn(ctx, packet_id, body)) {
             return OD_CFG_TLV_REJECTED;
         }
     }
 
     return OD_CFG_TLV_OK;
+}
+
+bool od_config_tlv_is_burned(uint8_t packet_id)
+{
+    return packet_id >= OD_CFG_TLV_BURNED_2E && packet_id <= OD_CFG_TLV_BURNED_31;
 }
 
 static uint16_t od_crc16_feed(uint16_t crc, uint8_t b)

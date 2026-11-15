@@ -137,3 +137,4 @@ CONFIG_MDNS_RESPOND_REVERSE_QUERIES=n
 #     implications that need testing rather than reasoning.
 #   CONFIG_MDNS_TIMER_PERIOD_MS (100) -- the announcement/retransmit tick. Lengthening it is a
 #     radio-duty-cycle win on battery, but it also slows first discovery after a wake.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y

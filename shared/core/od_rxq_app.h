@@ -10,7 +10,7 @@
  *     that policy; target implementations delegate to it so this independently selectable tier
  *     does not acquire a hidden APP_XFER source dependency.
  *
- * DELIBERATELY NOT ROUTED THROUGH od_session_app.h. APP_RXQ is an independently selectable
+ * DELIBERATELY NOT ROUTED THROUGH od_sec2_app.h. APP_RXQ is an independently selectable
  * source tier (shared/sources.cmake); calling the session seam from od_rxq.c would make it
  * depend on APP_SESSION without saying so. A target that takes APP_RXQ implements these two.
  *

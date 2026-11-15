@@ -16,8 +16,18 @@ const struct GlobalConfig *opendisplay_get_global_config(void);
 
 void opendisplay_ble_reload_config_from_nvm(void);
 
+/* The stored config was rewritten by the SEC2 policy: reload it at the next loop pass (or, at
+ * boot, right after od_security_boot). */
+void opendisplay_ble_config_changed(void);
+
+/* Erase every image-store slot, mounting the store first if needed (factory reset R5a). */
+bool opendisplay_ble_erase_images(void);
+
 void opendisplay_ble_on_event(sl_bt_msg_t *evt);
 void opendisplay_ble_process(void);
+/* Stop or resume connectable OpenDisplay advertising (the finding-network sets are untouched).
+ * Used around work that blocks the superloop, so no peer can open a link the host cannot serve. */
+void opendisplay_ble_set_connectable(bool connectable);
 void opendisplay_ble_schedule_dfu(void);
 void opendisplay_ble_schedule_deep_sleep(void);
 

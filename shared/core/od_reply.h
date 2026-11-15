@@ -25,18 +25,16 @@
 
 #include "od_txq.h"
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* Queue an application response, sealing it first when the session is live and the origin is not
- * already protected. `frame` is the complete [cmd:2][payload] form od_session_seal() takes -- the
- * two leading bytes are the AAD as well as the echoed prefix, so they travel with the payload.
- *
- * TLS-LAN is emitted plain at the application layer even through here: the transport already
- * protects it, and double-wrapping would leave a host unable to decode either layer.
+/* Queue an application response. On a claimed device over BLE it is sealed as one SEC2 D->H
+ * record ([E5][ctr][C][T], the whole frame is the plaintext); with no live session it becomes a
+ * hard NACK, never cleartext. Unclaimed devices, LAN and the plaintext scope send it as is.
  *
  * Spends exactly one unit of `r`. Errors, and what the caller must do:
  *   OK          queued
@@ -53,6 +51,10 @@ od_txq_status_t od_reply(od_tx_reservation_t *r, const od_reply_t *rp,
  * accounting and the same OD_TXQ_* results, minus the sealing ones. */
 od_txq_status_t od_reply_plain(od_tx_reservation_t *r, const od_reply_t *rp,
                                const uint8_t *frame, uint16_t len);
+
+/* The dispatcher brackets the plaintext-set handlers (0x0043, 0x0044, 0x0046; section 6 rule 1)
+ * with on/off, so od_reply() inside them never seals. */
+void od_reply_plain_scope(bool on);
 
 #ifdef __cplusplus
 }

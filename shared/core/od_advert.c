@@ -33,6 +33,9 @@ OD_STATIC_ASSERT(offsetof(struct MsdAdvertisement, battery_voltage_low) == OD_AD
 OD_STATIC_ASSERT(offsetof(struct MsdAdvertisement, status) == OD_ADV_OFF_STATUS,
                  "status offset moved");
 
+OD_STATIC_ASSERT(OD_ADVERT_ADV_PDU_LEN <= OD_ADVERT_LEGACY_PDU_MAX,
+                 "flags + name + MSD must fit one legacy advertising PDU");
+
 uint8_t od_advert_encode_temperature(float chip_temperature_c)
 {
     float steps = (chip_temperature_c - OD_ADVERT_TEMP_MIN_C) * 2.0f;
@@ -109,10 +112,28 @@ void od_advert_build(const struct od_advert_inputs *in, uint8_t *out)
     if (in->connection_requested) {
         status |= OD_MSD_STATUS_CONNECTION_REQUESTED;
     }
-    /* OD_MSD_STATUS_RESERVED_3 is never set: it is reserved and must be 0, and a device that
-     * sets it teaches a host to tolerate it. */
+    if (in->encryption_enabled) {
+        status |= OD_MSD_STATUS_ENCRYPTION_ENABLED;
+    }
     status |= (uint8_t)((in->loop_counter << OD_MSD_STATUS_MAIN_LOOP_COUNTER_SHIFT)
                         & OD_MSD_STATUS_MAIN_LOOP_COUNTER_MASK);
 
     out[OD_ADV_OFF_STATUS] = status;
+}
+
+void od_advert_apply_device_state(struct od_advert_inputs *in,
+                                  const struct od_advert_device_state *st)
+{
+    static const uint8_t unconfigured[OD_ADVERT_DYNAMIC_LEN] = {
+        0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu
+    };
+
+    if (in == NULL || st == NULL) {
+        return;
+    }
+    in->connection_requested = in->connection_requested || st->claim_mode;
+    in->encryption_enabled = st->session_required;
+    if (!st->display_drivable) {
+        in->dynamic = unconfigured;
+    }
 }

@@ -36,11 +36,13 @@ artifact/
 # This is a stopgap that keeps the facts in git. The real fix is to move both edits
 # somewhere they are not shadowed by a generator; until then, do not "clean up" these
 # negations.
+#
+# The rest of autogen/ is committed too, so a checkout builds without slc or Java (CI does
+# exactly that). Regenerate only with tools/slc_regenerate.sh and review the diff. The slc
+# bookkeeping and its agent notes stay out.
 !targets/efr32bg22-slc/autogen/
-targets/efr32bg22-slc/autogen/*
-!targets/efr32bg22-slc/autogen/linkerfile.ld
-!targets/efr32bg22-slc/autogen/gatt_db.c
-!targets/efr32bg22-slc/autogen/gatt_db.h
+targets/efr32bg22-slc/autogen/.slc_state/
+targets/efr32bg22-slc/autogen/AGENTS-SLAB.md
 
 # Nordic SDK (targets/nrf52-sdk)
 _build/
@@ -54,6 +56,8 @@ _build/
 *.uf2
 *.map
 *.gbl
+# Panel waveform data (535 B 0xAF LUT bodies) is source, not build output.
+!panels/waves/*.bin
 
 # Release output. `targets/esp32-idf/build.sh` delivers merged, ready-to-flash images here.
 # The *.bin rule above already covers the images; this also catches MANIFEST.txt, which is
@@ -93,3 +97,15 @@ dependencies.lock
 # `git add -A` swept them back in.
 __pycache__/
 *.py[cod]
+
+# `slc generate` byproducts for targets/efr32bg22-slc. The project is built with the CMake/GCC
+# flow only; IAR, LLVM, Makefile and VS Code outputs are regenerated on every run and none is
+# referenced by cmake_gcc/. Firmware_Silabs tracks none of them either.
+targets/efr32bg22-slc/cmake_gcc/autogen_toolchain.cmake
+targets/efr32bg22-slc/cmake_iar/
+targets/efr32bg22-slc/cmake_llvm/
+targets/efr32bg22-slc/opendisplay-bg22.Makefile
+targets/efr32bg22-slc/opendisplay-bg22.project.mak
+targets/efr32bg22-slc/opendisplay-bg22.ew[dpw]
+targets/efr32bg22-slc/opendisplay-bg22.ipcf
+targets/efr32bg22-slc/vscode.conf

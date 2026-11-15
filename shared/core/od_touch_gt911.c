@@ -106,9 +106,9 @@ static uint8_t s_suspend;
 /* THE IRQ MASK IS A uint8_t AND EVERY ADAPTER HARDCODES FOUR ISRs. Raising OD_CONFIG_MAX_TOUCH
  * without touching those would silently NULL-fill the ISR tables, and past eight would silently
  * truncate the mask. CLAUDE.md decision 1 asks for exactly this kind of assert. */
-_Static_assert(OD_TOUCH_MAX_CONTROLLERS <= 8u,
+OD_STATIC_ASSERT(OD_TOUCH_MAX_CONTROLLERS <= 8u,
                "the IRQ mask is 8 bits wide; widen od_touch_gt911_service() first");
-_Static_assert(OD_TOUCH_MAX_CONTROLLERS == 4u,
+OD_STATIC_ASSERT(OD_TOUCH_MAX_CONTROLLERS == 4u,
                "both adapters define exactly four ISRs; add them before raising this");
 
 /* --------------------------------------------------------------------- config helpers */

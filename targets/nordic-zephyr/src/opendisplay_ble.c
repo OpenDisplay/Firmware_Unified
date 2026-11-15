@@ -1,6 +1,12 @@
+#include "od_sec2.h"
 #include "opendisplay_ble.h"
+#include "od_health_app.h"
 #include "opendisplay_idle_wake.h"
 #include "od_log.h"
+#include "od_caps.h"
+#if OD_CAP_IMGSTORE
+#include "od_cmd_flash.h"
+#endif
 #include "opendisplay_config_parser.h"
 #include "opendisplay_config_storage.h"
 #include "opendisplay_cs.h"
@@ -11,6 +17,8 @@
 #include "opendisplay_touch.h"
 #include "opendisplay_buzzer.h"
 #include "opendisplay_pipe.h"
+#include "od_claim_mode.h"
+#include "od_sec2.h"
 #include "factory_config.h"
 #include "opendisplay_battery.h"
 #include "od_sensor_sht40.h"
@@ -37,8 +45,9 @@
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/hwinfo.h>
+#include <zephyr/drivers/retained_mem.h>
 #include <zephyr/drivers/sensor.h>
-#include <zephyr/kernel.h>
+#include <zephyr/kernel.h>   /* also CMSIS, for NVIC_SystemReset() */
 #include <zephyr/settings/settings.h>
 #if defined(CONFIG_MCUMGR_TRANSPORT_BT_DYNAMIC_SVC_REGISTRATION)
 #include <zephyr/mgmt/mcumgr/transport/smp_bt.h>
@@ -53,7 +62,8 @@
 #define OD_TX_POWER_DBM 8
 #endif
 #ifndef OD_FW_VERSION
-#define OD_FW_VERSION ""
+#include "od_fw_version.h"
+#define OD_FW_VERSION OD_FW_VERSION_DEFAULT
 #endif
 
 static const char *fw_build_version_string(void)
@@ -74,7 +84,7 @@ static const char *fw_build_version_string(void)
 }
 
 #ifndef OD_APP_VERSION
-#define OD_APP_VERSION         0x0100u
+#define OD_APP_VERSION         0x0300u
 #endif
 
 static uint8_t fw_major_from_build_version(void)
@@ -202,6 +212,9 @@ static uint8_t s_reboot_flag = 1; /* set after boot, cleared on first BLE connec
  * written. Kept as the field's placeholder rather than hardcoding false at the read. There is no
  * setter: wire one up on every target together, not here alone. */
 static uint8_t s_connection_requested;
+static bool s_config_changed;        /* od_claim_app_config_changed(): reload from the loop */
+static bool s_unpair_pending;        /* factory reset R5b, before bt_enable() */
+static bool s_boot_screen_deferred;  /* od_claim_mode_defer_boot_screen() held it back */
 static struct bt_le_adv_param s_adv_param = BT_LE_ADV_PARAM_INIT(
 	BT_LE_ADV_OPT_CONN,
 	OD_ADV_INTERVAL_MIN, OD_ADV_INTERVAL_MAX, NULL);
@@ -282,19 +295,15 @@ static void request_fast_link(struct bt_conn *conn)
 	}
 }
 
-static bool od_encryption_on(void)
-{
-	const struct SecurityConfig *sec = od_get_parsed_security();
-
-	return (sec != NULL) && (sec->encryption_enabled != 0u);
-}
-
 static void od_smp_sync(void)
 {
 #if defined(CONFIG_MCUMGR_TRANSPORT_BT_DYNAMIC_SVC_REGISTRATION)
 	/* smp_bt_setup() already registers the SVC at boot when dynamic reg is on. */
 	static bool s_smp_visible = true;
-	const bool want = s_ota_unlocked || !od_encryption_on();
+	/* SECURITY_V2 6.1 / 7.4: hidden on a claimed or LOCKED device until ENTER_DFU, and always
+	 * in claim mode. From the security state, never from the 0x27 bytes at rest (10.2); the
+	 * same predicate as the ESP32 SMP lock (od_sec2_dfu_needs_unlock). */
+	const bool want = s_ota_unlocked || !od_sec2_dfu_needs_unlock();
 	int err;
 
 	if (want == s_smp_visible) {
@@ -323,6 +332,49 @@ static void od_smp_sync(void)
 #endif
 }
 
+/* Reboot into the Adafruit bootloader's DFU mode.
+ *
+ * ONLY FOR THE COMPOSITION THAT HAS NO MCUboot. Without this, CMD_ENTER_DFU on nRF52840 is a
+ * lie: it ACKs, unlocks an SMP service that was compiled out, and nothing can update the
+ * device. Measured on an EN04 -- once this firmware is flashed there is NO software path back
+ * to the bootloader at all. Zephyr's CDC does not implement the Arduino 1200-baud touch (a BSP
+ * convention, verified absent here), and CMD_REBOOT only resets into the same valid
+ * application, so a tag in a case was unrecoverable without opening it.
+ *
+ * GPREGRET1 is the handshake register the Adafruit bootloader reads on reset. od_hal_wdt
+ * deliberately keeps its breadcrumb in GPREGRET2 so a strike write cannot cancel a pending DFU
+ * request -- see the note there; this is the other half of that arrangement.
+ *
+ * 0x4E is SERIAL-only DFU, chosen over 0xA8 (BLE OTA) deliberately. This bootloader exposes CDC
+ * and no mass storage, so serial DFU is its only USB path, and a unit that enters BLE OTA and
+ * is never updated waits in DFU until someone physically resets it. Serial recovery needs a
+ * cable but cannot strand a device that is merely out of radio range.
+ */
+#if !defined(CONFIG_BOOTLOADER_MCUBOOT)
+#define OD_ADAFRUIT_DFU_SERIAL_MAGIC 0x4Eu
+
+static void enter_adafruit_dfu(void)
+{
+	const struct device *gpregret1 = DEVICE_DT_GET_OR_NULL(DT_NODELABEL(gpregret1));
+	const uint8_t magic = OD_ADAFRUIT_DFU_SERIAL_MAGIC;
+
+	if (gpregret1 == NULL || !device_is_ready(gpregret1)) {
+		od_log_error("ENTER_DFU: gpregret1 unavailable; cannot reach the bootloader");
+		return;
+	}
+	if (retained_mem_write(gpregret1, 0, &magic, sizeof magic) != 0) {
+		od_log_error("ENTER_DFU: gpregret1 write failed; not resetting");
+		return;
+	}
+	od_log_info("ENTER_DFU: rebooting into the Adafruit serial bootloader");
+	/* Let the log drain and the ACK reach the host before the reset takes the link down. */
+	k_sleep(K_MSEC(250));
+	/* NVIC_SystemReset, not sys_reboot: od_cmd_app_reboot already resets this way, and
+	 * sys_reboot would need CONFIG_REBOOT which this build does not set. */
+	NVIC_SystemReset();
+}
+#endif
+
 static void dfu_work_handler(struct k_work *work)
 {
 	ARG_UNUSED(work);
@@ -331,6 +383,11 @@ static void dfu_work_handler(struct k_work *work)
 	if (s_conn != NULL) {
 		(void)bt_conn_disconnect(s_conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
 	}
+#if !defined(CONFIG_BOOTLOADER_MCUBOOT)
+	/* After the disconnect, so the host sees the link drop rather than a silent stall. */
+	(void)od_claim_mode_before_reboot();
+	enter_adafruit_dfu();
+#endif
 }
 
 static void boot_display_work_handler(struct k_work *work)
@@ -456,6 +513,13 @@ static void update_msd_payload(void)
 	adv.reboot_flag = (s_reboot_flag != 0u);
 	adv.connection_requested = (s_connection_requested != 0u);
 	adv.loop_counter = s_msd_loop_counter;
+	/* Status bits 2 (CLAIM_MODE) and 3 (SESSION_REQUIRED): SECURITY_V2 5.3, shared. */
+	{
+		struct od_advert_device_state st;
+
+		od_advert_device_state_now(&st);
+		od_advert_apply_device_state(&adv, &st);
+	}
 	od_advert_build(&adv, msd_payload);
 
 	s_msd_loop_counter = od_advert_advance_counter(s_msd_loop_counter);
@@ -502,6 +566,8 @@ static ssize_t od_gatt_write(struct bt_conn *conn, const struct bt_gatt_attr *at
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
 	}
 	opendisplay_pipe_on_write(buf, len, (flags & BT_GATT_WRITE_FLAG_CMD) != 0);
+	/* Evidence that this image serves GATT: confirms a freshly swapped-in MCUboot image. */
+	od_health_app_served();
 	return len;
 }
 
@@ -509,6 +575,7 @@ static void od_ccc_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value)
 {
 	ARG_UNUSED(attr);
 	s_notify_enabled = (value == BT_GATT_CCC_NOTIFY);
+	od_health_app_att_seen();
 	opendisplay_pipe_on_notify_changed(s_notify_enabled);
 }
 
@@ -520,28 +587,32 @@ BT_GATT_SERVICE_DEFINE(
 			       BT_GATT_PERM_WRITE, NULL, od_gatt_write, NULL),
 	BT_GATT_CCC(od_ccc_cfg_changed, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE), );
 
-static const struct bt_data ad[] = {
+/* SECURITY_V2 5.3.3: the name is in the advertising PDU, as on every other target, so passive
+ * scanners (and HA's name check) see it: flags 3 + MSD 18 + name 10 = 31 bytes, exactly full.
+ * The scan response keeps the 16-bit service UUID and, with Channel Sounding, the Ranging UUID. */
+static struct bt_data ad[] = {
 	BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
 	BT_DATA(BT_DATA_MANUFACTURER_DATA, s_programmed_msd, MSD_PAYLOAD_LEN),
+	BT_DATA(BT_DATA_NAME_COMPLETE, s_dev_name, OD_ADVERT_NAME_LEN),
 };
+BUILD_ASSERT(sizeof(OD_NAME_PREFIX) - 1u + 6u == OD_ADVERT_NAME_LEN,
+	     "the advertised name is OD + 6 hex digits");
+BUILD_ASSERT(OD_ADVERT_ADV_PDU_LEN <= 31u, "flags + MSD + name exceed a legacy PDU");
 
-static struct bt_data sd_name = BT_DATA(BT_DATA_NAME_COMPLETE, s_dev_name, 0);
 static const struct bt_data sd_od_uuid = BT_DATA_BYTES(BT_DATA_UUID16_ALL, 0x46, 0x24);
 static struct bt_data sd_cs_uuid;
-static struct bt_data sd_buf[3];
+static struct bt_data sd_buf[2];
 
 static unsigned sd_prepare(void)
 {
-	unsigned count = 2u;
+	unsigned count = 1u;
 	unsigned cs_extra = 0u;
 
-	sd_name.data_len = (uint8_t)strlen(s_dev_name);
-	sd_buf[0] = sd_name;
-	sd_buf[1] = sd_od_uuid;
+	sd_buf[0] = sd_od_uuid;
 	opendisplay_cs_fill_scan_response(&s_od_global_config, &sd_cs_uuid, 1u, &cs_extra);
 	if (cs_extra != 0u) {
-		sd_buf[2] = sd_cs_uuid;
-		count = 3u;
+		sd_buf[1] = sd_cs_uuid;
+		count = 2u;
 	}
 	return count;
 }
@@ -576,6 +647,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 	}
 	s_conn = bt_conn_ref(conn);
 	s_reboot_flag = 0;
+	od_health_app_link_opened();
 	request_fast_link(conn);
 	if (opendisplay_cs_config_enabled(&s_od_global_config)) {
 		opendisplay_cs_on_connected(conn);
@@ -596,6 +668,7 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
 	ARG_UNUSED(conn);
 	od_log_info("disconnected reason=%u", (unsigned)reason);
+	od_health_app_link_closed();
 	opendisplay_cs_on_disconnected(conn);
 	opendisplay_pipe_on_connection_closed();
 	if (s_conn != NULL) {
@@ -946,8 +1019,20 @@ void opendisplay_ble_reload_config_from_nvm(void)
 		memset(&s_od_global_config, 0, sizeof(s_od_global_config));
 	}
 	flash_powerdown_from_config();
+#if OD_CAP_IMGSTORE
+	od_flash_store_mount();
+#endif
 	od_smp_sync();
 	opendisplay_nfc_apply_config(&s_od_global_config);
+	/* A live config change is a reboot as far as a host is concerned: the flag tells a scanner
+	 * to re-read the device, and the MSD picks up the new encryption state. */
+	s_reboot_flag = 1;
+	opendisplay_ble_update_msd(true);
+	/* Claim mode owns the panel (SECURITY_V2 7.3); a pattern in progress holds the boot screen
+	 * back until the loop requests it. */
+	if (!od_claim_mode_active() && !s_boot_screen_deferred) {
+		opendisplay_display_request_boot();
+	}
 	/* Apply advertising TX power once the advertiser is active again. */
 	__atomic_store_n(&s_adv_txp_pending, (uint8_t)1, __ATOMIC_RELEASE);
 	/* Called from od_cmd_config.c's handlers, which run on the loop thread -- safe to request
@@ -991,15 +1076,36 @@ void opendisplay_ble_init(void)
 	(void)clearStoredConfig();
 #endif
 	bool config_loaded = loadGlobalConfig(&s_od_global_config);
+	bool factory_provisioned = false;
 	if (!config_loaded && tryProvisionFactoryEmbed()) {
 		/* No valid stored config, but a factory embed was just provisioned. */
 		config_loaded = loadGlobalConfig(&s_od_global_config);
+		factory_provisioned = config_loaded;
 	}
+#if OD_CAP_IMGSTORE
+	if (config_loaded) {
+		od_flash_store_mount();
+	}
+#endif
 	if (config_loaded) {
 		od_log_info("config loaded: displays=%u",
 		       (unsigned)s_od_global_config.display_count);
 	} else {
 		od_log_info("config: defaults");
+	}
+	/* SECURITY_V2 7.1 / 10.1, FACTORY_RESET.md 3.1: reset pin, boot history, a pending or
+	 * triggered factory reset, the boot decision and claim-mode entry, before the radio. */
+	{
+		struct od_security_boot_report rep;
+
+		od_security_boot(config_loaded ? od_get_parsed_security() : NULL, config_loaded,
+				 factory_provisioned, &rep);
+		od_log_info("sec2: cause=0x%03x k=%u state=%u claim=%u", (unsigned)rep.cause,
+			    (unsigned)rep.short_boots, (unsigned)rep.state, (unsigned)rep.kind);
+	}
+	if (s_config_changed) {
+		s_config_changed = false;
+		config_loaded = loadGlobalConfig(&s_od_global_config);
 	}
 	flash_powerdown_from_config();
 
@@ -1023,6 +1129,11 @@ void opendisplay_ble_init(void)
 	if (IS_ENABLED(CONFIG_SETTINGS)) {
 		(void)settings_load();
 	}
+	if (s_unpair_pending) {
+		/* FACTORY_RESET.md R5b, requested before bt_enable() by od_claim_app_erase_bonds(). */
+		s_unpair_pending = false;
+		(void)bt_unpair(BT_ID_DEFAULT, BT_ADDR_LE_ANY);
+	}
 	/* bt_enable(NULL) BLOCKS until ready -- unlike NimBLE's async on_sync, there's no later
 	 * "ready" event to poll for, so this is asserted once here. */
 	od_adv_stack_ready(&s_adv);
@@ -1039,16 +1150,32 @@ void opendisplay_ble_init(void)
 	 * esp32-idf/main.cpp's "SoftDevice must start before display/SPI; advertising starts
 	 * after boot screen" -- the BT stack is already up (bt_enable() above), but nothing may
 	 * be able to CONNECT yet, because a connected central can push a direct-write immediately,
-	 * and the shared transfer adapter touches the same BBEPDISP state and the
+	 * and the shared transfer adapter touches the same od_display session and the
 	 * same panel GPIOs/SPI device the boot-display work queue thread is mid-sequence on, with
 	 * no lock between them. A wedge on either side used to surface as a frozen, unpainted
 	 * boot screen with no way to tell why. The timeout keeps a genuinely stuck render from
 	 * also taking BLE reachability down with it -- staying reachable over BLE/DFU even with a
 	 * bad panel is the same trade-off od_watchdog_app_safe_mode() makes elsewhere. */
-	schedule_boot_display_apply();
-	if (k_sem_take(&s_boot_display_done, K_MSEC(OD_BOOT_DISPLAY_WAIT_MS)) != 0) {
-		od_log_error("boot display: still running after %u ms - advertising anyway",
-			     (unsigned)OD_BOOT_DISPLAY_WAIT_MS);
+	/* Claim mode draws its own screen. A boot that may be one step of a power-cycle pattern
+	 * defers the refresh until the pattern can no longer continue (od_claim_mode.h). */
+	if (od_claim_mode_defer_boot_screen()) {
+		s_boot_screen_deferred = !od_claim_mode_active();
+	} else if (!od_claim_mode_active()) {
+		uint32_t waited = 0u;
+
+		schedule_boot_display_apply();
+		/* Waited in slices on this (the loop) thread, which owns od_claim_mode: the
+		 * power-cycle count lands at T_ARM / T_CLEAR while the work queue draws, not after
+		 * the refresh (SECURITY_V2 7.2). */
+		while (k_sem_take(&s_boot_display_done, K_MSEC(100)) != 0) {
+			od_claim_mode_tick_count();
+			waited += 100u;
+			if (waited >= OD_BOOT_DISPLAY_WAIT_MS) {
+				od_log_error("boot display: still running after %u ms - advertising anyway",
+					     (unsigned)OD_BOOT_DISPLAY_WAIT_MS);
+				break;
+			}
+		}
 	}
 
 	od_adv_set_payload(&s_adv, msd_payload);
@@ -1057,6 +1184,31 @@ void opendisplay_ble_init(void)
 	 * opendisplay_ble_process() pass (called from main.c immediately after this function
 	 * returns), not synchronously here -- so s_dev_name is not yet valid at this log line. */
 	od_log_info("BLE init complete, advertising requested");
+}
+
+void opendisplay_ble_config_changed(void)
+{
+	s_config_changed = true;
+}
+
+void opendisplay_ble_request_unpair_all(void)
+{
+	s_unpair_pending = true;
+}
+
+/* Claim mode, the boot-history writes, a deferred boot screen and a policy reload. Called from
+ * every main-loop pass, connected or not. */
+void opendisplay_ble_security_tick(void)
+{
+	od_claim_mode_tick();
+	if (s_config_changed) {
+		s_config_changed = false;
+		opendisplay_ble_reload_config_from_nvm();
+	}
+	if (s_boot_screen_deferred && !od_claim_mode_defer_boot_screen()) {
+		s_boot_screen_deferred = false;
+		opendisplay_display_request_boot();
+	}
 }
 
 void opendisplay_ble_process(void)
@@ -1072,11 +1224,24 @@ void opendisplay_ble_process(void)
 	 * !epdRefreshInProgress) -- start_allowed unconditionally true, preserving current
 	 * behavior. */
 	(void)ble_service_advertising(true);
+	opendisplay_display_service();
+	od_health_app_tick();
 }
 
 bool opendisplay_ble_advertising_active(void)
 {
 	return s_adv.active;
+}
+
+bool opendisplay_ble_advertising_settling(void)
+{
+	if (s_adv.faulted || !s_adv.stack_ready) {
+		return false;
+	}
+	if (s_adv_restart_pending || s_adv.payload_dirty) {
+		return true;
+	}
+	return s_adv.desired && !s_adv.active && s_adv.connection_count == 0u;
 }
 
 void opendisplay_ble_schedule_dfu(void)
@@ -1088,6 +1253,9 @@ void opendisplay_ble_schedule_dfu(void)
 
 void opendisplay_ble_schedule_deep_sleep(void)
 {
+	if (!od_claim_mode_before_sleep()) {
+		return;                      /* claim mode stays awake (SECURITY_V2 7.3) */
+	}
 	od_log_info("deep sleep: nPM1300 hibernate if available");
 	opendisplay_sensor_npm1300_enter_hibernate();
 }

@@ -7,6 +7,14 @@
 
 uint32_t fake_k_sleep_ms;
 
+#if defined(OD_TEST_POLICY_NRF52840)
+void od_board_flash_powerdown(uint8_t mosi_cfg, uint8_t sck_cfg, uint8_t cs_cfg,
+                              uint8_t miso_cfg, uint8_t wp_cfg, uint8_t hold_cfg)
+{
+    (void)mosi_cfg; (void)sck_cfg; (void)cs_cfg; (void)miso_cfg; (void)wp_cfg; (void)hold_cfg;
+}
+#endif
+
 void k_msleep(int32_t ms)
 {
 	fake_k_sleep_ms += (uint32_t)ms;
