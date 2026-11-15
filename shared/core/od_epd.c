@@ -25,6 +25,9 @@
  * RAM held permanently for bytes that are only ever clocked straight out. */
 #define LUT_CHUNK 64u
 
+/* Post-reset settle for a panel whose BUSY line is unusable (begin_pass). */
+#define OD_EPD_RESET_SETTLE_MS 200u
+
 /* ------------------------------------------------------------------ helpers */
 
 bool od_epd_is_busy(od_epd_t *e)
@@ -695,7 +698,12 @@ int od_epd_begin_pass(od_epd_t *e, uint8_t pass)
 
     e->io_started = true;
     e->io->reset(10);
-    if (!od_epd_wait_idle(e, e->desc->busy_timeout_ms)) {
+    /* A panel with a lying BUSY line gets a short post-reset settle, not busy_fixed_delay_ms:
+     * that value is sized for a refresh (35 s on the GDEM042F52) and would be spent once per
+     * pass before the first command. 200 ms is bb_epaper's BBEP_SKIP_BUSY_WAIT wake delay. */
+    if (!e->desc->busy_usable) {
+        e->io->delay_ms(OD_EPD_RESET_SETTLE_MS);
+    } else if (!od_epd_wait_idle(e, e->desc->busy_timeout_ms)) {
         return OD_ERR_BUSY;
     }
 
