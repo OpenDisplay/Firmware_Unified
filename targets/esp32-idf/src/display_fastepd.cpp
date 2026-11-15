@@ -5,6 +5,7 @@
 #include "od_controller_esp.h"
 #include "od_sensor_sht40.h"
 #include "display_service.h"
+#include "od_log.h"
 #include "structs.h"
 /* No <Arduino.h>: this file never used one. Its only Arduino-shaped names -- SPISettings,
  * MSBFIRST, SPI_MODE0 -- come from the FastEPD vendor adapter below, which is permanent and
@@ -122,6 +123,10 @@ static void update_it8951_temperature(void) {
 static OdFastEPD g_epd;
 static uint32_t s_direct_offset;
 static bool s_hw_initialized = false;
+/* The panel FastEPD's buffer was allocated for (fastepd_parallel_panel() value). FastEPD sizes
+ * that buffer once, from the panel's native size, and cannot free or re-allocate it, so a
+ * config that names another panel or another size takes a reboot. */
+static int s_buf_panel = -2;
 
 static uint16_t s_partial_x;
 static uint16_t s_partial_y;
@@ -151,25 +156,49 @@ static void fastepd_apply_mode(void) {
     }
 }
 
-static size_t fb_byte_size(void) {
-    uint32_t w = globalConfig.displays[0].pixel_width;
-    uint32_t h = globalConfig.displays[0].pixel_height;
-    if (fastepd_panel_is_4gray()) {
-        return (size_t)((w + 1) / 2) * h;
-    }
-    return (size_t)((w + 7) / 8) * h;
+// Every size below is FastEPD's native one, i.e. the size of the allocated buffer.
+static unsigned row_pitch_bytes(void) {
+    const unsigned w = (unsigned)g_epd.state()->native_width;
+    return fastepd_panel_is_4gray() ? (w + 1u) / 2u : (w + 7u) / 8u;
 }
 
-static unsigned row_pitch_bytes(void) {
-    unsigned w = globalConfig.displays[0].pixel_width;
-    return fastepd_panel_is_4gray() ? (unsigned)((w + 1) / 2) : (unsigned)((w + 7) / 8);
+static size_t fb_byte_size(void) {
+    return (size_t)row_pitch_bytes() * (size_t)g_epd.state()->native_height;
+}
+
+// True when the config still describes the panel the buffer was allocated for. A mismatch is
+// a config written since boot; it fails the display until a reboot re-allocates.
+static bool fb_matches_config(void) {
+    const FASTEPDSTATE* st = g_epd.state();
+    if (globalConfig.display_count < 1) return false;
+    const struct DisplayConfig& d = globalConfig.displays[0];
+    return fastepd_parallel_panel() == s_buf_panel &&
+           d.pixel_width == (uint32_t)st->native_width &&
+           d.pixel_height == (uint32_t)st->native_height;
+}
+
+// The framebuffer, or NULL (and the driver marked failed) when the config no longer matches it.
+static uint8_t* fb(void) {
+    uint8_t* p = g_epd.currentBuffer();
+    if (!p) return nullptr;
+    if (!fb_matches_config()) {
+        if (!s_init_failed) {
+            od_log_error("fastepd: config is %ux%u panel %d, buffer is %dx%d panel %d; reboot to apply",
+                         (unsigned)globalConfig.displays[0].pixel_width,
+                         (unsigned)globalConfig.displays[0].pixel_height, fastepd_parallel_panel(),
+                         g_epd.state()->native_width, g_epd.state()->native_height, s_buf_panel);
+        }
+        s_init_failed = true;
+        return nullptr;
+    }
+    return p;
 }
 
 static void blit_1bpp_rect(uint8_t* dst, const uint8_t* src, uint32_t src_len,
                            uint16_t x, uint16_t y, uint16_t w, uint16_t h,
                            uint32_t* io_offset) {
     if (!dst || !src || !io_offset) return;
-    const unsigned panel_pitch = (globalConfig.displays[0].pixel_width + 7u) / 8u;
+    const unsigned panel_pitch = ((unsigned)g_epd.state()->native_width + 7u) / 8u;
     const unsigned rect_pitch = (w + 7u) / 8u;
     uint32_t off = *io_offset;
     uint32_t end = off + src_len;
@@ -281,8 +310,18 @@ void fastepd_epaper_begin(void) {
                 s_hw_initialized = false;
                 return;
             }
+            s_buf_panel = parallel;
             g_epd.setMode(fastepd_panel_is_4gray() ? BB_MODE_4BPP : BB_MODE_1BPP);
             g_epd.setPreviousMode((uint8_t)g_epd.getMode());
+            if (!fb_matches_config()) {
+                (void)fb();   // logs and marks the failure
+                s_hw_initialized = false;
+                return;
+            }
+        } else if (!fb_matches_config()) {
+            (void)fb();
+            s_hw_initialized = false;
+            return;
         } else {
             g_epd.einkPower(1);
             s_hw_initialized = true;   // fastepd_apply_mode() requires it
@@ -308,6 +347,12 @@ void fastepd_epaper_begin(void) {
             s_hw_initialized = false;
             return;
         }
+        s_buf_panel = parallel;
+    }
+    if (!fb_matches_config()) {
+        (void)fb();
+        s_hw_initialized = false;
+        return;
     }
 
     if (fastepd_panel_is_4gray()) {
@@ -335,7 +380,7 @@ static void fastepd_full_refresh_impl(void) {
 
 void fastepd_full_update(void) {
     if (panel_is_it8951()) { update_it8951_temperature(); od_it8951_full_update(); return; }
-    if (!g_epd.currentBuffer()) return;
+    if (!fb()) return;
     fastepd_full_refresh_impl();
     g_epd.backupPlane();
 }
@@ -355,8 +400,8 @@ void fastepd_sleep_after_refresh(void) {
 
 void fastepd_boot_write_row(uint16_t y, const uint8_t* row, unsigned pitch) {
     if (panel_is_it8951()) { od_it8951_boot_write_row(y, row, pitch); return; }
-    uint8_t* p = g_epd.currentBuffer();
-    if (!p || !row) return;
+    uint8_t* p = fb();
+    if (!p || !row || y >= (unsigned)g_epd.state()->native_height) return;
     unsigned rp = row_pitch_bytes();
     if (pitch < rp) return;
     memcpy(p + (size_t)y * rp, row, rp);
@@ -376,7 +421,7 @@ void fastepd_direct_write_reset(void) {
         fastepd_apply_mode();
     }
     s_direct_offset = 0;
-    uint8_t* p = g_epd.currentBuffer();
+    uint8_t* p = fb();
     if (p) {
         memset(p, 0xFF, fb_byte_size());
     }
@@ -385,7 +430,7 @@ void fastepd_direct_write_reset(void) {
 void fastepd_direct_write_chunk(const uint8_t* data, uint32_t len) {
     if (panel_is_it8951()) { od_it8951_direct_write_chunk(data, len); return; }
     if (!data || len == 0) return;
-    uint8_t* base = g_epd.currentBuffer();
+    uint8_t* base = fb();
     if (!base) return;
     size_t maxb = fb_byte_size();
     size_t room = (s_direct_offset < maxb) ? (maxb - s_direct_offset) : 0;
@@ -398,7 +443,7 @@ void fastepd_direct_write_chunk(const uint8_t* data, uint32_t len) {
 
 void fastepd_direct_refresh(int refresh_mode) {
     if (panel_is_it8951()) { update_it8951_temperature(); od_it8951_direct_refresh(refresh_mode); return; }
-    if (!g_epd.currentBuffer()) return;
+    if (!fb()) return;
     if (refresh_mode == 1) {
         // FAST: parallel 1bpp uses native diff; IT8951 uses its DU waveform.
         // 4bpp has no fast path (fastUpdate is 1bpp-only) -> fall back to full.
@@ -461,8 +506,11 @@ bool fastepd_partial_write_chunk(const uint8_t* data, uint32_t len) {
     if (len > s_partial_expected - s_partial_bytes_written) return false;
 
     uint8_t* prev = g_epd.previousBuffer();
-    uint8_t* cur = g_epd.currentBuffer();
+    uint8_t* cur = fb();
     if (!cur) return false;
+    const FASTEPDSTATE* st = g_epd.state();
+    if ((uint32_t)s_partial_x + s_partial_w > (uint32_t)st->native_width ||
+        (uint32_t)s_partial_y + s_partial_h > (uint32_t)st->native_height) return false;
 
     uint32_t remaining = len;
     const uint8_t* p = data;
@@ -492,7 +540,7 @@ bool fastepd_partial_write_chunk(const uint8_t* data, uint32_t len) {
 bool fastepd_partial_refresh(int refresh_mode) {
     if (panel_is_it8951()) { update_it8951_temperature(); return od_it8951_partial_refresh(refresh_mode); }
     if (s_partial_bytes_written != s_partial_expected) return false;
-    if (!g_epd.currentBuffer()) return false;
+    if (!fb()) return false;
 
     if (refresh_mode == 0) {
         fastepd_full_refresh_impl();

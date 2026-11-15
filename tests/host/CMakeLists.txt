@@ -1334,3 +1334,21 @@ target_compile_definitions(od_esp32_it8951_test PRIVATE OPENDISPLAY_FASTEPD=1)
 target_compile_options(od_esp32_it8951_test PRIVATE
     $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti>)
 add_test(NAME esp32_it8951 COMMAND od_esp32_it8951_test)
+
+add_executable(od_esp32_fastepd_test esp32_fastepd_test.cpp
+    fake_fastepd/fake_fastepd.cpp fake_esp32/fake_esp32.c
+    ../../targets/esp32-idf/src/display_fastepd.cpp
+    ../../targets/esp32-idf/src/display_it8951.cpp
+    od_log_test_stub.c)
+target_include_directories(od_esp32_fastepd_test PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/fake_fastepd
+    ${CMAKE_CURRENT_LIST_DIR}/fake_esp32
+    ../../third_party/FastEPD/src
+    ../../targets/esp32-idf/src
+    ../../shared/core
+    ../../shared/hal
+    ../../shared/protocol)
+target_compile_definitions(od_esp32_fastepd_test PRIVATE OPENDISPLAY_FASTEPD=1)
+target_compile_options(od_esp32_fastepd_test PRIVATE
+    $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti>)
+add_test(NAME esp32_fastepd COMMAND od_esp32_fastepd_test)
