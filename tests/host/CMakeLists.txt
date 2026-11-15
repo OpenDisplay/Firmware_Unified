@@ -903,6 +903,7 @@ add_test(NAME esp_crypto_random COMMAND od_esp_crypto_random_test)
 add_executable(od_nordic_sec2_app_test
     nordic_sec2_app_test.c
     ../../targets/nordic-zephyr/src/od_sec2_app.c
+    ../../targets/nordic-zephyr/src/od_boot_render_gate.c
     ../../shared/core/od_advert_state.c)
 target_compile_definitions(od_nordic_sec2_app_test PRIVATE OD_IDENT_TARGET=OD_IDENT_TARGET_NRF54)
 target_include_directories(od_nordic_sec2_app_test PRIVATE

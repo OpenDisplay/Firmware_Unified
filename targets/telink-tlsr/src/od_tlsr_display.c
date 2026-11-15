@@ -466,6 +466,9 @@ bool od_drive_app_adopt(const od_color_geometry_t *frame, uint8_t passes, bool c
     return od_display_adopt_drive(frame, passes, compressed, tail);
 }
 
+/* Single-threaded superloop: nothing drives the panel behind the handler's back. */
+bool od_drive_app_panel_busy(void) { return false; }
+
 /* The glass reading from the last panel-up, while it is under an hour old. */
 int8_t od_drive_app_temp_c(void)
 {

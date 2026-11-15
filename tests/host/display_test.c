@@ -236,6 +236,7 @@ const struct DisplayConfig *od_drive_app_display(void) { return g_has_display ? 
 const od_epd_cfg_bus_t *od_drive_app_bus(void)         { return &g_bus; }
 void od_drive_app_abort(void)                          { od_display_abort(); }
 int8_t od_drive_app_temp_c(void)                       { return g_temp; }
+bool od_drive_app_panel_busy(void)                     { return false; }
 
 bool od_drive_app_panel_up(const struct DisplayConfig *d)
 {

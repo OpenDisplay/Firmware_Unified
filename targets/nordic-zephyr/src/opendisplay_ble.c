@@ -37,6 +37,7 @@
 #include "od_hal_adv.h"
 #include "od_adv_control.h"
 #include "od_adv_watch.h"
+#include "od_boot_render_gate.h"
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/gap.h>
@@ -396,9 +397,11 @@ static void dfu_work_handler(struct k_work *work)
 static void boot_display_work_handler(struct k_work *work)
 {
 	ARG_UNUSED(work);
+	od_boot_render_gate_enter();
 	if (!opendisplay_display_boot_apply()) {
 		od_log_error("boot display failed after bounded retry");
 	}
+	od_boot_render_gate_leave();
 	/* Given on both the success and failure arms above: the waiter in opendisplay_ble_init()
 	 * cares that the panel is no longer being touched, not that the render succeeded. */
 	k_sem_give(&s_boot_display_done);
