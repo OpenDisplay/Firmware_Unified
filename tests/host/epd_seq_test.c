@@ -61,7 +61,15 @@ static void rec(int kind, uint8_t a, const uint8_t *d, size_t n)
 static void io_cmd(uint8_t c)                    { rec(OP_CMD, c, NULL, 0u); }
 static void io_data(const uint8_t *d, size_t n)  { rec(OP_DATA, 0u, d, n); }
 static void io_reset(uint32_t ms)                { (void)ms; rec(OP_RESET, 0u, NULL, 0u); }
-static void io_delay(uint32_t ms)                { (void)ms; }
+static uint32_t g_delays[16];
+static unsigned g_ndelays;
+static void io_delay(uint32_t ms)
+{
+    if (g_ndelays < sizeof g_delays / sizeof g_delays[0]) {
+        g_delays[g_ndelays] = ms;
+    }
+    ++g_ndelays;
+}
 static bool io_busy(void)                        { return true; }   /* idle level 1 */
 
 /* Storage faults: the g_fail_call'th seq_read (1-based; 0 = never) returns 0 bytes, or one byte
@@ -148,6 +156,7 @@ static void setup(const uint8_t *seq, uint16_t len, uint8_t passes, bool cs_hook
 {
     memset(g_ops, 0, sizeof g_ops);
     g_nops = 0u;
+    g_ndelays = 0u;
     g_read_calls = 0u;
     g_fail_call = 0u;
     g_fail_short = false;
@@ -239,6 +248,46 @@ static void test_malformed_args_are_seq_errors(void)
     setup(wr_big, sizeof wr_big, 1u, true, true);
     CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_SEQ);
     CHECK(g_nops == 0u);
+}
+
+/* After reset, a BUSY-usable panel polls (no delay when it reads idle), and a BUSY-unusable one
+ * waits a short settle. The refresh-sized busy_fixed_delay_ms belongs to @busy only: spending
+ * it after reset made every pass of the 4.2in GDEM042F52 (0x003A) start 35 s late, so a 0x0070
+ * START answered after ~36 s against a 10 s host bound. */
+static void test_post_reset_wait(void)
+{
+    /* cmd 0x12, @busy, @image, end */
+    static const uint8_t seq[] = {
+        0x01, 0x12,
+        0x00, 0x01,
+        0x00, 0x03,
+        0x00, 0x00,
+    };
+
+    CASE("BUSY unusable: 200 ms after reset, the fixed delay only at @busy");
+    setup(seq, sizeof seq, 1u, false, false);
+    g_desc.busy_usable = false;
+    g_desc.busy_fixed_delay_ms = 35000u;
+    g_ndelays = 0u;
+    CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_OK);
+    CHECK(g_ndelays == 2u);
+    CHECK(g_delays[0] == 200u);
+    CHECK(g_delays[1] == 35000u);
+    CHECK(count_kind(OP_RESET) == 1u && count_kind(OP_CMD) == 1u);
+
+    CASE("BUSY unusable with no fixed delay: @busy still falls back to the timeout");
+    setup(seq, sizeof seq, 1u, false, false);
+    g_desc.busy_usable = false;
+    g_desc.busy_fixed_delay_ms = 0u;
+    g_ndelays = 0u;
+    CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_OK);
+    CHECK(g_ndelays == 2u && g_delays[0] == 200u && g_delays[1] == g_desc.busy_timeout_ms);
+
+    CASE("BUSY usable and idle: no delay at all after reset or at @busy (unchanged)");
+    setup(seq, sizeof seq, 1u, false, false);
+    CHECK(od_epd_begin_pass(&g_epd, 0u) == OD_EPD_RC_OK);
+    CHECK(g_ndelays == 0u);
+    CHECK(count_kind(OP_RESET) == 1u && count_kind(OP_CMD) == 1u);
 }
 
 static void test_read_then_write_scratch(void)
@@ -525,6 +574,7 @@ int main(void)
 {
     test_refused_escapes_execute_nothing();
     test_malformed_args_are_seq_errors();
+    test_post_reset_wait();
     test_read_then_write_scratch();
     test_scratch_is_zeroed_per_pass();
     test_cs_select_is_sticky_and_resets_per_pass();

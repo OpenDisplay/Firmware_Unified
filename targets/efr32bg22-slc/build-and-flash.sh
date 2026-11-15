@@ -30,6 +30,7 @@ DO_FLASH=1
 DO_RTT=0
 RTT_ONLY=0
 RTT_ENABLED=1
+RELEASE=0
 DO_GBL_ONLY=0
 DO_CLEAN=0
 DO_MASS_ERASE="${DO_MASS_ERASE:-0}"
@@ -50,6 +51,8 @@ Usage: $0 [options]
   --rtt               After flash: background J-Link RTT telnet + JLinkRTTClient
   --rtt-only          RTT only (no build/flash)
   --no-rtt            Build firmware with RTT disabled (OD_ENABLE_RTT=OFF)
+  --release           Shipping image: RTT off, TNB132M probe off, build id = OPENDISPLAY_BUILD_ID
+                      or the checkout's git commit (never the "bg22-dev" default)
   --tnb132m-boot-probe  Build with OD_TNB132M_BOOT_PROBE=ON (read TNB132M NDEF at boot; use with --rtt)
   --no-tnb132m-boot-probe  Build with OD_TNB132M_BOOT_PROBE=OFF (default; overrides env)
   --tnb132m-write-ndef TEXT  Implies probe ON + OD_TNB132M_WRITE_NDEF=ON; writes Text record "TEXT" (<=25 chars, lang=en) before the read
@@ -93,6 +96,7 @@ while [[ $# -gt 0 ]]; do
     --rtt) DO_RTT=1 ;;
     --rtt-only) RTT_ONLY=1; DO_BUILD=0; DO_FLASH=0; DO_RTT=1 ;;
     --no-rtt) RTT_ENABLED=0 ;;
+    --release) RELEASE=1 ;;
     --tnb132m-boot-probe) NFC_BOOT_PROBE=1; NFC_BOOT_PROBE_CLI=1 ;;
     --no-tnb132m-boot-probe) NFC_BOOT_PROBE=0; NFC_BOOT_PROBE_CLI=1 ;;
     --tnb132m-write-ndef)
@@ -513,14 +517,38 @@ run_rtt_session() {
   cleanup_rtt_bg
 }
 
+if [[ "$RELEASE" -eq 1 ]]; then
+  if [[ "$DO_RTT" -eq 1 ]]; then
+    echo "--release builds without RTT; drop --rtt/--rtt-only" >&2
+    exit 1
+  fi
+  RTT_ENABLED=0
+  NFC_BOOT_PROBE=0
+  NFC_WRITE_NDEF=0
+  if [[ -z "${OPENDISPLAY_BUILD_ID:-}" ]]; then
+    OPENDISPLAY_BUILD_ID="$(git -C "$OD_REPO_ROOT" rev-parse HEAD 2>/dev/null)" || OPENDISPLAY_BUILD_ID=""
+  fi
+  if [[ -z "$OPENDISPLAY_BUILD_ID" || "$OPENDISPLAY_BUILD_ID" == "bg22-dev" ]]; then
+    echo "--release needs a build id: set OPENDISPLAY_BUILD_ID or build from a git checkout" >&2
+    exit 1
+  fi
+fi
+
 if [[ "$DO_BUILD" -eq 1 ]]; then
   if [[ "$NFC_BOOT_PROBE" -eq 0 ]]; then
     NFC_WRITE_NDEF=0
   fi
-  echo "==> Configure + build (RTT enabled: $RTT_ENABLED, TNB132M boot probe: $NFC_BOOT_PROBE, write ndef: $NFC_WRITE_NDEF${NFC_NDEF_TEXT:+ text=\"$NFC_NDEF_TEXT\"})"
+  echo "==> Configure + build (release: $RELEASE, build id: ${OPENDISPLAY_BUILD_ID:-bg22-dev}, RTT enabled: $RTT_ENABLED, TNB132M boot probe: $NFC_BOOT_PROBE, write ndef: $NFC_WRITE_NDEF${NFC_NDEF_TEXT:+ text=\"$NFC_NDEF_TEXT\"})"
   echo "    Directory: $CMAKE_DIR"
   cfg=(--preset project)
-  [[ "$RTT_ENABLED" -eq 0 ]] && cfg+=(-DOD_ENABLE_RTT=OFF)
+  # Always explicit: OD_ENABLE_RTT is a cache variable, so an earlier --no-rtt (or its absence)
+  # would otherwise carry into this build.
+  if [[ "$RTT_ENABLED" -eq 0 ]]; then
+    cfg+=(-DOD_ENABLE_RTT=OFF)
+  else
+    cfg+=(-DOD_ENABLE_RTT=ON)
+  fi
+  [[ "$RELEASE" -eq 1 ]] && cfg+=(-DOD_BG22_DIAG=1)
   if [[ "$NFC_BOOT_PROBE" -eq 1 ]]; then
     cfg+=(-DOD_TNB132M_BOOT_PROBE=ON)
   else
@@ -534,7 +562,11 @@ if [[ "$DO_BUILD" -eq 1 ]]; then
   if [[ -n "$NFC_NDEF_TEXT" ]]; then
     cfg+=(-DOD_TNB132M_NDEF_TEXT="$NFC_NDEF_TEXT")
   fi
-  [[ -n "${OPENDISPLAY_BUILD_ID:-}" ]] && cfg+=(-DOPENDISPLAY_BUILD_ID="${OPENDISPLAY_BUILD_ID}")
+  if [[ -n "${OPENDISPLAY_BUILD_ID:-}" ]]; then
+    cfg+=(-DOPENDISPLAY_BUILD_ID="${OPENDISPLAY_BUILD_ID}")
+  else
+    cfg+=(-DOPENDISPLAY_BUILD_ID=bg22-dev)
+  fi
   [[ -n "${OD_APP_VERSION:-}" ]] && cfg+=(-DOD_APP_VERSION="${OD_APP_VERSION}")
   [[ -n "${OD_FW_VERSION:-}" ]] && cfg+=(-DOD_FW_VERSION="${OD_FW_VERSION}")
   [[ -n "${OD_SL_APPLICATION_VERSION:-}" ]] && cfg+=(-DOD_SL_APPLICATION_VERSION="${OD_SL_APPLICATION_VERSION}")

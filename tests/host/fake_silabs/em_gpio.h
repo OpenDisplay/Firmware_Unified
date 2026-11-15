@@ -6,6 +6,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum {
     gpioPortA = 0,
     gpioPortB = 1,
@@ -57,5 +61,9 @@ void fake_gpio_set_sda_reads(const uint8_t *bits, unsigned count);
 /* Total microseconds passed to sl_udelay_wait(), so the suite can prove the pacing was not
  * silently dropped. */
 extern unsigned long fake_udelay_total_us;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* OD_TEST_FAKE_SILABS_EM_GPIO_H */

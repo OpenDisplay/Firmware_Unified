@@ -14,6 +14,19 @@
  * 1,884 B are live -- i.e. with any real config -- and nvm3_repack() returns SL_STATUS_OK
  * regardless. A loop on either one never ends and erases a page per pass.
  *
+ * Counting the turn. fifoFirstIdx alone cannot tell "no page erased" from "a whole number of
+ * turns": once live data exceeds 24,516 - thrHard(3136) = 5,028 B, repackUntilGood() never
+ * reaches its threshold and runs its full 2 x page-count steps, so a single append can erase
+ * every page and leave the index where it was. So an append that leaves the index unchanged is
+ * also checked against nvm3_getEraseCount(), the erase count of the bottom page: if that page
+ * was erased, the ring turned at least once and the purge is complete. An append that moves the
+ * index counts the forward distance, a lower bound.
+ *
+ * Giving up. Every append succeeding without a confirmed turn within `max` means a ring this
+ * code does not understand. Retrying each boot would repeat the same bounded churn forever, so
+ * that case reports done (the caller clears OD_SEC2_OS2S_PURGE) and leaves an RTT line. A failed
+ * append still reports not done, so a store that could not be written is retried next boot.
+ *
  * RAM: one 64-byte buffer. Flash wear: about one erase of each page; at most `max` appends. */
 
 #include "od_claim_app.h"
@@ -21,6 +34,7 @@
 #include <string.h>
 
 #include "nvm3_default.h"
+#include "od_diag.h"
 
 #define OD_NVM3_PURGE_KEY 0x0F441Fu
 
@@ -29,27 +43,45 @@ bool od_claim_app_storage_purge(void)
   nvm3_Handle_t *h = nvm3_defaultHandle;
   uint8_t fill[64];
   size_t last, moved = 0u;
-  uint32_t i, max;
+  uint32_t i, max, erases, erases_now;
+  bool wrote_all = true;
 
   if (!h->hasBeenOpened && nvm3_initDefault() != SL_STATUS_OK) {
     return false;
   }
-  if (h->totalNvmPageCnt == 0u) {
+  if (h->totalNvmPageCnt == 0u || nvm3_getEraseCount(h, &erases) != SL_STATUS_OK) {
     return false;
   }
   last = h->fifoFirstIdx;
-  /* Enough appends for twice the region: the ring turns once with room to spare. */
-  max = (uint32_t)((2u * h->nvmSize) / sizeof fill) + 32u;
+  /* One turn needs at most the region's worth of appends; a quarter on top for page tails. */
+  max = (uint32_t)((h->nvmSize + h->nvmSize / 4u) / sizeof fill) + 32u;
   for (i = 0u; i < max && moved < h->totalNvmPageCnt; ++i) {
     memset(fill, (int)(i & 0xFFu), sizeof fill);
     if (nvm3_writeData(h, OD_NVM3_PURGE_KEY, fill, sizeof fill) != SL_STATUS_OK) {
+      wrote_all = false;
       break;
     }
     if (h->fifoFirstIdx != last) {
       moved += (h->fifoFirstIdx + h->totalNvmPageCnt - last) % h->totalNvmPageCnt;
       last = h->fifoFirstIdx;
+      if (nvm3_getEraseCount(h, &erases) != SL_STATUS_OK) {
+        wrote_all = false;
+        break;
+      }
+    } else if (nvm3_getEraseCount(h, &erases_now) != SL_STATUS_OK) {
+      wrote_all = false;
+      break;
+    } else if (erases_now != erases) {
+      moved = h->totalNvmPageCnt;   /* the bottom page itself was erased: a whole turn */
     }
   }
   (void)nvm3_deleteObject(h, OD_NVM3_PURGE_KEY);
-  return moved >= h->totalNvmPageCnt;
+  if (moved >= h->totalNvmPageCnt) {
+    return true;
+  }
+  if (wrote_all) {
+    OD_DIAG_BANNER("[OD] purge: no full turn within the bound; giving up\r\n");
+    return true;
+  }
+  return false;
 }

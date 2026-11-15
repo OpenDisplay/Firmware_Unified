@@ -121,8 +121,10 @@ effect is an estimate from the traced allocation sizes, **not a measurement**: m
 reading `od_bg22_heap_free_at_boot` (section 5) on both images on one unit. Switching to 2 needs
 release-checklist rows D11 and D12 on hardware with that image.
 
-**The release image** (`v3/head2`, 4 connections): heap 9,664 B against the 9,600 B floor
-(+64 B), stack 2,752 B, static 20,328 B (+4 B for the retained counters of section 4.5).
+**The release image** (`build-and-flash.sh --release`: RTT off, 4 connections): heap 10,816 B
+against the 9,600 B floor (+1,216 B), stack 2,752 B, static 19,176 B. A developer image with RTT
+(the default without `--release`) has heap 9,664 B (+64 B) and static 20,328 B; that is the image
+the 2026-11-13 six-unit rollout ran, and `static_ram_max_bytes` still admits it.
 
 ## 4. The runtime health gate
 
@@ -160,10 +162,17 @@ honoured after a soft reset).
   served anything. A healthy peer answers the MTU request within one connection interval.
 - **The worst false positive is recoverable.** It lands in the AppLoader, which can take an update,
   and a power cycle brings the application back.
-- **Bounded.** At most 2 forced entries per power-on; the count sits in `.noinit` behind a check
-  word (`s_health_ret`). If the bootloader reuses that RAM, it reads as 0, which costs at most one
-  more round of fresh evidence. The AppLoader leaves only through an update or a reset, so nothing
-  loops unattended.
+- **Bounded only if `.noinit` survives the AppLoader, which is unproven.** At most 2 forced
+  entries per power-on; the count sits in `.noinit` behind a check word (`s_health_ret`,
+  0x20005240 in the release image). The bootloader's own statics end at 0x200024D0 (its startup
+  zeroes 0x20001008-0x20002458 and copies `.data` to 0x20002458-0x200024D0; the stack is below),
+  but the image references 0x200024D0 149 times, consistent with a memory pool that runs from
+  there through the record. If the AppLoader's BLE stack takes that RAM, the count reads as 0 on
+  every return and the bound does not hold. The AppLoader also returns to the application by
+  itself: on 2026-11-13 an aborted host connect sent it straight back (REPORT D9), so an
+  unbounded cycle needs no reset. Settle it on hardware: force one entry, return without an
+  update, and read `s_health_ret` over SWD (`tools/bg22_ram_dump.py`). If it is zero, move
+  `forced` into a BURAM retention register (registers 28-31 are taken by the claim code).
 
 ### 4.3 Options considered and not built
 
@@ -201,8 +210,8 @@ needs an escape without GATT should get one only together with signed upgrades i
 `sl_bt_evt_system_resource_exhausted` feeds the gate (its heap count) and a retained record,
 `s_health_ret` in `.noinit` behind a check word: forced updater entries this power-on and the last
 reason, plus saturating 16-bit counts of stack heap-allocation failures and of buffer/message
-failures since power-on. It survives a soft reset and the AppLoader round trip, and a power-on
-clears it. A diagnostic build prints it at boot; `tools/bg22_ram_dump.py` decodes it from a dump.
+failures since power-on. It survives a soft reset; whether it survives the AppLoader round trip
+is unproven (section 4.2, "Bounded"), and a power-on clears it. A diagnostic build prints it at boot; `tools/bg22_ram_dump.py` decodes it from a dump.
 
 **Not client-readable in 3.0, on purpose.** The MSD has no free bit or byte, and the READ_IDENT
 tail could grow by one byte (clients read it by length, and py-opendisplay already tolerates it),

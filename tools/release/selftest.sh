@@ -81,6 +81,22 @@ assert a["opendisplay-c3-n4-app.bin"]["offset"] == 65536
 PY
 
 # --- refusals ------------------------------------------------------------------------------
+# A BG22 dev build: RTT linked (symbol in the ELF), or the "bg22-dev" build id in the image.
+for bad in elf-rtt gbl-devid; do
+  B="${WORK}/bg22-$bad"; mkdir -p "$B"; mk_bg22 "$B"
+  case "$bad" in
+    elf-rtt) printf 'x\0_SEGGER_RTT\0y' >> "$B/opendisplay-bg22.out" ;;
+    gbl-devid) printf 'xxbg22-devxx' >> "$B/opendisplay-bg22.gbl" ;;
+  esac
+  if "$PY" "$COLLECT" fragment --target efr32bg22-slc "$B" >/dev/null 2>&1; then
+    fail "BG22 dev build accepted ($bad)"
+  fi
+done
+B="${WORK}/bg22-noelf"; mkdir -p "$B"; mk_bg22 "$B"; rm "$B/opendisplay-bg22.out"
+if "$PY" "$COLLECT" fragment --target efr32bg22-slc "$B" >/dev/null 2>&1; then
+  fail "BG22 fragment without its ELF accepted"
+fi
+
 cp "${OUT}/opendisplay-bg22-ota.gbl" "${OUT}/opendisplay-bg22-v3.0.0.gbl"
 if "$PY" "$COLLECT" check "${OUT}" >/dev/null 2>&1; then fail "2.x asset name accepted"; fi
 rm "${OUT}/opendisplay-bg22-v3.0.0.gbl"
