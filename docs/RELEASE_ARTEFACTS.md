@@ -160,7 +160,7 @@ a 2.x unit unless it can write the migrated config afterwards (py-opendisplay
 | `manifest.json` | § 5 |
 | `SHA256SUMS` | `sha256sum` format over every other asset |
 | `MANIFEST-<target>.txt` | Human-readable per-target build record (commit, toolchain, sizes) |
-| `LICENSE`, `NOTICE.md` | GPL-3.0 and the third-party notices (`third_party/NOTICE.md`) |
+| `LICENSE`, `NOTICE.md` | GPL-3.0 and the third-party notices for what the images contain (`tools/release/NOTICE.md`; the repository's full vendoring record is `third_party/NOTICE.md`) |
 
 ## 5. `manifest.json` (schema `opendisplay-release/1`)
 

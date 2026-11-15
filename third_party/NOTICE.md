@@ -373,5 +373,6 @@ SDKs. It keeps its own licence:
 | Simplicity SDK (Bluetooth stack, Gecko bootloader, emlib, SEGGER RTT when enabled) | every BG22 image and `opendisplay-bg22-bootloader.s37` | Silicon Labs MSLA / Zlib / SEGGER RTT BSD-style, per file |
 | Adafruit nRF52 Bootloader | not shipped. It is the bootloader already on the device; the nRF52840 USB packages are written through it | MIT |
 
-A release ships `LICENSE` and this file. Notices for the SDK components are in the SDK sources
+A release ships `LICENSE` and `tools/release/NOTICE.md`, the short notice for what the images
+contain; keep the two in step when a vendored tree is added or dropped. Notices for the SDK components are in the SDK sources
 at the pinned versions (docs/TOOLCHAINS.md).
