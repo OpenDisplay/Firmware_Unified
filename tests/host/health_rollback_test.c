@@ -180,6 +180,39 @@ static void test_updater_kind_ignores_trust_calls(void)
     CHECK(od_health_link_closed(&h, 30000u) == OD_HEALTH_NONE && h.dead_links == 0u);
 }
 
+/* H1: a target that reports advertising (Nordic) must not confirm by the 24 h fallback an image
+ * that never got on the air -- bt_enable failed, or advertising latched a fault -- because nothing
+ * would then revert it. Advertising once, or any link, is enough to re-enable the fallback. A
+ * target that never calls od_health_expect_advertising() keeps the old rule (ESP32). */
+static void test_fallback_needs_advertising_when_expected(void)
+{
+    struct od_health h;
+
+    od_health_init_rollback(&h, false);
+    od_health_expect_advertising(&h);
+    CHECK(od_health_poll(&h, OD_HEALTH_CONFIRM_FALLBACK_MS) == OD_HEALTH_NONE);
+    CHECK(od_health_poll(&h, OD_HEALTH_CONFIRM_FALLBACK_MS * 2u) == OD_HEALTH_NONE);
+    CHECK(!h.confirmed);
+    od_health_advertising(&h);
+    CHECK(od_health_poll(&h, OD_HEALTH_CONFIRM_FALLBACK_MS * 2u) == OD_HEALTH_CONFIRM);
+    CHECK(h.confirm_reason == OD_HEALTH_CONFIRM_FALLBACK);
+
+    /* a short (scanner) link is evidence the image was on the air */
+    od_health_init_rollback(&h, false);
+    od_health_expect_advertising(&h);
+    CHECK(link(&h, 1000u, 500u, false) == OD_HEALTH_NONE);
+    CHECK(od_health_poll(&h, OD_HEALTH_CONFIRM_FALLBACK_MS) == OD_HEALTH_CONFIRM);
+
+    /* a served write still confirms at once, advertising or not */
+    od_health_init_rollback(&h, false);
+    od_health_expect_advertising(&h);
+    CHECK(od_health_served(&h) == OD_HEALTH_CONFIRM);
+
+    /* not expected: unchanged, the quiet day confirms with no advertising report */
+    od_health_init_rollback(&h, false);
+    CHECK(od_health_poll(&h, OD_HEALTH_CONFIRM_FALLBACK_MS) == OD_HEALTH_CONFIRM);
+}
+
 int main(void)
 {
     test_served_confirms_once();
@@ -193,6 +226,7 @@ int main(void)
     test_external_confirm();
     test_before_sleep();
     test_updater_kind_ignores_trust_calls();
+    test_fallback_needs_advertising_when_expected();
     if (failures != 0) {
         fprintf(stderr, "health_rollback: %d failure(s)\n", failures);
         return EXIT_FAILURE;

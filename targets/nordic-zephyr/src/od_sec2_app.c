@@ -4,6 +4,7 @@
 #include "od_sec2_app.h"
 #include "od_sec2_wire.h"
 
+#include "od_boot_render_gate.h"
 #include "od_display.h"
 #include "od_xfer.h"
 #include "opendisplay_ble.h"
@@ -52,5 +53,5 @@ const struct SecurityConfig *od_sec2_app_security(void)
 /* A display pass runs (on the display work queue) or a transfer that ends in one is open. */
 bool od_sec2_app_display_busy(void)
 {
-	return od_xfer_active() || od_display_active();
+	return od_xfer_active() || od_display_active() || od_boot_render_gate_busy();
 }

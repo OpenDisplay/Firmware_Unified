@@ -27,6 +27,10 @@ struct DisplayConfig;
 const struct DisplayConfig *od_drive_app_display(void);
 /* The wire half of od_epd_cfg for that display. Must outlive the session. */
 const od_epd_cfg_bus_t *od_drive_app_bus(void);
+/* True while something the loop thread cannot abort (the Nordic boot render) is driving the
+ * panel from another thread. START then answers PANEL_BUSY before touching the panel, the
+ * active transfer or the od_epd_cfg descriptor. */
+bool od_drive_app_panel_busy(void);
 /* Ends any transfer or raw session holding the panel. */
 void od_drive_app_abort(void);
 /* Rail up, bus acquired, D/C CS RST BUSY claimed (BUSY pulled toward

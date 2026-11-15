@@ -9,6 +9,9 @@ void od_health_app_link_opened(void);
 void od_health_app_link_closed(void);
 void od_health_app_att_seen(void);
 void od_health_app_served(void);
+/* Advertising started (od_hal_adv_start accepted). Evidence the image got on the air, which the
+ * 24 h fallback requires on this target. */
+void od_health_app_advertising(void);
 /* From opendisplay_ble_process() (main thread). */
 void od_health_app_tick(void);
 

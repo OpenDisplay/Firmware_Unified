@@ -288,6 +288,9 @@ target_sources(app PRIVATE
   ${SRC_DIR}/od_watchdog_app.c
   ${SRC_DIR}/opendisplay_idle_wake.c
   ${SRC_DIR}/opendisplay_ble.c
+  ${SRC_DIR}/od_adv_watch.c
+  ${SRC_DIR}/od_boot_render_gate.c
+  ${SRC_DIR}/od_smp_lock.c
   ${SRC_DIR}/opendisplay_battery.c
   ${SRC_DIR}/opendisplay_i2c.c
   ${SRC_DIR}/opendisplay_sensor_npm1300.c

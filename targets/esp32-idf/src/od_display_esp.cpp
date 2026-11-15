@@ -270,6 +270,9 @@ extern "C" bool od_drive_app_adopt(const od_color_geometry_t *frame, uint8_t pas
 
 /* The SHT40 when one is configured; otherwise no reading, which skips temp_policy. The die
  * sensor is not used: on this target it reads well above the glass. */
+/* The boot screen renders before BLE starts here: nothing else drives the panel. */
+extern "C" bool od_drive_app_panel_busy(void) { return false; }
+
 extern "C" int8_t od_drive_app_temp_c(void)
 {
     int t = 0;

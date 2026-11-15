@@ -25,6 +25,7 @@ import fnmatch
 import hashlib
 import json
 import re
+import struct
 import sys
 from pathlib import Path
 
@@ -209,6 +210,32 @@ def _signing_from_nordic_manifest(d: Path) -> str:
     return "debug-key"
 
 
+MCUBOOT_MAGIC = 0x96F3B83D
+
+
+def _mcuboot_version(p: Path):
+    """X.Y.Z of an MCUboot image (bootutil image_header ih_ver), or None if p is not one."""
+    with p.open("rb") as f:
+        hdr = f.read(28)
+    if len(hdr) < 28 or struct.unpack_from("<I", hdr, 0)[0] != MCUBOOT_MAGIC:
+        return None
+    major, minor, revision = struct.unpack_from("<BBH", hdr, 20)
+    return f"{major}.{minor}.{revision}"
+
+
+def _nordic_image_version(d: Path, ota: str) -> str:
+    # MCUboot keeps the version in the signed header, and SMP clients, image lists and any future
+    # downgrade protection read it from there. 0.0.0 is the NCS default when nothing set
+    # CONFIG_MCUBOOT_IMGTOOL_SIGN_VERSION, so it means the release version never reached the
+    # signature -- and every release would look identical in the field.
+    v = _mcuboot_version(d / ota)
+    if v is None:
+        _fail(f"{ota}: not an MCUboot image (no header magic)")
+    if v == "0.0.0":
+        _fail(f"{ota}: MCUboot image signed as 0.0.0 -- build.sh did not pass the version")
+    return v
+
+
 def fragment_nordic(d: Path) -> dict:
     for name in sorted(p.name for p in d.iterdir()):
         if name.startswith("opendisplay-") and ("-debug" in name or "-adafruit" in name):
@@ -226,7 +253,7 @@ def fragment_nordic(d: Path) -> dict:
                 _fail(f"{board}: {hexf} without {f} -- every 3.x Nordic board is MCUboot")
         artefacts += [
             _artefact(d, hexf, board, "merged-hex"),
-            _artefact(d, ota, board, "ota"),
+            _artefact(d, ota, board, "ota", image_version=_nordic_image_version(d, ota)),
             _artefact(d, dfu, board, "smp-dfu-zip"),
         ]
         flows = {
@@ -401,6 +428,8 @@ def cmd_merge(d: Path, version: str, tag: str, commit: str) -> None:
         _fail(f"artefact listed twice: {dupes}")
     for a in manifest["artefacts"]:
         a["sha256"] = _sha256(d / a["file"])
+        if "image_version" in a and a["image_version"] != v:
+            _fail(f"{a['file']}: signed as {a['image_version']}, release is {v}")
     _validate(d, manifest)
     (d / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     sums = [f"{_sha256(p)}  {p.name}" for p in sorted(d.iterdir())

@@ -30,6 +30,7 @@ static uint32_t s_close_ms;
 #define EV_ATT    BIT(1)
 #define EV_SERVED BIT(2)
 #define EV_CLOSE  BIT(3)
+#define EV_ADV    BIT(4)
 
 static void mtu_updated(struct bt_conn *conn, uint16_t tx, uint16_t rx)
 {
@@ -59,6 +60,8 @@ void od_health_app_boot(void)
 	const bool confirmed = boot_is_img_confirmed();
 
 	od_health_init_rollback(&s_health, confirmed);
+	/* An image that never advertises must not confirm by the fallback (od_health.h). */
+	od_health_expect_advertising(&s_health);
 	bt_gatt_cb_register(&s_gatt_cb);
 	s_ready = true;
 	od_log_info("image: %s", confirmed ? "confirmed"
@@ -90,6 +93,11 @@ void od_health_app_bench_blind(void)
 #else
 #define BENCH_BLIND() (false)
 #endif
+
+void od_health_app_advertising(void)
+{
+	atomic_or(&s_ev, EV_ADV);
+}
 
 void od_health_app_att_seen(void)
 {
@@ -135,6 +143,9 @@ void od_health_app_tick(void)
 		return;
 	}
 	ev = atomic_clear(&s_ev);
+	if ((ev & EV_ADV) != 0) {
+		od_health_advertising(&s_health);
+	}
 	if ((ev & EV_OPEN) != 0) {
 		od_health_link_opened(&s_health, s_open_ms);
 	}
@@ -163,6 +174,7 @@ void od_health_app_link_opened(void) {}
 void od_health_app_link_closed(void) {}
 void od_health_app_att_seen(void) {}
 void od_health_app_served(void) {}
+void od_health_app_advertising(void) {}
 void od_health_app_tick(void) {}
 
 #endif

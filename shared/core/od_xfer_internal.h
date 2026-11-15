@@ -178,6 +178,9 @@ void od_xfer_pipe_barrier_abort(void);
 bool od_xfer_pipe_refresh(uint8_t mode, bool has_new_etag, uint32_t new_etag,
                           bool *completed, od_xfer_terminal_snapshot_t *snapshot);
 void od_pipe_reset_state(void);
+/* od_xfer_app_refresh() wrapper for every END path: *stored reports od_xfer_note_refresh_stored()
+ * from this call only, so an END never sees a previous transfer's note. */
+bool od_xfer_refresh_call(uint8_t mode, bool *completed, bool *stored);
 size_t od_pipe_log_suffix(char *buf, size_t size);
 
 od_cmd_result_t od_xfer_direct_data_impl(const od_cmd_ctx_t *ctx, od_span_t body);

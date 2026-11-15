@@ -1,6 +1,7 @@
 #include "od_sec2.h"
 #include "opendisplay_ble.h"
 #include "od_health_app.h"
+#include "od_watchdog_app.h"
 #include "opendisplay_idle_wake.h"
 #include "od_log.h"
 #include "od_caps.h"
@@ -35,6 +36,9 @@
 #include "od_rxq.h"
 #include "od_hal_adv.h"
 #include "od_adv_control.h"
+#include "od_adv_watch.h"
+#include "od_smp_lock.h"
+#include "od_boot_render_gate.h"
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/gap.h>
@@ -227,9 +231,18 @@ static bool s_display_wq_started;
 /* Gives once the boot-display work item returns, success or failure. opendisplay_ble_init()
  * blocks on this before od_adv_request_start() -- see its call site for why. */
 static struct k_sem s_boot_display_done;
-/* When encryption is on, SMP stays hidden until CMD_ENTER_DFU unlocks it
- * for this boot (Adafruit bledfu.begin() gating). */
+/* When encryption is on, SMP stays hidden until CMD_ENTER_DFU unlocks it for one session
+ * (od_smp_lock.h). Set by dfu_work, cleared only by the loop thread. */
 static bool s_ota_unlocked;
+/* Links opened/closed, counted by the BT callbacks; the unlock edge carries `opens` at the
+ * moment SMP became visible. Drained into s_smp_lock on the loop thread. */
+static uint32_t s_link_opens;
+static uint32_t s_link_closes;
+static uint32_t s_unlock_opens;
+static volatile uint8_t s_unlock_pending;
+static struct od_smp_lock s_smp_lock;  /* loop thread only */
+/* The k-th close ends the k-th open only with one link at a time. */
+BUILD_ASSERT(CONFIG_BT_MAX_CONN == 1, "od_smp_lock counts links; it needs one at a time");
 
 /* The facts a callback may publish about advertising/MSD: edges, drained on the loop thread. */
 static volatile uint8_t s_adv_ended_pending = 0;
@@ -246,6 +259,7 @@ static volatile uint8_t s_adv_txp_pending = 1u;
  * callback (HAL_NFC/ISR context) -- see od_adv_app_boost() for why that
  * constraint is load-bearing here and not just a style preference. */
 static struct od_adv_control s_adv;
+static struct od_adv_watch s_adv_watch;  /* H2: bounded recovery, src/od_adv_watch.h */
 static bool s_adv_interval_is_boost;   /* which interval was last SUCCESSFULLY applied */
 static bool s_adv_restart_pending;     /* see request_adv_restart() */
 
@@ -379,6 +393,9 @@ static void dfu_work_handler(struct k_work *work)
 {
 	ARG_UNUSED(work);
 	s_ota_unlocked = true;
+	__atomic_store_n(&s_unlock_opens, __atomic_load_n(&s_link_opens, __ATOMIC_ACQUIRE),
+			 __ATOMIC_RELAXED);
+	__atomic_store_n(&s_unlock_pending, (uint8_t)1, __ATOMIC_RELEASE);
 	od_smp_sync();
 	if (s_conn != NULL) {
 		(void)bt_conn_disconnect(s_conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
@@ -393,9 +410,11 @@ static void dfu_work_handler(struct k_work *work)
 static void boot_display_work_handler(struct k_work *work)
 {
 	ARG_UNUSED(work);
+	od_boot_render_gate_enter();
 	if (!opendisplay_display_boot_apply()) {
 		od_log_error("boot display failed after bounded retry");
 	}
+	od_boot_render_gate_leave();
 	/* Given on both the success and failure arms above: the waiter in opendisplay_ble_init()
 	 * cares that the panel is no longer being touched, not that the render succeeded. */
 	k_sem_give(&s_boot_display_done);
@@ -646,6 +665,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 		return;
 	}
 	s_conn = bt_conn_ref(conn);
+	__atomic_fetch_add(&s_link_opens, 1u, __ATOMIC_RELEASE);
 	s_reboot_flag = 0;
 	od_health_app_link_opened();
 	request_fast_link(conn);
@@ -668,6 +688,7 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
 	ARG_UNUSED(conn);
 	od_log_info("disconnected reason=%u", (unsigned)reason);
+	__atomic_fetch_add(&s_link_closes, 1u, __ATOMIC_RELEASE);
 	od_health_app_link_closed();
 	opendisplay_cs_on_disconnected(conn);
 	opendisplay_pipe_on_connection_closed();
@@ -890,6 +911,7 @@ enum od_hal_adv_result od_hal_adv_start(void)
 		 * s_adv_param to an already-running advertiser, or the corrective restart in
 		 * opendisplay_ble_advertising_tick() would be silently suppressed. */
 		s_adv_interval_is_boost = boost;
+		od_health_app_advertising();
 		od_log_info("advertising as %s (interval=%u-%u ms)", s_dev_name,
 		       (unsigned)BT_GAP_ADV_INTERVAL_TO_MS(s_adv_param.interval_min),
 		       (unsigned)BT_GAP_ADV_INTERVAL_TO_MS(s_adv_param.interval_max));
@@ -1065,6 +1087,20 @@ void opendisplay_ble_advertising_tick(void)
 	}
 }
 
+/* Long enough that a permanent failure is not a tight reset loop, short enough that a transient
+ * one costs little. Fed: the wait runs before the main loop exists. */
+#define OD_BT_ENABLE_FAIL_RESET_MS 5000u
+
+static void bt_enable_failed_reset(void)
+{
+	for (uint32_t waited = 0u; waited < OD_BT_ENABLE_FAIL_RESET_MS; waited += 100u) {
+		od_watchdog_app_service();
+		k_msleep(100);
+	}
+	(void)od_claim_mode_before_reboot();
+	NVIC_SystemReset();
+}
+
 void opendisplay_ble_init(void)
 {
 	int err;
@@ -1123,7 +1159,13 @@ void opendisplay_ble_init(void)
 	od_log_info("enabling Bluetooth");
 	err = bt_enable(NULL);
 	if (err != 0) {
-		od_log_info("bt_enable failed: %d", err);
+		/* Without the stack the unit is unreachable and nothing would ever reset it: the loop
+		 * still feeds the watchdog. Reset instead. On a freshly swapped-in image that reset is
+		 * also what makes MCUboot revert it; on a confirmed one it is the only retry there is.
+		 * The pause bounds the loop rate if the failure is permanent. */
+		od_log_error("bt_enable failed: %d -- resetting in %u ms", err,
+			     (unsigned)OD_BT_ENABLE_FAIL_RESET_MS);
+		bt_enable_failed_reset();
 		return;
 	}
 	if (IS_ENABLED(CONFIG_SETTINGS)) {
@@ -1211,6 +1253,28 @@ void opendisplay_ble_security_tick(void)
 	}
 }
 
+/* H3 (b): an ENTER_DFU unlock lasts one session, not the rest of the boot. */
+static void smp_lock_service(void)
+{
+	const uint32_t now = k_uptime_get_32();
+
+	if (__atomic_exchange_n(&s_unlock_pending, (uint8_t)0, __ATOMIC_ACQUIRE) != 0u) {
+		od_smp_lock_unlock(&s_smp_lock, __atomic_load_n(&s_unlock_opens, __ATOMIC_RELAXED),
+				   now);
+	}
+	if (od_smp_lock_step(&s_smp_lock, __atomic_load_n(&s_link_opens, __ATOMIC_ACQUIRE),
+			     __atomic_load_n(&s_link_closes, __ATOMIC_ACQUIRE), now)) {
+		/* A second ENTER_DFU raced this pass: its edge is pending, keep it unlocked. */
+		if (__atomic_load_n(&s_unlock_pending, __ATOMIC_ACQUIRE) != 0u) {
+			return;
+		}
+		s_ota_unlocked = false;
+		od_log_info("SMP unlock ended (session closed or no reconnect in %u s)",
+			    (unsigned)(OD_SMP_UNLOCK_CONNECT_MS / 1000u));
+		od_smp_sync();
+	}
+}
+
 void opendisplay_ble_process(void)
 {
 	opendisplay_pipe_process();
@@ -1224,6 +1288,15 @@ void opendisplay_ble_process(void)
 	 * !epdRefreshInProgress) -- start_allowed unconditionally true, preserving current
 	 * behavior. */
 	(void)ble_service_advertising(true);
+	if (od_adv_watch_step(&s_adv_watch, &s_adv, k_uptime_get_32())) {
+		/* Nothing else on this target can clear a latched fault (one bt_enable per boot). */
+		od_log_error("advertising down for %u ms (faulted=%u): resetting",
+			     (unsigned)OD_ADV_WATCH_RESET_MS, (unsigned)s_adv.faulted);
+		(void)od_claim_mode_before_reboot();
+		k_sleep(K_MSEC(300));
+		NVIC_SystemReset();
+	}
+	smp_lock_service();
 	opendisplay_display_service();
 	od_health_app_tick();
 }

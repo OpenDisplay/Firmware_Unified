@@ -91,6 +91,8 @@ bool od_drive_app_adopt(const od_color_geometry_t *frame, uint8_t passes, bool c
     return g_streaming;
 }
 int8_t od_drive_app_temp_c(void) { return g_temp; }
+static bool g_panel_busy;
+bool od_drive_app_panel_busy(void) { return g_panel_busy; }
 
 /* od_xfer's target seam: DATA lands in the drive stream, as on Nordic. */
 void od_inflate_app_reset(uint32_t expected) { od_zlib_stream_reset(expected); }
@@ -409,6 +411,24 @@ static void test_start_panel_failures(void)
         CHECK(!g_up && !od_xfer_active());
         g_with_sleep = false;
         store_cfg(true);
+    }
+    CASE("panel driven from another thread: PANEL_BUSY, nothing aborted, loaded or raised");
+    {
+        const uint8_t b[5] = { 0, 0, 0, 0, 0 };
+        unsigned aborts, ups;
+
+        CHECK(start(b, 5u) == OD_CMD_OK && od_xfer_active());
+        aborts = g_aborts;
+        ups = g_ups;
+        fx_cmd_count = 0u;
+        fx_reset_count = 0u;
+        g_panel_busy = true;
+        const od_cmd_result_t r = start(b, 5u);
+        g_panel_busy = false;
+        CHECK(r == OD_CMD_NACK && reply_is(NACK(OD_ERR_DRIVE_PANEL_BUSY, 0u)));
+        CHECK(g_aborts == aborts && g_ups == ups && od_xfer_active());
+        CHECK(fx_cmd_count == 0u && fx_reset_count == 0u);
+        od_xfer_reset();
     }
 }
 

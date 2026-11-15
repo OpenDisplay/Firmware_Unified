@@ -256,6 +256,7 @@ od_cmd_result_t od_xfer_partial_end_impl(const od_cmd_ctx_t *ctx, od_span_t body
     const uint8_t timeout[] = { RESP_ACK, RESP_DIRECT_WRITE_REFRESH_TIMEOUT };
     uint8_t refresh_mode = OD_REFRESH_PARTIAL;
     bool completed = false;
+    bool stored = false;
 #if OD_LOG_EFFECTIVE_LEVEL >= OD_LOG_ERROR
     od_xfer_terminal_snapshot_t snapshot;
 #endif
@@ -315,12 +316,14 @@ od_cmd_result_t od_xfer_partial_end_impl(const od_cmd_ctx_t *ctx, od_span_t body
     } else if (body.n == 1u && body.p[0] == OD_REFRESH_FAST) {
         refresh_mode = OD_REFRESH_FAST;
     }
-    if (!od_xfer_app_refresh(refresh_mode, &completed)) {
+    if (!od_xfer_refresh_call(refresh_mode, &completed, &stored)) {
         return partial_terminal_fail(ctx, RESP_DIRECT_WRITE_END_ACK, OD_ERR_PARTIAL_STREAM,
                                      OD_XFER_TERM_REFRESH_FAILED, "END", 0u, 0u,
                                      OD_XFER_ABORT_REFRESH_FAILED);
     }
-    od_xfer_app_set_displayed_etag(completed ? state->partial.new_etag : 0u);
+    if (!stored) {
+        od_xfer_app_set_displayed_etag(completed ? state->partial.new_etag : 0u);
+    }
 #if OD_LOG_EFFECTIVE_LEVEL >= OD_LOG_ERROR
     od_xfer_terminal_capture(&snapshot);
 #endif

@@ -81,6 +81,10 @@ void od_xfer_app_abort(od_xfer_abort_reason_t reason);
 od_xfer_barrier_t od_xfer_app_before_refresh(const od_reply_t *owner);
 void od_xfer_app_barrier_abort(const od_reply_t *owner);
 bool od_xfer_app_refresh(uint8_t mode, bool *completed);
+/* Called by a target from inside od_xfer_app_refresh() when this END STORED the frame instead of
+ * drawing it (an image-store preload). The glass still shows the previous image, so the END then
+ * leaves the displayed etag exactly as it was. A target that never calls it is unaffected. */
+void od_xfer_note_refresh_stored(void);
 #if OD_CAP_PARTIAL
 uint32_t od_xfer_app_displayed_etag(void);
 void od_xfer_app_set_displayed_etag(uint32_t etag);

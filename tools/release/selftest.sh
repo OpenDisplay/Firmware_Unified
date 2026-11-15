@@ -12,6 +12,16 @@ trap 'rm -rf "${WORK}"' EXIT
 
 fail() { echo "selftest FAIL: $*" >&2; exit 1; }
 blob() { head -c "$2" /dev/urandom > "$1"; }
+# An MCUboot image header (bootutil image.h: magic, load addr, hdr size, protect TLV size, img
+# size, flags, then ih_ver = major u8, minor u8, revision u16le, build u32le) plus a random body.
+mcuboot_img() {  # file major minor revision
+  "$PY" - "$@" <<'PY'
+import os, struct, sys
+f, ma, mi, rev = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4])
+hdr = struct.pack("<IIHHII", 0x96f3b83d, 0, 0x200, 0, 64, 0) + struct.pack("<BBHI", ma, mi, rev, 0)
+open(f, "wb").write(hdr + b"\0" * (0x200 - len(hdr)) + os.urandom(64))
+PY
+}
 
 mk_esp32() {
   local d="$1" b=c3-n4
@@ -32,7 +42,7 @@ EOF
 mk_nordic() {
   local d="$1"
   for b in xiao_nrf52840 xiao_nrf54l15; do
-    blob "$d/opendisplay-$b-merged.hex" 64; blob "$d/opendisplay-$b-ota.bin" 64
+    blob "$d/opendisplay-$b-merged.hex" 64; mcuboot_img "$d/opendisplay-$b-ota.bin" 3 0 0
     blob "$d/opendisplay-$b-dfu.zip" 64
   done
   blob "$d/opendisplay-xiao_nrf52840-usb-1-sd-erase.zip" 32
@@ -124,6 +134,22 @@ if "$PY" "$COLLECT" check "${OUT}" >/dev/null 2>&1; then fail "tampered artefact
 mkdir -p "${WORK}/n2"; mk_nordic "${WORK}/n2"; rm "${WORK}/n2/opendisplay-xiao_nrf52840-usb-1-sd-erase.zip"
 if "$PY" "$COLLECT" fragment --target nordic-zephyr "${WORK}/n2" >/dev/null 2>&1; then
   fail "nRF52840 without its USB install packages accepted"
+fi
+
+# H4: a Nordic image signed as 0.0.0 (the NCS default when nothing sets the sign version), a
+# file that is not an MCUboot image, and an image whose version is not the release's.
+mkdir -p "${WORK}/n3"; mk_nordic "${WORK}/n3"; mcuboot_img "${WORK}/n3/opendisplay-xiao_nrf54l15-ota.bin" 0 0 0
+if "$PY" "$COLLECT" fragment --target nordic-zephyr "${WORK}/n3" >/dev/null 2>&1; then
+  fail "Nordic image signed as 0.0.0 accepted"
+fi
+mkdir -p "${WORK}/n4"; mk_nordic "${WORK}/n4"; blob "${WORK}/n4/opendisplay-xiao_nrf52840-ota.bin" 64
+if "$PY" "$COLLECT" fragment --target nordic-zephyr "${WORK}/n4" >/dev/null 2>&1; then
+  fail "Nordic ota.bin without an MCUboot header accepted"
+fi
+mkdir -p "${WORK}/n5"; mk_nordic "${WORK}/n5"
+"$PY" "$COLLECT" fragment --target nordic-zephyr "${WORK}/n5" >/dev/null
+if "$PY" "$COLLECT" merge --version v3.0.1 --tag v3.0.1 --commit deadbeef "${WORK}/n5" >/dev/null 2>&1; then
+  fail "Nordic image signed 3.0.0 accepted into a 3.0.1 release"
 fi
 
 echo "release collect selftest: OK"

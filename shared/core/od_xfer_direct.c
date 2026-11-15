@@ -248,6 +248,7 @@ static od_cmd_result_t finish_refresh(const od_cmd_ctx_t *ctx, od_span_t body)
     const uint8_t refresh_mode = body.n > 0u && body.p[0] == OD_REFRESH_FAST
         ? OD_REFRESH_FAST : OD_REFRESH_FULL;
     bool completed = false;
+    bool stored = false;
 #if OD_LOG_EFFECTIVE_LEVEL >= OD_LOG_ERROR
     od_xfer_terminal_snapshot_t snapshot;
 #endif
@@ -272,19 +273,22 @@ static od_cmd_result_t finish_refresh(const od_cmd_ctx_t *ctx, od_span_t body)
         od_xfer_app_barrier_abort(&owner);
         return OD_CMD_NACK;
     }
-    if (!od_xfer_app_refresh(refresh_mode, &completed)) {
+    if (!od_xfer_refresh_call(refresh_mode, &completed, &stored)) {
         od_xfer_fail_active(OD_XFER_TERM_REFRESH_FAILED, "END", -1, 0u, 0u,
                             OD_XFER_ABORT_REFRESH_FAILED, false);
         od_xfer_reply_simple_error(ctx, RESP_DIRECT_WRITE_END_ACK);
         return OD_CMD_NACK;
     }
 #if OD_CAP_PARTIAL
-    if (completed) {
+    if (stored) {
+        /* stored, not drawn (od_xfer_note_refresh_stored): the displayed etag stands */
+    } else if (completed) {
         od_xfer_app_set_displayed_etag(has_etag && new_etag != 0u ? new_etag : 0u);
     } else if (has_etag) {
         od_xfer_app_set_displayed_etag(0u);
     }
 #else
+    (void)stored;
     (void)has_etag;
     (void)new_etag;
 #endif

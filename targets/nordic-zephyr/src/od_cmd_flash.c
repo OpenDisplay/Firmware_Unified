@@ -106,6 +106,11 @@ void od_cmd_flash_clear_arm(void)
     s_armed = false;
 }
 
+/* A preload holds the part awake from begin to finish/abort. LIST and ERASE bracket their own
+ * work with wake/sleep, so while this is set they NACK instead of powering the part down under
+ * the next od_imgstore_write(). */
+static bool s_storing;
+
 bool od_flash_store_begin(uint8_t slot, uint16_t w, uint16_t h, uint8_t scheme, uint32_t len)
 {
     od_flash_store_wake();
@@ -113,6 +118,7 @@ bool od_flash_store_begin(uint8_t slot, uint16_t w, uint16_t h, uint8_t scheme, 
         od_flash_store_sleep();
         return false;
     }
+    s_storing = true;
     return true;
 }
 
@@ -121,6 +127,7 @@ bool od_flash_store_finish(void)
     uint32_t digest = 0u;
     const bool ok = od_imgstore_finish(&digest);
 
+    s_storing = false;
     od_flash_store_sleep();
     return ok;
 }
@@ -128,6 +135,7 @@ bool od_flash_store_finish(void)
 void od_flash_store_abort(void)
 {
     od_imgstore_abort();
+    s_storing = false;
     od_flash_store_sleep();
 }
 
@@ -169,7 +177,7 @@ od_cmd_result_t od_cmd_app_flash_list(const od_cmd_ctx_t *ctx, od_span_t body)
     uint8_t n = 0u;
 
     (void)body;
-    if (!st->mounted) {
+    if (!st->mounted || s_storing) {
         return nack(ctx, CMD_FLASH_LIST);
     }
     r[0] = RESP_ACK;
@@ -198,7 +206,7 @@ od_cmd_result_t od_cmd_app_flash_erase(const od_cmd_ctx_t *ctx, od_span_t body)
     uint8_t r[3];
     bool ok;
 
-    if (!od_span_valid(body) || body.n < 1u) {
+    if (!od_span_valid(body) || body.n < 1u || s_storing) {
         return nack(ctx, CMD_FLASH_ERASE);
     }
     od_flash_store_wake();

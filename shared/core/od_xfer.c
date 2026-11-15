@@ -13,6 +13,7 @@
 static od_xfer_state_t s_xfer;
 static volatile uint8_t s_log_quiet;
 static bool s_sink_failed;
+static bool s_refresh_stored;   /* od_xfer_note_refresh_stored() during the current refresh */
 
 #if OD_LOG_EFFECTIVE_LEVEL >= OD_LOG_ERROR
 /* The last sink write, read only by the terminal failure record. */
@@ -65,6 +66,22 @@ static void log_hex(char *buf, size_t size, const uint8_t *data, uint8_t len)
 #endif
 
 static uint8_t s_start_error;
+
+void od_xfer_note_refresh_stored(void)
+{
+    s_refresh_stored = true;
+}
+
+bool od_xfer_refresh_call(uint8_t mode, bool *completed, bool *stored)
+{
+    bool ok;
+
+    s_refresh_stored = false;
+    ok = od_xfer_app_refresh(mode, completed);
+    *stored = s_refresh_stored;
+    s_refresh_stored = false;
+    return ok;
+}
 
 void od_xfer_app_note_start_error(uint8_t err)
 {
@@ -996,19 +1013,22 @@ bool od_xfer_pipe_refresh(uint8_t mode, bool has_new_etag, uint32_t new_etag,
 {
     const bool partial = s_xfer.mode == OD_XFER_PIPE_PARTIAL;
     bool refreshed;
+    bool stored = false;
 
     if (completed == NULL
         || (s_xfer.mode != OD_XFER_PIPE_FULL && s_xfer.mode != OD_XFER_PIPE_PARTIAL)) {
         return false;
     }
-    refreshed = od_xfer_app_refresh(mode, completed);
+    refreshed = od_xfer_refresh_call(mode, completed, &stored);
     if (!refreshed) {
         od_xfer_fail_active(OD_XFER_TERM_REFRESH_FAILED, "END", -1, 0u, 0u,
                             OD_XFER_ABORT_REFRESH_FAILED, partial || has_new_etag);
         return false;
     }
 #if OD_CAP_PARTIAL
-    if (partial) {
+    if (stored) {
+        /* stored, not drawn: the displayed image and its etag are unchanged */
+    } else if (partial) {
         od_xfer_app_set_displayed_etag(*completed && has_new_etag && new_etag != 0u
                                       ? new_etag : 0u);
     } else if (*completed) {
@@ -1017,6 +1037,7 @@ bool od_xfer_pipe_refresh(uint8_t mode, bool has_new_etag, uint32_t new_etag,
         od_xfer_app_set_displayed_etag(0u);
     }
 #else
+    (void)stored;
     (void)partial;
     (void)has_new_etag;
     (void)new_etag;

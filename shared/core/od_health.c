@@ -52,8 +52,19 @@ void od_health_init_rollback(struct od_health *h, bool already_confirmed)
                                                     : OD_HEALTH_CONFIRM_NONE);
 }
 
+void od_health_expect_advertising(struct od_health *h)
+{
+    h->expect_adv = true;
+}
+
+void od_health_advertising(struct od_health *h)
+{
+    h->adv_seen = true;
+}
+
 void od_health_link_opened(struct od_health *h, uint32_t now_ms)
 {
+    h->adv_seen = true;          /* a peer connected, so the image was on the air */
     if (h->open_links < 255u) {
         h->open_links++;
     }
@@ -142,7 +153,7 @@ enum od_health_action od_health_served(struct od_health *h)
 
 enum od_health_action od_health_poll(struct od_health *h, uint32_t uptime_ms)
 {
-    if (!rollback(h) || h->confirmed || h->dead_seen ||
+    if (!rollback(h) || h->confirmed || h->dead_seen || (h->expect_adv && !h->adv_seen) ||
         uptime_ms < OD_HEALTH_CONFIRM_FALLBACK_MS) {
         return OD_HEALTH_NONE;
     }

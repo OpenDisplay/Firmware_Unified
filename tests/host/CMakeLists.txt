@@ -928,6 +928,7 @@ add_test(NAME esp_crypto_random COMMAND od_esp_crypto_random_test)
 add_executable(od_nordic_sec2_app_test
     nordic_sec2_app_test.c
     ../../targets/nordic-zephyr/src/od_sec2_app.c
+    ../../targets/nordic-zephyr/src/od_boot_render_gate.c
     ../../shared/core/od_advert_state.c)
 target_compile_definitions(od_nordic_sec2_app_test PRIVATE OD_IDENT_TARGET=OD_IDENT_TARGET_NRF54)
 target_include_directories(od_nordic_sec2_app_test PRIVATE
@@ -1395,3 +1396,18 @@ target_compile_definitions(od_esp32_fastepd_test PRIVATE OPENDISPLAY_FASTEPD=1)
 target_compile_options(od_esp32_fastepd_test PRIVATE
     $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti>)
 add_test(NAME esp32_fastepd COMMAND od_esp32_fastepd_test)
+
+# nordic_adv_watch: H2 -- a Nordic advertiser that stays down (latched od_adv_control fault, or
+# wanted and not running with nobody connected) resets after a bound; transients never do.
+add_executable(od_nordic_adv_watch_test nordic_adv_watch_test.c
+    ../../targets/nordic-zephyr/src/od_adv_watch.c)
+target_include_directories(od_nordic_adv_watch_test PRIVATE
+    ../../targets/nordic-zephyr/src ${OD_SHARED_INCLUDE_DIRS})
+add_test(NAME nordic_adv_watch COMMAND od_nordic_adv_watch_test)
+
+# nordic_smp_lock: H3 (b) -- an ENTER_DFU unlock of SMP lasts one session: it ends when the link
+# opened after the unlock closes, or when none opens in time, and never cuts an open session.
+add_executable(od_nordic_smp_lock_test nordic_smp_lock_test.c
+    ../../targets/nordic-zephyr/src/od_smp_lock.c)
+target_include_directories(od_nordic_smp_lock_test PRIVATE ../../targets/nordic-zephyr/src)
+add_test(NAME nordic_smp_lock COMMAND od_nordic_smp_lock_test)
