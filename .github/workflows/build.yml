@@ -245,7 +245,9 @@ jobs:
         run: |
           export PATH="$HOME/slt/bin:$PATH"
           slt where simplicity-sdk
-          targets/efr32bg22-slc/build-and-flash.sh --clean --no-flash
+          # --release: no RTT, and the commit as the 0x0043 build id (OPENDISPLAY_BUILD_ID).
+          OPENDISPLAY_BUILD_ID="$GITHUB_SHA" \
+            targets/efr32bg22-slc/build-and-flash.sh --clean --no-flash --release
 
       - name: Collect release assets
         run: python3 tools/release/collect.py fragment --target efr32bg22-slc release

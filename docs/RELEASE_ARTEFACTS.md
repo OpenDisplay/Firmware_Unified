@@ -146,7 +146,10 @@ Opt-in builds with `OD_NRF52840_MCUBOOT=0` (Adafruit-only layout) produce
 | `opendisplay-bg22-bootloader.s37` | `bootloader-s37` | — | Gecko bootloader + AppLoader, virgin boards only. The collector renames the target's `bootloader-apploader.s37` to this name. The blob arrives with the bg22 branch (`v3/bg22` 0db5265). Until that merges, CI releases carry no bootloader and the `usb-install` flow says so. Flash it before `-app.s37`. |
 
 The build itself writes `opendisplay-bg22.{gbl,s37,hex,out}`. `collect.py` renames those to
-the names above and drops the `.out` ELF.
+the names above and drops the `.out` ELF. A release is built with `build-and-flash.sh --release`
+(RTT off; the 0x0043 build id is `OPENDISPLAY_BUILD_ID`, in CI the commit SHA). Before the drop,
+`collect.py` refuses the fragment if the ELF links `_SEGGER_RTT` or the ELF or `.gbl` carries the
+`bg22-dev` default build id, so a developer image cannot be published.
 
 **A BG22 2.x → 3.x OTA needs a config migration right after it.** 3.x drives the panel only
 from 0xAE-0xB1 config packets, and no 2.x config has them. A host must not offer the `.gbl` to

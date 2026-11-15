@@ -43,7 +43,7 @@ od_target_cmd() {
     # BUILD_DIR and the edit/flash loop is per board.
     nordic) echo "./build.sh --all" ;;
     # Build only. The OTA/bootloader/artefact steps need Simplicity Commander and a board.
-    silabs) echo "./build-and-flash.sh --no-flash" ;;
+    silabs) echo "./build-and-flash.sh --no-flash --release" ;;
     *)      return 1 ;;
   esac
 }

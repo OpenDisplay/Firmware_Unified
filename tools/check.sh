@@ -1695,7 +1695,8 @@ fi
 
 # ===================================================================================== silabs ==
 silabs_bg22() {
-    targets/efr32bg22-slc/build-and-flash.sh --clean --no-flash
+    # --release: the gated image is the shipped configuration (no RTT, real build id).
+    targets/efr32bg22-slc/build-and-flash.sh --clean --no-flash --release
 }
 if [ "$DO_SILABS" = 1 ]; then
     check "silabs: BG22 headless build" silabs_bg22

@@ -121,8 +121,10 @@ effect is an estimate from the traced allocation sizes, **not a measurement**: m
 reading `od_bg22_heap_free_at_boot` (section 5) on both images on one unit. Switching to 2 needs
 release-checklist rows D11 and D12 on hardware with that image.
 
-**The release image** (`v3/head2`, 4 connections): heap 9,664 B against the 9,600 B floor
-(+64 B), stack 2,752 B, static 20,328 B (+4 B for the retained counters of section 4.5).
+**The release image** (`build-and-flash.sh --release`: RTT off, 4 connections): heap 10,816 B
+against the 9,600 B floor (+1,216 B), stack 2,752 B, static 19,176 B. A developer image with RTT
+(the default without `--release`) has heap 9,664 B (+64 B) and static 20,328 B; that is the image
+the 2026-11-13 six-unit rollout ran, and `static_ram_max_bytes` still admits it.
 
 ## 4. The runtime health gate
 

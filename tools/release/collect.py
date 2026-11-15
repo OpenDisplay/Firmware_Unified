@@ -271,18 +271,36 @@ def fragment_nordic(d: Path) -> dict:
             "signing": {"mcuboot": _signing_from_nordic_manifest(d)}}
 
 
+# A BG22 image built without build-and-flash.sh --release: the RTT control block is linked
+# (_SEGGER_RTT in the ELF symbol table) or 0x0043 reports the CMake default build id.
+BG22_DEV_MARKERS = ((b"_SEGGER_RTT\0", "linked with SEGGER RTT"),
+                    (b"bg22-dev", 'build id is the "bg22-dev" default'))
+
+
+def _bg22_refuse_dev_build(d: Path, elf: str, gbl: str) -> None:
+    for name in (elf, gbl):
+        data = (d / name).read_bytes()
+        for marker, why in BG22_DEV_MARKERS:
+            if marker in data:
+                _fail(f"bg22: {name} is a dev build ({why}); "
+                      "build with targets/efr32bg22-slc/build-and-flash.sh --release")
+
+
 def fragment_bg22(d: Path) -> dict:
     for old, new in BG22_RENAMES.items():
         if (d / old).is_file():
             (d / old).replace(d / new)
             print(f"  rename {old} -> {new}")
-    if (d / "opendisplay-bg22.out").is_file():
-        _drop(d, "opendisplay-bg22.out", "ELF, debug only")
     gbl, s37, hexf = ("opendisplay-bg22-ota.gbl", "opendisplay-bg22-app.s37",
                       "opendisplay-bg22-app.hex")
-    for f in (gbl, s37):
+    elf = "opendisplay-bg22.out"
+    for f in (gbl, s37, elf):
         if not (d / f).is_file():
             _fail(f"bg22: missing {f}")
+    # The ELF is checked, then dropped: the .s37/.hex are hex text and the symbol table is
+    # only in the ELF, so the .gbl and the ELF between them carry both markers.
+    _bg22_refuse_dev_build(d, elf, gbl)
+    _drop(d, elf, "ELF, debug only")
     artefacts = [_artefact(d, gbl, "bg22", "gbl"), _artefact(d, s37, "bg22", "s37")]
     usb = [s37]
     if (d / hexf).is_file():
