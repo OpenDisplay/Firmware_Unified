@@ -10,14 +10,21 @@ src/od_tlsr_ota.c verifies:
   u32 LE       CRC-32 of everything before it, without the final inversion
                (zlib.crc32(body) ^ 0xFFFFFFFF), as Telink's tl_check_fw writes it
 
+A boot-flag byte must also not appear at a multi-boot slot. The B85 ROM's fallback slots are
+0x20000 and 0x40000 (the SDK's multi_boot_addr_e); an install erases sector 0 first, and if
+power is cut then, a 0x4B at slot + 8 inside the image could be booted as an image of its own.
+
   tlsr_image.py seal  RAW OUT     write OUT from RAW
   tlsr_image.py check IMAGE...    verify each sealed image; exit 1 on any failure
+  tlsr_image.py selftest          check the checks against synthetic images
 """
 import struct
 import sys
 import zlib
 
 MAX_IMAGE = 0x2D000  # src/od_tlsr_layout.h OD_TLSR_IMAGE_MAX
+BOOT_FLAG = 0x4B
+MULTI_BOOT_SLOTS = (0x20000, 0x40000)  # src/od_tlsr_layout.h OD_TLSR_MULTI_BOOT_A/B
 
 
 def seal(raw: bytes) -> bytes:
@@ -46,7 +53,29 @@ def check(img: bytes) -> str:
     want = zlib.crc32(img[:-4]) ^ 0xFFFFFFFF
     if crc != want:
         return f"CRC {crc:08x} != {want:08x}"
+    for slot in MULTI_BOOT_SLOTS:
+        if len(img) > slot + 8 and img[slot + 8] == BOOT_FLAG:
+            return f"boot flag 0x{BOOT_FLAG:02X} at 0x{slot + 8:05X}, a multi-boot slot"
     return ""
+
+
+def selftest() -> int:
+    raw = bytearray(b"\x00" * 0x21000)
+    raw[8:12] = b"KNLT"
+    good = seal(bytes(raw))
+    assert check(good) == "", check(good)
+    raw[0x20008] = BOOT_FLAG
+    assert "multi-boot" in check(seal(bytes(raw))), "flag at 0x20008 not caught"
+    raw[0x20008] = BOOT_FLAG - 1
+    assert check(seal(bytes(raw))) == ""
+    short = bytearray(b"\x00" * 0x1000)
+    short[8:12] = b"KNLT"
+    assert check(seal(bytes(short))) == ""
+    bad = bytearray(good)
+    bad[100] ^= 1
+    assert check(bytes(bad)).startswith("CRC")
+    print("tlsr_image.py selftest: ok")
+    return 0
 
 
 def main(argv):
@@ -60,6 +89,8 @@ def main(argv):
         open(argv[3], "wb").write(out)
         print(f"{argv[3]}: {len(out)} bytes sealed ({MAX_IMAGE - len(out)} below the cap)")
         return 0
+    if len(argv) == 2 and argv[1] == "selftest":
+        return selftest()
     if len(argv) >= 3 and argv[1] == "check":
         rc = 0
         for p in argv[2:]:

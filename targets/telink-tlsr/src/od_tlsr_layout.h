@@ -53,6 +53,12 @@
 #define OD_TLSR_HDR_SIZE_OFF    0x18u
 #define OD_TLSR_IMAGE_MIN       0x40u
 
+/* The B85 ROM's multi-boot fallback slots (the SDK's multi_boot_addr_e). While sector 0 has no
+ * boot flag -- an install in progress -- a 0x4B at slot + 8 inside the image would be booted as
+ * an image of its own, so no image may carry one there (tools/tlsr_image.py, od_tlsr_ota.c). */
+#define OD_TLSR_MULTI_BOOT_A    0x20000u
+#define OD_TLSR_MULTI_BOOT_B    0x40000u
+
 #if (OD_TLSR_STAGE_BASE + OD_TLSR_IMAGE_MAX) > OD_TLSR_CFG_BANK_A
 #error "staging overlaps the config banks"
 #endif

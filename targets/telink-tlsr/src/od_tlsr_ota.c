@@ -8,6 +8,10 @@
 
 #include <string.h>
 
+#if OD_TLSR_IMAGE_MAX > OD_TLSR_MULTI_BOOT_B
+#error "an image past 0x40000 needs the slot check for OD_TLSR_MULTI_BOOT_B too"
+#endif
+
 /* Delay between acknowledging INSTALL and starting it, so the notification leaves the radio. */
 #define INSTALL_DELAY_MS 1500u
 #define VERIFY_STEP      0x1000u
@@ -139,13 +143,21 @@ static uint8_t on_data(const uint8_t *d, uint16_t n, uint8_t *out)
     return 0u;
 }
 
-/* Header checks that need no full pass: boot flag, "NLT", the length field. */
+/* Header checks that need no full pass: boot flag, "NLT", the length field, and no boot flag
+ * at a multi-boot slot inside the image (od_tlsr_layout.h). */
 static bool header_ok(void)
 {
     uint8_t h[0x1Cu];
+    uint8_t slot;
 
     od_tlsr_flash_read(OD_TLSR_STAGE_BASE, h, sizeof h);
     h[OD_TLSR_HDR_FLAG_OFF] = s.flag;
+    if (s.len > OD_TLSR_MULTI_BOOT_A + OD_TLSR_HDR_FLAG_OFF) {
+        od_tlsr_flash_read(OD_TLSR_STAGE_BASE + OD_TLSR_MULTI_BOOT_A + OD_TLSR_HDR_FLAG_OFF, &slot, 1u);
+        if (slot == OD_TLSR_HDR_FLAG) {
+            return false;
+        }
+    }
     return h[8] == OD_TLSR_HDR_FLAG && h[9] == 'N' && h[10] == 'L' && h[11] == 'T' &&
            rd32(&h[OD_TLSR_HDR_SIZE_OFF]) == s.len;
 }

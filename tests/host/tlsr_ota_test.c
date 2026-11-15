@@ -74,15 +74,12 @@ static uint32_t rd32(const uint8_t *p)
 
 /* A sealed image as tools/tlsr_image.py makes one: KNLT at 8, length at 0x18, body padded to
  * 16, trailing CRC-32 without its final inversion. */
-static uint8_t IMG[20000];
+static uint8_t IMG[0x21000];
 
-static uint32_t make_image(uint32_t raw)
+static uint32_t reseal(uint32_t raw)
 {
-    uint32_t i, len;
+    uint32_t len;
 
-    for (i = 0; i < raw; ++i) {
-        IMG[i] = (uint8_t)(i * 13u + 5u);
-    }
     IMG[8] = 'K';
     IMG[9] = 'N';
     IMG[10] = 'L';
@@ -94,6 +91,16 @@ static uint32_t make_image(uint32_t raw)
     wr32(&IMG[OD_TLSR_HDR_SIZE_OFF], len);
     wr32(&IMG[raw], od_config_store_crc32(IMG, raw) ^ 0xFFFFFFFFu);
     return len;
+}
+
+static uint32_t make_image(uint32_t raw)
+{
+    uint32_t i;
+
+    for (i = 0; i < raw; ++i) {
+        IMG[i] = (uint8_t)(i * 13u + 5u);
+    }
+    return reseal(raw);
 }
 
 static void reset_all(void)
@@ -343,6 +350,32 @@ static void gate(void)
     reset_all();
 }
 
+/* H2: an image with the boot flag at the 0x20000 multi-boot slot never verifies. */
+static void multiboot_slot(void)
+{
+    uint32_t len;
+
+    reset_all();
+    g_needs_unlock = false;
+    len = make_image(0x20100u);
+    CHECK(IMG[OD_TLSR_MULTI_BOOT_A + 8u] != OD_TLSR_HDR_FLAG);
+    CHECK(begin(len));
+    send_all(len, 240u);
+    CHECK(finish() == OD_TLSR_OTA_OK);
+
+    reset_all();
+    for (len = 0u; len < 0x20100u; ++len) {
+        IMG[len] = (uint8_t)(len * 13u + 5u);
+    }
+    IMG[OD_TLSR_MULTI_BOOT_A + 8u] = OD_TLSR_HDR_FLAG;
+    len = reseal(0x20100u);
+    CHECK(begin(len));
+    send_all(len, 240u);
+    CHECK(finish() == OD_TLSR_OTA_E_HEADER);
+    CHECK(staged_flag() == 0xFFu);
+    reset_all();
+}
+
 /* M1: a low supply refuses every flash step; a verified image stays staged and verified. */
 static void supply(void)
 {
@@ -412,6 +445,7 @@ int main(void)
     failures();
     gate();
     supply();
+    multiboot_slot();
     printf("tlsr_ota: %u checks, %u failures\n", g_checks, g_failures);
     return g_failures == 0u ? 0 : 1;
 }
