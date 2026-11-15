@@ -2,7 +2,8 @@
  * UNTESTED ON HARDWARE: nothing in this file has been driven through the 3.0 firmware on glass.
  *
  * 1. The 0x20 pins of the EE02 board (they match the website's `ee02` driver board and the lab
- *    rig): no MISO pin, because DisplayConfig has no field for one.
+ *    rig). MISO (GPIO 8, panel SI1) goes in aux_pin_1, addressed from sequences as
+ *    OD_SEQ_PINREF_AUX_1; the website preset does not set it yet.
  * 2. k_preset_EP133S: the panel database's drive packets for 0x0042 EP133_SPECTRA_1200x1600
  *    (panels/generated/drive_presets.json, default class framed_hex), which the website's
  *    `ep709-spectra-1200x1600` display already names. tests/panels (DisplayPresets) fails when
@@ -23,6 +24,7 @@
 #define EE02_PIN_RESET  38u
 #define EE02_PIN_BUSY   4u
 #define EE02_PIN_PWR    43u
+#define EE02_PIN_MISO   8u    /* aux_pin_1 */
 #define EE02_PANEL_IC   0x0042u
 
 /* 0x0042 EP133_SPECTRA_1200x1600 1200x1600 scheme 8, modes 0 full x1 */

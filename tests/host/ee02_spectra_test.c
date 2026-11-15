@@ -124,6 +124,8 @@ static const rect_t k_rects[] = {
     {599, 900, 2, 300, 6},         /* exactly the two seam columns */
     {301, 1201, 777, 33, 6},       /* odd x and width: nibble-split edges in both halves */
     {0, 1599, PANEL_W, 1, 5},      /* last row */
+    {900, 300, 51, 40, 7},         /* hold codes: streamed verbatim, never clamped */
+    {41, 1400, 1100, 3, 4},
 };
 static const uint8_t k_bg = 1u;   /* white */
 
@@ -592,6 +594,7 @@ static void display_block(void)
     g_disp->dc_pin = EE02_PIN_DC;
     g_disp->reset_pin = EE02_PIN_RESET;
     g_disp->busy_pin = EE02_PIN_BUSY;
+    g_disp->aux_pin_1 = EE02_PIN_MISO;
 }
 
 static void reset_bus(uint32_t refresh_ms)
@@ -1208,6 +1211,79 @@ static void test_multipass(void)
 #endif
 }
 
+/* ------------------------------------------------------------- TSC read (MISO) --- */
+
+/* A temperature read on each chip, as the lab does it: TSC (0x40) and two bytes in on SI1, which
+ * this board wires to GPIO 8 = aux_pin_1. Nothing here is panel data: it shows what today's
+ * escapes can say and what the ESP32 bus refuses. */
+static const uint8_t k_tsc_seq[] = {
+    0x01, 0x40, 0x00, 0x09, OD_SEQ_PINREF_AUX_1, 0x02,   /* main: TSC, read 2 */
+    0x00, 0x08, 0x01,
+    0x01, 0x40, 0x00, 0x09, OD_SEQ_PINREF_AUX_1, 0x02,   /* slave: TSC, read 2 */
+    0x00, 0x08, 0x00,
+    0x00, 0x03,
+    0x00, 0x00,
+};
+
+static uint8_t g_rd_pin[2], g_rd_cs[2], g_rd_n[2];
+static unsigned g_nrd;
+
+static bool bus_read(uint8_t pin, uint8_t *dst, uint8_t n)
+{
+    if (g_nrd < 2u) {
+        g_rd_pin[g_nrd] = pin;
+        g_rd_cs[g_nrd] = g_cs;
+        g_rd_n[g_nrd] = n;
+    }
+    g_nrd++;
+    memset(dst, 0x5A, n);
+    return true;
+}
+
+static void provision_tsc(void)
+{
+    static const uint8_t slots[1] = { 0xFFu };
+    const size_t b1 = 4u + (size_t)(k_preset_EP133S[2] | (k_preset_EP133S[3] << 8));
+
+    display_block();
+    store_reset();
+    store_raw(k_preset_EP133S, b1);
+    mode_packet(0u, "tsc", 1u, slots, k_tsc_seq, (uint16_t)sizeof k_tsc_seq);
+    store_commit();
+}
+
+static void test_tsc_read(void)
+{
+    od_epd_cfg_mode_t hdr;
+    od_epd_cfg_bus_t with_miso = g_bus;
+
+    CASE("TSC read on both chips: expressible via aux_pin_1, refused by a bus without MISO");
+    provision_tsc();
+    reset_bus(0u);
+    CHECK(od_epd_cfg_load(g_disp, &g_bus));
+    CHECK(od_epd_cfg_select(0u, &hdr));
+    /* ESP32 today: read_bytes is NULL, so READ_SCRATCH is refused before any panel I/O. */
+    CHECK(!od_epd_cfg_begin_pass(0u) && od_epd_cfg_last_rc() == OD_EPD_RC_UNSUP);
+    CHECK(g_ntok == 0u);
+
+    /* A bus with a read hook: one 2-byte read per chip, sampling GPIO 8, after TSC on that chip. */
+    with_miso.read_bytes = bus_read;
+    g_nrd = 0u;
+    reset_bus(0u);
+    CHECK(od_epd_cfg_load(g_disp, &with_miso));
+    CHECK(od_epd_cfg_select(0u, &hdr));
+    CHECK(od_epd_cfg_begin_pass(0u));
+    CHECK(g_nrd == 2u);
+    for (unsigned k = 0; k < 2u; k++) {
+        const token_t *tsc = nth_cmd(0x40u, (uint8_t)k, 0u);
+
+        CHECK(g_rd_pin[k] == EE02_PIN_MISO && g_rd_cs[k] == k && g_rd_n[k] == 2u);
+        CHECK(tsc != NULL && tsc->n == 0u);
+    }
+    CHECK(never_sent_forbidden());
+    od_epd_cfg_sleep();
+}
+
 int main(void)
 {
     lab_frame();
@@ -1219,6 +1295,7 @@ int main(void)
     test_lab_order();
     test_busy_cap();
     test_multipass();
+    test_tsc_read();
     printf("ee02_spectra: %u checks, %u failures\n", g_checks, g_failures);
     return g_failures == 0u ? 0 : 1;
 }
