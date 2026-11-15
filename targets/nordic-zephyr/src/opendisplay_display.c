@@ -657,6 +657,7 @@ bool od_xfer_app_refresh(uint8_t mode, bool *completed)
   if (completed != NULL && s_to_flash) {
     s_to_flash = false;
     *completed = od_flash_store_finish();
+    od_xfer_note_refresh_stored();   /* stored, not shown: the displayed etag stands */
     return true;
   }
 #endif
