@@ -36,6 +36,24 @@ if(NOT DEFINED OD_BUILD_ID)
   set(OD_BUILD_ID "tlsr-dev")
 endif()
 
+# Fault injection for the deep-retention fallback (src/od_tlsr_display.c, PIN_FAULT_ARM).
+# Opt-in, never part of a release.
+option(OD_TLSR_FAULT_TEST "arm-able hang in the retention wake path" OFF)
+
+# Raw SPI (CMD_SPI_RAW) and its GPIO sub-op, for characterising a panel and measuring idle
+# power over the air. On an unclaimed tag they drive any pin but SWS without authentication, so
+# they are a bring-up build's, not a release's. The fault-test build arms through the GPIO
+# sub-op and turns them on.
+option(OD_TLSR_BRINGUP "raw SPI and the GPIO sub-op (CMD_SPI_RAW)" OFF)
+if(OD_TLSR_FAULT_TEST)
+  set(OD_TLSR_BRINGUP ON)
+endif()
+if(OD_TLSR_BRINGUP)
+  set(OD_TLSR_SPI_RAW 1)
+else()
+  set(OD_TLSR_SPI_RAW 0)
+endif()
+
 # ---- the shared profile for this target ----
 # Kept here, not in shared/profiles.cmake, while the target is provisional (FOLLOWUPS: move it
 # there as OD_PROFILE_TELINK when the target is accepted, so one file defines every profile).
@@ -58,8 +76,8 @@ set(OD_PROFILE_TELINK
     OD_CAP_IMGSTORE=0
     OD_CAP_ACTION=0
     OD_CAP_DRIVE_WRITE=0
-    OD_CAP_SPI_RAW=1
-    OD_CAP_SPI_RAW_GPIO=1
+    OD_CAP_SPI_RAW=${OD_TLSR_SPI_RAW}
+    OD_CAP_SPI_RAW_GPIO=${OD_TLSR_SPI_RAW}
     OD_CAP_READ_IDENT=1
     OD_CONFIG_WITH_TOUCH=0
     OD_CONFIG_WITH_BUZZER=0
@@ -172,9 +190,6 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 set(CMAKE_C_LINK_EXECUTABLE
     "${TC32_LD} --gc-sections -L${SDK}/proj_lib <LINK_FLAGS> -Map <TARGET>.map -o <TARGET> <OBJECTS> -llt_825x -llt_general_stack -L${TC32_LIBGCC_DIR} -lgcc")
 
-# Fault injection for the deep-retention fallback (src/od_tlsr_display.c, PIN_FAULT_ARM).
-# Opt-in, never part of a release.
-option(OD_TLSR_FAULT_TEST "arm-able hang in the retention wake path" OFF)
 if(OD_TLSR_FAULT_TEST)
   target_compile_definitions(od_tlsr PRIVATE OD_TLSR_FAULT_TEST=1)
 endif()

@@ -16,8 +16,8 @@ there). What it does today:
 
 - drives the panel from the config's drive packets (shared `od_display`), over a bit-banged
   bit-banged SPI bus, for full uploads (0x0070, raw or zlib with a 9-bit window) and PIPE (window
-  6), plus CMD_SPI_RAW (0x0084) for characterising a panel over the air. No partial or
-  drive-write yet;
+  6), plus, in a bring-up build (`-DOD_TLSR_BRINGUP=ON`), CMD_SPI_RAW (0x0084) for
+  characterising a panel over the air. No partial or drive-write yet;
 - reports the supply voltage and the glass temperature in the MSD.
 
 Battery: `PowerOption.battery_sense_pin` names an unused ADC-capable pin (PB0..PB7, PC4, PC5),
@@ -45,8 +45,9 @@ for reading each floor on a current meter. `-DOD_TLSR_FAULT_TEST=ON` builds the 
 image with a hang that GPIO pin 0xFE arms for the next retention wake, to exercise the fallback.
 Neither is ever a release image.
 
-CMD_SPI_RAW's GPIO sub-opcode (0x07, provisional, `OD_CAP_SPI_RAW_GPIO`) sets and reads any pin
-from PA0..PD7 except PA7, with or without a raw session open; a mode holds until the firmware
+CMD_SPI_RAW and its GPIO sub-opcode (0x07, provisional, `OD_CAP_SPI_RAW_GPIO`) are built only
+with `-DOD_TLSR_BRINGUP=ON` (the fault-test build turns it on): on an unclaimed tag they drive
+pins without authentication. The GPIO sub-op sets and reads any pin from PA0..PD7 except PA7, with or without a raw session open; a mode holds until the firmware
 next drives that pin, or until the first deep-retention sleep (disconnected, 60 s after boot).
 
 There is no LED. The setup-family screens and the key-state redraw are not wired to the panel.
