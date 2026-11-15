@@ -423,13 +423,17 @@ class Glass(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get("OD_PANELS_STALE") == "1", "set OD_PANELS_STALE=1 (needs the bb_epaper clone)")
 class DisplayPresets(unittest.TestCase):
-    """tests/host/display_presets.inc is copied from this database; catch it drifting."""
-    WANT = (("EP29YR", "0x001E", None), ("EP42B", "0x0002", "bg22"), ("EP74R", "0x0024", None))
+    """tests/host/display_presets.inc and ee02_spectra_preset.inc are copied from this database;
+    catch them drifting."""
+    WANT = (("display_presets.inc", "EP29YR", "0x001E", None),
+            ("display_presets.inc", "EP42B", "0x0002", "bg22"),
+            ("display_presets.inc", "EP74R", "0x0024", None),
+            ("ee02_spectra_preset.inc", "EP133S", "0x0042", None))
 
     def test_inc_matches_database(self):
         import re
-        src = (REPO / "tests" / "host" / "display_presets.inc").read_text()
-        for name, pid, cls in self.WANT:
+        for inc, name, pid, cls in self.WANT:
+            src = (REPO / "tests" / "host" / inc).read_text()
             m = re.search(r"k_preset_%s\[\] = \{(.*?)\};" % name, src, re.S)
             self.assertIsNotNone(m, name)
             got = bytes(int(x, 16) for x in re.findall(r"0x([0-9A-Fa-f]{2})", m.group(1))).hex()

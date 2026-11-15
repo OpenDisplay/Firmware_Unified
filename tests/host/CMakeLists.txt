@@ -603,6 +603,19 @@ add_executable(od_xfer_split_test xfer_split_test.c boot_key_stub.c
 target_link_libraries(od_xfer_split_test od_xfer_split od_shared)
 add_test(NAME xfer_split COMMAND od_xfer_split_test)
 
+# ee02_spectra: the 7.09in dual-controller Spectra 6 on EE02 through 0x70/0x71/0x72 (raw and zlib)
+# into od_display on a recorded bus, compared byte for byte with the lab firmware's init table,
+# per-chip targeting and DTM halves; plus the 60 s BUSY cap. Same composition as xfer_split.
+add_executable(od_ee02_spectra_test ee02_spectra_test.c boot_key_stub.c
+    ../../shared/core/od_display.c
+    ../../shared/core/od_epd_cfg.c
+    ../../shared/core/od_epd.c
+    ../../shared/core/od_cfg_index.c
+    od_log_test_stub.c
+    ${CMAKE_CURRENT_LIST_DIR}/../../third_party/qrcode/qrcode.c)
+target_link_libraries(od_ee02_spectra_test od_xfer_split od_shared)
+add_test(NAME ee02_spectra COMMAND od_ee02_spectra_test)
+
 # legacy_upload: what py-opendisplay 7.14.0 (no drive modes) sends for an upload -- 0x70/0x71/0x72
 # compressed and not, and PIPE -- for one panel of every colour class, replayed into od_display:
 # it must render through mode 0 exactly as mode 0 driven directly does
