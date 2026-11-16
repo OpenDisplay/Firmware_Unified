@@ -43,6 +43,9 @@ bool od_epd_shim_write(const uint8_t *data, uint32_t len);
 /* Advance to the sequence's next image marker, for two-plane panels. */
 bool od_epd_shim_next_plane(void);
 
+/* How many slices the paused image marker divides the frame into (1 when not sliced). */
+uint8_t od_epd_shim_image_of(void);
+
 /* Run the sequence tail: power-on, refresh, BUSY wait. */
 bool od_epd_shim_finish(void);
 

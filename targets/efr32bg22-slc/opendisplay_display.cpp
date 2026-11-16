@@ -48,6 +48,8 @@ struct XferAppHardwareState {
   od_color_geometry_t geometry;
   uint32_t plane_size;
   uint8_t current_plane;
+  /* IMAGE_SLICE the stream is in, for single-plane frames split across markers. */
+  uint8_t current_slice;
   bool panel_up;
   /* Multi-pass drive state, all zero on the ordinary 0x0070 path. `frame_bytes` is 0 for a
    * single-pass transfer, which is what makes the pass-advance check below inert there. */
@@ -69,6 +71,9 @@ static int16_t s_pending_slot = -1;
  * into an unpowered part, every write reports success, and the only symptom is the busy-wait
  * timeout. Charged once per switch-on, so an always-on rail never pays it. */
 #define OD_PANEL_RAIL_SETTLE_MS 800u
+
+/* SoluM EL058F5W4C 5.85in BWRY 792x272 (dual controller), panels.yaml provisional 0xF003. */
+#define OD_EL058_PANEL_IC_TYPE 0xF003u
 
 static const struct DisplayConfig *display_cfg(void)
 {
@@ -500,6 +505,55 @@ static bool render_screen(const struct DisplayConfig *dc, const char *const *lin
     white_byte = 0x11u;
   }
 
+  auto draw_row = [&](int row_y) {
+    memset(s_boot_row, white_byte, (size_t)pitch);
+
+    for (unsigned i = 0; i < n; i++) {
+      if (L.show[i]) {
+        draw_text_row(s_boot_row, row_y, L.x[i], L.y[i], lines[i], L.scale[i], bits_per_pixel, (int)w);
+      }
+    }
+
+    if (L.module_px > 0 && row_y >= L.qr_y && row_y < L.qr_y + L.qr_px) {
+      int my = (row_y - L.qr_y) / L.module_px;
+      int qy_qr = my - 4;
+      for (int mx = 0; mx < qr_modules; mx++) {
+        int qx_qr = mx - 4;
+        if (qx_qr < 0 || qy_qr < 0 || qx_qr >= (int)qr_size || qy_qr >= (int)qr_size ||
+            !qrcode_getModule(&qr, (uint8_t)qx_qr, (uint8_t)qy_qr)) {
+          continue;
+        }
+        for (int sx = 0; sx < L.module_px; sx++) {
+          int px = L.qr_x + mx * L.module_px + sx;
+          if (px >= 0 && px < (int)w) {
+            set_pixel_row(s_boot_row, px, bits_per_pixel);
+          }
+        }
+      }
+    }
+  };
+
+  if (dc->panel_ic_type == OD_EL058_PANEL_IC_TYPE && dc->color_scheme == OD_COLOR_SCHEME_BWRY) {
+    /* SoluM EL058F5W4C: two cascaded controllers, one IMAGE_SLICE each. Slice 0 is the master
+     * (right half), slice 1 the slave (left half); each takes its rows as 0, H-1, 1, H-2, ... */
+    const int half_pitch = pitch / 2;
+    for (int part = 0; part < 2; part++) {
+      if (part > 0 && !od_epd_shim_next_plane()) {
+        return false;
+      }
+      const int offset = part == 0 ? half_pitch : 0;
+      for (int k = 0; k < (int)h / 2; k++) {
+        for (int j = 0; j < 2; j++) {
+          draw_row(j == 0 ? k : (int)h - 1 - k);
+          if (!od_epd_shim_write(s_boot_row + offset, (uint32_t)half_pitch)) {
+            return false;
+          }
+        }
+      }
+    }
+    return true;
+  }
+
   const int render_passes = is_gray4 ? 2 : 1;
   for (int pass = 0; pass < render_passes; pass++) {
     /* Pass 0's image marker was already reached by od_epd_shim_begin(). There is no
@@ -509,31 +563,7 @@ static bool render_screen(const struct DisplayConfig *dc, const char *const *lin
     }
 
     for (y = 0; y < (int)h; y++) {
-      memset(s_boot_row, white_byte, (size_t)pitch);
-
-      for (unsigned i = 0; i < n; i++) {
-        if (L.show[i]) {
-          draw_text_row(s_boot_row, y, L.x[i], L.y[i], lines[i], L.scale[i], bits_per_pixel, (int)w);
-        }
-      }
-
-      if (L.module_px > 0 && y >= L.qr_y && y < L.qr_y + L.qr_px) {
-        int my = (y - L.qr_y) / L.module_px;
-        int qy_qr = my - 4;
-        for (int mx = 0; mx < qr_modules; mx++) {
-          int qx_qr = mx - 4;
-          if (qx_qr < 0 || qy_qr < 0 || qx_qr >= (int)qr_size || qy_qr >= (int)qr_size ||
-              !qrcode_getModule(&qr, (uint8_t)qx_qr, (uint8_t)qy_qr)) {
-            continue;
-          }
-          for (int sx = 0; sx < L.module_px; sx++) {
-            int px = L.qr_x + mx * L.module_px + sx;
-            if (px >= 0 && px < (int)w) {
-              set_pixel_row(s_boot_row, px, bits_per_pixel);
-            }
-          }
-        }
-      }
+      draw_row(y);
 
       if (is_gray4) {
         uint8_t *plane_row = s_boot_row + pitch;
@@ -798,6 +828,25 @@ static bool xfer_app_write_full(uint32_t stream_offset, od_span_t data)
       if (chunk > plane_end - logical) {
         chunk = plane_end - logical;
       }
+    } else if (od_epd_shim_image_of() > 1u) {
+      /* IMAGE_SLICE part/of takes frame/of bytes (one controller of a dual-controller panel
+       * per slice); at a slice boundary the walk advances to the next image marker. */
+      const uint32_t frame = s_xfer_app.frame_bytes > 0u ? s_xfer_app.frame_bytes
+                                                         : s_xfer_app.geometry.total_bytes;
+      const uint32_t slice = frame / od_epd_shim_image_of();
+      const uint32_t in_frame = logical % frame;
+      const uint8_t part = (uint8_t)(in_frame / slice);
+      if (part != s_xfer_app.current_slice) {
+        if (in_frame != (uint32_t)part * slice || part != s_xfer_app.current_slice + 1u
+            || !od_epd_shim_next_plane()) {
+          return false;
+        }
+        s_xfer_app.current_slice = part;
+      }
+      const uint32_t slice_end = logical - in_frame + (uint32_t)(part + 1u) * slice;
+      if (chunk > slice_end - logical) {
+        chunk = slice_end - logical;
+      }
     }
     /* A chunk must not straddle a pass boundary: the bytes after it belong to a frame that is
      * not on the panel yet. Clamp first, advance below. */
@@ -827,6 +876,7 @@ static bool xfer_app_write_full(uint32_t stream_offset, od_span_t data)
       }
       s_xfer_app.drive_pass++;
       s_xfer_app.current_plane = 0u;
+      s_xfer_app.current_slice = 0u;
       /* The rail stays up across passes. The 16-colour behaviour was characterised with power
        * held for all three, and a drop between them would re-run the panel's power-on reset. */
       if (!od_epd_shim_begin_pass(s_xfer_app.drive_pass)) {

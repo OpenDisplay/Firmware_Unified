@@ -63,6 +63,8 @@ class OdEpdAdapter {
     /* Two-plane panels only (3-colour). Advances to the sequence's next image
      * marker; fails if the sequence declares no second plane. */
     int  nextPlane(void);
+    /* `of` of the image marker the walk is paused on (IMAGE is 1 of 1, IMAGE_SLICE k/of). */
+    uint8_t imageOf(void) const { return _epd.paused ? _epd.img_of : 1u; }
     /* Run the sequence tail: power-on, refresh opcode, BUSY wait. */
     int  finishPass(void);
     void sleep(int mode);
