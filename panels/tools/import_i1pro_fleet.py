@@ -11,7 +11,7 @@ import json
 import sys
 from pathlib import Path
 
-PATCH = {"K": ("black", 0), "W": ("white", 1), "Y": ("yellow", 2), "R": ("red", 3)}
+PATCH = {"K": "black", "W": "white", "Y": "yellow", "R": "red"}
 
 # Units read with no transparent front; every other unit was read through its plastic front.
 BARE = {"OD507E22", "OD182A7A"}
@@ -54,8 +54,12 @@ def main(csv_path, manifest_dir, out_path):
         }
         if why:
             entry["use_note"] = why
-        for r in sorted(u["rows"], key=lambda r: PATCH[r["patch"]][1]):
-            name, code = PATCH[r["patch"]]
+        # The code is the one the unit's own chart was drawn with: BWR tags use 2 for red,
+        # BWRY units 2 for yellow and 3 for red. A missing name is an error, never a guess.
+        codes = {c["name"]: c["code"] for c in m["palette"]}
+        for r in sorted(u["rows"], key=lambda r: codes[PATCH[r["patch"]]]):
+            name = PATCH[r["patch"]]
+            code = codes[name]
             entry["entries"].append({
                 "name": name,
                 "code": code,
@@ -72,7 +76,8 @@ def main(csv_path, manifest_dir, out_path):
         "_comment": "i1Pro spot reads of stock swatch charts on 18 fleet displays, 2026-11-17. "
                     "Per-unit values: unit-to-unit spread is large (two 2.9in BWR units differ by "
                     "4.2 dE00 in red), so a type default taken from here must name its unit. "
-                    "`code` is the client's logical colour index on the chart, not a panel wire code.",
+                    "`code` is the palette code in that unit's swatch manifest (source.charts), so it differs "
+                    "by colour scheme: red is 2 on BWR units and 3 on BWRY units. Match colours by `name`.",
         "date": "2026-11-17",
         "source": {
             "csv": "i1pro/20261117_fleet/fleet_summary.csv (analyse_fleet.py)",

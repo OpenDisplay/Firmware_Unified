@@ -1,5 +1,5 @@
 {
- "_comment": "i1Pro spot reads of stock swatch charts on 18 fleet displays, 2026-11-17. Per-unit values: unit-to-unit spread is large (two 2.9in BWR units differ by 4.2 dE00 in red), so a type default taken from here must name its unit. `code` is the client's logical colour index on the chart, not a panel wire code.",
+ "_comment": "i1Pro spot reads of stock swatch charts on 18 fleet displays, 2026-11-17. Per-unit values: unit-to-unit spread is large (two 2.9in BWR units differ by 4.2 dE00 in red), so a type default taken from here must name its unit. `code` is the palette code in that unit's swatch manifest (source.charts), so it differs by colour scheme: red is 2 on BWR units and 3 on BWRY units. Match colours by `name`.",
  "date": "2026-11-17",
  "source": {
   "csv": "i1pro/20261117_fleet/fleet_summary.csv (analyse_fleet.py)",
@@ -81,7 +81,7 @@
     },
     {
      "name": "red",
-     "code": 3,
+     "code": 2,
      "lab": [
       23.786,
       36.716,
@@ -333,7 +333,7 @@
     },
     {
      "name": "red",
-     "code": 3,
+     "code": 2,
      "lab": [
       22.838,
       31.543,
@@ -477,7 +477,7 @@
     },
     {
      "name": "red",
-     "code": 3,
+     "code": 2,
      "lab": [
       35.918,
       10.492,
@@ -550,7 +550,7 @@
     },
     {
      "name": "red",
-     "code": 3,
+     "code": 2,
      "lab": [
       25.334,
       40.881,
@@ -622,7 +622,7 @@
     },
     {
      "name": "red",
-     "code": 3,
+     "code": 2,
      "lab": [
       22.815,
       34.831,
@@ -964,7 +964,7 @@
     },
     {
      "name": "red",
-     "code": 3,
+     "code": 2,
      "lab": [
       21.163,
       32.685,
@@ -1036,7 +1036,7 @@
     },
     {
      "name": "red",
-     "code": 3,
+     "code": 2,
      "lab": [
       23.952,
       35.35,
@@ -1108,7 +1108,7 @@
     },
     {
      "name": "red",
-     "code": 3,
+     "code": 2,
      "lab": [
       23.008,
       25.884,
@@ -1271,7 +1271,7 @@
     },
     {
      "name": "red",
-     "code": 3,
+     "code": 2,
      "lab": [
       19.484,
       23.034,
@@ -1434,7 +1434,7 @@
     },
     {
      "name": "red",
-     "code": 3,
+     "code": 2,
      "lab": [
       26.892,
       33.359,
