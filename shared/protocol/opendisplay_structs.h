@@ -21,7 +21,7 @@
  *
  *   OD_STRUCTS_VERSION  2.3   (MAJOR.MINOR spec marker for THIS file; see
  *                              VERSIONING POLICY below -- NOT sent on the wire)
- *   LAST CHANGED        2026-11-06
+ *   LAST CHANGED        2026-11-20
  *
  *   The two version schemes carried here are DISTINCT (see §6 Q2 of the plan):
  *     - OD_STRUCTS_VERSION_* : documents this spec file, like protocol.h's
@@ -76,6 +76,11 @@
  *         packet 0xB3 OD_PKT_DISPLAY_CONTROLLER; DriveSeqEscape 0x0C WINDOW
  *         and 0x0D FILL; ActionInfoResponse grows to 8 B (`tables`) and
  *         `rejected` counts every skipped entry.
+ *     - Doc-only: display_calibration (0xB0) states its colour space -- CIELAB
+ *       under D65 with the 2 degree observer, white-relative (the paper-white
+ *       entry is L* 100, a* 0, b* 0) -- and how a host finds the paper-white
+ *       entry. This writes down what the measured palettes and the website
+ *       already use. No wire change.
  *
  *   2.3  (2026-11-06)  -- action table + image-store payloads (Firmware_Unified BG22)
  *     - Config packet 0xB2 = OD_PKT_ACTION_TABLE (length-prefixed, SINGLETON):
@@ -1378,7 +1383,15 @@ OD_STATIC_ASSERT(sizeof(struct DisplayLutHead) == 4, "DisplayLutHead wire size")
  *  it exists so a host image pipeline can quantise against real measured
  *  colour. Encoding and measurement live in ONE packet deliberately: a
  *  measurement whose codes are unknown cannot be reproduced, and codes with no
- *  measurement cannot be chosen between." */
+ *  measurement cannot be chosen between. COLOUR SPACE: CIELAB under the D65
+ *  illuminant with the 2 degree observer (the sRGB white), WHITE-RELATIVE: the
+ *  paper-white entry is L* 100, a* 0, b* 0 and every other entry is relative
+ *  to it, so a host quantises an sRGB image against the entries directly. A
+ *  measurement is made relative by a Bradford chromatic adaptation from the
+ *  paper white to the D65 white (as epaper-dithering's from_absolute_lab does),
+ *  not by rescaling L* alone. The PAPER-WHITE ENTRY is the one whose code in every
+ *  pass is display_panel.code_map[white]; if there is none, it is the entry
+ *  with the highest L*." */
 struct DisplayCalibrationHead {
     uint8_t  instance_number; /**< @doc "display instance." */
     uint8_t  mode_index;      /**< @doc "display_mode this palette belongs to." */
@@ -1394,9 +1407,9 @@ OD_STATIC_ASSERT(sizeof(struct DisplayCalibrationHead) == 4, "DisplayCalibration
  *  on BWRY glass)." */
 struct DisplayCalibrationEntry {
     uint16_t codes;           /**< @endian le @doc "packed 2-bit panel codes, pass p in bits [2p+1:2p] (LSB-first); 16 bits cover the 8-pass maximum." */
-    uint16_t lab_l;           /**< @endian le @doc "CIELAB L* x100, SIGNED int16 two's complement." */
-    uint16_t lab_a;           /**< @endian le @doc "CIELAB a* x100, SIGNED int16 two's complement." */
-    uint16_t lab_b;           /**< @endian le @doc "CIELAB b* x100, SIGNED int16 two's complement." */
+    uint16_t lab_l;           /**< @endian le @doc "CIELAB L* x100 (D65, 2 degree, white-relative: paper white = 10000), SIGNED int16 two's complement." */
+    uint16_t lab_a;           /**< @endian le @doc "CIELAB a* x100 (D65, 2 degree, white-relative), SIGNED int16 two's complement." */
+    uint16_t lab_b;           /**< @endian le @doc "CIELAB b* x100 (D65, 2 degree, white-relative), SIGNED int16 two's complement." */
 } __attribute__((packed));
 OD_STATIC_ASSERT(sizeof(struct DisplayCalibrationEntry) == 8, "DisplayCalibrationEntry wire size");
 
