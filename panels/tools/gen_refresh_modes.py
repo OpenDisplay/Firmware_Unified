@@ -236,9 +236,9 @@ def build_ee02() -> dict:
         (2, "hold47", stock, None, 0, 0, 1,
          "stock waveform; pixel codes 4 and 7 are hardwired holds on this chip, so the host "
          "writes 4 for unchanged pixels (R-0032) [1 ex]"),
-        (3, "fast", s709_custom("0F 00 1A 24 30 38", 0x08), 0, -40, 25, 1,
+        (3, "fastg13", s709_custom("0F 00 1A 24 30 38", 0x08), 0, -40, 25, 1,
          "G13 on set 4, 17.5 s, worst 2.04; scrub every ~10 (R-0204, R-0221)"),
-        (4, "partial", s709_custom("0F 00 1A 22 24 26", 0x04), 1, 0, 0, 1,
+        (4, "partialmix", s709_custom("0F 00 1A 22 24 26", 0x04), 1, 0, 0, 1,
          "G7_N8_mixB flashing partial, 11.5 s, band-robust (sets 4 and 5); codes 4/7 hold "
          "(R-0240, R-0242) [1 ex]"),
     ]
