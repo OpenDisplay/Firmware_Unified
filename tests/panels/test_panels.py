@@ -395,14 +395,20 @@ class Equivalence(unittest.TestCase):
 
 
 def website_packets(key: str) -> list[dict]:
-    """The website's packets for one glass entry, with the one deliberate difference applied:
-    this repo appends the 0xAE tail that flags an experimental mode (the device ignores it)."""
+    """The website's packets for one glass entry, with this repo's deliberate differences applied:
+    the 0xAE tail that flags an experimental mode (the device ignores it), and the enforced
+    temperature windows (pdlib.custom_window): an experimental mode's window clipped to
+    CUSTOM_WINDOW_C with policy SUBSTITUTE, and none on mode 0, the stock-full fallback."""
     out = []
     for p in WEB[key]["drivePackets"]:
         raw = bytes.fromhex(p["raw"])
         if p["pid"] == "174":
             name = raw[2:14].rstrip(b"\0").decode()
+            if raw[1] == 0:
+                raw = raw[:16] + bytes(3) + raw[19:]
             if name in P.EXPERIMENTAL_YAML_MODES:
+                tmin, tmax = P.custom_window(*struct.unpack_from("<bb", raw, 16))
+                raw = raw[:16] + struct.pack("<bbB", tmin, tmax, P.POLICY_SUBSTITUTE) + raw[19:]
                 raw += P.mode_tail(P.MODE_EXPERIMENTAL, P.EXPERIMENTAL_YAML_MODES[name])
         out.append({"pid": p["pid"], "raw": raw.hex()})
     return out
