@@ -14,6 +14,8 @@
 #include "od_epd_lut.h"
 #include "od_reply.h"
 #include "od_xfer.h"
+#include "od_drive_etag.h"
+#include "od_xfer_app.h"
 #include "opendisplay_protocol.h"
 #include "opendisplay_structs.h"
 
@@ -127,10 +129,20 @@ od_cmd_result_t od_cmd_app_drive_write_start(const od_cmd_ctx_t *ctx, od_span_t 
     } else if (body.p[3] != 0u || body.p[4] != 0u) {
         return nack(ctx, OD_ERR_DRIVE_BAD_ARGS, body.p[0]);
     }
+    if ((body.p[2] & DRIVE_WRITE_FLAG_RESERVED) != 0u) {
+        return nack(ctx, OD_ERR_DRIVE_BAD_ARGS, body.p[0]);
+    }
     mode = body.p[0];
     compressed = (body.p[2] & DRIVE_WRITE_FLAG_COMPRESSED) != 0u;
     tail = od_span_drop(body, DRIVE_START_HDR);
+    err = od_drive_etag_check(body.p[2], &tail);
+    if (err != 0u) {
+        return nack(ctx, err, body.p[0]);
+    }
 
+    /* From here the glass may change (drive_begin aborts whatever was running): only END's
+     * new_etag names what it shows next, accepted or refused. */
+    od_xfer_app_set_displayed_etag(0u);
     err = drive_begin(&mode, body.p[2], inline_len, tail, &passes, &temp_c, &geom);
     if (err != 0u) {
         return nack(ctx, err, body.p[0]);

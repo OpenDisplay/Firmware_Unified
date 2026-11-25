@@ -266,6 +266,9 @@ void setup() {
         // wake cause and lands here. A deep-sleep wake skips it and keeps the
         // pre-sleep flag, so a wake never advertises as a reboot.
         rebootFlag = 1;
+        // RTC memory survives a panic/WDT/SW reset, but the boot screen that follows does not
+        // show the frame that etag named: a host prior (0x0076, 0x0085 ETAG) must not match.
+        displayed_etag = 0u;
         // Wake keeps the panel image; skipping initDisplay() (EPD rail power +
         // full refresh) is the wake path's main energy saving.
         //

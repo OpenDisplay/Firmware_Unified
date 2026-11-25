@@ -33,6 +33,7 @@
 #include "od_txq.h"
 #include "od_watchdog_app.h"
 #include "od_xfer.h"
+#include "od_xfer_app.h"
 #include "opendisplay_protocol.h"
 #include "structs.h"
 #include "touch_input.h"
@@ -362,6 +363,7 @@ bool displayBootConfigDriven(void)
         return false;
     }
     touchSuspendForEpdRefresh();
+    od_xfer_app_set_displayed_etag(0u);   /* the boot screen is no host frame */
     rc = od_display_boot(&globalConfig, &securityConfig, bootScreenBufs());
     epdSessionForceOff();   /* boot ends with the rail off, never warm */
     touchResumeAfterEpdRefresh();
@@ -423,6 +425,7 @@ extern "C" int opendisplay_display_spi_raw_open(bool run_panel_init)
     const struct DisplayConfig *d = display_cfg();
 
     od_drive_app_abort();
+    od_xfer_app_set_displayed_etag(0u);   /* raw SPI may draw anything */
     if (d == nullptr || displayUsesNativeDriver() || !od_epd_cfg_load(d, od_epd_esp_bus())) {
         return -OD_ERR_SPI_RAW_NO_CONFIG;
     }

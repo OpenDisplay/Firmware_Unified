@@ -57,6 +57,9 @@ od_xfer_barrier_t od_xfer_app_before_refresh(const od_reply_t *o)
 void od_xfer_app_barrier_abort(const od_reply_t *o) { (void)o; }
 bool od_xfer_app_refresh(uint8_t m, bool *c) { (void)m; (void)c; return false; }
 uint32_t od_xfer_app_now_ms(void) { return 0u; }
+static uint32_t g_displayed_etag;
+uint32_t od_xfer_app_displayed_etag(void) { return g_displayed_etag; }
+void od_xfer_app_set_displayed_etag(uint32_t etag) { g_displayed_etag = etag; }
 
 int main(void)
 {

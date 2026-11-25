@@ -52,7 +52,7 @@ static bool s_boot_applied;
 /* Set by a config write while the boot screen has never been shown; serviced on the loop. */
 static bool s_boot_pending;
 static uint8_t s_decompression_chunk[OPENDISPLAY_DECOMPRESSION_CHUNK_SIZE];
-#if OD_CAP_PARTIAL
+#if OD_CAP_DISPLAYED_ETAG
 static uint32_t s_displayed_etag;
 #endif
 #if OD_CAP_IMGSTORE
@@ -240,7 +240,7 @@ const od_epd_cfg_bus_t *od_drive_app_bus(void)
  * partial must not diff against it. */
 static void displayed_etag_forget(void)
 {
-#if OD_CAP_PARTIAL
+#if OD_CAP_DISPLAYED_ETAG
   s_displayed_etag = 0u;
 #endif
 }
@@ -722,7 +722,7 @@ bool od_xfer_app_refresh(uint8_t mode, bool *completed)
   return true;
 }
 
-#if OD_CAP_PARTIAL
+#if OD_CAP_DISPLAYED_ETAG
 uint32_t od_xfer_app_displayed_etag(void)
 {
   return s_displayed_etag;

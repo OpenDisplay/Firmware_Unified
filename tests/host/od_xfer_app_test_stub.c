@@ -54,7 +54,7 @@ od_xfer_barrier_t od_xfer_app_before_refresh(const od_reply_t *owner)
 void od_xfer_app_barrier_abort(const od_reply_t *owner) { (void)owner; }
 bool od_xfer_app_refresh(uint8_t mode, bool *completed)
 { (void)mode; (void)completed; return false; }
-#if OD_CAP_PARTIAL
+#if OD_CAP_DISPLAYED_ETAG
 uint32_t od_xfer_app_displayed_etag(void) { return 0u; }
 void od_xfer_app_set_displayed_etag(uint32_t etag) { (void)etag; }
 #endif

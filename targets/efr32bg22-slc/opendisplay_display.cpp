@@ -70,6 +70,8 @@ static int16_t s_pending_slot = -1;
  * timeout. Charged once per switch-on, so an always-on rail never pays it. */
 #define OD_PANEL_RAIL_SETTLE_MS 800u
 
+static void displayed_etag_forget(void);
+
 static const struct DisplayConfig *display_cfg(void)
 {
   const struct GlobalConfig *cfg = opendisplay_get_global_config();
@@ -649,6 +651,8 @@ extern "C" int opendisplay_display_spi_raw_open(bool run_panel_init)
 {
   const struct DisplayConfig *d = display_cfg();
 
+  displayed_etag_forget();
+
   if (d == nullptr) {
     return -OD_ERR_SPI_RAW_NO_CONFIG;
   }
@@ -939,6 +943,8 @@ static bool boot_pass(const struct DisplayConfig *d, enum od_setup_screen kind, 
 {
   bool ok;
 
+  displayed_etag_forget();
+
   /* NO PANEL TABLE, so a device with no drive packets has no boot screen. That is the normal
    * state straight after an OTA, so a failed attempt must NOT latch: the config-reload path
    * calls this again so that writing drive packets brings the boot screen up without a power
@@ -1085,6 +1091,8 @@ extern "C" bool od_xfer_app_begin_full(const od_color_geometry_t *geometry)
 {
   const struct DisplayConfig *d = display_cfg();
 
+  displayed_etag_forget();
+
   if (d == nullptr || geometry == nullptr || geometry->total_bytes == 0u
       || geometry->layout == OD_COLOR_LAYOUT_SPLIT_HALVES) {
     return false;
@@ -1206,6 +1214,28 @@ extern "C" uint32_t od_xfer_app_now_ms(void)
   return od_hal_uptime_ms();
 }
 
+/* ------------------------------------------------------------------- displayed etag (2.5) --- */
+
+/* The id of the frame the glass shows, for CMD_DRIVE_WRITE_START's ETAG check. RAM only, so a
+ * reboot (which draws the boot screen) leaves 0; every draw that is not an od_xfer transfer
+ * forgets it below, and 0x0072 END sets it after a completed refresh. */
+static uint32_t s_displayed_etag;
+
+static void displayed_etag_forget(void)
+{
+  s_displayed_etag = 0u;
+}
+
+extern "C" uint32_t od_xfer_app_displayed_etag(void)
+{
+  return s_displayed_etag;
+}
+
+extern "C" void od_xfer_app_set_displayed_etag(uint32_t etag)
+{
+  s_displayed_etag = etag;
+}
+
 /* ------------------------------------------------------------- display from a stored slot --- */
 
 extern "C" bool od_display_from_slot_arm(uint8_t index)
@@ -1226,6 +1256,7 @@ extern "C" bool od_display_from_slot_arm(uint8_t index)
       slot.colour_scheme != d->color_scheme) {
     return false;
   }
+  displayed_etag_forget();
   s_pending_slot = (int16_t)index;
   return true;
 }

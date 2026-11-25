@@ -74,6 +74,13 @@
  * inherits the session gate, meaning an unauthenticated caller gets RESP_AUTH_REQUIRED and never
  * reaches it. The protocol marks it Silabs-only; this firmware routes it on every target, and
  * each needs the display's drive packets in config before OPEN succeeds. */
+/* A displayed etag (od_xfer_app_displayed_etag): the id of the frame the glass shows, set by
+ * 0x0072 END's new_etag and cleared by anything else that draws. 0x0076/0x0080 partials and the
+ * 0x0085 ETAG flag (protocol 2.5) check against it, so every target with either keeps one. */
+#ifndef OD_CAP_DISPLAYED_ETAG
+#define OD_CAP_DISPLAYED_ETAG (OD_CAP_PARTIAL || OD_CAP_DRIVE_WRITE)
+#endif
+
 #ifndef OD_CAP_SPI_RAW
 #define OD_CAP_SPI_RAW 0
 #endif
@@ -115,6 +122,9 @@
 #endif
 #if (OD_CAP_NFC != 0) && (OD_CAP_NFC != 1)
 #error "OD_CAP_NFC must be 0 or 1"
+#endif
+#if OD_CAP_PARTIAL && !OD_CAP_DISPLAYED_ETAG
+#error "OD_CAP_PARTIAL needs OD_CAP_DISPLAYED_ETAG"
 #endif
 #if (OD_CAP_READ_IDENT != 0) && (OD_CAP_READ_IDENT != 1)
 #error "OD_CAP_READ_IDENT must be 0 or 1"

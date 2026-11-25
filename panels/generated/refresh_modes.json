@@ -18,6 +18,7 @@
           "experimental_note": "stock waveform, PLL 08 (dynamic rate): 19.2 s vs 22.3 s (R-0013)",
           "budget_cost": 0,
           "lut_slot": null,
+          "hold_mask": null,
           "temp_window_c": null,
           "seq_steps": 26,
           "seq_bytes": 100
@@ -29,6 +30,7 @@
           "experimental_note": "upload-path acceptance test: byte-true OTP set 6 at its rails, = stock (R-0186)",
           "budget_cost": 1,
           "lut_slot": 0,
+          "hold_mask": null,
           "temp_window_c": [
             -40,
             24
@@ -43,6 +45,7 @@
           "experimental_note": "upload-path acceptance test: byte-true OTP set 7 at its rails (R-0229)",
           "budget_cost": 1,
           "lut_slot": 1,
+          "hold_mask": null,
           "temp_window_c": [
             25,
             60
@@ -57,6 +60,7 @@
           "experimental_note": "F1d6 shake trim on set 6, 16.2 s, band <= 24.5 C (R-0205, R-0231)",
           "budget_cost": 1,
           "lut_slot": 2,
+          "hold_mask": null,
           "temp_window_c": [
             -40,
             24
@@ -71,6 +75,7 @@
           "experimental_note": "F1d7 shake trim on set 7, 16.2 s, band > 24.5 C (R-0231)",
           "budget_cost": 1,
           "lut_slot": 3,
+          "hold_mask": null,
           "temp_window_c": [
             25,
             60
@@ -85,6 +90,7 @@
           "experimental_note": "flashing partial S3_N0_wgap0 on set 6, 15.2 s; code 4 = hold (R-0234)",
           "budget_cost": 1,
           "lut_slot": 4,
+          "hold_mask": null,
           "temp_window_c": [
             -40,
             24
@@ -99,6 +105,7 @@
           "experimental_note": "host-built per-update table (N2): needs INLINE_LUT for slot 5 every time (R-0239)",
           "budget_cost": 1,
           "lut_slot": 5,
+          "hold_mask": null,
           "temp_window_c": null,
           "seq_steps": 36,
           "seq_bytes": 140
@@ -221,6 +228,7 @@
           "experimental_note": "stock waveform at fixed PLL 07: 9.2 s, ~8 % chroma loss (R-0046)",
           "budget_cost": 0,
           "lut_slot": null,
+          "hold_mask": null,
           "temp_window_c": null,
           "seq_steps": 21,
           "seq_bytes": 71
@@ -232,6 +240,7 @@
           "experimental_note": "BW2_kick3_w10 (B4 N0) full-window partial: 0 = to K, 1 = to W, 2/3 hold; product cycle K 3.1 / W 2.9 dE00 at 100 updates (R-0237, R-0238) [1 ex]",
           "budget_cost": 1,
           "lut_slot": 2,
+          "hold_mask": 12,
           "temp_window_c": null,
           "seq_steps": 26,
           "seq_bytes": 96
@@ -246,7 +255,7 @@
           "stored_bytes": 535
         }
       ],
-      "config_bytes": 2308,
+      "config_bytes": 2309,
       "packets": [
         {
           "id": 177,
@@ -278,7 +287,7 @@
         },
         {
           "id": 174,
-          "body_hex": "000362777061727469616c000000ff0100000002ffffffffffffff00000000000000006000024d7803000fa907010700222d2d220403105444080605003f0a25121a02300202503703600202056100a8018002e71c02e32202b4d002b50302e9010282a0012000040a83000000a70000017f01011000030250970104000102120000010000010101ff"
+          "body_hex": "000362777061727469616c000000ff0100000002ffffffffffffff00000000000000006000024d7803000fa907010700222d2d220403105444080605003f0a25121a02300202503703600202056100a8018002e71c02e32202b4d002b50302e9010282a0012000040a83000000a70000017f01011000030250970104000102120000010000010101ff0c"
         },
         {
           "id": 175,
@@ -302,6 +311,7 @@
           "experimental_note": "stock waveform at PLL 04: 22.6 s vs 30.2 s, max dE 2.7 (R-0032)",
           "budget_cost": 0,
           "lut_slot": null,
+          "hold_mask": null,
           "temp_window_c": null,
           "seq_steps": 88,
           "seq_bytes": 316
@@ -313,6 +323,7 @@
           "experimental_note": "stock waveform; pixel codes 4 and 7 are hardwired holds on this chip, so the host writes 4 for unchanged pixels (R-0032) [1 ex]",
           "budget_cost": 1,
           "lut_slot": null,
+          "hold_mask": null,
           "temp_window_c": null,
           "seq_steps": 86,
           "seq_bytes": 310
@@ -324,6 +335,7 @@
           "experimental_note": "G13 on set 4, 17.5 s, worst 2.04; scrub every ~10 (R-0204, R-0221)",
           "budget_cost": 1,
           "lut_slot": 0,
+          "hold_mask": null,
           "temp_window_c": [
             -40,
             25
@@ -338,6 +350,7 @@
           "experimental_note": "G7_N8_mixB flashing partial, 11.5 s, band-robust (sets 4 and 5); K/W/Y/B targets only (no R/G drive: an R or G cell keeps its old ink); codes 4/7 hold (R-0240, R-0242) [1 ex]",
           "budget_cost": 1,
           "lut_slot": 1,
+          "hold_mask": null,
           "temp_window_c": null,
           "seq_steps": 94,
           "seq_bytes": 330

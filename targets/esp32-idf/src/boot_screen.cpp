@@ -10,6 +10,7 @@
 #include "encryption_state.h"
 #include "od_boot_app.h"
 #include "od_boot_screen.h"
+#include "od_xfer_app.h"
 #include "od_claim_app.h"
 #include "od_sec2_trace.h"
 #include "od_watchdog_app.h"
@@ -148,6 +149,7 @@ static bool claim_app_draw(enum od_setup_screen kind, uint32_t code);
 
 extern "C" bool od_claim_app_draw(enum od_setup_screen kind, uint32_t code)
 {
+  od_xfer_app_set_displayed_etag(0u);   /* a setup screen is no host frame */
   const bool ok = claim_app_draw(kind, code);
 
   OD_SEC2_TRACE("od_claim_app_draw(%s) -> %s (display_count=%u needs_migration=%u)",
