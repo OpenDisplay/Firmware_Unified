@@ -34,6 +34,7 @@
 #include "od_drive_app.h"
 #include "od_epd.h"
 #include "od_epd_cfg.h"
+#include "od_epd_lut.h"
 #include "od_hal_nvs.h"
 #include "od_inflate_app.h"
 #include "od_reply.h"
@@ -1220,6 +1221,52 @@ static void test_multipass(void)
 #endif
 }
 
+#if OD_EPD_LUT_BYTES >= 807 && OD_EPD_LUT_CACHE > 0
+/* An inline table defers pass 0's begin until the prefix is in, so the stream opens before the
+ * walk reaches the main chip's DTM: the first marker's budget must still be one half, or both
+ * halves go to the main chip and the tail stops at the slave's DTM. */
+static void test_inline_split(void)
+{
+    od_epd_cfg_mode_t hdr;
+    od_color_geometry_t g;
+    od_epd_cfg_stream_t st;
+    static uint8_t prefix[5u + SLOT_LEN];
+    const uint16_t crc = crc16_ccitt(g_slot[1], SLOT_LEN);
+    const uint32_t np = 5u + SLOT_LEN;
+    bool ok;
+
+    CASE("inline table, split panel, single pass: each half behind its own chip's DTM");
+    provision_multipass();
+    host_frame();
+    reset_bus(20200u);
+    prefix[0] = 3u;
+    prefix[1] = (uint8_t)SLOT_LEN;
+    prefix[2] = (uint8_t)(SLOT_LEN >> 8);
+    prefix[3] = (uint8_t)crc;
+    prefix[4] = (uint8_t)(crc >> 8);
+    memcpy(&prefix[5], g_slot[1], SLOT_LEN);
+    CHECK(od_epd_cfg_load(g_disp, &g_bus));
+    CHECK(od_epd_cfg_select(0u, &hdr) && hdr.passes == 1u);
+    CHECK(od_color_direct_geometry(g_disp->color_scheme, PANEL_W, PANEL_H, &g) == OD_COLOR_OK);
+    CHECK(od_epd_cfg_check_pass(0u) == OD_EPD_RC_OK);
+    ok = od_epd_cfg_inline_expect((uint16_t)np) && od_epd_cfg_stream_init(&st, &g, 1u, false, NULL, 0u);
+    CHECK(ok);
+    for (uint32_t o = 0u; ok && o < np + FRAME_BYTES; o += 230u) {
+        const uint32_t n = np + FRAME_BYTES - o < 230u ? np + FRAME_BYTES - o : 230u;
+        const uint32_t cut = (o < np && o + n > np) ? np - o : n;
+
+        ok = od_epd_cfg_stream_write(&st, o, o < np ? prefix + o : g_frame + (o - np), cut, NULL);
+        if (ok && cut < n) {
+            ok = od_epd_cfg_stream_write(&st, np, g_frame, n - cut, NULL);
+        }
+    }
+    CHECK(ok);
+    CHECK(od_epd_cfg_finish());
+    od_epd_cfg_sleep();
+    CHECK(g_ncap == 2u && dtm_pair_is(0u, g_frame, g_frame + HALF_BYTES));
+}
+#endif
+
 /* ------------------------------------------------------------- TSC read (MISO) --- */
 
 /* A temperature read on each chip, as the lab does it: TSC (0x40) and two bytes in on SI1, which
@@ -1304,6 +1351,9 @@ int main(void)
     test_lab_order();
     test_busy_cap();
     test_multipass();
+#if OD_EPD_LUT_BYTES >= 807 && OD_EPD_LUT_CACHE > 0
+    test_inline_split();
+#endif
     test_tsc_read();
     printf("ee02_spectra: %u checks, %u failures\n", g_checks, g_failures);
     return g_failures == 0u ? 0 : 1;

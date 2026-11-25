@@ -267,7 +267,7 @@ bool od_display_refresh(uint8_t refresh_mode)
         ok = od_epd_cfg_finish();
     }
     if (!ok) {
-        od_log_error("display: refresh failed");
+        od_log_error("display: refresh failed (rc %d)", od_epd_cfg_last_rc());
     }
     end_session();
     return ok;
