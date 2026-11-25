@@ -757,6 +757,101 @@ panels:
         - "@delay 20"           # BUSY is not low yet the moment DRF ends; the legacy firmware waits 1 ms first
         - "@busy"
 
+  # PROVISIONAL -- id not assigned by ../opendisplay-protocol, not on the website.
+  # SoluM EL058F5W4C (M3 5.85" BWRY, 792x272): two cascaded JD-style controllers on
+  # one CS. A2 selects which one the following commands reach: 01 master (right half),
+  # 02 slave (left half), 00 both. Each half is 396x272 and takes its rows in the
+  # order 0, 271, 1, 270, ... od_epd streams host bytes untouched, so the HOST sends
+  # the frame in that layout: master half first (rows interleaved), then slave half.
+  # IMAGE_SLICE 0/2 and 1/2 give each controller 26928 bytes.
+  #
+  # Sequence: SPI capture of the stock SoluM firmware doing a full refresh
+  # (https://github.com/OpenEPaperLink/Tag_FW_EFR32xG22/issues/48, capture5),
+  # with one change: the stock firmware reads the panel temperature (40) and writes
+  # it back with E6; here E6 is a fixed 0x17 (23 C).
+  #
+  # BUSY drops after E0 03 and only returns after A5, so E0 is followed by a fixed
+  # delay, not @busy. It never returns after POF (02 01): the stock firmware waits
+  # ~520 ms before deep sleep, and so does the sleep sequence.
+  #
+  # Full mode verified on glass (EL058F5W4C, BG22, with IMAGE_SLICE support for
+  # single-plane frames): geometry, both halves, all four colours, 1 px lines.
+  - id: 0xF003
+    status: provisional
+    name: EP585YR_792x272
+    part: EL058F5W4C
+    controller: JD-style, dual (A2 master/slave select)
+    geometry: { width: 792, height: 272 }
+    colour:
+      scheme: BWRY            # OD_COLOR_SCHEME_BWRY = 3
+      plane_format: 2bpp_packed
+      code_map: [0, 1, 2, 3]  # identity, confirmed on glass
+    busy:
+      usable: true
+      idle_level: 1
+      timeout_ms: 60000       # DRF holds BUSY ~20 s at room temperature
+    lut:
+      supported: false
+    sleep_sequence:
+      - "02 01"               # POF
+      - "@delay 520"          # BUSY does not return after POF
+      - "07 A5"               # deep sleep
+    modes:
+      - name: full
+        init: full
+        passes: 1
+    init_sequences:
+      full:
+        - "E6 17"               # temperature (stock: value read with 40)
+        - "E0 03"
+        - "@delay 10"           # BUSY is low from here until after A5
+        - "A5"
+        - "@delay 2"
+        - "@busy"
+        - "A2 01"               # master
+        - "00 03 29"            # PSR
+        - "A2 00"
+        - "A2 02"               # slave
+        - "00 07 29"            # PSR
+        - "A2 00"               # both
+        - "01 07 00 28 78 0A 22"  # PWRR
+        - "03 10 54 00"         # POFS
+        - "06 C0 C0 C0"         # BTST
+        - "30 02"               # PLL
+        - "41 00"
+        - "50 37"               # CDI
+        - "60 02 02"            # TCON
+        - "61 01 8C 01 10"      # TRES 396x272 per controller
+        - "65 00 00 00 00"
+        - "82 AC"
+        - "E7 1C"
+        - "E3 77"
+        - "FF A5"
+        - "EF 01 1E 06 1E 0E 1C 0E 06"
+        - "DB 00"
+        - "F9 00"
+        - "CF 00"
+        - "DF 3F"
+        - "FD 01"
+        - "E8 00"
+        - "DC 00"
+        - "DD 01"
+        - "DE 01"
+        - "FF E3"
+        - "E9 01"
+        - "A2 01"               # master = right half
+        - "10"                  # DTM
+        - "@slice 0 2"
+        - "A2 02"               # slave = left half
+        - "10"                  # DTM
+        - "@slice 1 2"
+        - "04"                  # PON (~120 ms)
+        - "@delay 20"
+        - "@busy"
+        - "12 00"               # DRF (~20 s)
+        - "@delay 20"
+        - "@busy"
+
 native_controllers:
 
   - id: 3000
