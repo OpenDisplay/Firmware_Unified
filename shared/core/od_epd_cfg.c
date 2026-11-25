@@ -886,6 +886,8 @@ bool od_epd_cfg_stream_write(od_epd_cfg_stream_t *s, uint32_t stream_offset,
                              od_epd_cfg_last_rc());
                 return false;
             }
+            /* The budget depends on the marker the walk is paused on, which only exists now. */
+            s->marker_end = marker_budget(s);
         }
 #else
         return false;
@@ -936,7 +938,7 @@ bool od_epd_cfg_stream_write(od_epd_cfg_stream_t *s, uint32_t stream_offset,
                 phase(true);
             }
             if (!od_epd_cfg_finish()) {
-                od_log_error("drive: pass %u refresh failed", (unsigned)s->pass);
+                od_log_error("drive: pass %u refresh failed (rc %d)", (unsigned)s->pass, s_last_rc);
                 return false;
             }
             s->pass++;

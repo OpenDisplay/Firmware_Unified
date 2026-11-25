@@ -88,6 +88,17 @@ def mode_body(index: int, name: str, seq: bytes, *, passes: int = 1, scheme: int
             + struct.pack("<H", len(seq)) + seq)
 
 
+# 0xAE tail v1 (docs/REFRESH_MODES.md): host information, the device ignores it.
+MODE_EXPERIMENTAL = 0x01
+NO_SCRUB = 0xFF
+# Stock-preset modes flagged experimental, by name -> budget_cost.
+EXPERIMENTAL_YAML_MODES = {"colour16": 1}
+
+
+def mode_tail(flags: int, cost: int, scrub_before: int = NO_SCRUB) -> bytes:
+    return bytes([1, flags, cost, scrub_before])
+
+
 def lut_body(slot: int, data: bytes, instance: int = 0) -> bytes:
     return struct.pack("<BBH", instance, slot, crc16_ccitt(data)) + data
 
@@ -99,13 +110,22 @@ def panel_body(*, busy_usable: bool, idle: int, timeout: int, fixed: int, code_m
             + bytes((list(code_map) + [0] * 4)[:4]) + bytes([mode_count, len(sleep)]) + sleep)
 
 
+CAL_FLAG_MEASURED, CAL_FLAG_CODES_3BIT = 0x01, 0x02   # structs 2.4: 3-bit codes, pass p in bits [3p+2:3p]
+
+
 def cal_body(mode_index: int, entries: list[tuple[tuple[int, ...], tuple[float, float, float]]],
-             measured: bool, instance: int = 0) -> bytes:
-    out = bytearray([instance, mode_index, 1 if measured else 0, len(entries)])
+             measured: bool, instance: int = 0, code_bits: int = 2) -> bytes:
+    if code_bits not in (2, 3):
+        raise ValueError(f"code_bits {code_bits}")
+    flags = (CAL_FLAG_MEASURED if measured else 0) | (CAL_FLAG_CODES_3BIT if code_bits == 3 else 0)
+    out = bytearray([instance, mode_index, flags, len(entries)])
+    mask = (1 << code_bits) - 1
     for codes, (L, a, b) in entries:
+        if len(codes) * code_bits > 16 or any(c & ~mask for c in codes):
+            raise ValueError(f"codes {codes} do not fit {code_bits}-bit fields")
         cw = 0
         for p, c in enumerate(codes):
-            cw |= (c & 3) << (2 * p)
+            cw |= c << (code_bits * p)
         out += struct.pack("<Hhhh", cw, round(L * 100), round(a * 100), round(b * 100))
     return bytes(out)
 
@@ -657,6 +677,8 @@ def yaml_panel_packets(entry: dict, waves: dict[str, bytes], palette: dict) -> l
                          vsn1=[v or 0 for v in (m.get("vsn1_per_pass") or [])],
                          tmin=int(tg.get("min_c", 0)), tmax=int(tg.get("max_c", 0)),
                          policy=_POLICY.get(str(tg.get("policy", "advise")), 0))
+        if m["name"] in EXPERIMENTAL_YAML_MODES:
+            body += mode_tail(MODE_EXPERIMENTAL, EXPERIMENTAL_YAML_MODES[m["name"]])
         modes.append((mi, PKT_MODE, body))
         mode_meta.append(m)
     busy = entry.get("busy") or {}

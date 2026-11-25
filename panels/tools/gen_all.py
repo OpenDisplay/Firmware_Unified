@@ -459,7 +459,8 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
             web = (prev_entries.get(key) or {}).get("packets")
             pk = glass_packets(ent, web if web else None)
             gmodes = [{"index": i, "name": m["name"], "refresh": "full", "passes": m.get("passes", 1),
-                       "color_scheme": int(m.get("color_scheme", 0xFF))}
+                       "color_scheme": int(m.get("color_scheme", 0xFF)),
+                       **({"experimental": True} if m["name"] in P.EXPERIMENTAL_YAML_MODES else {})}
                       for i, m in enumerate(ent.get("modes") or [])]
             e["name"] = str(ent.get("name", enum))
             e["color_scheme"] = int((ent.get("modes") or [{}])[0].get("color_scheme", native))

@@ -77,6 +77,25 @@ reported on the wire as `OD_ERR_DRIVE_SEQ_UNSUPPORTED` (0x07).
    not on 0x0042 (shared with the 13.3in), so its drive key is 0. Its stock path through this
    firmware has not run on glass.
 
+## Multi-pass Spectra 6 (`colour32`, `colour20`, EE02 7.09in)
+
+Names follow `colour16`: `colourN` = an N-colour palette drawn in several passes. Mode 5
+`colour32` runs the same custom-table sequence three times (set-4 split rails `0F 00 1A 24 30 38`,
+PLL 08, POF on both chips after each pass), one table per pass: slot 0 G13 (a full refresh that
+gives every pixel a defined stock-like colour, so no scrub and no history), slot 2 PS_best_A,
+slot 3 MIXg. The two PLL-04 tables carry a rate-code-4 LUTC (13.6 ms) so all passes share PLL 08.
+Pass frames are ordinary BWGBRY_SPLIT nibbles (mode `color_scheme` 0xFF); code 4 holds.
+
+Mode 6 `colour20` runs the first two passes only (G13, PS_best_A; about 27 s).
+
+Each mode's 0xB0 holds a maximin palette (`panels/palettes/ee02_709_colour32.json`, 32 entries,
+min dE00 8.6; `ee02_709_colour20.json`, 20 entries, min dE00 8.0) with
+`cal_flags` bit 1 `CODES_3BIT` (structs 2.4, opendisplay-protocol PR 17): pass p's code in bits
+[3p+2:3p]. Lab is D50 media-relative (stock white = L* 100). The palette and its counts are from a
+rigcam search over all code tuples (294 triples, 42 pairs) of three candidate table sets (camera-provisional);
+`shared/protocol/opendisplay_structs.h` does not have the flag yet, and the firmware never reads
+0xB0.
+
 ## Drive data
 
 `panels/tools/gen_refresh_modes.py` writes `panels/generated/refresh_modes.json` and

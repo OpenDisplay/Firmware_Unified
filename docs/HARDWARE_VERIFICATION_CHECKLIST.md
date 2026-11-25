@@ -91,6 +91,19 @@ debug build, `photos/ee02_dualcs_*.jpg` rigcam crops). Two defects, both needed:
       2026-11-25. The table has no R/G drive: deskee02.py's +2-ink step asked for R and G, and
       exactly those 8 of 36 changed cells kept their old ink (max 17.2); all 28 K/W/Y/B targets
       landed
+- [x] Mode 3 `faster_cool` (G13, set-4 rails, PLL 08) draws from stored deflated slot 0: write ACK
+      20.2 s; with one inline table 20.3 s, 2026-11-25 (`ee02_spectra709/host/results/mp709`)
+- [x] INLINE_LUT on the split panel: before the fix every drive write with inline tables failed
+      `pass 0 refresh failed` (both halves sent to the main chip, OD_ERR_SEQ at the slave DTM);
+      after it a single pass + inline 20.3 s, 2-pass 39.6 s, both halves drawn (rigcam), 2026-11-25
+- [x] Mode 5 `colour32` (named `morecolours` when tested; 3 passes, slots 0/2/3 stored deflated: 3 tables through the 2-entry
+      LUT cache): write ACK 34.5 s; the 32-entry 0xB0 palette grid drawn through py
+      `prepare_multipass`: 31 distinct at dE00 5 and 8 (stock `full`, same image: 9 / 8), patch dE00
+      vs palette [cam] median 4.2, p90 7.7, max 10.3, 2026-11-25. Camera-provisional; no TSC on
+      this path (`temp_c` null)
+- [x] Mode 6 `colour20` (2 passes, slots 0/2 stored deflated): write ACK 26.7 s; its 20-entry palette
+      grid through py `prepare_multipass`: 20 distinct at dE00 5, 19 at 8 (stock `full`, same image:
+      6 / 6), patch dE00 vs palette [cam] median 3.2, p90 6.4, max 10.5, 2026-11-25
 - [ ] Nordic: `od_epd_nordic.c` still frames CS per cmd/data call; a dual-CS panel there needs
       the same fix
 

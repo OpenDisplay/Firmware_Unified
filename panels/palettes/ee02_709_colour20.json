@@ -1,0 +1,255 @@
+{
+ "panel": "ee02_709_spectra6",
+ "tables": [
+  "G13",
+  "PSA"
+ ],
+ "code_bits": 3,
+ "measured": true,
+ "white": "D50 media-relative (i1Pro stock W of the main half = L* 100)",
+ "method": "rigcam, per-cell two-point vs same-session stock W/K, i1Pro-anchored; camera-provisional (about 2-7 dE00 on stock colours); mean of two cell placements",
+ "min_dE00": 7.98,
+ "source": "ee02_spectra709/host/results/mp709 (T-115 re-run)",
+ "entries": [
+  {
+   "codes": [
+    1,
+    4
+   ],
+   "name": "W-",
+   "lab": [
+    100.16,
+    1.46,
+    2.7
+   ]
+  },
+  {
+   "codes": [
+    0,
+    4
+   ],
+   "name": "K-",
+   "lab": [
+    28.97,
+    15.82,
+    -6.86
+   ]
+  },
+  {
+   "codes": [
+    3,
+    0
+   ],
+   "name": "RK",
+   "lab": [
+    76.83,
+    37.16,
+    55.72
+   ]
+  },
+  {
+   "codes": [
+    6,
+    4
+   ],
+   "name": "G-",
+   "lab": [
+    60.26,
+    -18.35,
+    11.07
+   ]
+  },
+  {
+   "codes": [
+    6,
+    6
+   ],
+   "name": "GG",
+   "lab": [
+    105.24,
+    -11.82,
+    79.39
+   ]
+  },
+  {
+   "codes": [
+    1,
+    2
+   ],
+   "name": "WY",
+   "lab": [
+    56.18,
+    5.69,
+    -48.09
+   ]
+  },
+  {
+   "codes": [
+    2,
+    1
+   ],
+   "name": "YW",
+   "lab": [
+    47.85,
+    1.9,
+    23.76
+   ]
+  },
+  {
+   "codes": [
+    0,
+    0
+   ],
+   "name": "KK",
+   "lab": [
+    90.48,
+    13.16,
+    24.23
+   ]
+  },
+  {
+   "codes": [
+    5,
+    3
+   ],
+   "name": "BR",
+   "lab": [
+    93.61,
+    -6.0,
+    31.69
+   ]
+  },
+  {
+   "codes": [
+    0,
+    1
+   ],
+   "name": "KW",
+   "lab": [
+    47.59,
+    20.68,
+    14.32
+   ]
+  },
+  {
+   "codes": [
+    3,
+    3
+   ],
+   "name": "RR",
+   "lab": [
+    60.26,
+    53.13,
+    44.49
+   ]
+  },
+  {
+   "codes": [
+    0,
+    5
+   ],
+   "name": "KB",
+   "lab": [
+    51.02,
+    -2.95,
+    -8.18
+   ]
+  },
+  {
+   "codes": [
+    3,
+    6
+   ],
+   "name": "RG",
+   "lab": [
+    89.39,
+    26.26,
+    66.89
+   ]
+  },
+  {
+   "codes": [
+    2,
+    5
+   ],
+   "name": "YB",
+   "lab": [
+    38.21,
+    -2.92,
+    4.6
+   ]
+  },
+  {
+   "codes": [
+    2,
+    2
+   ],
+   "name": "YY",
+   "lab": [
+    36.83,
+    3.73,
+    -6.01
+   ]
+  },
+  {
+   "codes": [
+    6,
+    2
+   ],
+   "name": "GY",
+   "lab": [
+    42.29,
+    1.29,
+    -28.97
+   ]
+  },
+  {
+   "codes": [
+    6,
+    3
+   ],
+   "name": "GR",
+   "lab": [
+    87.87,
+    -13.54,
+    53.46
+   ]
+  },
+  {
+   "codes": [
+    2,
+    3
+   ],
+   "name": "YR",
+   "lab": [
+    80.31,
+    14.08,
+    51.87
+   ]
+  },
+  {
+   "codes": [
+    5,
+    0
+   ],
+   "name": "BK",
+   "lab": [
+    99.78,
+    0.59,
+    15.05
+   ]
+  },
+  {
+   "codes": [
+    1,
+    6
+   ],
+   "name": "WG",
+   "lab": [
+    105.99,
+    -7.99,
+    48.69
+   ]
+  }
+ ]
+}
