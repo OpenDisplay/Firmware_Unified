@@ -68,6 +68,8 @@ debug build, `photos/ee02_dualcs_*.jpg` rigcam crops). Two defects, both needed:
       ACK 39.8 / 39.9 s, 2026-11-25 (`photos/ee02_dualcs_3*`, `_4*`)
 - [ ] The generated `0x0042` default preset (PON before the frame) on this glass
 - [ ] `0x002B` EP81 Spectra 1024x576 (same D9 change) and the 13.3in T133A01 — no such panel here
+- Mode names below are the ones tested; renamed 2026-11-25 (`pll04` = `full_quick`, `hold47` =
+  `changedonly`, `fastg13` = `faster_cool`, `partialmix` = `partial4ink`).
 - [x] Mode 1 `pll04`: write ACK 32.8 s vs `full` 39.8 s; dE00 [cam] vs `full` median 0.60, max
       2.27 (repeat `full` vs `full`: 0.72 / 1.96), 2026-11-25 (`runee02_run3.out`)
 - [x] Mode 2 `hold47`: code-4 cells kept their ink (max 1.63), driven cells match `full` (max

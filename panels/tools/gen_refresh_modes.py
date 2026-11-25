@@ -66,7 +66,13 @@ def mode_tail(cost: int, scrub_before: int = NO_SCRUB, hold_mask: int | None = N
 
 # 0xAE tail [4] hold_mask: bit n = frame code n leaves the pixel as it is. The host sends the
 # lowest one for every pixel unchanged against its prior frame, so only changed pixels drive.
-HOLD_MASK = {"bwpartial": 0b1100}  # 0 = to K, 1 = to W, 2/3 hold
+# Keyed by (panel, mode name): names repeat across panels with different code maps.
+HOLD_MASK = {
+    ("ep29yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
+    ("s73_spectra6", "partialcool"): 1 << 4,  # code 4 = hold (R-0234)
+    ("ee02_709_spectra6", "changedonly"): (1 << 4) | (1 << 7),  # 4/7 hardwired holds (R-0032)
+    ("ee02_709_spectra6", "partial4ink"): (1 << 4) | (1 << 7),  # codes 4/7 hold (R-0240)
+}
 
 
 def panel_tail(key: int, budget: int, family: int, timeout_s: int) -> bytes:
@@ -145,19 +151,19 @@ def build_s73() -> dict:
             3: "s6_73_F1d7.bin", 4: "s6_73_S3_N0_wgap0.bin"}
     # (index, name, steps, slot, tmin, tmax, cost, note)
     modes = [
-        (2, "pll08", pll08, None, 0, 0, 0,
+        (2, "full_quick", pll08, None, 0, 0, 0,
          "stock waveform, PLL 08 (dynamic rate): 19.2 s vs 22.3 s (R-0013)"),
-        (3, "replica6", s73_custom(S73_SET6, 0x02), 0, -40, 24, 1,
+        (3, "test_cool", s73_custom(S73_SET6, 0x02), 0, -40, 24, 1,
          "upload-path acceptance test: byte-true OTP set 6 at its rails, = stock (R-0186)"),
-        (4, "replica7", s73_custom(S73_SET7, 0x02), 1, 25, 60, 1,
+        (4, "test_warm", s73_custom(S73_SET7, 0x02), 1, 25, 60, 1,
          "upload-path acceptance test: byte-true OTP set 7 at its rails (R-0229)"),
-        (5, "fast6", s73_custom(S73_SET6, 0x02), 2, -40, 24, 1,
+        (5, "faster_cool", s73_custom(S73_SET6, 0x02), 2, -40, 24, 1,
          "F1d6 shake trim on set 6, 16.2 s, band <= 24.5 C (R-0205, R-0231)"),
-        (6, "fast7", s73_custom(S73_SET7, 0x02), 3, 25, 60, 1,
+        (6, "faster_warm", s73_custom(S73_SET7, 0x02), 3, 25, 60, 1,
          "F1d7 shake trim on set 7, 16.2 s, band > 24.5 C (R-0231)"),
-        (7, "partial6", s73_custom(S73_SET6, 0x02), 4, -40, 24, 1,
+        (7, "partialcool", s73_custom(S73_SET6, 0x02), 4, -40, 24, 1,
          "flashing partial S3_N0_wgap0 on set 6, 15.2 s; code 4 = hold (R-0234)"),
-        (8, "hosttable", s73_custom(S73_SET6, 0x02), 5, 0, 0, 1,
+        (8, "adaptive", s73_custom(S73_SET6, 0x02), 5, 0, 0, 1,
          "host-built per-update table (N2): needs INLINE_LUT for slot 5 every time (R-0239)"),
     ]
     return assemble(key, "0x0023", pkts, modes, luts, budget=10, family=FAMILY_S6, timeout_s=120)
@@ -185,9 +191,9 @@ def build_bwry29() -> dict:
     full = mode_seq(pkts, 0)
     t = wave("bwry29_BW2_kick3_w10.bin")
     modes = [
-        (2, "pll07", replace_cmd(full, 0x30, b"\x07"), None, 0, 0, 0,
+        (2, "full_quick", replace_cmd(full, 0x30, b"\x07"), None, 0, 0, 0,
          "stock waveform at fixed PLL 07: 9.2 s, ~8 % chroma loss (R-0046)"),
-        (3, "bwpartial", jd29_partial(t[:7]), 2, 0, 0, 1,
+        (3, "partial_bw", jd29_partial(t[:7]), 2, 0, 0, 1,
          "BW2_kick3_w10 (B4 N0) full-window partial: 0 = to K, 1 = to W, 2/3 hold; "
          "product cycle K 3.1 / W 2.9 dE00 at 100 updates (R-0237, R-0238) [1 ex]"),
     ]
@@ -237,14 +243,14 @@ def build_ee02() -> dict:
     stock = P.walk_seq(ee02_lab_seq())
     pll04 = before_ccset(stock, [("cs", 0), cmd(0x30, 0x04)])
     modes = [
-        (1, "pll04", pll04, None, 0, 0, 0,
+        (1, "full_quick", pll04, None, 0, 0, 0,
          "stock waveform at PLL 04: 22.6 s vs 30.2 s, max dE 2.7 (R-0032)"),
-        (2, "hold47", stock, None, 0, 0, 1,
+        (2, "changedonly", stock, None, 0, 0, 1,
          "stock waveform; pixel codes 4 and 7 are hardwired holds on this chip, so the host "
          "writes 4 for unchanged pixels (R-0032) [1 ex]"),
-        (3, "fastg13", s709_custom("0F 00 1A 24 30 38", 0x08), 0, -40, 25, 1,
+        (3, "faster_cool", s709_custom("0F 00 1A 24 30 38", 0x08), 0, -40, 25, 1,
          "G13 on set 4, 17.5 s, worst 2.04; scrub every ~10 (R-0204, R-0221)"),
-        (4, "partialmix", s709_custom("0F 00 1A 22 24 26", 0x04), 1, 0, 0, 1,
+        (4, "partial4ink", s709_custom("0F 00 1A 22 24 26", 0x04), 1, 0, 0, 1,
          "G7_N8_mixB flashing partial, 11.5 s, band-robust (sets 4 and 5); K/W/Y/B targets only "
          "(no R/G drive: an R or G cell keeps its old ink); codes 4/7 hold (R-0240, R-0242) [1 ex]"),
     ]
@@ -273,11 +279,11 @@ def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int
     for idx, name, steps, slot, tmin, tmax, cost, note in modes:
         seq = P.encode_steps(steps)
         body = P.mode_body(idx, name, seq, slots=[slot] if slot is not None else None,
-                           tmin=tmin, tmax=tmax, policy=ADVISORY) + mode_tail(cost, hold_mask=HOLD_MASK.get(name))
+                           tmin=tmin, tmax=tmax, policy=ADVISORY) + mode_tail(cost, hold_mask=HOLD_MASK.get((name_of[base], name)))
         out_pkts.append((0xAE, body))
         extra.append({"mode_index": idx, "name": name, "experimental": True,
                       "experimental_note": note, "budget_cost": cost, "lut_slot": slot,
-                      "hold_mask": HOLD_MASK.get(name),
+                      "hold_mask": HOLD_MASK.get((name_of[base], name)),
                       "temp_window_c": [tmin, tmax] if (tmin or tmax) else None,
                       "seq_steps": len(steps) + 1, "seq_bytes": len(seq)})
     lut_meta = []
