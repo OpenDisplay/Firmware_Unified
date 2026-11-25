@@ -60,6 +60,8 @@
  *       in the release manifest's boards[].board (OD_IDENT_BOARD_MAX bytes at
  *       most; 0 = unknown). Lets a host pick the update image when several
  *       release boards share one chip. Read by length; no minor bump.
+ *     - Doc: CMD_DIRECT_WRITE_END: an upload ACK and REFRESH_SUCCESS do not
+ *       prove a panel is attached or that anything was drawn.
  *
  *   2.5  (2026-11-25)  -- drive-write etag (host-side priors)
  *     - MINOR: CMD_DRIVE_WRITE_START (0x0085) flag bit3 ETAG with a 4-byte
@@ -894,8 +896,13 @@
  *            length). refresh: 0=FULL, 1=FAST/PARTIAL.
  * @response: [0x00][0x72] (RESP_DIRECT_WRITE_END_ACK, data complete) THEN an
  *            unsolicited refresh notification:
- *              [0x00][0x73] RESP_DIRECT_WRITE_REFRESH_SUCCESS (panel updated), or
+ *              [0x00][0x73] RESP_DIRECT_WRITE_REFRESH_SUCCESS (refresh sequence
+ *                           ran and BUSY released), or
  *              [0x00][0x74] RESP_DIRECT_WRITE_REFRESH_TIMEOUT (refresh timed out).
+ *            Neither proves that anything was drawn: no target can tell whether a
+ *            panel is attached, and with none BUSY reads idle, so the ACKs and 0x73
+ *            arrive as for a real panel. The same holds for every upload path
+ *            (0x0076 partial, 0x0080 PIPE, 0x0085 drive write).
  *            [0xFF][0x72] if the transfer was incomplete (missing bytes / zlib flush).
  * @errors:   NACK on incompleteness; refresh reported via 0x73/0x74.
  * @state:    finalizes the 0x70 session and triggers the panel refresh.

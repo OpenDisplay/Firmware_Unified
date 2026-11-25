@@ -98,6 +98,9 @@ Not yet edited here, and needed in the canonical repo (doc text only, no layout 
   frame from `advertisement_key` with hashed-flags 0x00 (2.3.0 parity).
 - `opendisplay_protocol.h` CMD_ACTION_INFO / CMD_ACTION_FIRE `@targets`: add esp32-idf
   (`OD_CAP_ACTION`, row 19).
+- `opendisplay_protocol.h` CMD_DIRECT_WRITE_END: 0x73 means the refresh sequence ran and BUSY
+  released, not that a panel drew it; no target detects a missing panel (edited here, issue
+  #105).
 
 ## Not protocol changes (recorded so nobody looks for them)
 

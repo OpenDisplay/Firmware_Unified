@@ -46,6 +46,16 @@ Nordic's 0x0085 was on glass before the move to shared code; nothing below has r
 - [ ] ESP32: CMD_SPI_RAW sub-opcodes, and refusal on a FastEPD/IT8951 board
 - [ ] ESP32: ordinary bb_epaper upload still works after a drive or raw session
 
+### Generated drive data reported on glass (`panels/glass_reports.yaml`)
+
+Seen by a host maintainer, not in this lab; the yaml holds the bytes' sha256 and the details.
+Default class, mode 0 only.
+
+- [x] 0x0037 EP397YR_800x480 `full`, Seeed EN05 (nRF52840), 3.0.2, 2026-11-18 (issue 105)
+- [x] 0x0023 EP73_SPECTRA_800x480 `full`, reTerminal E1002 (ESP32-S3), 3.0.2, 2026-11-16 and
+      2026-11-24 after a migration (issue 109); mode not stated in the report
+- [ ] `fast` on either panel; either panel on BG22
+
 ### ESP32 (`s3-n16r8`) — EE02 dual-CS 7.09in Spectra 6 on glass, 2026-11-25
 
 EE02 (XIAO ESP32-S3 Plus, BLE `OD1488B0`) + GDEB0709E01 1200x1600, panel_ic 0x0042, scheme 8
