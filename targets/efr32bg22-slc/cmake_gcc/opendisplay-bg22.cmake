@@ -423,6 +423,8 @@ target_compile_definitions(slc PUBLIC
     "SLI_PSA_CONFIG_AUTOGEN_OVERRIDE_FILE=\"od_psa_config_autogen.h\""
     ${OD_PROFILE_SILABS}
     "OD_IDENT_TARGET=OD_IDENT_TARGET_SILABS"
+    # READ_IDENT release board: the release manifest's boards[].board.
+    "OD_IDENT_BOARD=\"bg22\""
     "OPENDISPLAY_ZLIB_WINDOW_BITS=9"
     "__SILABS_BG22__=1"
     "EFR32BG22C222F352GM40=1"

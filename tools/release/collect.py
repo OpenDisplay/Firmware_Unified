@@ -8,8 +8,9 @@
         per-board metadata only the build job knows (offsets, chip).
 
     collect.py merge --version X.Y.Z --tag TAG --commit SHA [DIR]
-        Run once over the union of the fragments' directories. Writes manifest.json and
-        SHA256SUMS, deletes the fragments, and fails on anything the contract forbids.
+        Run once over the union of the fragments' directories. Copies in the drive presets this
+        commit carries, writes manifest.json and SHA256SUMS, deletes the fragments, and fails on
+        anything the contract forbids.
 
     collect.py check [DIR]
         Validate an already merged directory against manifest.json.
@@ -42,6 +43,16 @@ LEGACY_NAME_PATTERNS = [
 ]
 
 RELEASE_LEVEL = {"manifest.json", "SHA256SUMS", "LICENSE", "NOTICE.md"}
+
+# Drive presets the release was built and tested with (panels/generated/), listed in
+# manifest.json presets[] with their sha256. A host writes drive data only from a file it has
+# checked against the manifest. ident_targets: the CMD_READ_IDENT fw_target values each file
+# serves (opendisplay_protocol.h OD_IDENT_TARGET_*).
+PRESET_FILES = {
+    "drive_presets.json": {"type": "drive-presets", "ident_targets": [0x01, 0x02, 0x03, 0x05]},
+    "drive_presets_nrf52811.json": {"type": "drive-presets", "ident_targets": [0x04]},
+}
+PRESETS_DIR = REPO_ROOT / "panels" / "generated"
 
 # Website/2.x board stem for each 3.x board, so a sync can map one-to-one.
 LEGACY_NAMES = {
@@ -381,6 +392,16 @@ def _validate(d: Path, manifest: dict) -> None:
     if hits:
         _fail(f"2.x asset names in a 3.x release: {hits}")
     listed = {a["file"] for a in manifest["artefacts"]}
+    presets = manifest.get("presets", [])
+    if {p["file"] for p in presets} != set(PRESET_FILES):
+        _fail(f"presets[] must list exactly {sorted(PRESET_FILES)}")
+    for e in presets:
+        p = d / e["file"]
+        if not p.is_file():
+            _fail(f"manifest lists {e['file']} but it is not in {d}")
+        if p.stat().st_size != e["size"] or _sha256(p) != e["sha256"]:
+            _fail(f"{e['file']}: size/sha256 differ from manifest.json")
+        listed = listed | {e["file"]}
     seen_boards = {b["board"] for b in manifest["boards"]}
     for a in manifest["artefacts"]:
         p = d / a["file"]
@@ -405,7 +426,31 @@ def _validate(d: Path, manifest: dict) -> None:
         _fail(f"files not described by manifest.json: {stray}")
 
 
-def cmd_merge(d: Path, version: str, tag: str, commit: str) -> None:
+def _preset_entries(d: Path, src: Path) -> list[dict]:
+    out = []
+    for name, meta in PRESET_FILES.items():
+        s = src / name
+        if not s.is_file():
+            _fail(f"missing {s}: a release attaches the drive presets it was built with")
+        data = s.read_bytes()
+        try:
+            doc = json.loads(data)
+        except ValueError as e:
+            _fail(f"{s}: not JSON ({e})")
+        if doc.get("schema") != "opendisplay.drive_presets":
+            _fail(f"{s}: schema is {doc.get('schema')!r}, expected 'opendisplay.drive_presets'")
+        dst = d / name
+        if dst.exists() and dst.read_bytes() != data:
+            _fail(f"{dst} differs from {s}")
+        dst.write_bytes(data)
+        out.append({"file": name, **meta, "schema": doc["schema"],
+                    "schema_version": doc["schema_version"],
+                    "schema_minor": doc.get("schema_minor", 0),
+                    "size": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+    return out
+
+
+def cmd_merge(d: Path, version: str, tag: str, commit: str, presets_src: Path) -> None:
     v = version[1:] if version.startswith("v") else version
     frags = sorted(d.glob("fragment-*.json"))
     if not frags:
@@ -414,7 +459,7 @@ def cmd_merge(d: Path, version: str, tag: str, commit: str) -> None:
         "schema": SCHEMA, "repository": REPOSITORY, "version": v, "tag": tag,
         "commit": commit,
         "built_at": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "signing": {}, "boards": [], "artefacts": [],
+        "signing": {}, "boards": [], "artefacts": [], "presets": _preset_entries(d, presets_src),
     }
     for f in frags:
         frag = json.loads(f.read_text(encoding="utf-8"))
@@ -436,7 +481,8 @@ def cmd_merge(d: Path, version: str, tag: str, commit: str) -> None:
             if p.is_file() and p.name != "SHA256SUMS"]
     (d / "SHA256SUMS").write_text("\n".join(sums) + "\n", encoding="utf-8")
     print(f"manifest.json: {len(manifest['boards'])} boards, "
-          f"{len(manifest['artefacts'])} artefacts, signing {manifest['signing']}")
+          f"{len(manifest['artefacts'])} artefacts, {len(manifest['presets'])} preset files, "
+          f"signing {manifest['signing']}")
 
 
 def cmd_check(d: Path) -> None:
@@ -453,6 +499,8 @@ def main(argv=None) -> int:
     m.add_argument("--version", required=True)
     m.add_argument("--tag", required=True)
     m.add_argument("--commit", required=True)
+    m.add_argument("--presets", default=str(PRESETS_DIR),
+                   help="directory holding the drive presets (default: panels/generated)")
     c = sub.add_parser("check")
     for p in (f, m, c):
         p.add_argument("dir", nargs="?", default=str(REPO_ROOT / "release"))
@@ -462,7 +510,7 @@ def main(argv=None) -> int:
         if args.cmd == "fragment":
             cmd_fragment(args.target, d)
         elif args.cmd == "merge":
-            cmd_merge(d, args.version, args.tag, args.commit)
+            cmd_merge(d, args.version, args.tag, args.commit, Path(args.presets))
         else:
             cmd_check(d)
     except ContractError as e:

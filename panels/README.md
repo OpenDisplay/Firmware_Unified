@@ -10,6 +10,7 @@ panels/
   README.md                 this file (database schema + drive_presets.json contract)
   NOTES_special.md          IT8951 / FastEPD parallel panels: can they be config-driven?
   panels.yaml               hand-authored, ON-GLASS-VERIFIED entries (6 BWRY panels). Frozen.
+  glass_reports.yaml        on-glass sightings of GENERATED entries -> per-mode verified: glass
   panel_ids.json            legacy panel_ic_type id -> bb_epaper enum, scheme, preset ids
   palettes/                 measured BWRY 16-colour palettes (0xB0 source)
                             i1pro_fleet_<date>.json: per-unit i1Pro reads of the native colours
@@ -21,7 +22,8 @@ panels/
     build_panel_ids.py      rebuilds panel_ids.json from the sibling repos (git show only)
   generated/
     bbep_streams.json       normalised bb_epaper streams per enum, + drift vs the vendored copy
-    drive_presets.json      THE HOST ARTEFACT (schema below)
+    drive_presets.json      THE HOST ARTEFACT (schema below); attached to every firmware release
+    drive_presets_nrf52811.json  the nRF52811 presets, copied from Firmware_NRF (see Provenance)
     coverage.md             per-id status table
   legacy/                   lab scripts imported verbatim (see Provenance)
 ```
@@ -36,6 +38,12 @@ panels/
 `lut_lab.waves.default_waves()`; they are byte-identical to the 0xAF bodies shipped in the
 website presets (`opendisplay.org` branch `feat/od-epd-driver`). The PNG evidence files of the
 source directory were not imported.
+
+`generated/drive_presets_nrf52811.json` is not generated here: it is
+`presets/drive_presets_nrf52811.json` from `Firmware_NRF` branch `v3/nrf52811`, copied byte for
+byte from `756d014` (2026-11-13, "presets: ship only presets checked on glass (11 of 33)"; branch
+tip `3ebf82e`). Firmware_NRF's `tools/gen_presets.py` owns it; its ids are provisional
+(0xE0xx/0xE1xx). Refresh it by copying a newer output in, with that commit named here.
 
 `legacy/` scripts are kept for the lab workflow they belong to (they need py-opendisplay's
 `panel_drive`, `lut_lab` and a BLE device). Their absolute paths were replaced by environment
@@ -150,7 +158,7 @@ removes or changes the meaning of a field bumps `schema_version`.
 {
   "schema": "opendisplay.drive_presets",
   "schema_version": 1,
-  "schema_minor": 3,                  // 1: target classes; 2: one step cap, no BG22 length cap; 3: native_controllers
+  "schema_minor": 4,                  // 1: target classes; 2: one step cap, no BG22 length cap; 3: native_controllers; 4: glass reports
   "sources": {
     "bb_epaper": "4edfa7f",            // revision the streams were captured from
     "bb_epaper_vendored": "5dccfbb",   // third_party/ copy (drift listed in coverage.md)
@@ -180,12 +188,17 @@ removes or changes the meaning of a field bumps `schema_version`.
       "controller": "UC81xx",           // "UC81xx" | "SSD16xx"
       "bbep_flags": ["4COLOR"],         // bb_epaper flag names, informational
       "status": "glass",                // "glass" | "equivalent" | "differs" | "blocked" | "not_attempted"
-      "verified": "glass",              // "glass" | "equivalent" | "untested"
+      "verified": "glass",              // "glass" | "equivalent" | "untested"; glass also when mode 0 has a report
+      "glass_reports": [                // minor 4: on-glass sightings of exactly these bytes (glass_reports.yaml)
+        {"modes": ["full"], "framed_sha256": "…", "board": "Seeed EN05 (XIAO nRF52840 Plus)",
+         "firmware": "3.0.2", "date": "2026-11-18", "reporter": "…", "source": "…", "note": "…"}
+      ],
       "blocked_on": [],                 // primitive ids (see "Primitives"); non-empty iff status=blocked
       "blocked_detail": {"fast": ["SEQ_MAX"]},     // per flow (full/fast/partial/sleep), why it was dropped
       "requires_escapes": [],           // "SET_PIN", "CS_SELECT": the target io must implement them
       "modes": [                        // shipped modes, in mode_index order; mode 0 is the default
-        {"index": 0, "name": "full", "refresh": "full", "passes": 1, "color_scheme": 3, "planes": 2}
+        {"index": 0, "name": "full", "refresh": "full", "passes": 1, "color_scheme": 3, "planes": 2,
+         "verified": "glass"}           // minor 4: per mode, same values as the entry's verified
       ],                                // planes = image markers per pass (partial: old + new)
       "modes_blocked": [                // 2.x flows NOT shipped, with why and what would make them fit
         {"name": "fast", "blocked_on": ["SEQ_MAX"], "seq_bytes": 140, "steps": 39,
@@ -249,7 +262,13 @@ Field rules a consumer may rely on:
   `blocked` = the full flow or sleep cannot be expressed -- `packets: []`, write nothing, the
   device then reports the panel undrivable rather than driving it wrongly; `not_attempted` = no
   bb_epaper enum to capture.
-- `verified` is `glass`, `equivalent` (same meaning as the status) or `untested`.
+- `verified` is `glass`, `equivalent` (same meaning as the status) or `untested`. Since minor 4
+  every mode has its own `verified`, and an `equivalent` entry's modes become `glass` one by one
+  as `glass_reports.yaml` records them seen on a real panel; the entry's `verified` becomes
+  `glass` once mode 0 has been. `status` does not change: it says where the bytes came from. A
+  report covers one target class and exactly the bytes it hashed (`framed_sha256` over
+  `targets.<class>.framed_hex`); regenerated bytes lose it, and `coverage.md` lists such reports
+  as not applied. A host may drop its "untested" warning for a mode whose `verified` is `glass`.
 - A panel with `requires_escapes` is equivalent on the host but only drives on a target whose io
   implements those escapes (`od_epd_cfg` currently leaves `set_pin`/`cs_select` NULL, so od_epd
   refuses them with `RC_UNSUP` at mode select). They are not blockers: the data is complete.
@@ -273,6 +292,12 @@ whether an alternative exists), per-entry `targets`, `fits_target`, `alternative
 `seq_bytes` / `steps` / `window` / `fits`, the difference id `D8`, and the blocker ids
 `MAX_STEPS` / `REPLAY_REFUSED`. `caps.seq_max` / `caps.max_steps` now give the `default` class
 (512 / 96). Nothing was removed or renamed.
+
+### Changes in minor 4
+
+Added `modes[].verified` (every mode, every class view), `glass_reports` (entry and every
+`targets.<class>`), both from `panels/glass_reports.yaml`. An `equivalent` entry can now carry
+`verified: glass`. Packets and every other field are byte-identical to minor 3.
 
 ### Changes in minor 2
 

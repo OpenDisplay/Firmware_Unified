@@ -1,5 +1,6 @@
 /* ident_test: CMD_READ_IDENT (0x0046) on the default (ESP32 / Nordic) profile -- the 3.0 tail
- * [flags][max_config:2][max_seq_steps:2][escapes], the per-family fw_target, NEEDS_MIGRATION
+ * [flags][max_config:2][max_seq_steps:2][escapes][board_len][board], the per-family fw_target,
+ * NEEDS_MIGRATION
  * (no drive packets, or a mode 0 breaking the mode-0 rule) and BUILTIN_DRIVER for a display a
  * native controller driver owns. The BG22 profile's values are asserted in silabs_fault_test. */
 #include "od_check.h"
@@ -14,7 +15,7 @@
 #include "od_sec2_wire.h"
 #include "opendisplay_protocol.h"
 
-static uint8_t g_rsp[64];
+static uint8_t g_rsp[96];
 static uint16_t g_rsp_n;
 static struct od_config g_cfg;
 static bool g_native;
@@ -42,6 +43,22 @@ od_txq_status_t od_reply_refusal(od_tx_reservation_t *r, const od_reply_t *rp,
 
 const struct od_config *od_ident_app_config(void) { return &g_cfg; }
 bool od_ident_app_native_panel(const struct DisplayConfig *d) { (void)d; return g_native; }
+
+/* Built twice: with the release board the build names, and with none (board_len 0). */
+#ifdef OD_IDENT_BOARD
+static const char k_board[] = OD_IDENT_BOARD;
+#else
+static const char k_board[] = "";
+#endif
+#define BOARD_LEN (sizeof k_board - 1u)
+
+/* The board field closes the reply: board_len at `at`, then the name. */
+static void check_board(uint16_t at)
+{
+    CHECK(g_rsp_n == at + 1u + BOARD_LEN);
+    CHECK(g_rsp[at] == BOARD_LEN);
+    CHECK(memcmp(&g_rsp[at + 1u], k_board, BOARD_LEN) == 0);
+}
 
 static void ident(void)
 {
@@ -80,7 +97,7 @@ int main(void)
     CASE("no config: header, zero records, then the tail");
     memset(&g_cfg, 0, sizeof g_cfg);
     ident();
-    CHECK(g_rsp_n == 11u);
+    check_board(11u);
     CHECK(g_rsp[0] == RESP_ACK && g_rsp[1] == RESP_READ_IDENT);
     CHECK(g_rsp[3] == OD_IDENT_TARGET_NRF52840);
     CHECK(g_rsp[4] == 0u);
@@ -97,7 +114,7 @@ int main(void)
     g_cfg.displays[0].panel_ic_type = 0x0002u;
     store(0xFFu);
     ident();
-    CHECK(g_rsp_n == 18u);
+    check_board(18u);
     CHECK(g_rsp[4] == 1u && g_rsp[5] == 0x02u && g_rsp[6] == 0x00u);
     CHECK(g_rsp[12] == OD_IDENT_FLAG_CONFIG_DRIVEN);
 
@@ -116,6 +133,7 @@ int main(void)
     ident();
     CHECK(g_rsp[12] == (OD_IDENT_FLAG_CONFIG_DRIVEN | OD_IDENT_FLAG_BUILTIN_DRIVER |
                         OD_IDENT_FLAG_SEC_V2 | OD_IDENT_FLAG_CLAIM_MODE));
+    check_board(18u);
     memset(&g_cfg, 0, sizeof g_cfg);
     g_sec_flags = (uint8_t)(OD_IDENT_FLAG_SEC_V2 | OD_IDENT_FLAG_CLAIMED);
     ident();

@@ -202,6 +202,8 @@ Shared handler `shared/core/od_cmd_ident.c` on every target that sets `OD_CAP_RE
 | 6+7n | 2 | `max_config` LE16: largest config a CONFIG_WRITE accepts = min(stored-config cap, MAX_CONFIG_CHUNKS x CONFIG_CHUNK_SIZE). 4000 on ESP32/Nordic, 3120 on BG22 |
 | 8+7n | 2 | `max_seq_steps` LE16: most steps one drive sequence may have (128 everywhere) |
 | 10+7n | 1 | `escapes`: bit0 WINDOW (0x0C), bit1 FILL (0x0D) compiled in; 0 on BG22, 0x03 elsewhere; bits 2-7 reserved 0 |
+| 11+7n | 1 | `board_len` (0..32; 0 = not a release board) |
+| 12+7n | `board_len` | release board, ASCII `[a-z0-9_-]`, exactly the release manifest's `boards[].board` (`s3-n32r8-extuart`, `xiao_nrf52840`, `bg22`); a `-debug` ESP32 board reports its release board. Set by the build (`OD_IDENT_BOARD`). Firmware before this field ends after `escapes`: unknown |
 
 `flags`:
 

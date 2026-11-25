@@ -1207,6 +1207,7 @@ if(Python3_FOUND)
     target_compile_definitions(od_silabs_fault_test PRIVATE
         OD_TEST_REAL_SILABS_PIPE=1
         OD_IDENT_TARGET=OD_IDENT_TARGET_SILABS
+        OD_IDENT_BOARD="bg22"
         OPENDISPLAY_BUILD_ID="1a2b3c4d")
     target_link_libraries(od_silabs_fault_test od_session_fake_silabs)
     add_test(NAME silabs_fault COMMAND od_silabs_fault_test)

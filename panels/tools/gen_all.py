@@ -23,6 +23,7 @@ panels.yaml entries (falls back to the committed presets when it is missing).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -36,7 +37,10 @@ OUT_STREAMS = P.GENERATED / "bbep_streams.json"
 OUT_COVERAGE = P.GENERATED / "coverage.md"
 
 FLOW_ORDER = ("full", "fast", "partial")
-SCHEMA_MINOR = 3
+SCHEMA_MINOR = 4
+GLASS_REPORTS = P.PANELS / "glass_reports.yaml"
+REPORT_FIELDS = ("panel", "target_class", "framed_sha256", "modes", "board", "firmware", "date",
+                 "reporter", "source")
 DIFFS_BASE = ["D1", "D2", "D3", "D4", "D5"]
 
 
@@ -321,7 +325,59 @@ def native_controllers(prev: dict | None) -> dict:
 # ----------------------------------------------------------------------------- main
 
 TOP_FROM_CLASS = ("status", "verified", "blocked_on", "blocked_detail", "modes", "modes_blocked",
-                  "requires_escapes", "packets", "framed_hex", "drive_bytes", "fits", "equivalence")
+                  "requires_escapes", "packets", "framed_hex", "drive_bytes", "fits", "equivalence",
+                  "glass_reports")
+
+
+def load_glass_reports() -> list[dict]:
+    """panels/glass_reports.yaml: on-glass sightings of generated drive data."""
+    import yaml
+    doc = yaml.safe_load(GLASS_REPORTS.read_text()) or {}
+    reports = doc.get("reports") or []
+    for i, r in enumerate(reports):
+        missing = [f for f in REPORT_FIELDS if f not in r]
+        if missing:
+            raise SystemExit(f"glass_reports.yaml report {i}: missing {', '.join(missing)}")
+        r["date"] = str(r["date"])
+        r["firmware"] = str(r["firmware"])
+        if r["target_class"] not in P.CLASSES:
+            raise SystemExit(f"glass_reports.yaml report {i}: unknown target_class {r['target_class']!r}")
+        if not isinstance(r["modes"], list) or not r["modes"]:
+            raise SystemExit(f"glass_reports.yaml report {i}: modes must be a non-empty list of mode names")
+        if len(str(r["framed_sha256"])) != 64:
+            raise SystemExit(f"glass_reports.yaml report {i}: framed_sha256 must be 64 hex digits")
+    return reports
+
+
+def apply_glass_reports(key: str, views: dict[str, dict], reports: list[dict]) -> list[dict]:
+    """Mark the modes a matching report saw on glass. A report matches only while the class's
+    framed bytes hash to its framed_sha256, so regenerated data is never inherited.
+    Every view's modes gain `verified`; a view gains `glass_reports` (possibly empty), and its
+    `verified` becomes glass once mode 0 has been seen. Returns the reports that no longer match."""
+    stale = []
+    for cls, v in views.items():
+        base = "glass" if v["status"] == "glass" else ("equivalent" if v["status"] == "equivalent"
+                                                       else "untested")
+        sha = hashlib.sha256(bytes.fromhex(v["framed_hex"])).hexdigest()
+        mine = [r for r in reports if r["panel"] == key and r["target_class"] == cls]
+        names = {m["name"] for m in v["modes"]}
+        applied = []
+        for r in mine:
+            unknown = sorted(set(r["modes"]) - names)
+            if unknown:
+                raise SystemExit(f"glass_reports.yaml: {key} {cls} has no mode {', '.join(unknown)}")
+            if r["framed_sha256"] != sha:
+                stale.append(r)
+                continue
+            applied.append({f: r[f] for f in REPORT_FIELDS if f not in ("panel", "target_class")}
+                           | ({"note": r["note"]} if r.get("note") else {}))
+        seen = {n for r in applied for n in r["modes"]}
+        for m in v["modes"]:
+            m["verified"] = "glass" if m["name"] in seen or base == "glass" else base
+        v["glass_reports"] = applied
+        if v["modes"] and v["modes"][0]["verified"] == "glass":
+            v["verified"] = "glass"
+    return stale
 
 
 def build(prev: dict | None) -> tuple[dict, dict, str]:
@@ -331,6 +387,12 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
     cap = P.capture(P.BBEP_REF_REV)
     vend = P.capture(P.BBEP_VENDORED_REV)
     yml = load_yaml()
+    reports = load_glass_reports()
+    known = set(ids)
+    for r in reports:
+        if r["panel"] not in known or ids[r["panel"]]["alias_of"]:
+            raise SystemExit(f"glass_reports.yaml: {r['panel']} is not a panel key (or is an alias)")
+    stale_reports: list[dict] = []
     prev_entries = (prev or {}).get("panels", {})
 
     streams = {"bb_epaper": cap["bb_epaper"], "panels": {}}
@@ -421,6 +483,7 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
                 e["notes"].append(f"DOUBT: code_map {code_map_of(p)} is bb_epaper's pColorLookup; for EP42YR "
                                   "and EP75YR that lookup is the identity while the glass panels.yaml "
                                   "entries use [0,1,3,2], so the BWRY code order of this panel is unproven")
+        stale_reports += apply_glass_reports(key, views, reports)
         top = views["default"]
         for k in TOP_FROM_CLASS:
             e[k] = top[k]
@@ -475,7 +538,7 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
         "native_controllers": native_controllers(prev),
     }
     streams["drift_vs_vendored"] = drift
-    return presets, streams, coverage_md(out, drift, bg22_out)
+    return presets, streams, coverage_md(out, drift, bg22_out, stale_reports)
 
 
 def _why(e: dict, v: dict) -> str:
@@ -488,7 +551,7 @@ def _why(e: dict, v: dict) -> str:
     return ", ".join(v.get("blocked_on") or [])
 
 
-def coverage_md(out: dict, drift: list[str], bg22_out: dict) -> str:
+def coverage_md(out: dict, drift: list[str], bg22_out: dict, stale_reports: list[dict]) -> str:
     lines = ["# Drive-data coverage", "",
              "Generated by `panels/tools/gen_all.py`; do not edit. `default` = od_epd defaults "
              f"({P.CLASSES['default']['max_steps']} steps, WINDOW/FILL; ESP32, Nordic); `bg22` = "
@@ -505,7 +568,9 @@ def coverage_md(out: dict, drift: list[str], bg22_out: dict) -> str:
             v = t.get(cls) or {"status": e["status"], "modes": [], "drive_bytes": 0}
             counts[cls][v["status"]] = counts[cls].get(v["status"], 0) + 1
             mb = ",".join(m["name"] for m in v.get("modes_blocked", []))
-            modes = ",".join(m["name"] + ("+W" if m.get("window") else "") for m in v["modes"])
+            modes = ",".join(m["name"] + ("+W" if m.get("window") else "") +
+                             ("+G" if m.get("verified") == "glass" and v["status"] != "glass" else "")
+                             for m in v["modes"])
             if mb:
                 modes += f" (-{mb})"
             cells += [v["status"], modes, str(v.get("drive_bytes", 0))]
@@ -518,8 +583,23 @@ def coverage_md(out: dict, drift: list[str], bg22_out: dict) -> str:
     lines += [""]
     for cls in P.CLASSES:
         lines.append(f"Totals {cls}: " + ", ".join(f"{s} {n}" for s, n in sorted(counts[cls].items())))
-    lines += ["", "`+W`: the mode uses WINDOW/FILL (any partial rectangle). `(-x)`: 2.x flow x not shipped "
-              "for that class (see `modes_blocked`).", "",
+    lines += ["", "`+W`: the mode uses WINDOW/FILL (any partial rectangle). `+G`: these generated bytes "
+              "were seen drawing correctly on glass (`panels/glass_reports.yaml`, mode `verified: glass`). "
+              "`(-x)`: 2.x flow x not shipped for that class (see `modes_blocked`).", "",
+              "## On-glass reports for generated entries", "",
+              "| id | class | modes | board | firmware | date | reporter | source |",
+              "|---|---|---|---|---|---|---|---|"]
+    for k, e in out.items():
+        if e.get("alias_of"):
+            continue
+        for cls, v in (e.get("targets") or {}).items():
+            for r in v.get("glass_reports") or []:
+                lines.append(f"| {k} | {cls} | {','.join(r['modes'])} | {r['board']} | {r['firmware']} | "
+                             f"{r['date']} | {r['reporter']} | {r['source']} |")
+    lines += ["", "Reports whose bytes changed since (not applied; a new sighting is needed):", ""]
+    lines += [f"- {r['panel']} {r['target_class']} {','.join(r['modes'])}, {r['board']}, {r['date']}"
+              for r in stale_reports] or ["- none"]
+    lines += ["",
               "## Unavailable on BG22", "",
               "| id | name | blocked on | full mode needs |",
               "|---|---|---|---|"]

@@ -3,7 +3,7 @@
 #
 #     targets/esp32-idf/tools/run_host_tests.sh
 #
-# src/link_owner.cpp, the connection-ownership arbiter, plus the AXP2101 helpers
+# src/link_owner.cpp, the connection-ownership arbiter, the SMP upload hold (src/od_smp_hold.h), plus the AXP2101 helpers
 # (src/sensor_axp2101.h and the register map pinned by tests/host/axp2101_registers_test.c).
 # link_owner is target code
 # rather than shared/ code, so it is not covered by tests/host/ -- but it is the one file in
@@ -99,5 +99,10 @@ g++ -std=c++17 -Wall -Wextra -Werror -O1 -fsanitize=undefined,address -DOD_CFG_I
     tools/test_controller_esp.cpp src/od_controller_esp.cpp \
     "$OUT/od_cfg_index_ctrl.o" "$OUT/od_config_tlv_ctrl.o" "$OUT/od_config_store_ctrl.o" -o "$OUT/test_controller_esp"
 "$OUT/test_controller_esp"
+
+echo "==> od_smp_hold (upload kept across a link drop): ASan + UBSan"
+cc -std=c11 -Wall -Wextra -Werror -O1 -fsanitize=undefined,address -I src \
+    tools/test_smp_hold.c -o "$OUT/test_smp_hold"
+"$OUT/test_smp_hold"
 
 echo "==> all host tests passed"

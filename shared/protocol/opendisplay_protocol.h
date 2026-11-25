@@ -55,6 +55,13 @@
  *   Unreleased (since 2.5)
  *     - Add each further wire-spec change here as it lands. On the next version
  *       bump, move these under a new "MAJOR.MINOR (YYYY-MM-DD)" heading.
+ *     - ADDITIVE: CMD_READ_IDENT tail gains [board_len:1][board:board_len]
+ *       after escapes: the release board this image was built for, ASCII, as
+ *       in the release manifest's boards[].board (OD_IDENT_BOARD_MAX bytes at
+ *       most; 0 = unknown). Lets a host pick the update image when several
+ *       release boards share one chip. Read by length; no minor bump.
+ *     - Doc: CMD_DIRECT_WRITE_END: an upload ACK and REFRESH_SUCCESS do not
+ *       prove a panel is attached or that anything was drawn.
  *
  *   2.5  (2026-11-25)  -- drive-write etag (host-side priors)
  *     - MINOR: CMD_DRIVE_WRITE_START (0x0085) flag bit3 ETAG with a 4-byte
@@ -490,8 +497,18 @@
  *            max_seq_steps = most steps one drive sequence may have;
  *            escapes = OD_IDENT_ESC_* drive-sequence escapes compiled in
  *                      beyond the base set.
+ *            then (Unreleased, after 2.5):
+ *              [board_len:1][board:board_len]
+ *            board = the release board this image was built for, ASCII
+ *                    [a-z0-9_-], exactly the release manifest's boards[].board
+ *                    (e.g. "s3-n32r8-extuart", "xiao_nrf52840", "bg22"). A
+ *                    debug build reports the release board of the same
+ *                    hardware. board_len 0 = not a release board (DIY build);
+ *                    board_len <= OD_IDENT_BOARD_MAX. Absent on older 3.0
+ *                    firmware: a reply ending after escapes means unknown.
  *            Further bytes may follow in later versions: read by length.
- * @limits:   max 4 displays -> response <= 5 + 4*7 + 6 = 39 bytes; fits one frame.
+ * @limits:   max 4 displays -> response <= 5 + 4*7 + 6 + 1 + 32 = 72 bytes;
+ *            fits one frame.
  * @targets:  every 3.0 target (Firmware_Unified); Silabs 2.3+
  * @since:    2.3 (DRIVER_MIGRATION.md Rev 2, review point R8); tail 3.0
  * -------------------------------------------------------------------------- */
@@ -511,6 +528,9 @@
                                                 * packets, or mode 0 breaks the mode-0 rule */
 #define OD_IDENT_FLAG_BUILTIN_DRIVER   0x04u   /* a display is driven by a native controller
                                                 * driver selected by config packet 0xB3 */
+
+/* CMD_READ_IDENT tail: longest board name after board_len. */
+#define OD_IDENT_BOARD_MAX             32u
 
 /* CMD_READ_IDENT tail: escapes byte. */
 #define OD_IDENT_ESC_WINDOW            0x01u   /* drive-sequence escape 0x0C WINDOW */
@@ -876,8 +896,13 @@
  *            length). refresh: 0=FULL, 1=FAST/PARTIAL.
  * @response: [0x00][0x72] (RESP_DIRECT_WRITE_END_ACK, data complete) THEN an
  *            unsolicited refresh notification:
- *              [0x00][0x73] RESP_DIRECT_WRITE_REFRESH_SUCCESS (panel updated), or
+ *              [0x00][0x73] RESP_DIRECT_WRITE_REFRESH_SUCCESS (refresh sequence
+ *                           ran and BUSY released), or
  *              [0x00][0x74] RESP_DIRECT_WRITE_REFRESH_TIMEOUT (refresh timed out).
+ *            Neither proves that anything was drawn: no target can tell whether a
+ *            panel is attached, and with none BUSY reads idle, so the ACKs and 0x73
+ *            arrive as for a real panel. The same holds for every upload path
+ *            (0x0076 partial, 0x0080 PIPE, 0x0085 drive write).
  *            [0xFF][0x72] if the transfer was incomplete (missing bytes / zlib flush).
  * @errors:   NACK on incompleteness; refresh reported via 0x73/0x74.
  * @state:    finalizes the 0x70 session and triggers the panel refresh.

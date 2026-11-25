@@ -307,6 +307,14 @@ if(OD_BOARD IN_LIST OD_FASTEPD_BOARDS)
         PROPERTIES INCLUDE_DIRECTORIES "${OD_FASTEPD_INC_DIR}")
 endif()
 
+# READ_IDENT reports the release board (the release manifest's boards[].board), which is
+# OD_BOARD. A -debug board is the same hardware, so it reports that board and a host update moves
+# it to the release image.
+string(REGEX REPLACE "-debug$" "" OD_IDENT_BOARD "${OD_BOARD}")
+if(NOT OD_IDENT_BOARD MATCHES "^[a-z0-9_-]+$")
+    message(FATAL_ERROR "od: board name '${OD_IDENT_BOARD}' is not [a-z0-9_-]+ (READ_IDENT)")
+endif()
+
 # Board defines from boards/<board>.cmake. These are the surviving half of the source repo's
 # build_flags: the -D flags that are genuinely application configuration, as opposed to the
 # Arduino/PlatformIO plumbing (ARDUINO_USB_*, board_build.*) which became sdkconfig instead.
@@ -326,6 +334,8 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     # 0xB2 action table without an image store: DISPLAY_SLOT entries load as inactive.
     OD_CAP_ACTION=1
     OD_IDENT_TARGET=OD_IDENT_TARGET_ESP32
+    # READ_IDENT release board: the release manifest's boards[].board (set below).
+    OD_IDENT_BOARD="${OD_IDENT_BOARD}"
     # IT8951 / FastEPD-parallel panels are driven by a built-in driver: no NEEDS_MIGRATION.
     OD_IDENT_NATIVE_PANELS=1
     # boot_screen.cpp picks the od_display sink or the FastEPD framebuffer per frame.
