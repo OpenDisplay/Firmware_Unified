@@ -201,11 +201,11 @@ class Layout(unittest.TestCase):
                 for idx, m in enumerate(modes):
                     self.assertEqual(m[1], idx)
                     seq_len = struct.unpack_from("<H", m, 35)[0]
-                    self.assertEqual(len(m), 37 + seq_len)
+                    self.assertIn(len(m) - 37 - seq_len, (0, 4))  # optional 0xAE tail v1
                     self.assertLessEqual(seq_len, caps["seq_max"])
                     self.assertTrue(1 <= m[15] <= 8)
                     self.assertIn(0, m[2:14])                     # NUL-terminated name
-                    steps = P.walk_seq(m[37:])
+                    steps = P.walk_seq(m[37:37 + seq_len])
                     self.assertLessEqual(P.count_steps(steps), caps["max_steps"])
                     if not caps["window"]:
                         self.assertFalse(any(s[0] in ("window", "fill") for s in steps))
@@ -391,12 +391,26 @@ class Equivalence(unittest.TestCase):
                     self.assertEqual(eq["all_equal"], v["status"] == "equivalent", (key, cls))
 
 
+def website_packets(key: str) -> list[dict]:
+    """The website's packets for one glass entry, with the one deliberate difference applied:
+    this repo appends the 0xAE tail that flags an experimental mode (the device ignores it)."""
+    out = []
+    for p in WEB[key]["drivePackets"]:
+        raw = bytes.fromhex(p["raw"])
+        if p["pid"] == "174":
+            name = raw[2:14].rstrip(b"\0").decode()
+            if name in P.EXPERIMENTAL_YAML_MODES:
+                raw += P.mode_tail(P.MODE_EXPERIMENTAL, P.EXPERIMENTAL_YAML_MODES[name])
+        out.append({"pid": p["pid"], "raw": raw.hex()})
+    return out
+
+
 class Glass(unittest.TestCase):
     def test_byte_identical_with_website(self):
         for key in GLASS:
             with self.subTest(key=key):
                 mine = [{"pid": str(p["id"]), "raw": p["body_hex"]} for p in PRESETS["panels"][key]["packets"]]
-                self.assertEqual(mine, WEB[key]["drivePackets"])
+                self.assertEqual(mine, website_packets(key))
 
     def test_yaml_encoder_reproduces_website(self):
         try:
@@ -412,7 +426,22 @@ class Glass(unittest.TestCase):
             key = f"0x{int(str(ent['id']), 0):04X}"
             with self.subTest(key=key):
                 mine = [{"pid": str(pid), "raw": b.hex()} for _, pid, b in P.yaml_panel_packets(ent, waves, pal)]
-                self.assertEqual(mine, WEB[key]["drivePackets"])
+                self.assertEqual(mine, website_packets(key))
+
+    def test_colour16_is_flagged_experimental(self):
+        for key in GLASS:
+            with self.subTest(key=key):
+                e = PRESETS["panels"][key]
+                flagged = {m["name"] for m in e["modes"] if m.get("experimental")}
+                self.assertEqual(flagged, {"colour16"})
+                for p in e["packets"]:
+                    if p["id"] != 174:
+                        continue
+                    raw = bytes.fromhex(p["body_hex"])
+                    seq_end = 37 + int.from_bytes(raw[35:37], "little")
+                    tail = raw[seq_end:]
+                    name = raw[2:14].rstrip(b"\0").decode()
+                    self.assertEqual(tail, bytes([1, 1, 1, 0xFF]) if name == "colour16" else b"", (key, name))
 
     def test_waves_match_website(self):
         for key in GLASS:

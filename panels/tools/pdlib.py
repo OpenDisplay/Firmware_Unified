@@ -88,6 +88,17 @@ def mode_body(index: int, name: str, seq: bytes, *, passes: int = 1, scheme: int
             + struct.pack("<H", len(seq)) + seq)
 
 
+# 0xAE tail v1 (docs/REFRESH_MODES.md): host information, the device ignores it.
+MODE_EXPERIMENTAL = 0x01
+NO_SCRUB = 0xFF
+# Stock-preset modes flagged experimental, by name -> budget_cost.
+EXPERIMENTAL_YAML_MODES = {"colour16": 1}
+
+
+def mode_tail(flags: int, cost: int, scrub_before: int = NO_SCRUB) -> bytes:
+    return bytes([1, flags, cost, scrub_before])
+
+
 def lut_body(slot: int, data: bytes, instance: int = 0) -> bytes:
     return struct.pack("<BBH", instance, slot, crc16_ccitt(data)) + data
 
@@ -666,6 +677,8 @@ def yaml_panel_packets(entry: dict, waves: dict[str, bytes], palette: dict) -> l
                          vsn1=[v or 0 for v in (m.get("vsn1_per_pass") or [])],
                          tmin=int(tg.get("min_c", 0)), tmax=int(tg.get("max_c", 0)),
                          policy=_POLICY.get(str(tg.get("policy", "advise")), 0))
+        if m["name"] in EXPERIMENTAL_YAML_MODES:
+            body += mode_tail(MODE_EXPERIMENTAL, EXPERIMENTAL_YAML_MODES[m["name"]])
         modes.append((mi, PKT_MODE, body))
         mode_meta.append(m)
     busy = entry.get("busy") or {}
