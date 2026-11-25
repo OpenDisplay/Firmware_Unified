@@ -6,6 +6,7 @@
  */
 #include "od_claim_mode.h"
 #include "od_smp.h"
+#include "od_smp_hold.h"
 #include "od_health_app.h"
 
 #include <stdlib.h>
@@ -57,6 +58,14 @@ static esp_ota_handle_t s_ota;
 static const esp_partition_t *s_ota_part;
 static uint32_t s_ota_off;
 static uint32_t s_ota_len;
+static volatile bool s_ota_active;   /* s_ota_part != NULL, readable from other tasks */
+
+/* An upload survives a link drop for OD_SMP_HOLD_US (od_smp_hold.h). s_hold is written on the
+ * NimBLE host task and read on the SMP task and the main loop. */
+static od_smp_hold_t s_hold;
+static portMUX_TYPE s_hold_mux = portMUX_INITIALIZER_UNLOCKED;
+static esp_timer_handle_t s_hold_timer;
+static volatile bool s_hold_check;
 
 typedef struct {
     uint8_t *p;
@@ -341,6 +350,7 @@ static void ota_abort(void)
     if (s_ota_part != NULL) {
         (void)esp_ota_abort(s_ota);
         s_ota_part = NULL;
+        s_ota_active = false;
     }
     s_ota_off = 0u;
     s_ota_len = 0u;
@@ -371,6 +381,7 @@ static void handle_upload(const uint8_t *hdr, const req_t *r)
             return;
         }
         s_ota_part = part;
+        s_ota_active = true;
         s_ota_len = r->len;
         od_log_info("smp: upload started, %u bytes", (unsigned)r->len);
     }
@@ -393,6 +404,7 @@ static void handle_upload(const uint8_t *hdr, const req_t *r)
         const esp_err_t err = esp_ota_end(s_ota);
 
         s_ota_part = NULL;
+        s_ota_active = false;
         s_ota_off = 0u;
         s_ota_len = 0u;
         if (err != ESP_OK) {
@@ -479,15 +491,47 @@ static void handle_frame(void)
     }
 }
 
-/* Flash writes and image hashing do not belong on the NimBLE host stack. */
+/* SMP task: the OTA handle is only touched here, so the hold timer only asks for a check. */
+static void hold_expire_check(void)
+{
+    bool expired;
+
+    portENTER_CRITICAL(&s_hold_mux);
+    expired = od_smp_hold_expired(&s_hold, s_ota_active, (uint64_t)esp_timer_get_time());
+    portEXIT_CRITICAL(&s_hold_mux);
+    if (expired) {
+        od_log_warn("smp: upload abandoned at %u of %u bytes, no link for %u s",
+                    (unsigned)s_ota_off, (unsigned)s_ota_len,
+                    (unsigned)(OD_SMP_HOLD_US / 1000000ull));
+        ota_abort();
+    }
+}
+
+static void hold_timer_cb(void *arg)
+{
+    (void)arg;
+    s_hold_check = true;
+    if (s_task != NULL) {
+        xTaskNotifyGive(s_task);
+    }
+}
+
+/* Flash writes and image hashing do not belong on the NimBLE host stack. A wake is a complete
+ * frame (s_busy), a hold timer check, or both. */
 static void smp_task(void *arg)
 {
     (void)arg;
     for (;;) {
         (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        handle_frame();
-        s_rx_len = 0u;
-        s_busy = false;
+        if (s_hold_check) {
+            s_hold_check = false;
+            hold_expire_check();
+        }
+        if (s_busy) {
+            handle_frame();
+            s_rx_len = 0u;
+            s_busy = false;
+        }
     }
 }
 
@@ -495,7 +539,13 @@ void od_smp_rx(uint16_t conn_handle, const uint8_t *data, size_t len)
 {
     size_t want;
 
-    if (s_busy || data == NULL) {
+    if (data == NULL) {
+        return;
+    }
+    portENTER_CRITICAL(&s_hold_mux);
+    od_smp_hold_attach(&s_hold);
+    portEXIT_CRITICAL(&s_hold_mux);
+    if (s_busy) {
         return;
     }
     if (s_task == NULL && xTaskCreate(smp_task, "od_smp", 6144, NULL, 5, &s_task) != pdPASS) {
@@ -533,13 +583,33 @@ void od_smp_rx(uint16_t conn_handle, const uint8_t *data, size_t len)
     }
 }
 
+/* Keeps the upload; a frame in flight finishes on the SMP task, which then clears s_rx_len.
+ * The timer is armed even with no upload active, because a frame in flight may start one. */
 void od_smp_link_lost(void)
 {
+    const esp_timer_create_args_t args = { .callback = hold_timer_cb, .name = "od_smp_hold" };
+
     s_link_tuned = false;
     if (!s_busy) {
         s_rx_len = 0u;
-        ota_abort();
     }
+    portENTER_CRITICAL(&s_hold_mux);
+    od_smp_hold_lost(&s_hold, (uint64_t)esp_timer_get_time());
+    portEXIT_CRITICAL(&s_hold_mux);
+    if (s_hold_timer != NULL || esp_timer_create(&args, &s_hold_timer) == ESP_OK) {
+        (void)esp_timer_stop(s_hold_timer);
+        (void)esp_timer_start_once(s_hold_timer, OD_SMP_HOLD_US);
+    }
+}
+
+bool od_smp_upload_held(void)
+{
+    bool waiting;
+
+    portENTER_CRITICAL(&s_hold_mux);
+    waiting = od_smp_hold_waiting(&s_hold, s_ota_active, (uint64_t)esp_timer_get_time());
+    portEXIT_CRITICAL(&s_hold_mux);
+    return waiting;
 }
 
 void od_smp_unlock(void)

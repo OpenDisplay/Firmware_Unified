@@ -12,8 +12,11 @@ extern "C" {
 
 /* NimBLE host task. Reassembles fragments and hands a complete frame to the SMP task. */
 void od_smp_rx(uint16_t conn_handle, const uint8_t *data, size_t len);
-/* A link dropped: discard partial frames and any unfinished upload. */
+/* A link dropped: discard partial frames. An unfinished upload is kept for OD_SMP_HOLD_US
+ * (od_smp_hold.h) so a new link can continue it at the current offset. */
 void od_smp_link_lost(void);
+/* An unfinished upload is waiting for a link; deep sleep would lose it. */
+bool od_smp_upload_held(void);
 /* With encryption on, SMP is refused until an authenticated CMD_ENTER_DFU unlocks it. */
 void od_smp_unlock(void);
 /* Keep the running image. An image that dies before this call rolls back at the next boot. */

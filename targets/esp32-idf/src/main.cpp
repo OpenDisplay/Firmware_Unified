@@ -903,7 +903,7 @@ static bool platformLoopPrologue() {
         uint32_t idle_duration = od_hal_uptime_ms() - lastActivityMs;
         // On a button wake the min-wake hold keeps this window open past the
         // quiet timeout; idleDelay(50) below services buttons/touch throughout.
-        if (idle_duration >= advertising_timeout_ms && !minWakeHoldActive()) {
+        if (idle_duration >= advertising_timeout_ms && !minWakeHoldActive() && !od_smp_upload_held()) {
             uint32_t advertisingElapsedMs = od_hal_uptime_ms() - advertising_start_time;
             od_log_info("BLE advertising timeout (idle %u ms of %u ms window) - no connection, returning to deep sleep",
                         (unsigned)idle_duration, (unsigned)advertisingElapsedMs);
@@ -934,7 +934,7 @@ static void platformIdle() {
         uint32_t idleMs = od_hal_uptime_ms() - lastActivityMs;
         // The min-wake hold covers first boot and connect-then-drop during a
         // button-wake window (woke_from_deep_sleep cleared on connect above).
-        if (idleMs < idleHoldMs || minWakeHoldActive()) {
+        if (idleMs < idleHoldMs || minWakeHoldActive() || od_smp_upload_held()) {
             idleDelay(5);
         } else {
             od_log_info("Idle %u ms (hold %u ms) - entering deep sleep", (unsigned)idleMs, (unsigned)idleHoldMs);

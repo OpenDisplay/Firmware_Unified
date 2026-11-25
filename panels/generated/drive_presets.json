@@ -1,7 +1,7 @@
 {
  "schema": "opendisplay.drive_presets",
  "schema_version": 1,
- "schema_minor": 3,
+ "schema_minor": 4,
  "sources": {
   "bb_epaper": "4edfa7f",
   "bb_epaper_vendored": "5dccfbb",
@@ -168,7 +168,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -183,7 +184,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 2,
@@ -198,7 +200,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -278,6 +281,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -306,7 +310,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -321,7 +326,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -336,7 +342,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -373,7 +380,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -423,7 +431,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -438,7 +447,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -453,7 +463,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -490,7 +501,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -545,7 +557,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -560,7 +573,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 2,
@@ -575,7 +589,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -650,6 +665,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -678,7 +694,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -693,7 +710,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -708,7 +726,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -740,7 +759,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -790,7 +810,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -805,7 +826,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -820,7 +842,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -852,7 +875,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -905,7 +929,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -920,7 +945,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -986,6 +1012,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -1014,7 +1041,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -1029,7 +1057,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -1056,7 +1085,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -1102,7 +1132,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -1117,7 +1148,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -1144,7 +1176,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -1197,7 +1230,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -1212,7 +1246,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 2,
@@ -1227,7 +1262,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -1302,6 +1338,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -1330,7 +1367,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -1345,7 +1383,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -1360,7 +1399,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -1392,7 +1432,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -1442,7 +1483,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -1457,7 +1499,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -1472,7 +1515,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -1504,7 +1548,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -1557,7 +1602,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -1572,7 +1618,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 2,
@@ -1587,7 +1634,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -1662,6 +1710,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -1690,7 +1739,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -1705,7 +1755,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -1720,7 +1771,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -1752,7 +1804,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -1802,7 +1855,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -1817,7 +1871,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -1832,7 +1887,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -1864,7 +1920,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -1916,7 +1973,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -1953,6 +2011,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -1981,7 +2040,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -2003,7 +2063,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -2045,7 +2106,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -2067,7 +2129,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -2120,7 +2183,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -2135,7 +2199,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 2,
@@ -2150,7 +2215,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -2225,6 +2291,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -2253,7 +2320,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -2268,7 +2336,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -2283,7 +2352,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -2315,7 +2385,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -2365,7 +2436,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -2380,7 +2452,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -2395,7 +2468,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -2427,7 +2501,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -2481,7 +2556,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -2518,6 +2594,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -2546,7 +2623,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -2568,7 +2646,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -2610,7 +2689,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -2632,7 +2712,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -2685,7 +2766,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -2700,7 +2782,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -2766,6 +2849,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -2794,7 +2878,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -2809,7 +2894,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -2836,7 +2922,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -2882,7 +2969,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -2897,7 +2985,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -2924,7 +3013,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -2977,7 +3067,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -2992,7 +3083,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -3058,6 +3150,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -3086,7 +3179,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -3101,7 +3195,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -3128,7 +3223,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -3174,7 +3270,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -3189,7 +3286,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -3216,7 +3314,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -3269,7 +3368,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -3284,7 +3384,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -3350,6 +3451,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -3378,7 +3480,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -3393,7 +3496,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -3420,7 +3524,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -3466,7 +3571,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -3481,7 +3587,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -3508,7 +3615,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -3562,7 +3670,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -3599,6 +3708,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -3627,7 +3737,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -3649,7 +3760,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -3691,7 +3803,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -3713,7 +3826,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -3766,7 +3880,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -3781,7 +3896,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 2,
@@ -3796,7 +3912,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -3871,6 +3988,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -3899,7 +4017,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -3914,7 +4033,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -3929,7 +4049,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -3961,7 +4082,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -4011,7 +4133,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -4026,7 +4149,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -4041,7 +4165,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -4073,7 +4198,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -4127,7 +4253,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -4164,6 +4291,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -4192,7 +4320,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -4214,7 +4343,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -4256,7 +4386,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -4278,7 +4409,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -4332,7 +4464,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -4369,6 +4502,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -4397,7 +4531,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -4419,7 +4554,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -4461,7 +4597,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -4483,7 +4620,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -4538,7 +4676,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -4553,7 +4692,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -4599,6 +4739,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -4627,7 +4768,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -4642,7 +4784,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -4669,7 +4812,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -4715,7 +4859,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -4730,7 +4875,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -4757,7 +4903,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -4810,7 +4957,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -4825,7 +4973,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -4891,6 +5040,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -4919,7 +5069,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -4934,7 +5085,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -4961,7 +5113,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -5007,7 +5160,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -5022,7 +5176,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -5049,7 +5204,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -5102,7 +5258,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -5117,7 +5274,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 2,
@@ -5132,7 +5290,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -5207,6 +5366,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -5235,7 +5395,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -5250,7 +5411,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -5265,7 +5427,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -5297,7 +5460,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -5347,7 +5511,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -5362,7 +5527,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -5377,7 +5543,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -5409,7 +5576,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -5461,7 +5629,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -5498,6 +5667,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -5526,7 +5696,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -5548,7 +5719,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -5590,7 +5762,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -5612,7 +5785,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -5665,7 +5839,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -5680,7 +5855,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 2,
@@ -5695,7 +5871,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -5775,6 +5952,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -5803,7 +5981,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -5818,7 +5997,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -5833,7 +6013,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -5870,7 +6051,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -5920,7 +6102,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -5935,7 +6118,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -5950,7 +6134,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -5987,7 +6172,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -6041,7 +6227,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -6056,7 +6243,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -6112,6 +6300,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -6140,7 +6329,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -6155,7 +6345,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -6192,7 +6383,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -6238,7 +6430,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -6253,7 +6446,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -6290,7 +6484,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -6344,7 +6539,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -6386,6 +6582,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -6414,7 +6611,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -6441,7 +6639,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -6483,7 +6682,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -6510,7 +6710,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -6563,7 +6764,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -6578,7 +6780,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 2,
@@ -6593,7 +6796,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -6673,6 +6877,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -6701,7 +6906,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -6716,7 +6922,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -6731,7 +6938,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -6768,7 +6976,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -6818,7 +7027,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -6833,7 +7043,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -6848,7 +7059,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -6885,7 +7097,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -6939,7 +7152,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -6981,6 +7195,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -7009,7 +7224,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -7036,7 +7252,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -7078,7 +7295,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -7105,7 +7323,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -7159,7 +7378,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -7196,6 +7416,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -7224,7 +7445,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -7246,7 +7468,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -7288,7 +7511,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -7310,7 +7534,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -7363,7 +7588,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -7378,7 +7604,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 2,
@@ -7393,7 +7620,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -7468,6 +7696,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -7496,7 +7725,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -7511,7 +7741,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -7526,7 +7757,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -7558,7 +7790,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -7608,7 +7841,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -7623,7 +7857,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -7638,7 +7873,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -7670,7 +7906,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -7723,7 +7960,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -7738,7 +7976,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 2,
@@ -7753,7 +7992,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -7833,6 +8073,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -7861,7 +8102,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -7876,7 +8118,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -7891,7 +8134,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -7928,7 +8172,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -7978,7 +8223,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -7993,7 +8239,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -8008,7 +8255,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -8040,7 +8288,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -8095,7 +8344,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "glass"
     },
     {
      "index": 1,
@@ -8108,7 +8358,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "glass"
     }
    ],
    "modes_blocked": [],
@@ -8205,6 +8456,7 @@
     "sleep": null,
     "all_equal": false
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -8231,7 +8483,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       },
       {
        "index": 1,
@@ -8244,7 +8497,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       }
      ],
      "packets": [
@@ -8286,7 +8540,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -8313,7 +8568,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       },
       {
        "index": 1,
@@ -8326,7 +8582,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       }
      ],
      "packets": [
@@ -8421,7 +8678,8 @@
       },
       "sleep": null,
       "all_equal": false
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -8477,7 +8735,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -8514,6 +8773,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -8542,7 +8802,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -8564,7 +8825,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -8606,7 +8868,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -8628,7 +8891,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -8683,7 +8947,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "glass"
     },
     {
      "index": 1,
@@ -8696,7 +8961,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "glass"
     }
    ],
    "modes_blocked": [],
@@ -8793,6 +9059,7 @@
     "sleep": null,
     "all_equal": false
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -8819,7 +9086,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       },
       {
        "index": 1,
@@ -8832,7 +9100,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       }
      ],
      "packets": [
@@ -8874,7 +9143,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -8901,7 +9171,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       },
       {
        "index": 1,
@@ -8914,7 +9185,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       }
      ],
      "packets": [
@@ -9009,7 +9281,8 @@
       },
       "sleep": null,
       "all_equal": false
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -9064,7 +9337,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -9079,7 +9353,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 2,
@@ -9094,7 +9369,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -9174,6 +9450,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -9202,7 +9479,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -9217,7 +9495,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -9232,7 +9511,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -9269,7 +9549,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -9319,7 +9600,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -9334,7 +9616,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -9349,7 +9632,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -9386,7 +9670,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -9441,7 +9726,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -9456,7 +9742,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 2,
@@ -9471,7 +9758,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -9546,6 +9834,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -9574,7 +9863,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -9589,7 +9879,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -9604,7 +9895,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -9636,7 +9928,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -9686,7 +9979,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -9701,7 +9995,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -9716,7 +10011,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -9748,7 +10044,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -9802,7 +10099,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -9839,6 +10137,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -9867,7 +10166,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -9889,7 +10189,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -9931,7 +10232,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -9953,7 +10255,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -10007,7 +10310,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -10044,6 +10348,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -10072,7 +10377,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -10094,7 +10400,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -10136,7 +10443,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -10158,7 +10466,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -10196,7 +10505,7 @@
    },
    "color_scheme": 4,
    "status": "equivalent",
-   "verified": "equivalent",
+   "verified": "glass",
    "blocked_on": [],
    "blocked_detail": {},
    "modes": [
@@ -10213,7 +10522,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "glass"
     },
     {
      "index": 1,
@@ -10228,7 +10538,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -10274,6 +10585,32 @@
     },
     "all_equal": true
    },
+   "glass_reports": [
+    {
+     "framed_sha256": "ad098111414d7b4d82d1907b7793c767ce99c247cbaff8886d90bd473478517a",
+     "modes": [
+      "full"
+     ],
+     "board": "Seeed reTerminal E1002 (ESP32-S3)",
+     "firmware": "3.0.2",
+     "date": "2026-11-16",
+     "reporter": "g4bri3lDev",
+     "source": "https://github.com/OpenDisplay/Firmware_Unified/issues/109",
+     "note": "7.3in Spectra 6 800x480: a correct six-colour image. The issue names neither the mode nor the packet source; recorded as mode 0 (full) from py-opendisplay's vendored copy, which is the website's b7df514 file (identical bytes). To be confirmed by the reporter."
+    },
+    {
+     "framed_sha256": "ad098111414d7b4d82d1907b7793c767ce99c247cbaff8886d90bd473478517a",
+     "modes": [
+      "full"
+     ],
+     "board": "Seeed reTerminal E1002 (ESP32-S3)",
+     "firmware": "3.0.2",
+     "date": "2026-11-24",
+     "reporter": "g4bri3lDev",
+     "source": "https://github.com/OpenDisplay/Firmware_Unified/issues/109",
+     "note": "Again after a 2.x -> 3.0 config migration from the same presets: correct six-colour image."
+    }
+   ],
    "targets": {
     "default": {
      "limits": {
@@ -10282,7 +10619,7 @@
       "window": true
      },
      "status": "equivalent",
-     "verified": "equivalent",
+     "verified": "glass",
      "blocked_on": [],
      "blocked_detail": {},
      "modes_blocked": [],
@@ -10302,7 +10639,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       },
       {
        "index": 1,
@@ -10317,7 +10655,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -10344,7 +10683,33 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": [
+      {
+       "framed_sha256": "ad098111414d7b4d82d1907b7793c767ce99c247cbaff8886d90bd473478517a",
+       "modes": [
+        "full"
+       ],
+       "board": "Seeed reTerminal E1002 (ESP32-S3)",
+       "firmware": "3.0.2",
+       "date": "2026-11-16",
+       "reporter": "g4bri3lDev",
+       "source": "https://github.com/OpenDisplay/Firmware_Unified/issues/109",
+       "note": "7.3in Spectra 6 800x480: a correct six-colour image. The issue names neither the mode nor the packet source; recorded as mode 0 (full) from py-opendisplay's vendored copy, which is the website's b7df514 file (identical bytes). To be confirmed by the reporter."
+      },
+      {
+       "framed_sha256": "ad098111414d7b4d82d1907b7793c767ce99c247cbaff8886d90bd473478517a",
+       "modes": [
+        "full"
+       ],
+       "board": "Seeed reTerminal E1002 (ESP32-S3)",
+       "firmware": "3.0.2",
+       "date": "2026-11-24",
+       "reporter": "g4bri3lDev",
+       "source": "https://github.com/OpenDisplay/Firmware_Unified/issues/109",
+       "note": "Again after a 2.x -> 3.0 config migration from the same presets: correct six-colour image."
+      }
+     ]
     },
     "bg22": {
      "limits": {
@@ -10390,7 +10755,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -10405,7 +10771,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -10432,7 +10799,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -10488,7 +10856,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -10525,6 +10894,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -10553,7 +10923,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -10575,7 +10946,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -10617,7 +10989,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -10639,7 +11012,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -10695,7 +11069,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -10732,6 +11107,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -10760,7 +11136,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -10782,7 +11159,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -10824,7 +11202,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -10846,7 +11225,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -10901,7 +11281,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -10938,6 +11319,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -10966,7 +11348,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -10988,7 +11371,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -11030,7 +11414,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -11052,7 +11437,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -11107,7 +11493,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -11122,7 +11509,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 2,
@@ -11137,7 +11525,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -11212,6 +11601,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -11240,7 +11630,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -11255,7 +11646,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -11270,7 +11662,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -11302,7 +11695,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -11352,7 +11746,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -11367,7 +11762,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -11382,7 +11778,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -11414,7 +11811,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -11469,7 +11867,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -11484,7 +11883,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -11530,6 +11930,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -11558,7 +11959,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -11573,7 +11975,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -11600,7 +12003,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -11646,7 +12050,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -11661,7 +12066,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -11688,7 +12094,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -11743,7 +12150,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -11780,6 +12188,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -11808,7 +12217,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -11830,7 +12240,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -11872,7 +12283,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -11894,7 +12306,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -11949,7 +12362,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -11986,6 +12400,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -12014,7 +12429,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -12036,7 +12452,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -12078,7 +12495,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -12100,7 +12518,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -12158,7 +12577,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -12197,6 +12617,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -12227,7 +12648,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -12249,7 +12671,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -12293,7 +12716,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -12315,7 +12739,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -12368,7 +12793,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -12383,7 +12809,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -12449,6 +12876,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -12477,7 +12905,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -12492,7 +12921,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -12519,7 +12949,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -12565,7 +12996,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -12580,7 +13012,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -12607,7 +13040,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -12662,7 +13096,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -12677,7 +13112,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -12723,6 +13159,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -12751,7 +13188,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -12766,7 +13204,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -12793,7 +13232,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -12839,7 +13279,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -12854,7 +13295,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -12881,7 +13323,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -12934,7 +13377,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -12949,7 +13393,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 2,
@@ -12964,7 +13409,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -13039,6 +13485,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -13067,7 +13514,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -13082,7 +13530,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -13097,7 +13546,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -13129,7 +13579,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -13179,7 +13630,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -13194,7 +13646,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -13209,7 +13662,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -13241,7 +13695,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -13295,7 +13750,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -13310,7 +13766,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -13356,6 +13813,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -13384,7 +13842,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -13399,7 +13858,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -13426,7 +13886,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -13472,7 +13933,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -13487,7 +13949,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -13514,7 +13977,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -13567,7 +14031,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -13582,7 +14047,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 2,
@@ -13597,7 +14063,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -13672,6 +14139,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -13700,7 +14168,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -13715,7 +14184,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -13730,7 +14200,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -13762,7 +14233,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -13812,7 +14284,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -13827,7 +14300,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -13842,7 +14316,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -13874,7 +14349,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -13928,7 +14404,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -13943,7 +14420,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -13989,6 +14467,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -14017,7 +14496,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -14032,7 +14512,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -14059,7 +14540,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -14105,7 +14587,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -14120,7 +14603,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -14147,7 +14631,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -14200,7 +14685,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -14215,7 +14701,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 2,
@@ -14230,7 +14717,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -14305,6 +14793,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -14333,7 +14822,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -14348,7 +14838,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -14363,7 +14854,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -14395,7 +14887,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -14445,7 +14938,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -14460,7 +14954,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -14475,7 +14970,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -14507,7 +15003,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -14559,7 +15056,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -14574,7 +15072,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -14622,6 +15121,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -14652,7 +15152,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -14667,7 +15168,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -14694,7 +15196,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -14742,7 +15245,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -14757,7 +15261,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -14784,7 +15289,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -14840,7 +15346,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -14855,7 +15362,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -14901,6 +15409,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -14929,7 +15438,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -14944,7 +15454,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -14971,7 +15482,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -15017,7 +15529,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -15032,7 +15545,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -15059,7 +15573,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -15115,7 +15630,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -15152,6 +15668,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -15180,7 +15697,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -15202,7 +15720,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -15244,7 +15763,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -15266,7 +15786,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -15321,7 +15842,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "glass"
     },
     {
      "index": 1,
@@ -15334,7 +15856,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "glass"
     }
    ],
    "modes_blocked": [],
@@ -15422,6 +15945,7 @@
     "sleep": null,
     "all_equal": false
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -15448,7 +15972,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       },
       {
        "index": 1,
@@ -15461,7 +15986,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       }
      ],
      "packets": [
@@ -15503,7 +16029,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -15530,7 +16057,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       },
       {
        "index": 1,
@@ -15543,7 +16071,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       }
      ],
      "packets": [
@@ -15629,7 +16158,8 @@
       },
       "sleep": null,
       "all_equal": false
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -15669,7 +16199,7 @@
    },
    "color_scheme": 3,
    "status": "equivalent",
-   "verified": "equivalent",
+   "verified": "glass",
    "blocked_on": [],
    "blocked_detail": {},
    "modes": [
@@ -15686,7 +16216,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "glass"
     },
     {
      "index": 1,
@@ -15701,7 +16232,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -15747,6 +16279,20 @@
     },
     "all_equal": true
    },
+   "glass_reports": [
+    {
+     "framed_sha256": "2f5ef68fcc4b8615804d1b3fd2722d6da7205d81e5fcd43b69fe290b69417773",
+     "modes": [
+      "full"
+     ],
+     "board": "Seeed EN05 (XIAO nRF52840 Plus)",
+     "firmware": "3.0.2",
+     "date": "2026-11-18",
+     "reporter": "g4bri3lDev",
+     "source": "https://github.com/OpenDisplay/Firmware_Unified/issues/105",
+     "note": "3.97in BWRY 800x480, ribbon FPC-770, label 0397sw-f8. Packets from drive-presets.json (opendisplay.org v3/website b7df514, identical bytes). Full refresh of four solid black/white/red/yellow bands with labels, no dithering: colours, text and borders right, no mirroring or offset. fast not tried."
+    }
+   ],
    "targets": {
     "default": {
      "limits": {
@@ -15755,7 +16301,7 @@
       "window": true
      },
      "status": "equivalent",
-     "verified": "equivalent",
+     "verified": "glass",
      "blocked_on": [],
      "blocked_detail": {},
      "modes_blocked": [],
@@ -15775,7 +16321,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       },
       {
        "index": 1,
@@ -15790,7 +16337,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -15817,7 +16365,21 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": [
+      {
+       "framed_sha256": "2f5ef68fcc4b8615804d1b3fd2722d6da7205d81e5fcd43b69fe290b69417773",
+       "modes": [
+        "full"
+       ],
+       "board": "Seeed EN05 (XIAO nRF52840 Plus)",
+       "firmware": "3.0.2",
+       "date": "2026-11-18",
+       "reporter": "g4bri3lDev",
+       "source": "https://github.com/OpenDisplay/Firmware_Unified/issues/105",
+       "note": "3.97in BWRY 800x480, ribbon FPC-770, label 0397sw-f8. Packets from drive-presets.json (opendisplay.org v3/website b7df514, identical bytes). Full refresh of four solid black/white/red/yellow bands with labels, no dithering: colours, text and borders right, no mirroring or offset. fast not tried."
+      }
+     ]
     },
     "bg22": {
      "limits": {
@@ -15863,7 +16425,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -15878,7 +16441,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -15905,7 +16469,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -15960,7 +16525,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "glass"
     },
     {
      "index": 1,
@@ -15973,7 +16539,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "glass"
     }
    ],
    "modes_blocked": [],
@@ -16061,6 +16628,7 @@
     "sleep": null,
     "all_equal": false
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -16087,7 +16655,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       },
       {
        "index": 1,
@@ -16100,7 +16669,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       }
      ],
      "packets": [
@@ -16142,7 +16712,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -16169,7 +16740,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       },
       {
        "index": 1,
@@ -16182,7 +16754,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       }
      ],
      "packets": [
@@ -16268,7 +16841,8 @@
       },
       "sleep": null,
       "all_equal": false
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -16323,7 +16897,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -16338,7 +16913,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -16384,6 +16960,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -16412,7 +16989,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -16427,7 +17005,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -16454,7 +17033,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -16500,7 +17080,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -16515,7 +17096,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -16542,7 +17124,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -16600,7 +17183,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "glass"
     },
     {
      "index": 1,
@@ -16613,7 +17197,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "glass"
     }
    ],
    "modes_blocked": [],
@@ -16705,6 +17290,7 @@
     "sleep": null,
     "all_equal": false
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -16731,7 +17317,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       },
       {
        "index": 1,
@@ -16744,7 +17331,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       }
      ],
      "packets": [
@@ -16786,7 +17374,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -16813,7 +17402,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       },
       {
        "index": 1,
@@ -16826,7 +17416,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       }
      ],
      "packets": [
@@ -16916,7 +17507,8 @@
       },
       "sleep": null,
       "all_equal": false
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -16969,7 +17561,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -16984,7 +17577,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 2,
@@ -16999,7 +17593,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -17081,6 +17676,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -17111,7 +17707,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -17126,7 +17723,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -17141,7 +17739,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -17178,7 +17777,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -17230,7 +17830,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -17245,7 +17846,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -17260,7 +17862,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -17297,7 +17900,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -17351,7 +17955,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -17388,6 +17993,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -17416,7 +18022,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -17438,7 +18045,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -17480,7 +18088,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -17502,7 +18111,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -17558,7 +18168,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -17573,7 +18184,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -17619,6 +18231,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -17647,7 +18260,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -17662,7 +18276,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -17689,7 +18304,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -17735,7 +18351,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -17750,7 +18367,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -17777,7 +18395,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -17829,7 +18448,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -17866,6 +18486,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -17894,7 +18515,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -17916,7 +18538,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -17958,7 +18581,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -17980,7 +18604,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -18033,7 +18658,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -18048,7 +18674,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 2,
@@ -18063,7 +18690,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -18143,6 +18771,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -18171,7 +18800,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -18186,7 +18816,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -18201,7 +18832,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -18238,7 +18870,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -18288,7 +18921,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -18303,7 +18937,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -18318,7 +18953,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -18350,7 +18986,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -18406,7 +19043,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "glass"
     },
     {
      "index": 1,
@@ -18419,7 +19057,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "glass"
     }
    ],
    "modes_blocked": [],
@@ -18513,6 +19152,7 @@
     "sleep": null,
     "all_equal": false
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -18539,7 +19179,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       },
       {
        "index": 1,
@@ -18552,7 +19193,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       }
      ],
      "packets": [
@@ -18594,7 +19236,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -18621,7 +19264,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       },
       {
        "index": 1,
@@ -18634,7 +19278,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       }
      ],
      "packets": [
@@ -18726,7 +19371,8 @@
       },
       "sleep": null,
       "all_equal": false
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -18786,7 +19432,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -18825,6 +19472,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -18855,7 +19503,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -18877,7 +19526,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -18921,7 +19571,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -18943,7 +19594,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -18997,7 +19649,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -19012,7 +19665,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -19058,6 +19712,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -19086,7 +19741,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -19101,7 +19757,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -19128,7 +19785,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -19174,7 +19832,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -19189,7 +19848,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -19216,7 +19876,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -19271,7 +19932,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -19286,7 +19948,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -19342,6 +20005,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -19370,7 +20034,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -19385,7 +20050,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -19422,7 +20088,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -19468,7 +20135,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -19483,7 +20151,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -19520,7 +20189,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -19577,7 +20247,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -19592,7 +20263,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -19658,6 +20330,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -19686,7 +20359,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -19701,7 +20375,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -19728,7 +20403,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -19774,7 +20450,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -19789,7 +20466,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -19816,7 +20494,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -19873,7 +20552,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -19910,6 +20590,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -19938,7 +20619,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -19960,7 +20642,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -20002,7 +20685,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -20024,7 +20708,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -20079,7 +20764,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -20094,7 +20780,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 2,
@@ -20109,7 +20796,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -20194,6 +20882,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -20222,7 +20911,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -20237,7 +20927,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -20252,7 +20943,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -20294,7 +20986,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -20344,7 +21037,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -20359,7 +21053,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -20374,7 +21069,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -20416,7 +21112,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -20471,7 +21168,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -20508,6 +21206,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -20536,7 +21235,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -20558,7 +21258,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -20600,7 +21301,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -20622,7 +21324,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -20675,7 +21378,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -20690,7 +21394,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -20736,6 +21441,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -20766,7 +21472,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -20781,7 +21488,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -20808,7 +21516,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -20854,7 +21563,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -20869,7 +21579,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -20896,7 +21607,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -20950,7 +21662,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -20965,7 +21678,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -21011,6 +21725,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -21039,7 +21754,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -21054,7 +21770,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -21081,7 +21798,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -21127,7 +21845,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -21142,7 +21861,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -21169,7 +21889,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -21224,7 +21945,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -21239,7 +21961,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 2,
@@ -21254,7 +21977,8 @@
      "fits": {
       "default": true,
       "bg22": false
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -21334,6 +22058,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -21362,7 +22087,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -21377,7 +22103,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -21392,7 +22119,8 @@
        "fits": {
         "default": true,
         "bg22": false
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -21429,7 +22157,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -21479,7 +22208,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -21494,7 +22224,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 2,
@@ -21509,7 +22240,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -21541,7 +22273,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -21596,7 +22329,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     },
     {
      "index": 1,
@@ -21611,7 +22345,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -21657,6 +22392,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -21685,7 +22421,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -21700,7 +22437,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -21727,7 +22465,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -21773,7 +22512,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       },
       {
        "index": 1,
@@ -21788,7 +22528,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -21815,7 +22556,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -21869,7 +22611,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -21906,6 +22649,7 @@
     },
     "all_equal": true
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -21934,7 +22678,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -21956,7 +22701,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -21998,7 +22744,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "equivalent"
       }
      ],
      "packets": [
@@ -22020,7 +22767,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
@@ -22075,7 +22823,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "glass"
     },
     {
      "index": 1,
@@ -22088,7 +22837,8 @@
      "fits": {
       "default": true,
       "bg22": true
-     }
+     },
+     "verified": "glass"
     }
    ],
    "modes_blocked": [],
@@ -22180,6 +22930,7 @@
     "sleep": null,
     "all_equal": false
    },
+   "glass_reports": [],
    "targets": {
     "default": {
      "limits": {
@@ -22206,7 +22957,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       },
       {
        "index": 1,
@@ -22219,7 +22971,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       }
      ],
      "packets": [
@@ -22261,7 +23014,8 @@
       "bg22": true,
       "esp32": true,
       "nordic": true
-     }
+     },
+     "glass_reports": []
     },
     "bg22": {
      "limits": {
@@ -22288,7 +23042,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       },
       {
        "index": 1,
@@ -22301,7 +23056,8 @@
        "fits": {
         "default": true,
         "bg22": true
-       }
+       },
+       "verified": "glass"
       }
      ],
      "packets": [
@@ -22391,7 +23147,8 @@
       },
       "sleep": null,
       "all_equal": false
-     }
+     },
+     "glass_reports": []
     }
    },
    "fits_target": {
