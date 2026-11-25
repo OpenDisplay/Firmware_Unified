@@ -37,7 +37,11 @@ OUT_INC = REPO / "tests" / "host" / "refresh_modes.inc"
 EE02_INC = REPO / "tests" / "host" / "ee02_spectra_preset.inc"
 
 FAMILY_S6, FAMILY_JD = 1, 2
-ADVISORY = 0
+ADVISORY, SUBSTITUTE = 0, 1
+# Every experimental mode is enforced on the device to this window (decision 2026-11-25): outside
+# it the device runs mode 0, the stock full, instead (temp_policy SUBSTITUTE). A mode's own lab
+# band narrows it; mode 0 keeps no window, so the fallback is always there.
+CUSTOM_WINDOW_C = (15, 30)
 EXPERIMENTAL = 0x01
 NO_SCRUB = 0xFF
 DRIVE_REV = 1
@@ -292,17 +296,18 @@ def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int
             b = retail_panel(b, panel_tail(key, budget, family, timeout_s), top)
         out_pkts.append((pid, b))
     for idx, name, steps, slot, tmin, tmax, cost, note in modes:
+        tmin, tmax = P.custom_window(tmin, tmax, CUSTOM_WINDOW_C)
         seq = P.encode_steps(steps)
         # A list of slots is a multi-pass mode: pass n uploads slots[n]; the sequence runs once per pass.
         slots = list(slot) if isinstance(slot, (list, tuple)) else [slot] if slot is not None else None
         body = P.mode_body(idx, name, seq, slots=slots, passes=len(slots) if slots else 1,
-                           tmin=tmin, tmax=tmax, policy=ADVISORY) + mode_tail(cost, hold_mask=HOLD_MASK.get((name_of[base], name)))
+                           tmin=tmin, tmax=tmax, policy=SUBSTITUTE) + mode_tail(cost, hold_mask=HOLD_MASK.get((name_of[base], name)))
         out_pkts.append((0xAE, body))
         extra.append({"mode_index": idx, "name": name, "experimental": True,
                       "experimental_note": note, "budget_cost": cost, "lut_slot": slot,
                       "passes": len(slots) if slots else 1,
                       "hold_mask": HOLD_MASK.get((name_of[base], name)),
-                      "temp_window_c": [tmin, tmax] if (tmin or tmax) else None,
+                      "temp_window_c": [tmin, tmax], "temp_policy": "substitute",
                       "seq_steps": len(steps) + 1, "seq_bytes": len(seq)})
     lut_meta = []
     for slot, fn in sorted(luts.items()):

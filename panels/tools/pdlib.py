@@ -93,6 +93,20 @@ MODE_EXPERIMENTAL = 0x01
 NO_SCRUB = 0xFF
 # Stock-preset modes flagged experimental, by name -> budget_cost.
 EXPERIMENTAL_YAML_MODES = {"colour16": 1}
+# Experimental modes run only inside this window; outside it the device substitutes mode 0, the
+# stock full (temp_policy 1). Mode 0 never carries a window: it is the fallback.
+CUSTOM_WINDOW_C = (15, 30)
+POLICY_SUBSTITUTE = 1
+
+
+def custom_window(tmin: int, tmax: int, window: tuple[int, int] = CUSTOM_WINDOW_C) -> tuple[int, int]:
+    """A mode's own band (0, 0 = none) clipped to ``window``."""
+    if (tmin, tmax) == (0, 0):
+        return window
+    lo, hi = max(tmin, window[0]), min(tmax, window[1])
+    if lo > hi:
+        raise ValueError(f"band [{tmin}, {tmax}] lies outside the custom window {window}")
+    return lo, hi
 
 
 def mode_tail(flags: int, cost: int, scrub_before: int = NO_SCRUB) -> bytes:
@@ -671,12 +685,18 @@ def yaml_panel_packets(entry: dict, waves: dict[str, bytes], palette: dict) -> l
                 slot_of[w] = len(slot_of)
                 luts.append((slot_of[w], PKT_LUT, lut_body(slot_of[w], waves[w])))
             slots.append(slot_of[w])
-        tg = m.get("temp_gate") or entry.get("temp_gate") or {}
+        # The panel-level temp_gate describes its colour modes; mode 0 is the stock full, the
+        # fallback every enforced window substitutes to, so it never gets one.
+        tg = m.get("temp_gate") or (entry.get("temp_gate") if mi else None) or {}
+        tmin, tmax = int(tg.get("min_c", 0)), int(tg.get("max_c", 0))
+        policy = _POLICY.get(str(tg.get("policy", "advise")), 0)
+        if m["name"] in EXPERIMENTAL_YAML_MODES:
+            tmin, tmax = custom_window(tmin, tmax)
+            policy = POLICY_SUBSTITUTE
         body = mode_body(mi, m["name"], seqs[m["init"]], passes=m.get("passes", 1),
                          scheme=int(m.get("color_scheme", 0xFF)), slots=slots,
                          vsn1=[v or 0 for v in (m.get("vsn1_per_pass") or [])],
-                         tmin=int(tg.get("min_c", 0)), tmax=int(tg.get("max_c", 0)),
-                         policy=_POLICY.get(str(tg.get("policy", "advise")), 0))
+                         tmin=tmin, tmax=tmax, policy=policy)
         if m["name"] in EXPERIMENTAL_YAML_MODES:
             body += mode_tail(MODE_EXPERIMENTAL, EXPERIMENTAL_YAML_MODES[m["name"]])
         modes.append((mi, PKT_MODE, body))

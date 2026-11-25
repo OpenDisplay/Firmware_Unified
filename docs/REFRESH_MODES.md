@@ -96,6 +96,20 @@ rigcam search over all code tuples (294 triples, 42 pairs) of three candidate ta
 `shared/protocol/opendisplay_structs.h` does not have the flag yet, and the firmware never reads
 0xB0.
 
+## Temperature windows (enforced)
+
+Every experimental mode now carries an enforced window with `temp_policy` SUBSTITUTE
+(`panels/tools/pdlib.py` `CUSTOM_WINDOW_C`, decision 2026-11-25): **15-30 C**, narrowed to the
+mode's own lab band where it has one (`faster_cool` 15-24, `faster_warm` 25-30 on the 7.3in;
+`colour16` 18-30 from its measured gamut gate). Outside its window the device runs mode 0, the
+stock full, and the START ACK reports mode 0, so the host sends mode 0's frames. Mode 0 never
+carries a window (the panel-level `temp_gate` no longer applies to it), so the fallback always
+exists. A temperature the device cannot read (0x7F) skips the check, as before.
+
+Bands of one mode (`*_cool` / `*_warm`, `*6` / `*7`) stay separate modes, one table each; the
+host picks the one whose window holds the temperature (py-opendisplay `drive_plan`), and the
+device's window is the safety net when the host's reading is stale.
+
 ## Drive data
 
 `panels/tools/gen_refresh_modes.py` writes `panels/generated/refresh_modes.json` and
