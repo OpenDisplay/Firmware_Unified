@@ -88,7 +88,14 @@ assert b["xiao_nrf52840"]["flows"]["usb-install"]["files"][0].endswith("usb-1-sd
 assert "ble-ota-from-2x" in b["bg22"]["flows"]
 a = {x["file"]: x for x in m["artefacts"]}
 assert a["opendisplay-c3-n4-app.bin"]["offset"] == 65536
+p = {x["file"]: x for x in m["presets"]}
+assert set(p) == {"drive_presets.json", "drive_presets_nrf52811.json"}, set(p)
+assert p["drive_presets.json"]["ident_targets"] == [1, 2, 3, 5]
+assert p["drive_presets_nrf52811.json"]["ident_targets"] == [4]
+assert all(x["schema"] == "opendisplay.drive_presets" for x in p.values())
 PY
+cmp -s "${OUT}/drive_presets.json" "${HERE}/../../panels/generated/drive_presets.json" \
+  || fail "drive_presets.json in the release is not the committed one"
 
 # --- refusals ------------------------------------------------------------------------------
 # A BG22 dev build: RTT linked (symbol in the ELF), or the "bg22-dev" build id in the image.
@@ -130,6 +137,26 @@ cp "${WORK}/app.keep" "${OUT}/opendisplay-c3-n4-app.bin"
 
 printf 'x' >> "${OUT}/opendisplay-c3-n4-app.bin"
 if "$PY" "$COLLECT" check "${OUT}" >/dev/null 2>&1; then fail "tampered artefact accepted"; fi
+cp "${WORK}/app.keep" "${OUT}/opendisplay-c3-n4-app.bin"
+
+cp "${OUT}/drive_presets.json" "${WORK}/presets.keep"
+printf ' ' >> "${OUT}/drive_presets.json"
+if "$PY" "$COLLECT" check "${OUT}" >/dev/null 2>&1; then fail "tampered drive presets accepted"; fi
+cp "${WORK}/presets.keep" "${OUT}/drive_presets.json"
+rm "${OUT}/drive_presets_nrf52811.json"
+if "$PY" "$COLLECT" check "${OUT}" >/dev/null 2>&1; then fail "release without nRF52811 presets accepted"; fi
+
+# merge refuses a release whose presets directory lacks a file
+for t in esp32 nordic bg22; do mkdir -p "${WORK}/p-$t"; "mk_$t" "${WORK}/p-$t"; done
+"$PY" "$COLLECT" fragment --target esp32-idf "${WORK}/p-esp32" >/dev/null
+"$PY" "$COLLECT" fragment --target nordic-zephyr "${WORK}/p-nordic" >/dev/null
+"$PY" "$COLLECT" fragment --target efr32bg22-slc "${WORK}/p-bg22" >/dev/null
+P2="${WORK}/p-out"; mkdir -p "${P2}" "${WORK}/p-src"; cp "${WORK}"/p-{esp32,nordic,bg22}/* "${P2}/"
+cp "${WORK}/presets.keep" "${WORK}/p-src/drive_presets.json"
+if "$PY" "$COLLECT" merge --version 3.0.0 --tag 3.0.0 --commit deadbeef --presets "${WORK}/p-src" \
+    "${P2}" >/dev/null 2>&1; then
+  fail "merge without drive_presets_nrf52811.json accepted"
+fi
 
 mkdir -p "${WORK}/n2"; mk_nordic "${WORK}/n2"; rm "${WORK}/n2/opendisplay-xiao_nrf52840-usb-1-sd-erase.zip"
 if "$PY" "$COLLECT" fragment --target nordic-zephyr "${WORK}/n2" >/dev/null 2>&1; then

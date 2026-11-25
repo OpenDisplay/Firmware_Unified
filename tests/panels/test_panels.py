@@ -109,9 +109,12 @@ class Schema(unittest.TestCase):
                 if e["status"] in ("equivalent", "glass"):
                     self.assertTrue(e["packets"])
                     self.assertTrue(e["modes"])
-                self.assertEqual(e["verified"] == "glass", e["status"] == "glass")
+                # glass = hand-written panels.yaml data, or generated data whose mode 0 has an
+                # on-glass report (GlassReports below); status keeps saying where the bytes came from
+                seen = bool(e.get("modes")) and e["modes"][0].get("verified") == "glass"
+                self.assertEqual(e["verified"] == "glass", e["status"] == "glass" or seen)
                 if e["status"] == "equivalent":
-                    self.assertEqual(e["verified"], "equivalent")
+                    self.assertEqual(e["verified"], "glass" if seen else "equivalent")
 
     def test_legacy_identity(self):
         """Old clients pick host-side colour codes from panel_ic_type + colour scheme."""
@@ -463,6 +466,98 @@ class NativeControllers(unittest.TestCase):
             got = (b[2], b[3], b[4] | b[5] << 8, b[7], b[8], b[9], b[10])
             self.assertEqual(got, self.WANT[e["panel_ic_type"]], key)
             self.assertNotIn(key, PRESETS["panels"])
+
+
+class Nrf52811Presets(unittest.TestCase):
+    """The copied Firmware_NRF output: same schema, glass entries only, ids in its own block."""
+
+    def test_shape(self):
+        d = json.loads((P.GENERATED / "drive_presets_nrf52811.json").read_text())
+        self.assertEqual((d["schema"], d["schema_version"]), ("opendisplay.drive_presets", 1))
+        self.assertTrue(d["provisional_ids"])
+        self.assertTrue(d["panels"])
+        for key, e in d["panels"].items():
+            with self.subTest(key=key):
+                self.assertEqual(key, f"0x{e['panel_ic_type']:04X}")
+                self.assertTrue(0xE000 <= e["panel_ic_type"] <= 0xE1FF)
+                self.assertNotIn(key, PRESETS["panels"])
+                self.assertEqual(e["status"], "glass")
+                self.assertTrue(e["packets"])
+
+
+class GlassReports(unittest.TestCase):
+    """panels/glass_reports.yaml -> per-mode `verified: glass` on generated entries."""
+
+    @staticmethod
+    def view(framed: bytes, status: str = "equivalent") -> dict:
+        return {"status": status, "verified": "equivalent" if status == "equivalent" else status,
+                "framed_hex": framed.hex(),
+                "modes": [{"index": 0, "name": "full"}, {"index": 1, "name": "fast"}]}
+
+    @staticmethod
+    def report(framed: bytes, modes: list[str], cls: str = "default") -> dict:
+        import hashlib
+        return {"panel": "0x0037", "target_class": cls, "modes": modes,
+                "framed_sha256": hashlib.sha256(framed).hexdigest(), "board": "EN05",
+                "firmware": "3.0.2", "date": "2026-11-18", "reporter": "someone", "source": "#105"}
+
+    def test_matching_report_marks_only_its_modes(self):
+        v = {"default": self.view(b"\x01\x02"), "bg22": self.view(b"\x01\x02")}
+        stale = G.apply_glass_reports("0x0037", v, [self.report(b"\x01\x02", ["full"])])
+        self.assertEqual(stale, [])
+        d = v["default"]
+        self.assertEqual([m["verified"] for m in d["modes"]], ["glass", "equivalent"])
+        self.assertEqual(d["verified"], "glass")
+        self.assertEqual(d["status"], "equivalent")
+        self.assertEqual(len(d["glass_reports"]), 1)
+        self.assertNotIn("panel", d["glass_reports"][0])
+        # the report named the default class: bg22 is not proven by it
+        self.assertEqual(v["bg22"]["verified"], "equivalent")
+        self.assertEqual(v["bg22"]["glass_reports"], [])
+
+    def test_non_default_mode_leaves_entry_unproven(self):
+        v = {"default": self.view(b"\x01")}
+        G.apply_glass_reports("0x0037", v, [self.report(b"\x01", ["fast"])])
+        self.assertEqual([m["verified"] for m in v["default"]["modes"]], ["equivalent", "glass"])
+        self.assertEqual(v["default"]["verified"], "equivalent")
+
+    def test_changed_bytes_are_not_inherited(self):
+        v = {"default": self.view(b"\x01\x03")}
+        r = self.report(b"\x01\x02", ["full"])
+        self.assertEqual(G.apply_glass_reports("0x0037", v, [r]), [r])
+        self.assertEqual(v["default"]["verified"], "equivalent")
+        self.assertEqual(v["default"]["glass_reports"], [])
+
+    def test_unknown_mode_is_an_error(self):
+        v = {"default": self.view(b"\x01")}
+        with self.assertRaises(SystemExit):
+            G.apply_glass_reports("0x0037", v, [self.report(b"\x01", ["partial"])])
+
+    def test_hand_written_glass_modes(self):
+        v = {"default": self.view(b"\x01", status="glass")}
+        G.apply_glass_reports("0x001E", v, [])
+        self.assertEqual([m["verified"] for m in v["default"]["modes"]], ["glass", "glass"])
+
+    def test_committed_reports_are_applied(self):
+        import hashlib
+        for key, e in PRESETS["panels"].items():
+            for cls, v in (e.get("targets") or {}).items():
+                with self.subTest(key=key, cls=cls):
+                    self.assertIsInstance(v.get("glass_reports"), list)
+                    for m in v["modes"]:
+                        self.assertIn(m["verified"], VERIFIED)
+                    sha = hashlib.sha256(bytes.fromhex(v["framed_hex"])).hexdigest()
+                    names = {m["name"] for m in v["modes"]}
+                    for r in v["glass_reports"]:
+                        self.assertEqual(r["framed_sha256"], sha)
+                        self.assertTrue(set(r["modes"]) <= names)
+        for r in G.load_glass_reports():
+            with self.subTest(report=r["panel"]):
+                v = PRESETS["panels"][r["panel"]]["targets"][r["target_class"]]
+                sha = hashlib.sha256(bytes.fromhex(v["framed_hex"])).hexdigest()
+                applied = any(x["framed_sha256"] == r["framed_sha256"] and x["date"] == r["date"]
+                              and x["board"] == r["board"] for x in v["glass_reports"])
+                self.assertEqual(applied, sha == r["framed_sha256"])
 
 
 class Stale(unittest.TestCase):

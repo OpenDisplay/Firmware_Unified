@@ -32,7 +32,7 @@ manifest. `tools/release/collect.py --check-only <dir>` re-validates a directory
    `bootloader-apploader-v*`, `*app_update.bin`, `EPD-nRF52-*`, `esp32-*.bin`.
 3. Every 3.x asset name is `opendisplay-<board>-<kind>.<ext>`. `<board>` is the tag in § 3.
    The only files without a board are `manifest.json`, `SHA256SUMS`, `MANIFEST-*.txt`,
-   `LICENSE` and `NOTICE.md`.
+   `LICENSE`, `NOTICE.md` and the drive presets (§ 4.5).
 4. Debug boards (`*-debug`) are built by CI but are **not** release assets.
 5. Tags: **releases are tagged `3.0.0`, without a `v`** (decided 2026-11-11), as the other
    OpenDisplay repos do. The toolbox's `tbCompareVersions` parses `"v3"` as 0, so a `v3.0.0`
@@ -164,6 +164,13 @@ a 2.x unit unless it can write the migrated config afterwards (py-opendisplay
 | `SHA256SUMS` | `sha256sum` format over every other asset |
 | `MANIFEST-<target>.txt` | Human-readable per-target build record (commit, toolchain, sizes) |
 | `LICENSE`, `NOTICE.md` | GPL-3.0 and the third-party notices for what the images contain (`tools/release/NOTICE.md`; the repository's full vendoring record is `third_party/NOTICE.md`) |
+| `drive_presets.json` | The panel drive database this release was built and tested with, byte for byte `panels/generated/drive_presets.json` at the tagged commit (schema: `panels/README.md`). Serves the Firmware_Unified targets |
+| `drive_presets_nrf52811.json` | The same for nRF52811 devices (Firmware_NRF), `panels/generated/drive_presets_nrf52811.json` |
+
+`collect.py merge` copies both presets files in from `panels/generated/` and lists them in
+`manifest.json` `presets[]`; a release without them is refused. A host that writes drive data
+to a device takes it from one of these files after checking its `sha256` against the manifest,
+and keeps its bundled copy only as the offline fallback.
 
 ## 5. `manifest.json` (schema `opendisplay-release/1`)
 
@@ -217,6 +224,28 @@ a 2.x unit unless it can write the migrated config afterwards (py-opendisplay
       "size": 742592,
       "sha256": "<64-hex>"
     }
+  ],
+  "presets": [
+    {
+      "file": "drive_presets.json",
+      "type": "drive-presets",
+      "ident_targets": [1, 2, 3, 5],
+      "schema": "opendisplay.drive_presets",
+      "schema_version": 1,
+      "schema_minor": 4,
+      "size": 954612,
+      "sha256": "<64-hex>"
+    },
+    {
+      "file": "drive_presets_nrf52811.json",
+      "type": "drive-presets",
+      "ident_targets": [4],
+      "schema": "opendisplay.drive_presets",
+      "schema_version": 1,
+      "schema_minor": 3,
+      "size": 42356,
+      "sha256": "<64-hex>"
+    }
   ]
 }
 ```
@@ -244,6 +273,10 @@ Field rules:
   `files` is the ordered list to apply. For `usb-install` on nRF52840 it is step 1, then step 2.
 - A consumer that does not find the flow it wants must offer nothing. It must not fall back to
   another flow.
+- `presets[]` (added 2026-11-25; absent from earlier 3.0.x releases) lists the drive presets
+  files. `ident_targets` are the CMD_READ_IDENT `fw_target` values a file serves; pick the file
+  by the device's `fw_target`, then the entry by its panel key. `schema*` are copied from the
+  file. The files are not `artefacts[]` because they belong to no board.
 
 Per-board flows in 3.0:
 
