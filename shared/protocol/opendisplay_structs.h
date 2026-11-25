@@ -1324,7 +1324,7 @@ enum DriveSeqPinRef {
  *  mode actually used plus temp_c (opendisplay_protocol.h 2.3)." */
 enum DriveTempPolicy {
     OD_DRIVE_TEMP_ADVISORY   = 0, /**< @doc "run the requested mode regardless (window is documentation)." */
-    OD_DRIVE_TEMP_SUBSTITUTE = 1, /**< @doc "substitute the declared mode whose window covers the current temperature; ties break to the LOWEST mode_index. The ACK's mode byte reports the substitution; hosts MUST read it back." */
+    OD_DRIVE_TEMP_SUBSTITUTE = 1, /**< @doc "run mode 0 (the panel's stock full) instead, when mode 0's own window covers the current temperature (mode 0 should declare none); otherwise NACK as REJECT. The ACK's mode byte reports the substitution; hosts MUST read it back and send mode 0's frames." */
     OD_DRIVE_TEMP_REJECT     = 2  /**< @doc "NACK with OD_ERR_DRIVE_TEMP_RANGE; nothing is driven." */
 };
 
