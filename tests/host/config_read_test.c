@@ -233,20 +233,25 @@ static void test_load_failure(void)
     CHECK(g_sent[0].data[0] == RESP_NACK);
     CHECK(g_sent[0].data[1] == RESP_CONFIG_READ);
 
-    CASE("and it stays PLAINTEXT with a live session -- a hard NACK must remain readable");
-    /* Sealed, a client whose session had just died could not read why its read failed. Section 3.6
-     * puts every hard NACK on the explicit plaintext path; this one was on od_reply until an
-     * independent review caught it. */
+    CASE("and it is SEALED with a live session -- a client in a session discards plaintext");
+    /* SECURITY_V2 9.5 client rule 5: inside a session every unsealed frame that is not a plaintext-
+     * set answer is dropped, so a plaintext refusal would surface as a timeout. */
     setup(true);
     {
         od_tx_reservation_t r2;
+        uint8_t plain[OD_TX_FRAME_MAX];
+        uint16_t plain_len = 0u;
+
         open_session();
         CHECK(od_txq_reserve(1u, &r2) == OD_TXQ_OK);
         CHECK(od_config_read_start(&BLE, &r2, NULL, 0u) == OD_TXQ_OK);
         (void)od_txq_process();
         CHECK(g_sent_n == 1u);
-        CHECK(g_sent[0].len == 4u);                  /* NOT sealed */
-        CHECK(g_sent[0].data[0] == RESP_NACK);
+        CHECK(g_sent[0].data[0] == OD_SEC2_SEALED_STATUS);
+        CHECK(sec2c_open(&C, g_sent[0].data, g_sent[0].len, plain, &plain_len));
+        CHECK(plain_len == 4u);
+        CHECK(plain[0] == RESP_NACK);
+        CHECK(plain[1] == RESP_CONFIG_READ);
     }
 }
 

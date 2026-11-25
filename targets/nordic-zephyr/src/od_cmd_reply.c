@@ -26,6 +26,15 @@ od_txq_status_t od_cmd_reply_plain(const od_cmd_ctx_t *ctx, const uint8_t *frame
   return od_reply_plain(ctx->r, &ctx->rp, frame, len);
 }
 
+od_txq_status_t od_cmd_reply_refusal(const od_cmd_ctx_t *ctx,
+                                     const uint8_t *frame, uint16_t len)
+{
+  if (ctx == NULL || frame == NULL || len == 0u) {
+    return OD_TXQ_INVARIANT;
+  }
+  return od_reply_refusal(ctx->r, &ctx->rp, frame, len);
+}
+
 /* Half the host's 500 ms tail-flush read -- see od_cmd_reply.h. */
 #define OD_CMD_REFRESH_BARRIER_MS 250u
 #define OD_CMD_REFRESH_BARRIER_POLL_MS 5u

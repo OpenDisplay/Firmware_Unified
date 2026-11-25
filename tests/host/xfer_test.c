@@ -26,6 +26,7 @@ static const char *g_case;
 
 typedef struct {
     bool plain;
+    bool refusal;   /* via od_reply_refusal() */
     uint16_t len;
     uint8_t bytes[8];
 } reply_record_t;
@@ -137,6 +138,7 @@ static od_txq_status_t record_reply(bool plain, const uint8_t *frame, uint16_t l
     if (g_reply_n < sizeof g_replies / sizeof g_replies[0]) {
         reply_record_t *r = &g_replies[g_reply_n];
         r->plain = plain;
+        r->refusal = false;
         r->len = len;
         if (len <= sizeof r->bytes) {
             memcpy(r->bytes, frame, len);
@@ -160,6 +162,22 @@ od_txq_status_t od_reply_plain(od_tx_reservation_t *r, const od_reply_t *rp,
     (void)r;
     (void)rp;
     return record_reply(true, frame, len);
+}
+
+/* The refusal path: recorded as non-application and flagged, so a refusal that slips back onto
+ * od_reply_plain() fails the .refusal checks. Sealing itself is reply_test.c's to prove. */
+od_txq_status_t od_reply_refusal(od_tx_reservation_t *r, const od_reply_t *rp,
+                                 const uint8_t *frame, uint16_t len)
+{
+    od_txq_status_t rc;
+
+    (void)r;
+    (void)rp;
+    rc = record_reply(true, frame, len);
+    if (g_reply_n > 0u) {
+        g_replies[g_reply_n - 1u].refusal = true;
+    }
+    return rc;
 }
 
 void od_inflate_app_reset(uint32_t expected_output_size)
@@ -487,7 +505,7 @@ static void test_start_boundaries(void)
         setup();
         CHECK(od_xfer_direct_start(&owner, od_span_make(body, n)) == OD_CMD_OK);
         CHECK(od_xfer_end(&owner, od_span_none()) == OD_CMD_NACK);
-        CHECK(!od_xfer_active() && g_replies[g_reply_n - 1u].plain);
+        CHECK(!od_xfer_active() && g_replies[g_reply_n - 1u].refusal);
     }
 
     CASE("replacement START aborts old owner once");
@@ -503,14 +521,14 @@ static void test_short_write_and_barrier(void)
     od_cmd_ctx_t owner = od_test_cmd_ctx(OWNER, &g_reservation, 2u, false);
     uint8_t data[2] = { 1u, 2u };
 
-    CASE("short write is plain refusal");
+    CASE("short write is a refusal");
     setup();
     CHECK(od_xfer_direct_start(&owner, od_span_none()) == OD_CMD_OK);
     g_consume_limit = 1u;
     CHECK(od_xfer_data(&owner, od_span_make(data, sizeof data)) == OD_CMD_NACK);
     CHECK(g_abort_calls == 1u && !od_xfer_active());
     CHECK(g_abort_reasons[0] == OD_XFER_ABORT_STREAM_FAILED);
-    CHECK(g_reply_n == 2u && g_replies[1].plain);
+    CHECK(g_reply_n == 2u && g_replies[1].refusal);
 
     CASE("ack enqueue failure recovers once");
     setup();
@@ -617,7 +635,7 @@ static void test_compressed_direct(void)
     setup();
     start[0] = 5u;
     CHECK(od_xfer_direct_start(&owner, od_span_make(start, compressed_n + 4u)) == OD_CMD_NACK);
-    CHECK(g_begin_full_calls == 0u && g_reply_n == 1u && g_replies[0].plain);
+    CHECK(g_begin_full_calls == 0u && g_reply_n == 1u && g_replies[0].refusal);
 }
 
 static void test_controller_planes_incomplete(void)
@@ -639,7 +657,7 @@ static void test_controller_planes_incomplete(void)
     CHECK(od_xfer_data(&owner, od_span_make(short_planes, sizeof short_planes)) == OD_CMD_OK);
     CHECK(od_xfer_end(&owner, od_span_none()) == OD_CMD_NACK);
     CHECK(g_abort_calls == 1u && g_abort_reasons[0] == OD_XFER_ABORT_INCOMPLETE);
-    CHECK(!od_xfer_active() && g_replies[g_reply_n - 1u].plain);
+    CHECK(!od_xfer_active() && g_replies[g_reply_n - 1u].refusal);
 }
 
 static void make_partial_start(uint8_t out[17], uint8_t flags, uint32_t old_etag,
@@ -677,12 +695,12 @@ static void test_partial(void)
                  "DW complete: direct partial rx=0.0KB wr=0.0/0.0KB n=2 "
                  "t=1.0s r=0.0KB/s"));
 
-    CASE("partial validation clears etag and replies plain");
+    CASE("partial validation clears etag and refuses");
     setup();
     make_partial_start(start, 0x80u, g_etag, 0x55667788u);
     CHECK(od_xfer_partial_start(&owner, od_span_make(start, sizeof start)) == OD_CMD_NACK);
     CHECK(g_etag == 0u && g_begin_partial_calls == 0u);
-    CHECK(g_reply_n == 1u && g_replies[0].plain && g_replies[0].len == 4u);
+    CHECK(g_reply_n == 1u && g_replies[0].refusal && g_replies[0].len == 4u);
 
     CASE("partial incomplete end clears etag");
     setup();
@@ -693,7 +711,7 @@ static void test_partial(void)
     CHECK(g_etag == 0u && g_abort_calls == 1u);
     CHECK(g_abort_reasons[0] == OD_XFER_ABORT_INCOMPLETE);
     CHECK(g_etag_clear_sequence != 0u && g_etag_clear_sequence < g_abort_sequence);
-    CHECK(g_replies[g_reply_n - 1u].plain);
+    CHECK(g_replies[g_reply_n - 1u].refusal);
 }
 
 static void test_partial_end_boundaries(void)

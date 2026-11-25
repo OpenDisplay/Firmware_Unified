@@ -27,6 +27,13 @@ od_txq_status_t od_reply_plain(od_tx_reservation_t *r, const od_reply_t *rp,
     return OD_TXQ_OK;
 }
 
+/* No session in this fixture, so a refusal is the plaintext reply. */
+od_txq_status_t od_reply_refusal(od_tx_reservation_t *r, const od_reply_t *rp,
+                                 const uint8_t *frame, uint16_t len)
+{
+    return od_reply_plain(r, rp, frame, len);
+}
+
 void od_inflate_app_reset(uint32_t expected) { od_zlib_stream_reset(expected); }
 od_zlib_status_t od_inflate_app_push(od_span_t input, bool final)
 { return od_zlib_stream_push(input.p, input.n, final); }

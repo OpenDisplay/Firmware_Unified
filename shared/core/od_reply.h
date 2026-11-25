@@ -12,10 +12,14 @@
  * rolling highest_seen that hits both on any image of 255+ chunks. So the producer says which it
  * meant, once, at the call:
  *
- *   od_reply_plain()  control and error frames: AUTHENTICATE, FIRMWARE_VERSION, auth-required,
- *                     decrypt-failure, every hard NACK. Never sealed, whatever the session state.
- *   od_reply()        application responses, including all PIPE ACKs. Sealed when a live session
- *                     and the origin require it.
+ *   od_reply_plain()    control frames: AUTHENTICATE, FIRMWARE_VERSION, auth-required, the SEC
+ *                       handshake errors. Never sealed, whatever the session state.
+ *   od_reply()          application responses, including all PIPE ACKs. Sealed when a live
+ *                       session and the origin require it.
+ *   od_reply_refusal()  a handler's NACK to a gated command ([FF][cmd][err...]). Sealed while a
+ *                       session is live, plaintext otherwise (SECURITY_V2 9.5: a client in a
+ *                       session discards every unsealed frame, so a plaintext refusal there reads
+ *                       as a timeout).
  *
  * No handler may choose by looking at its own payload.
  */
@@ -51,6 +55,14 @@ od_txq_status_t od_reply(od_tx_reservation_t *r, const od_reply_t *rp,
  * accounting and the same OD_TXQ_* results, minus the sealing ones. */
 od_txq_status_t od_reply_plain(od_tx_reservation_t *r, const od_reply_t *rp,
                                const uint8_t *frame, uint16_t len);
+
+/* Queue a handler refusal. With a live session on this connection it is od_reply() (sealed,
+ * or od_reply()'s own [FF][cmd][00] fallback when it cannot be sealed); with none it is
+ * od_reply_plain(), so the specific error still reaches a client that holds no key (an unclaimed
+ * device, LAN, a session that ended under a deferred outcome). Same unit accounting and results
+ * as the call it forwards to. */
+od_txq_status_t od_reply_refusal(od_tx_reservation_t *r, const od_reply_t *rp,
+                                 const uint8_t *frame, uint16_t len);
 
 /* The dispatcher brackets the plaintext-set handlers (0x0043, 0x0044, 0x0046; section 6 rule 1)
  * with on/off, so od_reply() inside them never seals. */

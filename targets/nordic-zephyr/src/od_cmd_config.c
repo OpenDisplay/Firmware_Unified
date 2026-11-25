@@ -58,7 +58,7 @@ od_cmd_result_t od_cmd_app_config_clear(const od_cmd_ctx_t *ctx, od_span_t body)
 
   (void)body;
   if (!clearStoredConfig()) {
-    (void)od_cmd_reply_plain(ctx, err, sizeof(err));
+    (void)od_cmd_reply_refusal(ctx, err, sizeof(err));
     return OD_CMD_NACK;
   }
   /* SEALED BEFORE THE RELOAD, same rule as the config-write acks. Reloading an erased config
@@ -80,7 +80,7 @@ od_cmd_result_t od_cmd_app_config_read(const od_cmd_ctx_t *ctx, od_span_t body)
   (void)body;
   if (!initConfigStorage()) {
     uint8_t err[] = { 0xFFu, RESP_CONFIG_READ, 0x00u, 0x00u };
-    (void)od_cmd_reply_plain(ctx, err, sizeof(err));
+    (void)od_cmd_reply_refusal(ctx, err, sizeof(err));
     return OD_CMD_NACK;
   }
 
@@ -143,7 +143,7 @@ od_cmd_result_t od_cmd_app_config_write(const od_cmd_ctx_t *ctx, od_span_t body)
       s_cfg_chunk.total_size = (uint32_t)data[0] | ((uint32_t)data[1] << 8);
       if (s_cfg_chunk.total_size > OD_CONFIG_MAX_SIZE || s_cfg_chunk.total_size == 0u) {
         od_cmd_config_reset();
-        (void)od_cmd_reply_plain(ctx, err, sizeof(err));
+        (void)od_cmd_reply_refusal(ctx, err, sizeof(err));
         return OD_CMD_NACK;
       }
       {
@@ -161,7 +161,7 @@ od_cmd_result_t od_cmd_app_config_write(const od_cmd_ctx_t *ctx, od_span_t body)
       s_cfg_chunk.total_size = len;
       if (s_cfg_chunk.total_size > OD_CONFIG_MAX_SIZE) {
         od_cmd_config_reset();
-        (void)od_cmd_reply_plain(ctx, err, sizeof(err));
+        (void)od_cmd_reply_refusal(ctx, err, sizeof(err));
         return OD_CMD_NACK;
       }
       {
@@ -179,7 +179,7 @@ od_cmd_result_t od_cmd_app_config_write(const od_cmd_ctx_t *ctx, od_span_t body)
         rc = OD_CMD_OK;
       } else {
         err[2] = od_config_store_save_error();
-        (void)od_cmd_reply_plain(ctx, err, sizeof(err));
+        (void)od_cmd_reply_refusal(ctx, err, sizeof(err));
         rc = OD_CMD_NACK;
       }
       od_cmd_config_reset();
@@ -205,7 +205,7 @@ od_cmd_result_t od_cmd_app_config_write(const od_cmd_ctx_t *ctx, od_span_t body)
     opendisplay_ble_reload_config_from_nvm();
   } else {
     err[2] = od_config_store_save_error();
-    (void)od_cmd_reply_plain(ctx, err, sizeof(err));
+    (void)od_cmd_reply_refusal(ctx, err, sizeof(err));
     return OD_CMD_NACK;
   }
   return OD_CMD_OK;
@@ -220,7 +220,7 @@ od_cmd_result_t od_cmd_app_config_chunk(const od_cmd_ctx_t *ctx, od_span_t body)
   uint8_t err[] = { 0xFFu, RESP_CONFIG_CHUNK, 0x00u, 0x00u };
 
   if (!s_cfg_chunk.active) {
-    (void)od_cmd_reply_plain(ctx, err, sizeof(err));
+    (void)od_cmd_reply_refusal(ctx, err, sizeof(err));
     return OD_CMD_NACK;
   }
   if (len == 0u) {
@@ -229,22 +229,22 @@ od_cmd_result_t od_cmd_app_config_chunk(const od_cmd_ctx_t *ctx, od_span_t body)
   }
   if (len > CONFIG_CHUNK_SIZE) {
     od_cmd_config_reset();
-    (void)od_cmd_reply_plain(ctx, err, sizeof(err));
+    (void)od_cmd_reply_refusal(ctx, err, sizeof(err));
     return OD_CMD_NACK;
   }
   if (s_cfg_chunk.received_size + len > s_cfg_chunk.total_size) {
     od_cmd_config_reset();
-    (void)od_cmd_reply_plain(ctx, err, sizeof(err));
+    (void)od_cmd_reply_refusal(ctx, err, sizeof(err));
     return OD_CMD_NACK;
   }
   if (s_cfg_chunk.received_size + len > OD_CONFIG_MAX_SIZE) {
     od_cmd_config_reset();
-    (void)od_cmd_reply_plain(ctx, err, sizeof(err));
+    (void)od_cmd_reply_refusal(ctx, err, sizeof(err));
     return OD_CMD_NACK;
   }
   if (s_cfg_chunk.received_chunks >= MAX_CONFIG_CHUNKS) {
     od_cmd_config_reset();
-    (void)od_cmd_reply_plain(ctx, err, sizeof(err));
+    (void)od_cmd_reply_refusal(ctx, err, sizeof(err));
     return OD_CMD_NACK;
   }
 
@@ -255,7 +255,7 @@ od_cmd_result_t od_cmd_app_config_chunk(const od_cmd_ctx_t *ctx, od_span_t body)
   if (s_cfg_chunk.received_chunks >= s_cfg_chunk.expected_chunks) {
     if (s_cfg_chunk.received_size != s_cfg_chunk.total_size) {
       od_cmd_config_reset();
-      (void)od_cmd_reply_plain(ctx, err, sizeof(err));
+      (void)od_cmd_reply_refusal(ctx, err, sizeof(err));
       return OD_CMD_NACK;
     }
     if (saveConfig(s_cfg_chunk.buffer, s_cfg_chunk.received_size)) {
@@ -265,7 +265,7 @@ od_cmd_result_t od_cmd_app_config_chunk(const od_cmd_ctx_t *ctx, od_span_t body)
       rc = OD_CMD_OK;
     } else {
       err[2] = od_config_store_save_error();
-      (void)od_cmd_reply_plain(ctx, err, sizeof(err));
+      (void)od_cmd_reply_refusal(ctx, err, sizeof(err));
       rc = OD_CMD_NACK;
     }
     od_cmd_config_reset();

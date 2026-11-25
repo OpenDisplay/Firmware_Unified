@@ -49,6 +49,13 @@ od_txq_status_t od_reply_plain(od_tx_reservation_t *r, const od_reply_t *rp,
     return od_reply(r, rp, frame, len);
 }
 
+/* No session in this fixture, so a refusal is the plaintext reply. */
+od_txq_status_t od_reply_refusal(od_tx_reservation_t *r, const od_reply_t *rp,
+                                 const uint8_t *frame, uint16_t len)
+{
+    return od_reply_plain(r, rp, frame, len);
+}
+
 static bool reply_is(const uint8_t *want, uint16_t n)
 {
     return g_rep_n == n && memcmp(g_rep, want, n) == 0;

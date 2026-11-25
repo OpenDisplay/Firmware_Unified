@@ -178,10 +178,10 @@ static void refuse_oversize(const od_reply_t *rp, uint16_t cmd)
      * waiting out its timeout. Nothing of the refused frame is read to do so. The plaintext set
      * keeps its plaintext answers, and so does a link with no session (it has no key to read a
      * sealed one with). */
-    if (!od_dispatch_plaintext_set(cmd) && od_sec2_session_live(rp)) {
-        (void)od_reply(&r, rp, frame, sizeof frame);
-    } else {
+    if (od_dispatch_plaintext_set(cmd)) {
         (void)od_reply_plain(&r, rp, frame, sizeof frame);
+    } else {
+        (void)od_reply_refusal(&r, rp, frame, sizeof frame);
     }
     od_txq_release(&r);
 }

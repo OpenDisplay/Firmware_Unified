@@ -35,6 +35,12 @@ static od_txq_status_t reply_plain(const od_cmd_ctx_t *ctx, const uint8_t *frame
   return od_reply_plain(ctx->r, &ctx->rp, frame, len);
 }
 
+/* A NACK to a gated command: sealed while a session is live, plaintext otherwise. */
+static od_txq_status_t reply_refusal(const od_cmd_ctx_t *ctx, const uint8_t *frame, uint16_t len)
+{
+  return od_reply_refusal(ctx->r, &ctx->rp, frame, len);
+}
+
 static od_cmd_result_t persist_config(const od_cmd_ctx_t *ctx, uint8_t response,
                                       const uint8_t *data, uint32_t len)
 {
@@ -45,7 +51,7 @@ static od_cmd_result_t persist_config(const od_cmd_ctx_t *ctx, uint8_t response,
   /* Persistence is the commit point. A success response must never get ahead of it. */
   if (!saveConfig((uint8_t *)(uintptr_t)data, len)) {
     err[2] = od_config_store_save_error();
-    (void)reply_plain(ctx, err, sizeof(err));
+    (void)reply_refusal(ctx, err, sizeof(err));
     return OD_CMD_NACK;
   }
   /* Queued (and sealed, on a claimed device) before the reload. A config save does not end the
@@ -112,7 +118,7 @@ od_cmd_result_t od_cmd_app_power_off(const od_cmd_ctx_t *ctx, od_span_t body)
 {
   uint8_t err[] = { RESP_NACK, RESP_POWER_OFF, OD_ERR_POWER_OFF_UNSUPPORTED, 0u };
   (void)body;
-  (void)reply_plain(ctx, err, sizeof(err));
+  (void)reply_refusal(ctx, err, sizeof(err));
   return OD_CMD_NACK;
 }
 
@@ -160,7 +166,7 @@ od_cmd_result_t od_cmd_app_config_write(const od_cmd_ctx_t *ctx, od_span_t body)
   case OD_CONFIG_ASM_COMPLETE:
     return persist_config(ctx, RESP_CONFIG_WRITE, s->buffer, s->received);
   case OD_CONFIG_ASM_REJECTED:
-    (void)reply_plain(ctx, err, sizeof(err));
+    (void)reply_refusal(ctx, err, sizeof(err));
     return OD_CMD_NACK;
   }
   return OD_CMD_NACK;
@@ -180,7 +186,7 @@ od_cmd_result_t od_cmd_app_config_chunk(const od_cmd_ctx_t *ctx, od_span_t body)
   if (result == OD_CONFIG_ASM_COMPLETE) {
     return persist_config(ctx, RESP_CONFIG_CHUNK, s->buffer, s->received);
   }
-  (void)reply_plain(ctx, err, sizeof(err));
+  (void)reply_refusal(ctx, err, sizeof(err));
   return OD_CMD_NACK;
 }
 
@@ -192,7 +198,7 @@ od_cmd_result_t od_cmd_app_config_clear(const od_cmd_ctx_t *ctx, od_span_t body)
 
   (void)body;
   if (!clearStoredConfig()) {
-    (void)reply_plain(ctx, err, sizeof(err));
+    (void)reply_refusal(ctx, err, sizeof(err));
     return OD_CMD_NACK;
   }
   od_config_asm_reset(opendisplay_config_assembler());
@@ -213,7 +219,7 @@ od_cmd_result_t od_cmd_app_led_activate(const od_cmd_ctx_t *ctx, od_span_t body)
   if (body.n < 1u || opendisplay_led_activate(body.p[0], body.p + 1u,
                                                (uint16_t)(body.n - 1u)) != 0) {
     if (body.n < 1u) err[2] = 1u;
-    (void)reply_plain(ctx, err, sizeof(err));
+    (void)reply_refusal(ctx, err, sizeof(err));
     return OD_CMD_NACK;
   }
   (void)reply(ctx, ok, sizeof(ok));
@@ -226,7 +232,7 @@ od_cmd_result_t od_cmd_app_led_stop(const od_cmd_ctx_t *ctx, od_span_t body)
   uint8_t err[] = { RESP_NACK, RESP_LED_STOP_ACK, 2u, 0u };
   int rc = body.n ? opendisplay_led_stop(body.p[0], true) : opendisplay_led_stop(0u, false);
   if (rc != 0) {
-    (void)reply_plain(ctx, err, sizeof(err));
+    (void)reply_refusal(ctx, err, sizeof(err));
     return OD_CMD_NACK;
   }
   (void)reply(ctx, ok, sizeof(ok));
@@ -237,7 +243,7 @@ od_cmd_result_t od_cmd_app_buzzer(const od_cmd_ctx_t *ctx, od_span_t body)
 {
   uint8_t err[] = { RESP_NACK, RESP_BUZZER_ACK, OD_ERR_PARTIAL_UNSUPPORTED, 0u };
   (void)body;
-  (void)reply_plain(ctx, err, sizeof(err));
+  (void)reply_refusal(ctx, err, sizeof(err));
   return OD_CMD_NACK;
 }
 

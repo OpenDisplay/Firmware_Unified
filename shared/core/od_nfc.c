@@ -81,13 +81,13 @@ static bool rec_type_valid(uint8_t t)
         || t == OD_NFC_REC_MIME || t == OD_NFC_REC_RAW_NDEF;
 }
 
-/* Every refusal answers plaintext: a client whose frame was malformed may not have a session, and
- * the donors send these unsealed. The verdict is NACK so the frame does not stamp activity. */
+/* A refusal is sealed while a session is live and plaintext otherwise (od_reply_refusal). The
+ * verdict is NACK so the frame does not stamp activity. */
 static od_cmd_result_t nack(const od_cmd_ctx_t *ctx, uint8_t err)
 {
     uint8_t frame[4] = { RESP_NACK, RESP_NFC_ENDPOINT, 0xFFu, err };
 
-    (void)od_reply_plain(ctx->r, &ctx->rp, frame, sizeof frame);
+    (void)od_reply_refusal(ctx->r, &ctx->rp, frame, sizeof frame);
     return OD_CMD_NACK;
 }
 

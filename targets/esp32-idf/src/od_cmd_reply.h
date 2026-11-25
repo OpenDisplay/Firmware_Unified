@@ -9,9 +9,11 @@
  * ACK for a command the device refused. A response is bytes whose meaning depends on the opcode,
  * so the producer states its intent instead:
  *
- *   od_cmd_reply_plain()  control and error frames -- auth-required, decrypt failure, every hard
- *                         NACK, AUTHENTICATE, FIRMWARE_VERSION. Never sealed, whatever the session.
- *   od_cmd_reply()        application responses, INCLUDING all PIPE ACKs.
+ *   od_cmd_reply_plain()    control frames -- FIRMWARE_VERSION and the rest of the plaintext set.
+ *                           Never sealed, whatever the session.
+ *   od_cmd_reply()          application responses, INCLUDING all PIPE ACKs.
+ *   od_cmd_reply_refusal()  a handler's NACK to a gated command. Sealed while a session is live,
+ *                           plaintext otherwise (od_reply_refusal, SECURITY_V2 9.5).
  *
  * No handler may choose by looking at its own payload.
  *
@@ -34,6 +36,7 @@ extern "C" {
 
 od_txq_status_t od_cmd_reply(const od_cmd_ctx_t *ctx, const uint8_t *frame, uint16_t len);
 od_txq_status_t od_cmd_reply_plain(const od_cmd_ctx_t *ctx, const uint8_t *frame, uint16_t len);
+od_txq_status_t od_cmd_reply_refusal(const od_cmd_ctx_t *ctx, const uint8_t *frame, uint16_t len);
 
 /* Drain queued replies before a blocking panel refresh. Call it AFTER the END ack is queued and
  * IMMEDIATELY BEFORE the refresh, on every path that blocks: a full-image refresh and both partial

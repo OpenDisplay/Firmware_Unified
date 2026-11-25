@@ -342,14 +342,14 @@ void processLedFlash() {
 od_cmd_result_t handleLedActivate(const od_cmd_ctx_t *ctx, uint8_t* data, uint16_t len) {
     if (len < 1) {
         uint8_t errorResponse[] = {RESP_NACK, RESP_LED_ACTIVATE_ACK, 0x01, 0x00};
-        (void)od_cmd_reply_plain(ctx, errorResponse, sizeof(errorResponse));
+        (void)od_cmd_reply_refusal(ctx, errorResponse, sizeof(errorResponse));
         return OD_CMD_NACK;
     }
     uint8_t ledInstance = data[0];
     struct LedConfig* led = led_instance(ledInstance);
     if (led == nullptr) {
         uint8_t errorResponse[] = {RESP_NACK, RESP_LED_ACTIVATE_ACK, 0x02, 0x00};
-        (void)od_cmd_reply_plain(ctx, errorResponse, sizeof(errorResponse));
+        (void)od_cmd_reply_refusal(ctx, errorResponse, sizeof(errorResponse));
         return OD_CMD_NACK;
     }
     if (len >= 1 + OD_LED_PATTERN_LEN) {
@@ -391,7 +391,7 @@ od_cmd_result_t handleLedStop(const od_cmd_ctx_t *ctx, uint8_t* data, uint16_t l
 
     if (od_led_stop(instance, instance_given) != 0) {
         uint8_t errorResponse[] = {RESP_NACK, RESP_LED_STOP_ACK, 0x02, 0x00};
-        (void)od_cmd_reply_plain(ctx, errorResponse, sizeof(errorResponse));
+        (void)od_cmd_reply_refusal(ctx, errorResponse, sizeof(errorResponse));
         return OD_CMD_NACK;
     }
     s_led_running = false;
@@ -715,13 +715,13 @@ od_cmd_result_t handleDeepSleepCommand(const od_cmd_ctx_t *ctx, const uint8_t* p
     if (globalConfig.power_option.power_mode != 1) {
         od_log_warn("Device not battery powered - 0x%04X rejected", CMD_DEEP_SLEEP);
         uint8_t errorResponse[] = {RESP_NACK, RESP_DEEP_SLEEP, OD_ERR_DEEP_SLEEP_NOT_BATTERY, 0x00};
-        (void)od_cmd_reply_plain(ctx, errorResponse, sizeof(errorResponse));
+        (void)od_cmd_reply_refusal(ctx, errorResponse, sizeof(errorResponse));
         return OD_CMD_NACK;
     }
     if (globalConfig.power_option.deep_sleep_time_seconds == 0) {
         od_log_warn("Deep sleep disabled in config - 0x%04X rejected", CMD_DEEP_SLEEP);
         uint8_t errorResponse[] = {RESP_NACK, RESP_DEEP_SLEEP, OD_ERR_DEEP_SLEEP_DISABLED, 0x00};
-        (void)od_cmd_reply_plain(ctx, errorResponse, sizeof(errorResponse));
+        (void)od_cmd_reply_refusal(ctx, errorResponse, sizeof(errorResponse));
         return OD_CMD_NACK;
     }
     /* No reply on success, deliberately: the device enters deep sleep and the link drops. The
@@ -779,6 +779,6 @@ od_cmd_result_t handlePowerOffCommand(const od_cmd_ctx_t *ctx, const uint8_t* pa
     // conflate with 0x53 deep sleep (a device that refuses 0x52 may still accept 0x53).
     od_log_warn("No power latch on this target - 0x%04X rejected", CMD_POWER_OFF);
     uint8_t errorResponse[] = {RESP_NACK, RESP_POWER_OFF, OD_ERR_POWER_OFF_UNSUPPORTED, 0x00};
-    (void)od_cmd_reply_plain(ctx, errorResponse, sizeof(errorResponse));
+    (void)od_cmd_reply_refusal(ctx, errorResponse, sizeof(errorResponse));
     return OD_CMD_NACK;
 }

@@ -121,6 +121,20 @@ static void authenticate(void)
 
 static void change_key(void) { g_sec.encryption_key[0] ^= 0x01u; }
 
+/* The one reply queued is a sealed 4-byte refusal [FF][cmd][err][00] (SECURITY_V2 9.5). */
+static void check_sealed_refusal(uint8_t cmd)
+{
+    uint8_t plain[OD_TX_FRAME_MAX];
+    uint16_t plain_n = 0u;
+
+    CHECK(fake_silabs_sent_n == 1u);
+    CHECK(fake_silabs_sent[0].data[0] == OD_SEC2_SEALED_STATUS);
+    CHECK(sec2c_open(&C, fake_silabs_sent[0].data, fake_silabs_sent[0].len, plain, &plain_n));
+    CHECK(plain_n == 4u);
+    CHECK(plain[0] == RESP_NACK);
+    CHECK(plain[1] == cmd);
+}
+
 static void test_config_persist_before_queue(void)
 {
     const uint8_t config[] = { 0x55u };
@@ -200,6 +214,18 @@ static void test_config_persist_before_queue(void)
     CHECK(fake_silabs_store_reloads == 0u);
     CHECK(od_sec2_session_live(NULL));
     CHECK(od_txq_process() == 1u);
+    check_sealed_refusal(RESP_CONFIG_WRITE);
+
+    CASE("the same refusal on an unclaimed device is plaintext");
+    setup();
+    fake_silabs_store_ok = false;
+    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
+    ctx = od_test_cmd_ctx((od_reply_t){ OD_ORIGIN_BLE,
+                                         opendisplay_pipe_connection_tag() },
+                          &r, 2u, false);
+    CHECK(od_cmd_app_config_write(&ctx, od_span_make(config, sizeof config)) == OD_CMD_NACK);
+    od_txq_release(&r);
+    CHECK(od_txq_process() == 1u);
     CHECK(fake_silabs_sent_n == 1u);
     CHECK(fake_silabs_sent[0].len == 4u);
     CHECK(fake_silabs_sent[0].data[0] == RESP_NACK);
@@ -240,9 +266,7 @@ static void test_config_persist_before_queue(void)
     CHECK(fake_silabs_store_reloads == 0u);
     CHECK(od_sec2_session_live(NULL));
     CHECK(od_txq_process() == 1u);
-    CHECK(fake_silabs_sent_n == 1u);
-    CHECK(fake_silabs_sent[0].len == 4u);
-    CHECK(fake_silabs_sent[0].data[0] == RESP_NACK);
+    check_sealed_refusal(RESP_CONFIG_CLEAR);
 }
 
 static void test_nfc_exact_limit(void)

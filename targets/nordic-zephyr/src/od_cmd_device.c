@@ -135,7 +135,7 @@ od_cmd_result_t od_cmd_app_power_off(const od_cmd_ctx_t *ctx, od_span_t body)
   uint8_t err[] = { 0xFFu, RESP_POWER_OFF, OD_ERR_POWER_OFF_UNSUPPORTED, 0x00u };
 
   (void)body;
-  (void)od_cmd_reply_plain(ctx, err, sizeof(err));
+  (void)od_cmd_reply_refusal(ctx, err, sizeof(err));
   return OD_CMD_NACK;
 }
 
@@ -176,12 +176,12 @@ od_cmd_result_t od_cmd_app_led_activate(const od_cmd_ctx_t *ctx, od_span_t body)
   const uint16_t payload_len = (uint16_t)body.n;
 
   if (payload_len < 1u) {
-    (void)od_cmd_reply_plain(ctx, e1, sizeof(e1));
+    (void)od_cmd_reply_refusal(ctx, e1, sizeof(e1));
     return OD_CMD_NACK;
   }
   if (opendisplay_led_activate(payload[0], payload + 1u,
                                (uint16_t)(payload_len - 1u)) != 0) {
-    (void)od_cmd_reply_plain(ctx, e2, sizeof(e2));
+    (void)od_cmd_reply_refusal(ctx, e2, sizeof(e2));
     return OD_CMD_NACK;
   }
   (void)od_cmd_reply(ctx, ok, sizeof(ok));
@@ -202,7 +202,7 @@ od_cmd_result_t od_cmd_app_led_stop(const od_cmd_ctx_t *ctx, od_span_t body)
     rc = opendisplay_led_stop(0, false);
   }
   if (rc != 0) {
-    (void)od_cmd_reply_plain(ctx, e2, sizeof(e2));
+    (void)od_cmd_reply_refusal(ctx, e2, sizeof(e2));
     return OD_CMD_NACK;
   }
   (void)od_cmd_reply(ctx, ok, sizeof(ok));
@@ -220,7 +220,7 @@ od_cmd_result_t od_cmd_app_buzzer(const od_cmd_ctx_t *ctx, od_span_t body)
   }
   {
     uint8_t err[] = { 0xFFu, RESP_BUZZER_ACK, (uint8_t)rc, 0x00u };
-    (void)od_cmd_reply_plain(ctx, err, sizeof(err));
+    (void)od_cmd_reply_refusal(ctx, err, sizeof(err));
   }
   return OD_CMD_NACK;
 }

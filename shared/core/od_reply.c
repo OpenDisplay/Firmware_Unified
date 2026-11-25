@@ -124,3 +124,12 @@ od_txq_status_t od_reply(od_tx_reservation_t *r, const od_reply_t *rp,
     /* No default above: -Wswitch fails the build on a new od_sec2_seal result. Unreachable. */
     return queue_hard_nack(r, rp, frame[1], OD_TXQ_SEAL_FAILED);
 }
+
+od_txq_status_t od_reply_refusal(od_tx_reservation_t *r, const od_reply_t *rp,
+                                 const uint8_t *frame, uint16_t len)
+{
+    if (rp != NULL && od_sec2_session_live(rp)) {
+        return od_reply(r, rp, frame, len);
+    }
+    return od_reply_plain(r, rp, frame, len);
+}

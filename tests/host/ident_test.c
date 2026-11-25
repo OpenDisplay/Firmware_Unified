@@ -33,6 +33,13 @@ od_txq_status_t od_reply_plain(od_tx_reservation_t *r, const od_reply_t *rp,
     return OD_TXQ_OK;
 }
 
+/* No session in this fixture, so a refusal is the plaintext reply. */
+od_txq_status_t od_reply_refusal(od_tx_reservation_t *r, const od_reply_t *rp,
+                                 const uint8_t *frame, uint16_t len)
+{
+    return od_reply_plain(r, rp, frame, len);
+}
+
 const struct od_config *od_ident_app_config(void) { return &g_cfg; }
 bool od_ident_app_native_panel(const struct DisplayConfig *d) { (void)d; return g_native; }
 
