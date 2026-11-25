@@ -239,8 +239,8 @@ def build_ee02() -> dict:
         (3, "fastg13", s709_custom("0F 00 1A 24 30 38", 0x08), 0, -40, 25, 1,
          "G13 on set 4, 17.5 s, worst 2.04; scrub every ~10 (R-0204, R-0221)"),
         (4, "partialmix", s709_custom("0F 00 1A 22 24 26", 0x04), 1, 0, 0, 1,
-         "G7_N8_mixB flashing partial, 11.5 s, band-robust (sets 4 and 5); codes 4/7 hold "
-         "(R-0240, R-0242) [1 ex]"),
+         "G7_N8_mixB flashing partial, 11.5 s, band-robust (sets 4 and 5); K/W/Y/B targets only "
+         "(no R/G drive: an R or G cell keeps its old ink); codes 4/7 hold (R-0240, R-0242) [1 ex]"),
     ]
     luts = {0: "s6_709_G13.bin", 1: "s6_709_G7_N8_mixB.bin"}
     # Base: the 0x0042 packets with mode 0 replaced by the lab-order stream.

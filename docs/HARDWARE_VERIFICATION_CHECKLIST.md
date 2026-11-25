@@ -74,9 +74,11 @@ debug build, `photos/ee02_dualcs_*.jpg` rigcam crops). Two defects, both needed:
       0.46), 2026-11-25
 - [ ] Mode 3 `fastg13`: not run. deskee02.py needs a panel temperature for its -40..25 C window,
       and this path reports none (`temp_c` null: no SHT40, and the bus has no MISO read)
-- [ ] Mode 4 `partialmix`: **FAILS** on this run. After three partial updates, 8 of 48 cells kept
-      their previous ink, all W->R or R->G transitions; other driven changes landed. The script's
-      median (0.26) hides it, max 17.2. Panel temperature unknown (lab result was for sets 4/5)
+- [x] Mode 4 `partialmix` (K/W/Y/B targets, as designed): 3 updates with easy and hard
+      transitions, dE00 [cam] vs `full` median 0.35, max 2.06, 0/48 cells over 3; write ACK 19.4 s,
+      2026-11-25. The table has no R/G drive: deskee02.py's +2-ink step asked for R and G, and
+      exactly those 8 of 36 changed cells kept their old ink (max 17.2); all 28 K/W/Y/B targets
+      landed
 - [ ] Nordic: `od_epd_nordic.c` still frames CS per cmd/data call; a dual-CS panel there needs
       the same fix
 
