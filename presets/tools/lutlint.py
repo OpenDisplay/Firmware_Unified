@@ -78,7 +78,12 @@ def main(argv=None) -> int:
         return 0 if g["pass"] else 1
     if a.cmd == "show":
         p = Path(a.table)
-        e = p.read_bytes() if p.is_file() else bytes.fromhex(a.table.replace(" ", ""))
+        try:                                   # a long hex string is not a usable path: is_file() may raise
+            e = p.read_bytes() if p.is_file() else None
+        except OSError:
+            e = None
+        if e is None:
+            e = bytes.fromhex(a.table.replace(" ", ""))
         if len(e) == bwry535.LEN:
             print(bwry535.describe(e, p.name))
             return 0 if bwry535.encode(bwry535.decode(e)) == e else 1
