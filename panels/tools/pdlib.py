@@ -254,6 +254,7 @@ def build_replay(cls: str = "default") -> Path:
     subprocess.run([_cc("c"), "-std=c11", "-Wall", "-Wextra", "-Werror", *defs,
                     f"-I{REPO / 'shared' / 'core'}", f"-I{REPO / 'shared' / 'protocol'}",
                     str(HARNESS / "od_epd_replay.c"), str(REPO / "shared" / "core" / "od_epd.c"),
+                    str(REPO / "shared" / "core" / "od_epd_lut.c"),
                     "-o", str(out)], check=True)
     return out
 

@@ -1,0 +1,86 @@
+# Refresh modes: provisional wire layouts and device rules
+
+The lab handover's refresh modes (`HANDOVER_refresh_modes.md`, proposal
+`presets_home_proposal.md` § 5.3 F1/F2/F5/F7) need four additive format changes. **None is in
+`opendisplay_structs.h` / `opendisplay_protocol.h` yet.** They match the py-opendisplay presets
+test branch (`local/presets-test`, REPORT.md § "Provisional byte layouts") and are listed here
+so they can be moved into `../opendisplay-protocol` once Jonas accepts them. Firmware that
+predates them degrades safely: an unknown tail is ignored, a compressed or high-id slot reads as
+absent, and the new START flag is refused.
+
+## Layouts
+
+All little-endian.
+
+**0xAE mode tail** (after `seq`), v1 = 4 bytes, host information only (the device ignores it):
+`[ext_version=1][mode_flags: bit0 EXPERIMENTAL][budget_cost][scrub_before: mode_index | 0xFF]`.
+
+**0xB1 panel tail** (after `sleep_seq`), v1 = 9 bytes:
+
+| off | field | read by the device |
+|---|---|---|
+| 0 | `ext_version` = 1 | yes |
+| 1-2 | `drive_preset_key` | no |
+| 3-4 | `drive_rev` | no |
+| 5 | `drive_flags` bit0 HAND_EDITED | no |
+| 6 | `budget_limit` (0xFF = none) | no |
+| 7 | `lut_family`: 0 none, 1 S6-800, 2 JD-BWRY-535, 3 x4-536 | yes: lint + never-send list |
+| 8 | `busy_timeout_s` | yes: wins over `busy_timeout_ms` when non-zero |
+
+**0xAF `lut_slot`**: bits 0-3 = slot id (16 slots), bit 7 = body is raw deflate (RFC 1951,
+10-bit window), bits 4-6 reserved (a set bit makes the packet match no slot). Stored and
+inflated bodies are both ≤ 1024 B (`OD_EPD_LUT_BYTES`). `crc16` (CCITT-FALSE) covers the
+**stored** bytes.
+
+**CMD_DRIVE_WRITE_START flag 0x04 `INLINE_LUT`**: the two reserved bytes become `inline_len`
+(u16, must be non-zero). The data stream starts with `inline_len` bytes of entries
+`[slot_id][len:2][crc16:2][table: len bytes]`, then the frames, so the expected stream size is
+`passes × frame + inline_len` (the 4-byte `uncompressed_size` of a compressed stream counts the
+prefix too). The tables shadow the stored slots for this transfer only; nothing is written to
+flash. Pass 0 begins once the prefix is in.
+
+## Device rules (F2, F7)
+
+Enforced only when the 0xB1 tail declares a `lut_family` (configs written before the tail run
+as before). Every refusal happens **before any panel I/O** and returns `OD_EPD_RC_LINT` (-10),
+reported on the wire as `OD_ERR_DRIVE_SEQ_UNSUPPORTED` (0x07).
+
+- **Table lint** on every stored or inline table: S6-800 = 799 or 800 B, header not all zero, no
+  8 zero bytes in a row (handover 4.3, lutlint L7). JD-BWRY = exactly 535 B, and in each of the
+  6 blocks the first row whose timing sums to zero has M = 0 (the block terminator; row 7 is
+  exempt). x4 = 535 or 536 B. A failing slot is absent.
+- **A mode that uploads a table (`LUT` / `LUT_SLICE`) whose slot is absent is refused** rather
+  than run with the panel's OTP waveform under custom-table registers.
+- **Never-send list**: 0x90, 0x91, 0xA0-0xA3, 0x8F, 0xFB, 0xFF in any step (plain, SUBST,
+  WRITE_SCRATCH, WINDOW).
+- **No TSC read (0x40) between a table upload and the next 0x12** (handover 4.4).
+- `busy_timeout_s` lifts the BUSY ceiling past the u16 ms field (handover 4.7: ≥ 120 s).
+
+## Decisions and conflicts for Jonas
+
+1. **0x4D and 0xB6 are not on the never-send list.** The handover lists "+4D/B6/8F/FB/FF on
+   BWRY/EE02", but the stock 2.9in BWRY init sends `4D 78` and the EE02 init sends `B6 07`
+   (both verified on glass). The firmware cannot refuse them without refusing the stock modes.
+2. **Inline tables are sent raw, not deflated.** The proposal says the stream starts "with the
+   deflated table(s)". The 0x0085 stream already has its own zlib option (flag 0x01), so a
+   second deflate layer gains nothing and would need a second inflate state during the stream.
+3. **Lint failures reuse `OD_ERR_DRIVE_SEQ_UNSUPPORTED` (0x07)**, not a new error code. A host
+   cannot tell "table refused by the lint" from "escape not supported here".
+4. **BG22 and Telink have no LUT cache** (`OD_EPD_LUT_CACHE=0`, RAM): compressed slots read as
+   absent there and `INLINE_LUT` is NACKed with `OD_ERR_DRIVE_UNSUPPORTED`. Panels driven by
+   BG22 boards must store their tables uncompressed (the 2.9in entry in
+   `panels/generated/refresh_modes.json` does). BG22 also has no WINDOW escape, so the 2.9in
+   windowed partial is written as a literal full-panel 0x83 with hold codes for unchanged
+   pixels.
+5. **`mode_count` in the 0xB1 head** is written as highest index + 1 by the generator.
+6. The EE02 7.09in entry is built on the lab-order mode 0 (`tests/host/ee02_spectra_preset.inc`),
+   not on 0x0042 (shared with the 13.3in), so its drive key is 0. Its stock path through this
+   firmware has not run on glass.
+
+## Drive data
+
+`panels/tools/gen_refresh_modes.py` writes `panels/generated/refresh_modes.json` and
+`tests/host/refresh_modes.inc` (`--check` gates both). Every register stream is the one the lab
+drove on glass, with the rails, VCOM and PLL each table was gated with; the generator names the
+source of each. `tests/host/refresh_modes_test.c` runs every mode through the executor, with and
+without the LUT cache.

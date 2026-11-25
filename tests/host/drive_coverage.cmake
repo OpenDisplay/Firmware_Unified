@@ -34,6 +34,17 @@ target_compile_definitions(od_epd_cfg_test PRIVATE
     OD_GOLDEN_DIR="${CMAKE_CURRENT_LIST_DIR}/../vectors/epd_golden")
 add_test(NAME epd_cfg COMMAND od_epd_cfg_test)
 
+# Every experimental refresh mode of panels/generated/refresh_modes.json through the executor,
+# with the LUT cache (ESP32 / Nordic) and without it (BG22 / Telink).
+foreach(cache IN ITEMS 2 0)
+    add_executable(od_refresh_modes_c${cache}_test refresh_modes_test.c od_log_test_stub.c
+        ${OD_SHARED_CORE}/od_epd_cfg.c ${OD_SHARED_CORE}/od_epd.c ${OD_SHARED_CORE}/od_epd_lut.c
+        ${OD_SHARED_CORE}/od_cfg_index.c)
+    target_link_libraries(od_refresh_modes_c${cache}_test od_shared)
+    target_compile_definitions(od_refresh_modes_c${cache}_test PRIVATE OD_EPD_LUT_CACHE=${cache})
+    add_test(NAME refresh_modes_c${cache} COMMAND od_refresh_modes_c${cache}_test)
+endforeach()
+
 # od_action over a stored 0xB2 table: every trigger, temperature edges, validator vs runner,
 # uptime wrap, and the shared CMD_ACTION_INFO / CMD_ACTION_FIRE handlers. Twice: with an image
 # store (BG22), and without one (ESP32), where DISPLAY_SLOT entries load as inactive. No other

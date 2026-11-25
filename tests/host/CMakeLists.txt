@@ -604,6 +604,9 @@ find_package(Python3 COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
     add_test(NAME lut_vectors_fresh
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/gen_lut_vectors.py --check)
+    add_test(NAME refresh_modes_fresh
+             COMMAND ${Python3_EXECUTABLE}
+                     ${CMAKE_CURRENT_LIST_DIR}/../../panels/tools/gen_refresh_modes.py --check)
 endif()
 
 # display: the shared config-driven display path (od_display -> od_epd_cfg -> od_epd) from a

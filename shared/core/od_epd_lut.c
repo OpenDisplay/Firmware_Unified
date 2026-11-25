@@ -120,7 +120,7 @@ bool od_lut_lint(uint8_t family, const uint8_t *t, uint16_t len)
 {
     od_lut_lint_t l;
 
-    if (t == NULL) {
+    if (t == NULL || !family_len_ok(family, len)) {
         return false;
     }
     od_lut_lint_begin(&l, family);
