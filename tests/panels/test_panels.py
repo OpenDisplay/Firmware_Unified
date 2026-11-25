@@ -42,7 +42,7 @@ KNOWN_BLOCKERS = {"SEQ_MAX", "MAX_STEPS", "LUT_MAX", "LUT_AFTER_IMAGE", "LUT_SLO
                   "REPLAY_REFUSED"}
 CLASSES = PRESETS["target_classes"]
 KNOWN_ESCAPES = {"SET_PIN", "CS_SELECT"}
-DIFFS = {"D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8"}
+DIFFS = {"D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9"}
 
 
 def tok(t: list) -> tuple:
