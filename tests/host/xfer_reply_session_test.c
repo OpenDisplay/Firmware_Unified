@@ -155,6 +155,15 @@ static int is_sealed(unsigned i)
            sec2c_open(&g_client, g_sent[i], g_sent_len[i], plain, &plain_len);
 }
 
+static int opens_to_start_nack(unsigned i)
+{
+    uint8_t plain[OD_TX_FRAME_MAX];
+    uint16_t plain_len = 0u;
+    return g_sent[i][0] == OD_SEC2_SEALED_STATUS &&
+           sec2c_open(&g_client, g_sent[i], g_sent_len[i], plain, &plain_len) &&
+           plain_len == 2u && plain[0] == RESP_NACK && plain[1] == RESP_DIRECT_WRITE_START_ACK;
+}
+
 static int all_application_replies_are(bool sealed)
 {
     unsigned i;
@@ -184,8 +193,9 @@ int main(void)
         return 1;
     }
     od_xfer_reset();
-    if (!run_start(false) || g_sent_n != 1u || g_sent_len[0] != 2u
-        || g_sent[0][0] != RESP_NACK || g_sent[0][1] != RESP_DIRECT_WRITE_START_ACK) {
+    /* A refused START inside the session is sealed too (SECURITY_V2 9.5: the client discards
+     * unsealed frames there), and it opens to the plaintext refusal. */
+    if (!run_start(false) || g_sent_n != 1u || !opens_to_start_nack(0u)) {
         return 1;
     }
     if (!run_complete(true) || !all_application_replies_are(true)) return 1;
@@ -198,7 +208,12 @@ int main(void)
     od_xfer_reset();
     if (!run_complete(true) || !all_application_replies_are(false)) return 1;
     if (!run_complete(false) || !all_application_replies_are(false)) return 1;
+    od_xfer_reset();
+    if (!run_start(false) || g_sent_n != 1u || g_sent_len[0] != 2u
+        || g_sent[0][0] != RESP_NACK || g_sent[0][1] != RESP_DIRECT_WRITE_START_ACK) {
+        return 1;
+    }
 
-    printf("xfer_reply_session: START/DATA/END/success/timeout sealing policy passed\n");
+    printf("xfer_reply_session: START/DATA/END/success/timeout/refusal sealing policy passed\n");
     return 0;
 }

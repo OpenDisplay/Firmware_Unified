@@ -391,6 +391,105 @@ static void test_queue_failure_is_visible(void)
           "Response was not queued because the reply target is gone (cmd=0x0071)") == 1u);
 }
 
+/* od_reply_refusal: the handler NACK to a gated command. SECURITY_V2 9.5 client rule 5 discards
+ * every unsealed frame inside a session, so a plaintext refusal there reads as a timeout (a config
+ * write with the wrong key never surfaced its 0x11). The codes the targets send are the cases. */
+static void test_refusal_sealed_in_session(void)
+{
+    static const uint8_t REFUSALS[][4] = {
+        { RESP_NACK, RESP_CONFIG_WRITE, 0x10u, 0x00u }, /* CONFIG_WRITE: secret, no key */
+        { RESP_NACK, RESP_CONFIG_WRITE, 0x11u, 0x00u }, /* CONFIG_WRITE: key mismatch */
+        { RESP_NACK, RESP_CONFIG_WRITE, 0x01u, 0x00u }, /* CONFIG_WRITE: BUSY */
+        { RESP_NACK, RESP_CONFIG_CHUNK, 0x00u, 0x00u },
+        { RESP_NACK, RESP_DIRECT_WRITE_START_ACK, 0x00u, 0x00u },
+    };
+    uint8_t plain[OD_TX_FRAME_MAX];
+    uint16_t plain_len;
+    unsigned i;
+
+    for (i = 0u; i < sizeof REFUSALS / sizeof REFUSALS[0]; ++i) {
+        od_tx_reservation_t r;
+
+        CASE("a refusal inside a live session is sealed and opens to the same bytes");
+        setup(true, true);
+        CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
+        CHECK(od_reply_refusal(&r, &BLE, REFUSALS[i], sizeof REFUSALS[i]) == OD_TXQ_OK);
+        CHECK(r.remaining == 0u);
+        CHECK(od_txq_process() == 1u);
+        CHECK(g_sent_n == 1u);
+        CHECK(g_sent[0].data[0] == OD_SEC2_SEALED_STATUS);
+        CHECK(g_sent[0].len == sizeof REFUSALS[i] + OD_SEC2_D2H_OVERHEAD);
+        plain_len = 0u;
+        CHECK(sec2c_open(&C, g_sent[0].data, g_sent[0].len, plain, &plain_len));
+        CHECK(plain_len == sizeof REFUSALS[i]);
+        CHECK(memcmp(plain, REFUSALS[i], sizeof REFUSALS[i]) == 0);
+    }
+
+    CASE("a 2-byte refusal [FF][cmd] is sealed too");
+    setup(true, true);
+    {
+        static const uint8_t SHORT[2] = { RESP_NACK, RESP_DIRECT_WRITE_START_ACK };
+        od_tx_reservation_t r;
+
+        CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
+        CHECK(od_reply_refusal(&r, &BLE, SHORT, sizeof SHORT) == OD_TXQ_OK);
+        CHECK(od_txq_process() == 1u);
+        CHECK(g_sent[0].data[0] == OD_SEC2_SEALED_STATUS);
+        plain_len = 0u;
+        CHECK(sec2c_open(&C, g_sent[0].data, g_sent[0].len, plain, &plain_len));
+        CHECK(plain_len == 2u && plain[0] == RESP_NACK && plain[1] == RESP_DIRECT_WRITE_START_ACK);
+    }
+}
+
+static void test_refusal_plain_without_session(void)
+{
+    static const uint8_t REFUSAL[4] = { RESP_NACK, RESP_CONFIG_WRITE, 0x10u, 0x00u };
+    static const od_reply_t OTHER = { OD_ORIGIN_BLE, 8u };
+    od_tx_reservation_t r;
+
+    CASE("unclaimed device: a refusal goes out verbatim");
+    setup(false, false);
+    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
+    CHECK(od_reply_refusal(&r, &BLE, REFUSAL, sizeof REFUSAL) == OD_TXQ_OK);
+    CHECK(od_txq_process() == 1u);
+    CHECK(g_sent[0].len == sizeof REFUSAL);
+    CHECK(memcmp(g_sent[0].data, REFUSAL, sizeof REFUSAL) == 0);
+
+    CASE("claimed, no session: the specific error stays readable, not the [FF][cmd][00] stand-in");
+    setup(true, false);
+    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
+    CHECK(od_reply_refusal(&r, &BLE, REFUSAL, sizeof REFUSAL) == OD_TXQ_OK);
+    CHECK(od_txq_process() == 1u);
+    CHECK(g_sent[0].len == sizeof REFUSAL);
+    CHECK(memcmp(g_sent[0].data, REFUSAL, sizeof REFUSAL) == 0);
+
+    CASE("a session on another connection does not seal this one's refusal");
+    setup(true, true);
+    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
+    CHECK(od_reply_refusal(&r, &OTHER, REFUSAL, sizeof REFUSAL) == OD_TXQ_OK);
+    CHECK(od_txq_process() == 1u);
+    CHECK(g_sent[0].len == sizeof REFUSAL);
+    CHECK(memcmp(g_sent[0].data, REFUSAL, sizeof REFUSAL) == 0);
+
+    CASE("TLS-LAN: a refusal is plain at the application layer");
+    setup(true, true);
+    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
+    CHECK(od_reply_refusal(&r, &TLS, REFUSAL, sizeof REFUSAL) == OD_TXQ_OK);
+    CHECK(od_txq_process() == 1u);
+    CHECK(g_sent[0].len == sizeof REFUSAL);
+    CHECK(memcmp(g_sent[0].data, REFUSAL, sizeof REFUSAL) == 0);
+
+    CASE("inside the plaintext scope a refusal stays plain with a live session");
+    setup(true, true);
+    CHECK(od_txq_reserve(1u, &r) == OD_TXQ_OK);
+    od_reply_plain_scope(true);
+    CHECK(od_reply_refusal(&r, &BLE, REFUSAL, sizeof REFUSAL) == OD_TXQ_OK);
+    od_reply_plain_scope(false);
+    CHECK(od_txq_process() == 1u);
+    CHECK(g_sent[0].len == sizeof REFUSAL);
+    CHECK(memcmp(g_sent[0].data, REFUSAL, sizeof REFUSAL) == 0);
+}
+
 int main(void)
 {
     test_plain_when_security_is_off();
@@ -404,6 +503,8 @@ int main(void)
     test_argument_and_accounting();
     test_nack_substitution_failure_is_visible();
     test_queue_failure_is_visible();
+    test_refusal_sealed_in_session();
+    test_refusal_plain_without_session();
 
     printf("reply: %u checks, %u failures\n", g_checks, g_failures);
     return g_failures == 0u ? 0 : 1;

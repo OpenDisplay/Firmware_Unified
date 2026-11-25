@@ -653,7 +653,7 @@ od_txq_status_t od_xfer_reply_app(const od_cmd_ctx_t *ctx, const uint8_t *frame,
 void od_xfer_reply_error(const od_cmd_ctx_t *ctx, const uint8_t *frame, uint16_t len)
 {
     if (ctx != NULL) {
-        (void)od_reply_plain(ctx->r, &ctx->rp, frame, len);
+        (void)od_reply_refusal(ctx->r, &ctx->rp, frame, len);
     }
 }
 

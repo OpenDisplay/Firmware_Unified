@@ -106,10 +106,16 @@ static od_txq_status_t reply_plain(const od_cmd_ctx_t *ctx, const uint8_t *frame
     return od_reply_plain(ctx->r, &ctx->rp, frame, len);
 }
 
+/* A NACK to a gated command: sealed while a session is live, plaintext otherwise. */
+static od_txq_status_t reply_refusal(const od_cmd_ctx_t *ctx, const uint8_t *frame, uint16_t len)
+{
+    return od_reply_refusal(ctx->r, &ctx->rp, frame, len);
+}
+
 static od_cmd_result_t nack(const od_cmd_ctx_t *ctx, uint8_t resp, uint8_t err)
 {
     uint8_t f[] = { RESP_NACK, resp, err, 0u };
-    (void)reply_plain(ctx, f, sizeof f);
+    (void)reply_refusal(ctx, f, sizeof f);
     return OD_CMD_NACK;
 }
 

@@ -7,8 +7,8 @@
  * exactly the ones that would slip through:
  *
  *   0x52  a wire change. This target has no power latch and used to fall silent; it now answers
- *         the canonical unsupported NACK. Wrong bytes, a sealed frame instead of a plaintext one,
- *         or an OK verdict would all be invisible to every other suite and to the build.
+ *         the canonical unsupported NACK. Wrong bytes, a reply off the refusal path, or an OK
+ *         verdict would all be invisible to every other suite and to the build.
  *   0x53  recognised and DELIBERATELY silent, matching the reference nRF52840 build. The failure
  *         mode is the opposite one -- a reply appearing where none should.
  *
@@ -48,14 +48,15 @@ static const char *g_case = "(none)";
 /* ------------------------------------------------------------------------------ fake reply --- */
 
 #define SENT_MAX 8u
-static struct { uint16_t len; bool plain; uint8_t data[64]; } g_sent[SENT_MAX];
+static struct { uint16_t len; bool plain; bool refusal; uint8_t data[64]; } g_sent[SENT_MAX];
 static unsigned g_sent_n;
 
-static void record(const uint8_t *frame, uint16_t len, bool plain)
+static void record(const uint8_t *frame, uint16_t len, bool plain, bool refusal)
 {
     if (g_sent_n < SENT_MAX) {
         g_sent[g_sent_n].len = len;
         g_sent[g_sent_n].plain = plain;
+        g_sent[g_sent_n].refusal = refusal;
         memcpy(g_sent[g_sent_n].data, frame,
                (len < sizeof g_sent[0].data) ? len : sizeof g_sent[0].data);
         ++g_sent_n;
@@ -65,14 +66,22 @@ static void record(const uint8_t *frame, uint16_t len, bool plain)
 od_txq_status_t od_cmd_reply(const od_cmd_ctx_t *ctx, const uint8_t *frame, uint16_t len)
 {
     (void)ctx;
-    record(frame, len, false);
+    record(frame, len, false, false);
     return OD_TXQ_OK;
 }
 
 od_txq_status_t od_cmd_reply_plain(const od_cmd_ctx_t *ctx, const uint8_t *frame, uint16_t len)
 {
     (void)ctx;
-    record(frame, len, true);
+    record(frame, len, true, false);
+    return OD_TXQ_OK;
+}
+
+/* Sealed in a live session, plaintext otherwise: od_reply_refusal decides, reply_test.c proves it. */
+od_txq_status_t od_cmd_reply_refusal(const od_cmd_ctx_t *ctx, const uint8_t *frame, uint16_t len)
+{
+    (void)ctx;
+    record(frame, len, false, true);
     return OD_TXQ_OK;
 }
 
@@ -181,8 +190,8 @@ static void test_power_off_is_the_canonical_unsupported_nack(void)
     CHECK(g_sent[0].data[2] == OD_ERR_POWER_OFF_UNSUPPORTED);
     CHECK(g_sent[0].data[3] == 0x00u);
 
-    CASE("and it is PLAINTEXT -- a hard NACK is never sealed");
-    CHECK(g_sent[0].plain);
+    CASE("and it goes out as a refusal -- sealed in a session, plaintext without one");
+    CHECK(g_sent[0].refusal);
 
     CASE("NACK, not UNKNOWN: the frame was recognised");
     /* Both refuse to stamp activity, so this is not about the clock -- it is about the wire. An
@@ -276,21 +285,21 @@ static void test_led_and_buzzer_verdicts(void)
 {
     const uint8_t one[1] = { 0x02u };
 
-    CASE("LED activate with an empty body is refused with error 0x01, plaintext");
+    CASE("LED activate with an empty body is refused with error 0x01, as a refusal");
     reset_all();
     CHECK(od_cmd_app_led_activate(&CTX, empty()) == OD_CMD_NACK);
     CHECK(g_led_activates == 0u);                 /* refused before the driver is touched */
     CHECK(g_sent_n == 1u);
     CHECK(g_sent[0].data[0] == 0xFFu);
     CHECK(g_sent[0].data[2] == 0x01u);
-    CHECK(g_sent[0].plain);
+    CHECK(g_sent[0].refusal);
 
-    CASE("a driver refusal is error 0x02, also plaintext");
+    CASE("a driver refusal is error 0x02, also a refusal");
     reset_all();
     g_led_activate_rc = -1;
     CHECK(od_cmd_app_led_activate(&CTX, body(one, sizeof one)) == OD_CMD_NACK);
     CHECK(g_sent[0].data[2] == 0x02u);
-    CHECK(g_sent[0].plain);
+    CHECK(g_sent[0].refusal);
 
     CASE("success is a sealed 4-byte ack");
     reset_all();
@@ -317,7 +326,7 @@ static void test_led_and_buzzer_verdicts(void)
     CHECK(g_sent[0].data[0] == 0xFFu);
     CHECK(g_sent[0].data[1] == RESP_BUZZER_ACK);
     CHECK(g_sent[0].data[2] == 7u);
-    CHECK(g_sent[0].plain);
+    CHECK(g_sent[0].refusal);
 }
 
 /* Claim mode is never active here: the planned reboot always proceeds. */

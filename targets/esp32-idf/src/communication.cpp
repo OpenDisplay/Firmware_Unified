@@ -462,7 +462,7 @@ od_cmd_result_t handleWriteConfig(const od_cmd_ctx_t *ctx, uint8_t* data, uint16
             return (rc == OD_TXQ_OK) ? OD_CMD_OK : OD_CMD_NACK;
         }
         responseErr[2] = od_config_store_save_error();
-        (void)od_cmd_reply_plain(ctx, responseErr, sizeof(responseErr));
+        (void)od_cmd_reply_refusal(ctx, responseErr, sizeof(responseErr));
         return OD_CMD_NACK;
     }
     case OD_CONFIG_ASM_ACCEPTED:
@@ -487,7 +487,7 @@ od_cmd_result_t handleWriteConfig(const od_cmd_ctx_t *ctx, uint8_t* data, uint16
             return (rc == OD_TXQ_OK) ? OD_CMD_OK : OD_CMD_NACK;
         }
         responseErr[2] = od_config_store_save_error();
-        (void)od_cmd_reply_plain(ctx, responseErr, sizeof(responseErr));
+        (void)od_cmd_reply_refusal(ctx, responseErr, sizeof(responseErr));
         return OD_CMD_NACK;
     }
     case OD_CONFIG_ASM_REJECTED:
@@ -496,7 +496,7 @@ od_cmd_result_t handleWriteConfig(const od_cmd_ctx_t *ctx, uint8_t* data, uint16
          * storage symbol to reach, so a rejection cannot have altered NVS. */
         od_log_error("[%s] malformed CONFIG_WRITE (%u B) -- nothing stored",
                      originTag(ctx->rp.origin), (unsigned)len);
-        (void)od_cmd_reply_plain(ctx, responseErr, sizeof(responseErr));
+        (void)od_cmd_reply_refusal(ctx, responseErr, sizeof(responseErr));
         return OD_CMD_NACK;
     }
 }
@@ -506,7 +506,7 @@ od_cmd_result_t handleClearConfig(const od_cmd_ctx_t *ctx) {
     uint8_t responseErr[] = {RESP_NACK, RESP_CONFIG_CLEAR, 0x00, 0x00};
 
     if (!clearStoredConfig()) {
-        (void)od_cmd_reply_plain(ctx, responseErr, sizeof(responseErr));
+        (void)od_cmd_reply_refusal(ctx, responseErr, sizeof(responseErr));
         return OD_CMD_NACK;
     }
 
@@ -557,7 +557,7 @@ od_cmd_result_t handleWriteConfigChunk(const od_cmd_ctx_t *ctx, uint8_t* data, u
             return (rc == OD_TXQ_OK) ? OD_CMD_OK : OD_CMD_NACK;
         }
         err_resp[2] = od_config_store_save_error();
-        (void)od_cmd_reply_plain(ctx, err_resp, sizeof(err_resp));
+        (void)od_cmd_reply_refusal(ctx, err_resp, sizeof(err_resp));
         return OD_CMD_NACK;
     }
     case OD_CONFIG_ASM_SINGLE:
@@ -565,7 +565,7 @@ od_cmd_result_t handleWriteConfigChunk(const od_cmd_ctx_t *ctx, uint8_t* data, u
     default:
         od_log_error("[%s] bad CONFIG_CHUNK (%u B) -- transfer dropped, nothing stored",
                      originTag(ctx->rp.origin), (unsigned)len);
-        (void)od_cmd_reply_plain(ctx, err_resp, sizeof(err_resp));
+        (void)od_cmd_reply_refusal(ctx, err_resp, sizeof(err_resp));
         return OD_CMD_NACK;
     }
 }

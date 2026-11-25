@@ -112,19 +112,19 @@ od_cmd_result_t handleBuzzerActivate(const od_cmd_ctx_t *ctx, uint8_t *data, uin
 
     if (data == nullptr || len < 3u) {
         uint8_t err[] = {RESP_NACK, RESP_BUZZER_ACK, 0x01u, 0x00u};
-        (void)od_cmd_reply_plain(ctx, err, sizeof err);
+        (void)od_cmd_reply_refusal(ctx, err, sizeof err);
         return OD_CMD_NACK;
     }
     instance = data[0];
     if (instance >= globalConfig.passive_buzzer_count) {
         uint8_t err[] = {RESP_NACK, RESP_BUZZER_ACK, 0x02u, 0x00u};
-        (void)od_cmd_reply_plain(ctx, err, sizeof err);
+        (void)od_cmd_reply_refusal(ctx, err, sizeof err);
         return OD_CMD_NACK;
     }
     b = &globalConfig.passive_buzzers[instance];
     if (b->drive_pin == OD_PIN_UNUSED) {
         uint8_t err[] = {RESP_NACK, RESP_BUZZER_ACK, 0x03u, 0x00u};
-        (void)od_cmd_reply_plain(ctx, err, sizeof err);
+        (void)od_cmd_reply_refusal(ctx, err, sizeof err);
         return OD_CMD_NACK;
     }
 
@@ -135,7 +135,7 @@ od_cmd_result_t handleBuzzerActivate(const od_cmd_ctx_t *ctx, uint8_t *data, uin
     rc = od_buzzer_activate(&config, data, len, od_hal_uptime_ms());
     if (rc != 0) {
         uint8_t err[] = {RESP_NACK, RESP_BUZZER_ACK, (uint8_t)rc, 0x00u};
-        (void)od_cmd_reply_plain(ctx, err, sizeof err);
+        (void)od_cmd_reply_refusal(ctx, err, sizeof err);
         return OD_CMD_NACK;
     }
 

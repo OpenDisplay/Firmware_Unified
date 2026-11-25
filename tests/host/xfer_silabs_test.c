@@ -38,6 +38,13 @@ od_txq_status_t od_reply_plain(od_tx_reservation_t *r, const od_reply_t *rp,
     return OD_TXQ_OK;
 }
 
+/* No session in this fixture, so a refusal is the plaintext reply. */
+od_txq_status_t od_reply_refusal(od_tx_reservation_t *r, const od_reply_t *rp,
+                                 const uint8_t *frame, uint16_t len)
+{
+    return od_reply_plain(r, rp, frame, len);
+}
+
 /* Unused by the capability-off entry point, but required if another transfer object is linked. */
 bool od_xfer_app_panel_info(od_xfer_panel_info_t *out) { (void)out; return false; }
 void od_xfer_app_prepare_start(void) { }

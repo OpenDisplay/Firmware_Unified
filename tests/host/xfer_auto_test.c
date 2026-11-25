@@ -41,6 +41,13 @@ bool od_xfer_app_panel_info(od_xfer_panel_info_t *out)
     return od_color_direct_geometry(OD_COLOR_SCHEME_MONO, out->width, out->height,
                                     &out->geometry) == OD_COLOR_OK;
 }
+
+/* No session in this fixture, so a refusal is the plaintext reply. */
+od_txq_status_t od_reply_refusal(od_tx_reservation_t *r, const od_reply_t *rp,
+                                 const uint8_t *frame, uint16_t len)
+{
+    return od_reply_plain(r, rp, frame, len);
+}
 void od_xfer_app_prepare_start(void) { }
 bool od_xfer_app_begin_full(const od_color_geometry_t *g) { return g != NULL; }
 bool od_xfer_app_begin_partial(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint32_t p)

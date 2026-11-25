@@ -350,16 +350,18 @@ static const ref_case_t REF_CASES[] = {
  * D->H record adds [E5][ctr:4] and a 12-byte tag. */
 /* The sealed frame is opened by the SEC2 client and the application frame inside it is compared to
  * the plaintext one byte for byte. Asserting 241 alone would pass on any correctly sized
- * ciphertext, including one carrying the wrong record. The 219-byte refusal is a plaintext NACK
- * (od_nfc sends error frames through od_reply_plain), so it stays 4 bytes inside a session. */
+ * ciphertext, including one carrying the wrong record. The 219-byte refusal is sealed too
+ * (od_reply_refusal: a client in a session discards unsealed frames), so it is opened the same
+ * way and carries the 4-byte NACK. */
 { "the 218-byte cap holds in a protected session", REF_BOTH, {
     { .sub = NFC_SUB_READ, .read_len = 218, .sealed = true, .unseal_reply = true,
       .reply_head = { 0x00u, RESP_NFC_ENDPOINT, 0x80u, 0x01u, 0x00u, 218u },
       .reply_head_len = 6u, .reply_len = 224u + OD_SEC2_D2H_OVERHEAD,
       .reply_fill = 0x5Au, .reply_check_fill = true, .expect_ok = true } }, 1u },
 { "a 219-byte read is refused in a protected session too", REF_BG22, {
-    { .sub = NFC_SUB_READ, .read_len = 219, .sealed = true,
-      NACKF(NFC_ERR_READ_FAILED) } }, 1u },
+    { .sub = NFC_SUB_READ, .read_len = 219, .sealed = true, .unseal_reply = true,
+      .reply_head = { 0xFFu, RESP_NFC_ENDPOINT, 0xFFu, NFC_ERR_READ_FAILED },
+      .reply_head_len = 4u, .reply_len = 4u + OD_SEC2_D2H_OVERHEAD } }, 1u },
 
 /* ----------------------------------------------------------------------------- reset --- */
 { "a transport reset mid-assembly discards it", REF_BOTH, {
