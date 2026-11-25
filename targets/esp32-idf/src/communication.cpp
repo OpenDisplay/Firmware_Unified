@@ -12,6 +12,7 @@
 #include "od_log.h"
 
 #include "od_hal_time.h"
+#include "esp_app_desc.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -209,10 +210,6 @@ extern uint8_t msd_payload[16];
 float readBatteryVoltage();
 
 
-#ifndef BUILD_VERSION
-#include "od_fw_version.h"
-#define BUILD_VERSION OD_FW_VERSION_DEFAULT
-#endif
 #ifndef SHA
 #define SHA ""
 #endif
@@ -221,16 +218,28 @@ float readBatteryVoltage();
 #define SHA_STRING_LOCAL XSTRINGIFY_LOCAL(SHA)
 // Always stringify so -DBUILD_VERSION=2.24.0 works: three-part tags are not
 // valid C numeric literals (two-part tags like 2.23 accidentally compiled as floats).
+#ifdef BUILD_VERSION
 #define BUILD_VERSION_STRING_LOCAL XSTRINGIFY_LOCAL(BUILD_VERSION)
+#endif
+
+// The version is PROJECT_VER, which the app descriptor carries and SMP reports for the running
+// slot; -DBUILD_VERSION (tools/provision_firmware.py) overrides it.
+static const char* firmwareVersionString() {
+#ifdef BUILD_VERSION
+    return BUILD_VERSION_STRING_LOCAL;
+#else
+    return esp_app_get_description()->version;
+#endif
+}
 
 static constexpr uint8_t FIRMWARE_SHA_HEX_BYTES = 40;
 static const char kFirmwareShaPlaceholder[FIRMWARE_SHA_HEX_BYTES + 1] =
     "0000000000000000000000000000000000000000";
 
-// BUILD_VERSION is major.minor or major.minor.patch (optional leading 'v').
+// The version is major.minor or major.minor.patch (optional leading 'v').
 // Two-part tags imply patch 0. Component index: 0=major, 1=minor, 2=patch.
 static uint8_t parseFirmwareVersionComponent(unsigned index) {
-    const char* v = BUILD_VERSION_STRING_LOCAL;
+    const char* v = firmwareVersionString();
     if (v == nullptr || v[0] == '\0') {
         return 0;
     }
