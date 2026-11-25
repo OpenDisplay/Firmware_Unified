@@ -149,7 +149,7 @@ def build_s73() -> dict:
     full = mode_seq(pkts, 0)
     pll08 = replace_cmd(full, 0x30, b"\x08")
     luts = {0: "s6_73_replica_set6.bin", 1: "s6_73_replica_set7.bin", 2: "s6_73_F1d6.bin",
-            3: "s6_73_F1d7.bin", 4: "s6_73_S3_N0_wgap0.bin"}
+            3: "s6_73_F1d7.bin", 4: "s6_73_S3_N0_wgap0.bin", 6: "s6_73_MA_t1.bin", 7: "s6_73_MB_t1.bin"}
     # (index, name, steps, slot, tmin, tmax, cost, note)
     modes = [
         (2, "full_quick", pll08, None, 0, 0, 0,
@@ -166,8 +166,13 @@ def build_s73() -> dict:
          "flashing partial S3_N0_wgap0 on set 6, 15.2 s; code 4 = hold (R-0234)"),
         (8, "adaptive", s73_custom(S73_SET6, 0x02), 5, 0, 0, 1,
          "host-built per-update table (N2): needs INLINE_LUT for slot 5 every time (R-0239)"),
+        (9, "colour24", s73_custom(S73_SET7, 0x02), [3, 6, 7], 25, 60, 1,
+         "3 passes F1d7 -> MA (SKn) -> MB (KSn) on set 7: pure S/K net-0 colour passes (n 1-20, code 4 "
+         "holds), about 25 s; 64 distinct colours at dE00 5 (30 at 8) vs 6 stock, camera-provisional, "
+         "band > 24.5 C only; the 0xB0 holds a 24-entry maximin palette (closest pair 8.5) in 3-bit codes"),
     ]
-    return assemble(key, "0x0023", pkts, modes, luts, budget=10, family=FAMILY_S6, timeout_s=120)
+    return assemble(key, "0x0023", pkts, modes, luts, budget=10, family=FAMILY_S6, timeout_s=120,
+                    cals={9: "palettes/s73_colour24.json"})
 
 
 # ------------------------------------------------------------------------- 2.9in JD-BWRY (0x001E)

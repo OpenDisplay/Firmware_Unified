@@ -1,0 +1,330 @@
+{
+ "panel": "s73_spectra6",
+ "tables": [
+  "F1d7",
+  "MA",
+  "MB"
+ ],
+ "code_bits": 3,
+ "measured": true,
+ "band": "set 7 (TSC > 24.5 C); measured at TSC 29 C on EN04 unit C",
+ "white": "D50 media-relative (unit A i1Pro stock W = L* 100; unit A OTP = unit C)",
+ "method": "rigcam, per-cell two-point vs same-session stock W/K, anchored to the unit A i1Pro stock W/K; camera-provisional; mean of two cell placements",
+ "pass_codes": "pass 0 = F1d7 ink (0 K 1 W 2 Y 3 R 5 B 6 G); passes 1-2 = recipe code (4 = hold)",
+ "min_dE00": 8.52,
+ "source": "fastrun_20261125_mp73 (mp73.py, analyse.py)",
+ "entries": [
+  {
+   "codes": [
+    1,
+    4,
+    0
+   ],
+   "name": "W-K",
+   "lab": [
+    102.43,
+    -1.47,
+    4.25
+   ]
+  },
+  {
+   "codes": [
+    0,
+    4,
+    4
+   ],
+   "name": "K--",
+   "lab": [
+    31.58,
+    11.16,
+    -21.57
+   ]
+  },
+  {
+   "codes": [
+    3,
+    5,
+    5
+   ],
+   "name": "RBB",
+   "lab": [
+    73.57,
+    31.19,
+    30.27
+   ]
+  },
+  {
+   "codes": [
+    6,
+    4,
+    4
+   ],
+   "name": "G--",
+   "lab": [
+    60.81,
+    -16.79,
+    6.23
+   ]
+  },
+  {
+   "codes": [
+    1,
+    5,
+    4
+   ],
+   "name": "WB-",
+   "lab": [
+    75.51,
+    0.67,
+    -37.62
+   ]
+  },
+  {
+   "codes": [
+    2,
+    4,
+    4
+   ],
+   "name": "Y--",
+   "lab": [
+    101.63,
+    -4.99,
+    70.98
+   ]
+  },
+  {
+   "codes": [
+    2,
+    5,
+    3
+   ],
+   "name": "YBR",
+   "lab": [
+    78.37,
+    3.29,
+    30.26
+   ]
+  },
+  {
+   "codes": [
+    3,
+    2,
+    4
+   ],
+   "name": "RY-",
+   "lab": [
+    43.64,
+    30.51,
+    4.59
+   ]
+  },
+  {
+   "codes": [
+    0,
+    3,
+    0
+   ],
+   "name": "KRK",
+   "lab": [
+    69.04,
+    5.35,
+    0.78
+   ]
+  },
+  {
+   "codes": [
+    6,
+    5,
+    4
+   ],
+   "name": "GB-",
+   "lab": [
+    54.12,
+    -5.66,
+    -17.58
+   ]
+  },
+  {
+   "codes": [
+    6,
+    0,
+    1
+   ],
+   "name": "GKW",
+   "lab": [
+    79.96,
+    -18.23,
+    26.71
+   ]
+  },
+  {
+   "codes": [
+    1,
+    6,
+    1
+   ],
+   "name": "WGW",
+   "lab": [
+    85.9,
+    -5.65,
+    -10.51
+   ]
+  },
+  {
+   "codes": [
+    1,
+    7,
+    6
+   ],
+   "name": "W7G",
+   "lab": [
+    98.99,
+    -0.2,
+    27.7
+   ]
+  },
+  {
+   "codes": [
+    0,
+    4,
+    5
+   ],
+   "name": "K-B",
+   "lab": [
+    86.08,
+    15.45,
+    19.53
+   ]
+  },
+  {
+   "codes": [
+    3,
+    7,
+    0
+   ],
+   "name": "R7K",
+   "lab": [
+    48.14,
+    6.51,
+    -2.84
+   ]
+  },
+  {
+   "codes": [
+    5,
+    3,
+    2
+   ],
+   "name": "BRY",
+   "lab": [
+    85.38,
+    -0.78,
+    9.61
+   ]
+  },
+  {
+   "codes": [
+    3,
+    0,
+    7
+   ],
+   "name": "RK7",
+   "lab": [
+    89.36,
+    9.55,
+    52.4
+   ]
+  },
+  {
+   "codes": [
+    3,
+    4,
+    0
+   ],
+   "name": "R-K",
+   "lab": [
+    56.6,
+    40.78,
+    22.23
+   ]
+  },
+  {
+   "codes": [
+    6,
+    4,
+    3
+   ],
+   "name": "G-R",
+   "lab": [
+    91.03,
+    -13.39,
+    46.92
+   ]
+  },
+  {
+   "codes": [
+    2,
+    1,
+    0
+   ],
+   "name": "YWK",
+   "lab": [
+    66.33,
+    1.08,
+    14.93
+   ]
+  },
+  {
+   "codes": [
+    1,
+    7,
+    4
+   ],
+   "name": "W7-",
+   "lab": [
+    55.08,
+    6.94,
+    -45.45
+   ]
+  },
+  {
+   "codes": [
+    3,
+    6,
+    1
+   ],
+   "name": "RGW",
+   "lab": [
+    56.79,
+    18.91,
+    7.58
+   ]
+  },
+  {
+   "codes": [
+    2,
+    3,
+    0
+   ],
+   "name": "YRK",
+   "lab": [
+    57.27,
+    -1.57,
+    1.04
+   ]
+  },
+  {
+   "codes": [
+    0,
+    6,
+    4
+   ],
+   "name": "KG-",
+   "lab": [
+    51.15,
+    6.02,
+    -21.79
+   ]
+  }
+ ]
+}

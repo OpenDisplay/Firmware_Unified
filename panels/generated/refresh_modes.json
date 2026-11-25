@@ -116,6 +116,26 @@
           "temp_window_c": null,
           "seq_steps": 36,
           "seq_bytes": 140
+        },
+        {
+          "mode_index": 9,
+          "name": "colour24",
+          "experimental": true,
+          "experimental_note": "3 passes F1d7 -> MA (SKn) -> MB (KSn) on set 7: pure S/K net-0 colour passes (n 1-20, code 4 holds), about 25 s; 64 distinct colours at dE00 5 (30 at 8) vs 6 stock, camera-provisional, band > 24.5 C only; the 0xB0 holds a 24-entry maximin palette (closest pair 8.5) in 3-bit codes",
+          "budget_cost": 1,
+          "lut_slot": [
+            3,
+            6,
+            7
+          ],
+          "passes": 3,
+          "hold_mask": null,
+          "temp_window_c": [
+            25,
+            60
+          ],
+          "seq_steps": 36,
+          "seq_bytes": 140
         }
       ],
       "luts": [
@@ -153,13 +173,36 @@
           "wave": "s6_73_S3_N0_wgap0.bin",
           "raw_bytes": 800,
           "stored_bytes": 200
+        },
+        {
+          "slot": 6,
+          "compressed": true,
+          "wave": "s6_73_MA_t1.bin",
+          "raw_bytes": 800,
+          "stored_bytes": 75
+        },
+        {
+          "slot": 7,
+          "compressed": true,
+          "wave": "s6_73_MB_t1.bin",
+          "raw_bytes": 800,
+          "stored_bytes": 78
         }
       ],
-      "config_bytes": 2883,
+      "calibrations": [
+        {
+          "mode_index": 9,
+          "palette": "palettes/s73_colour24.json",
+          "entries": 24,
+          "code_bits": 3,
+          "measured": true
+        }
+      ],
+      "config_bytes": 3437,
       "packets": [
         {
           "id": 177,
-          "body_hex": "00030160ea000000010203090502020000000123000100000a0178"
+          "body_hex": "00030160ea0000000102030a0502020000000123000100000a0178"
         },
         {
           "id": 174,
@@ -198,6 +241,10 @@
           "body_hex": "0008616461707469766500000000ff0100000005ffffffffffffff00000000000000008c0007aa49552008091807013f00322a0e2a03005f690503005400440505401f1f2c05066f1f162505086f1f1f220313000402300202410002503f036002000561032001e002821e02840102860002e32f02e00002e60003005fe907013f001e18233e02820f023002011000030120000403005fe907013f001e18233e02820f0230020104000102120000010000010101ff"
         },
         {
+          "id": 174,
+          "body_hex": "0009636f6c6f7572323400000000ff03193c00030607ffffffffff00000000000000008c0007aa49552008091807013f00322a0e2a03005f690503005400440505401f1f2c05066f1f162505086f1f1f220313000402300202410002503f036002000561032001e002821e02840102860002e32f02e00002e60003005fe907013f001c19273e02820f023002011000030120000403005fe907013f001c19273e02820f0230020104000102120000010000010101ff"
+        },
+        {
           "id": 175,
           "body_hex": "0080b834c5923d4e033110468fc04956db5046f824883205b2dc259533351527a0e0002b3751845876f73434449baf8a5224de8ff126848dc44f1ac4c8b29e64f9cd78c61cedc69799836347c27b5a4511aea9a108dd7317678ab9b05a4c3c12221d68381ee34b442c5b83bdb7fcf46ecae40dcecfd01cbcd7c0e2e8c5c7fa2ed4f09af5f5b643ef740ac92da46df5eeddc180aeabc0d60af1bb3796c5555faf1f7a0b1a2fee4d49d18f82b94d18b7b661303ccfcba72679f3933ef0657f0d5812d583ddf52910026ae21effd7874d7981de1b865e6e8b34b7e62603c7134571b6d657049e3fb7c7bcf79a13ef7a957e9b488df82c863e4af4aa99cf916a75da0d637e4af1577de03b"
         },
@@ -216,6 +263,18 @@
         {
           "id": 175,
           "body_hex": "0084e4d6cd92310ac24010454f14d2588a7b052f601d41966063aa758f6067e70514d92e8dc6949e441025fcd2229aefa8248b852062912d661fc3f0f6332cbbd7a813c420f764ce7f1ff12e9f554a4955e36523375c6ca6c8195a66e96400a40cf11af8c6dbaf656f386e9e60e5bbca67a8bb1fbd2b3fdbab714d656c7c1212345da7460fbc953aa753fc22b3c8863ed9f685c099c816fafaf4c239ec8819d8822321e63eefb1d96434916a63bd93ae23f18377e13fc121208ca14392c0861ab6285055195868cb56ec8177"
+        },
+        {
+          "id": 175,
+          "body_hex": "0086f992fb6ff327dd4437ff3f8dc0fbbf400c8420e67710fd9e7ae6d6c3cdada7aab9f97073f3a96aee7ab8b9eba9662e2de3ed2fdcbd7fa91a0e7be1e6eea5aab9fbe0e6ee839afbfe3fc5490e00"
+        },
+        {
+          "id": 175,
+          "body_hex": "0087d5f1fb6ff327dd4437ff3f8dc0fbefffdfff072120f117c4784f3573eb91ccada7a2b9f948e6e653d1dcf548e6aea796b9348cb7bf48eefd4bc570d88b64ee5e2a9abb0fc9dc7d50e67f78ea23170000"
+        },
+        {
+          "id": 176,
+          "body_hex": "00090318210003286dffa9012001560c5c0493f76b01bd1c2f0cd30b2601c11771f96f0229017f1d43004ef12201b3270dfeba1bea009d1e4901d20b13010c11eb0bcb011800f81a17024e002e012415cafd22f946003c1fe1f86f0a71008e21cbfde5fbb901ab26ecffd20a6001a0210906a1073b00ce128b02e4fe9d005a21b2ffc103c301e822bb03781423001c16ee0faf08e6008f23c5fa54120a00e9196c00d50539018415b6023fee73002f166307f6021a005f1663ff68003001fb135a027df7"
         }
       ]
     },
