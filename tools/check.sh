@@ -1588,6 +1588,13 @@ else
     skip "panel data: drive presets vs od_epd" "python3 not installed"
 fi
 
+# presets/tools: waveform table codecs, charge calculator and lint (standard library only).
+if command -v python3 >/dev/null 2>&1; then
+    check "presets tools: waveform table lint" python3 -I presets/tools/tests/test_odlut.py
+else
+    skip "presets tools: waveform table lint" "python3 not installed"
+fi
+
 # ======================================================================================= esp32 ==
 # THE SHIM IS GONE, and this is what keeps it gone. It replaces compat/ratchet.sh, whose metric
 # was "how many files INCLUDE a shim header" -- a count that reached 0 while three call sites
