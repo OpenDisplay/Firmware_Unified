@@ -1420,6 +1420,10 @@ Open:
       up with no stored config in NVS.
 - [ ] ESP32 OTA with encryption on (unlock through `CMD_ENTER_DFU`), a corrupt image, a host other
       than BlueZ, and any ESP32 variant besides this S3 on hardware.
+- [ ] **SMP upload resumed across a link drop** (`od_smp_hold.h`, issue #104). Drop the link mid-upload,
+      reconnect within 120 s, continue at the reported offset: image completes and boots. Also: no
+      reconnect for 120 s aborts the upload (log line), `off = 0` after a drop restarts it, and a
+      battery-configured unit does not deep-sleep while the upload is held.
 
 ---
 
