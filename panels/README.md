@@ -12,6 +12,8 @@ panels/
   panels.yaml               hand-authored, ON-GLASS-VERIFIED entries (6 BWRY panels). Frozen.
   panel_ids.json            legacy panel_ic_type id -> bb_epaper enum, scheme, preset ids
   palettes/                 measured BWRY 16-colour palettes (0xB0 source)
+                            i1pro_fleet_<date>.json: per-unit i1Pro reads of the native colours
+                            (reference data; nothing generates from it)
   waves/                    the two 535-byte BWRY16 waveforms (0xAF source)
   tools/                    generators (stdlib Python + a host C compiler)
     pdlib.py                encoders, capture/replay drivers, normaliser, deriver
