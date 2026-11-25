@@ -12,6 +12,7 @@
 #include "od_cmd_app.h"
 
 #include "od_display_drive.h"
+#include "od_drive_etag.h"
 #include "od_epd_lut.h"
 #include "od_reply.h"
 #include "od_xfer.h"
@@ -58,14 +59,24 @@ od_cmd_result_t od_cmd_app_drive_write_start(const od_cmd_ctx_t *ctx, od_span_t 
     if ((body.p[2] & DRIVE_WRITE_FLAG_INLINE_LUT) != 0u) {
         return nack(ctx, OD_ERR_DRIVE_UNSUPPORTED, body.p[0]);
     }
-    if (body.p[3] != 0u || body.p[4] != 0u) {
+    if (body.p[3] != 0u || body.p[4] != 0u || (body.p[2] & DRIVE_WRITE_FLAG_RESERVED) != 0u) {
         return nack(ctx, OD_ERR_DRIVE_BAD_ARGS, body.p[0]);
     }
+    /* ETAG (2.5): checked before any panel I/O; old_etag is not stream data. */
+    od_span_t payload = od_span_drop(body, DRIVE_START_HDR);
+    {
+        const uint8_t err = od_drive_etag_check(body.p[2], &payload);
+
+        if (err != 0u) {
+            return nack(ctx, err, body.p[0]);
+        }
+    }
+    /* From here the glass may change: only END's new_etag names what it shows next. */
+    od_xfer_app_set_displayed_etag(0u);
 
     mode_used = body.p[0];
     rc = od_display_drive_write_start(body.p[0], body.p[1], body.p[2],
-                                      body.p + DRIVE_START_HDR,
-                                      (uint16_t)(body.n - DRIVE_START_HDR),
+                                      payload.p, (uint16_t)payload.n,
                                       &passes, &mode_used, &temp_c);
     if (rc != 0) {
         return nack(ctx, (uint8_t)(-rc), body.p[0]);
@@ -78,7 +89,7 @@ od_cmd_result_t od_cmd_app_drive_write_start(const od_cmd_ctx_t *ctx, od_span_t 
         od_color_geometry_t geom;
         uint32_t expected = 0u;
         const bool compressed = (body.p[2] & DRIVE_WRITE_FLAG_COMPRESSED) != 0u;
-        od_span_t tail = od_span_drop(body, DRIVE_START_HDR);
+        od_span_t tail = payload;
 
         if (!opendisplay_display_drive_stream_info(&geom, &expected)) {
             return nack(ctx, OD_ERR_DRIVE_NO_CONFIG, body.p[0]);

@@ -127,6 +127,9 @@ od_xfer_barrier_t od_xfer_app_before_refresh(const od_reply_t *o)
 void od_xfer_app_barrier_abort(const od_reply_t *o) { (void)o; }
 bool od_xfer_app_refresh(uint8_t m, bool *c) { (void)m; (void)c; return false; }
 uint32_t od_xfer_app_now_ms(void) { return 0u; }
+static uint32_t g_displayed_etag;
+uint32_t od_xfer_app_displayed_etag(void) { return g_displayed_etag; }
+void od_xfer_app_set_displayed_etag(uint32_t etag) { g_displayed_etag = etag; }
 
 /* SPI_RAW's seam, as Nordic and ESP32 implement it over od_epd_cfg. */
 static bool g_raw_open;
@@ -641,12 +644,79 @@ static void test_spi_raw(void)
     }
 }
 
+/* Protocol 2.5: flags ETAG carries old_etag (BE) after the header; checked before panel I/O. */
+static void test_start_etag(void)
+{
+    const uint8_t E = DRIVE_WRITE_FLAG_ETAG;
+
+    store_cfg(true);
+    g_temp = OD_DRIVE_TEMP_UNKNOWN;
+
+    CASE("ETAG with old_etag cut short: BAD_ARGS, the panel never powered");
+    {
+        const uint8_t b[7] = { 0, 0, E, 0, 0, 0x11, 0x22 };
+        const unsigned ups = g_ups;
+        g_displayed_etag = 0x11223344u;
+        CHECK(start(b, sizeof b) == OD_CMD_NACK && reply_is(NACK(OD_ERR_DRIVE_BAD_ARGS, 0u)));
+        CHECK(g_ups == ups && fx_cmd_count == 0u);
+    }
+    CASE("ETAG mismatch: ETAG_MISMATCH echoing the mode, panel untouched, displayed etag 0");
+    {
+        const uint8_t b[9] = { 0, 0, E, 0, 0, 0x55, 0x66, 0x77, 0x88 };
+        const unsigned ups = g_ups;
+        g_displayed_etag = 0x11223344u;
+        CHECK(start(b, sizeof b) == OD_CMD_NACK &&
+              reply_is(NACK(OD_ERR_DRIVE_ETAG_MISMATCH, 0u)));
+        CHECK(g_ups == ups && fx_cmd_count == 0u);
+        CHECK(g_displayed_etag == 0u);
+    }
+    CASE("ETAG after a reboot (displayed etag 0) never matches a host prior");
+    {
+        const uint8_t b[9] = { 0, 0, E, 0, 0, 0x11, 0x22, 0x33, 0x44 };
+        g_displayed_etag = 0u;
+        CHECK(start(b, sizeof b) == OD_CMD_NACK &&
+              reply_is(NACK(OD_ERR_DRIVE_ETAG_MISMATCH, 0u)));
+    }
+    CASE("ETAG match: ACK, the old_etag is not stream data, displayed etag cleared");
+    {
+        const uint8_t b[9] = { 0, 0, E, 0, 0, 0x11, 0x22, 0x33, 0x44 };
+        g_displayed_etag = 0x11223344u;
+        CHECK(start(b, sizeof b) == OD_CMD_OK);
+        CHECK(reply_is((const uint8_t[]){ RESP_ACK, RESP_DRIVE_WRITE_START, 0u, 1u, 0x7Fu }, 5u));
+        CHECK(g_up && od_xfer_active());
+        CHECK(g_displayed_etag == 0u);
+    }
+    CASE("ETAG old_etag 0 claims nothing: ACK whatever is displayed");
+    {
+        const uint8_t b[9] = { 0, 0, E, 0, 0, 0, 0, 0, 0 };
+        g_displayed_etag = 0xCAFEF00Du;
+        CHECK(start(b, sizeof b) == OD_CMD_OK);
+        CHECK(g_displayed_etag == 0u);
+    }
+    CASE("no ETAG flag: ACK, and the accepted write still clears the displayed etag");
+    {
+        const uint8_t b[5] = { 0, 0, 0, 0, 0 };
+        g_displayed_etag = 0xCAFEF00Du;
+        CHECK(start(b, sizeof b) == OD_CMD_OK);
+        CHECK(g_displayed_etag == 0u);
+    }
+    CASE("reserved flag bits 4-7: BAD_ARGS before anything is touched");
+    {
+        const uint8_t b[5] = { 0, 0, 0x10, 0, 0 };
+        const unsigned ups = g_ups;
+        g_displayed_etag = 0x11223344u;
+        CHECK(start(b, sizeof b) == OD_CMD_NACK && reply_is(NACK(OD_ERR_DRIVE_BAD_ARGS, 0u)));
+        CHECK(g_ups == ups && g_displayed_etag == 0x11223344u);
+    }
+}
+
 int main(void)
 {
     test_start_args();
     test_start_temperature();
     test_start_panel_failures();
     test_start_sizes();
+    test_start_etag();
     test_spi_raw();
     printf("drive_cmd: %u known bugs\n", fx_xfail_count);
     return OD_CHECK_REPORT_NONEMPTY("drive_cmd", 60);

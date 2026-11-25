@@ -9,8 +9,8 @@
  *   image PIPE. A new engineer or an AI agent should be able to implement a
  *   fully-correct client from THIS FILE ALONE, without reading firmware.
  *
- *   OD_PROTOCOL_VERSION 2.4   (MAJOR.MINOR; see VERSIONING POLICY below)
- *   LAST CHANGED        2026-11-06
+ *   OD_PROTOCOL_VERSION 2.5   (MAJOR.MINOR; see VERSIONING POLICY below)
+ *   LAST CHANGED        2026-11-25
  *
  * --------------------------------------------------------------------------
  * VERSIONING POLICY
@@ -52,9 +52,26 @@
  * CHANGELOG  (newest first; entries accrue under "Unreleased" and roll into a
  *            new version heading on each bump -- see AGENT INSTRUCTIONS below)
  * --------------------------------------------------------------------------
- *   Unreleased (since 2.4)
+ *   Unreleased (since 2.5)
  *     - Add each further wire-spec change here as it lands. On the next version
  *       bump, move these under a new "MAJOR.MINOR (YYYY-MM-DD)" heading.
+ *
+ *   2.5  (2026-11-25)  -- drive-write etag (host-side priors)
+ *     - MINOR: CMD_DRIVE_WRITE_START (0x0085) flag bit3 ETAG with a 4-byte
+ *       old_etag (BE) after the header. A non-zero old_etag that is not the
+ *       displayed etag is refused with OD_ERR_DRIVE_ETAG_MISMATCH 0x09 before
+ *       any panel I/O (and the displayed etag is cleared). An accepted drive
+ *       write clears the displayed etag; 0x0072 END's optional new_etag sets
+ *       it once the refresh completes, as for 0x0070. Lets a host that sends
+ *       only changed pixels (hold codes, opendisplay_structs.h 0xAE tail)
+ *       prove the panel still shows its prior frame: a reboot, a boot or
+ *       claim screen, an image-store draw or another host's write all leave
+ *       etag 0. A host sends bit3 only to proto_minor >= 5 (CMD_READ_IDENT);
+ *       older firmware does not check flags and would take the etag for data.
+ *       Every target with OD_CAP_DRIVE_WRITE keeps a displayed etag now
+ *       (OD_CAP_DISPLAYED_ETAG), not only those with OD_CAP_PARTIAL.
+ *     - Doc: 0x0085 @flags names bit2 INLINE_LUT (rsv = inline table length).
+ *     - (rolled in from "Unreleased (since 2.4)":)
  *     - Firmware 3.0 (Firmware_Unified, decided 2026-11-11; to be adopted by
  *       opendisplay-protocol): CMD_READ_IDENT tail (flags, limits, escapes)
  *       and one fw_target per MCU family (0x05 nRF52840); upload START NACK
@@ -325,8 +342,8 @@
  * when to bump which number. This marker describes the spec and is NOT sent on
  * the wire (the negotiated 0x0080 PIPE_VERSION is a separate field). */
 #define OD_PROTOCOL_VERSION_MAJOR      2u
-#define OD_PROTOCOL_VERSION_MINOR      4u
-#define OD_PROTOCOL_VERSION_STR        "2.4"
+#define OD_PROTOCOL_VERSION_MINOR      5u
+#define OD_PROTOCOL_VERSION_STR        "2.5"
 
 /* ==========================================================================
  * SECTION 1 -- COMMAND OPCODES (16-bit, big-endian on the wire)
@@ -1107,6 +1124,7 @@
 /* --------------------------------------------------------------------------
  * @opcode: 0x0085   @name: CMD_DRIVE_WRITE_START   @dir: host->device
  * @request:  [0x00][0x85][mode:1][refresh:1][flags:1][rsv:2]
+ *              [old_etag:4 BE]            present IFF flags bit3 ETAG (2.5)
  *              [uncompressed_size:4 LE]   present IFF flags bit0 COMPRESSED
  *              [first data bytes...]
  * @response: [0x00][0x85][mode:1][passes:1][temp_c:1] on accept.
@@ -1151,8 +1169,19 @@
  *                          Only legal where 0x0080 is supported -- which is
  *                          Firmware ONLY; Silabs/NRF54/NRF52811 must leave this
  *                          clear and stream over 0x0071.
- *         bits2-7 reserved, must be 0.
- * @rsv:   2 bytes, must be 0. (Per-upload temperature was a candidate here;
+ *         bit2 INLINE_LUT  the stream starts with rsv (LE) bytes of raw tables
+ *                          that stand in for the stored 0xAF slots (targets
+ *                          with a waveform cache; others refuse UNSUPPORTED).
+ *         bit3 ETAG        old_etag follows the header (2.5). Non-zero and not
+ *                          the displayed etag -> 0x09 ETAG_MISMATCH, refused
+ *                          before any panel I/O; 0 = the host claims nothing.
+ *                          Any accepted 0x0085 clears the displayed etag; set
+ *                          a new one with 0x0072 END's new_etag. Send only to
+ *                          proto_minor >= 5: older firmware ignores flags it
+ *                          does not know and would read old_etag as data.
+ *         bits4-7 reserved, must be 0; refused BAD_ARGS from 2.5 on, so a
+ *                          later flag cannot be misread by this firmware.
+ * @rsv:   2 bytes, must be 0 unless INLINE_LUT. (Per-upload temperature was a candidate here;
  *         resolved instead by device-side temp_policy enforcement + the ACK's
  *         temp_c -- see @response.)
  * @state: a new START aborts any in-flight transfer. Data flows via 0x0071
@@ -1171,6 +1200,8 @@
 /* CMD_DRIVE_WRITE_START flags (request byte 4). */
 #define DRIVE_WRITE_FLAG_COMPRESSED    0x01u
 #define DRIVE_WRITE_FLAG_PIPELINED     0x02u   /* Firmware target only */
+#define DRIVE_WRITE_FLAG_ETAG          0x08u   /* old_etag:4 BE after the header (2.5) */
+#define DRIVE_WRITE_FLAG_RESERVED      0xF0u   /* bits 4-7: refused BAD_ARGS (2.5) */
 
 /* ==========================================================================
  * SECTION 2 -- RESPONSE / STATUS BYTES (8-bit)
@@ -1337,6 +1368,10 @@
                                                 * before any panel I/O */
 #define OD_ERR_DRIVE_PANEL_BUSY        0x08u   /* the panel stayed BUSY while pass 0 was
                                                 * brought up; transient, retry */
+#define OD_ERR_DRIVE_ETAG_MISMATCH     0x09u   /* flags ETAG: old_etag != the displayed
+                                                * etag; the panel was not touched and the
+                                                * displayed etag is now 0 -- send a full
+                                                * frame (2.5) */
 
 /* --------------------------------------------------------------------------
  * 4h. UPLOAD-START errors -- scope: the START of CMD_DIRECT_WRITE_START

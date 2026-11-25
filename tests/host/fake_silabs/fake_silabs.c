@@ -218,6 +218,10 @@ bool od_xfer_app_refresh(uint8_t mode, bool *completed)
 }
 
 uint32_t od_xfer_app_now_ms(void) { return od_sec2_app_now_ms(); }
+/* The BG22 keeps a RAM displayed etag for CMD_DRIVE_WRITE_START's ETAG flag (protocol 2.5). */
+static uint32_t s_fake_displayed_etag;
+uint32_t od_xfer_app_displayed_etag(void) { return s_fake_displayed_etag; }
+void od_xfer_app_set_displayed_etag(uint32_t etag) { s_fake_displayed_etag = etag; }
 
 void opendisplay_display_abort(void)
 { ++fake_silabs_aborts; fake_silabs_xfer_active = false; }

@@ -279,7 +279,7 @@ static od_cmd_result_t finish_refresh(const od_cmd_ctx_t *ctx, od_span_t body)
         od_xfer_reply_simple_error(ctx, RESP_DIRECT_WRITE_END_ACK);
         return OD_CMD_NACK;
     }
-#if OD_CAP_PARTIAL
+#if OD_CAP_DISPLAYED_ETAG
     if (stored) {
         /* stored, not drawn (od_xfer_note_refresh_stored): the displayed etag stands */
     } else if (completed) {

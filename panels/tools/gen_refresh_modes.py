@@ -59,8 +59,14 @@ def lut_packet(slot: int, data: bytes, compress: bool) -> bytes:
     return struct.pack("<BBH", 0, 0x80 | slot, P.crc16_ccitt(z)) + z
 
 
-def mode_tail(cost: int, scrub_before: int = NO_SCRUB) -> bytes:
-    return bytes([1, EXPERIMENTAL, cost, scrub_before])
+def mode_tail(cost: int, scrub_before: int = NO_SCRUB, hold_mask: int | None = None) -> bytes:
+    tail = bytes([1, EXPERIMENTAL, cost, scrub_before])
+    return tail + bytes([hold_mask]) if hold_mask is not None else tail
+
+
+# 0xAE tail [4] hold_mask: bit n = frame code n leaves the pixel as it is. The host sends the
+# lowest one for every pixel unchanged against its prior frame, so only changed pixels drive.
+HOLD_MASK = {"bwpartial": 0b1100}  # 0 = to K, 1 = to W, 2/3 hold
 
 
 def panel_tail(key: int, budget: int, family: int, timeout_s: int) -> bytes:
@@ -267,10 +273,11 @@ def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int
     for idx, name, steps, slot, tmin, tmax, cost, note in modes:
         seq = P.encode_steps(steps)
         body = P.mode_body(idx, name, seq, slots=[slot] if slot is not None else None,
-                           tmin=tmin, tmax=tmax, policy=ADVISORY) + mode_tail(cost)
+                           tmin=tmin, tmax=tmax, policy=ADVISORY) + mode_tail(cost, hold_mask=HOLD_MASK.get(name))
         out_pkts.append((0xAE, body))
         extra.append({"mode_index": idx, "name": name, "experimental": True,
                       "experimental_note": note, "budget_cost": cost, "lut_slot": slot,
+                      "hold_mask": HOLD_MASK.get(name),
                       "temp_window_c": [tmin, tmax] if (tmin or tmax) else None,
                       "seq_steps": len(steps) + 1, "seq_bytes": len(seq)})
     lut_meta = []

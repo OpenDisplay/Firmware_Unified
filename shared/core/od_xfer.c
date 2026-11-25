@@ -606,7 +606,7 @@ void od_xfer_abort_active(od_xfer_abort_reason_t reason, bool clear_etag)
     if (od_xfer_owns_hardware()) {
         od_xfer_app_abort(reason);
     }
-#if OD_CAP_PARTIAL
+#if OD_CAP_DISPLAYED_ETAG
     if (clear_etag) {
         od_xfer_app_set_displayed_etag(0u);
     }
