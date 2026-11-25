@@ -69,12 +69,35 @@ static void xfer(const uint8_t *d, size_t n)
     }
 }
 
+/* One CS-low window per command: the command byte and every parameter byte after it, up to the
+ * next command, CS switch, delay, BUSY poll, reset or pin write -- the 2.x firmware's framing
+ * (panels/README.md D2). The dual-controller Spectra 6 (GDEB0709E01) drops parameters that
+ * arrive in a new CS window: its DRF then never starts a refresh. */
+static uint8_t s_cs_held = PIN_UNUSED;
+
+static void cs_release(void)
+{
+    if (s_cs_held != PIN_UNUSED) {
+        pin_level(s_cs_held, true);
+        s_cs_held = PIN_UNUSED;
+    }
+}
+
+static void cs_assert(void)
+{
+    if (s_cs_held != s_cs) {
+        cs_release();
+        pin_level(s_cs, false);
+        s_cs_held = s_cs;
+    }
+}
+
 static void bus_cmd(uint8_t c)
 {
+    cs_release();
     pin_level(s_dc, false);
-    pin_level(s_cs, false);
+    cs_assert();
     xfer(&c, 1u);
-    pin_level(s_cs, true);
     pin_level(s_dc, true);
 }
 
@@ -83,13 +106,13 @@ static void bus_data(const uint8_t *d, size_t n)
     if (n == 0u) {
         return;
     }
-    pin_level(s_cs, false);
+    cs_assert();
     xfer(d, n);
-    pin_level(s_cs, true);
 }
 
 static void bus_reset(uint32_t hold_ms)
 {
+    cs_release();
     if (s_rst == PIN_UNUSED) {
         return;
     }
@@ -103,11 +126,13 @@ static void bus_reset(uint32_t hold_ms)
 
 static int bus_busy_read(void)
 {
+    cs_release();
     return s_busy == PIN_UNUSED ? -1 : (od_hal_gpio_read(s_busy) != 0 ? 1 : 0);
 }
 
 static void bus_delay_ms(uint32_t ms)
 {
+    cs_release();
     od_hal_delay_ms(ms);
     /* The refresh waits run on the loop task and can outlast T_ARM: keep the boot count on
      * time (od_claim_mode.h, SECURITY_V2 7.2). */
@@ -125,6 +150,7 @@ static bool bus_pin_write(uint8_t pin, uint8_t level)
     if (pin == PIN_UNUSED || level > 2u || !od_hal_gpio_pin_valid(pin)) {
         return false;
     }
+    cs_release();
     if (level == 2u) {
         od_hal_gpio_config_input(pin, false, false);
     } else {
@@ -139,6 +165,7 @@ static bool bus_cs_select(uint8_t which)
     if (which > 1u || s_cs_pins[which] == PIN_UNUSED) {
         return false;
     }
+    cs_release();
     s_cs = s_cs_pins[which];
     return true;
 }
@@ -165,6 +192,7 @@ const od_epd_cfg_bus_t *od_epd_esp_bus(void)
 
 void od_epd_esp_close(void)
 {
+    cs_release();
     if (s_dev != nullptr) {
         spi_bus_remove_device(s_dev);
         s_dev = nullptr;
@@ -203,6 +231,7 @@ bool od_epd_esp_open(const struct DisplayConfig *d)
     }
     od_epd_esp_close();
     s_fault = false;
+    s_cs_held = PIN_UNUSED;
 
     s_dc = d->dc_pin;
     s_cs_pins[0] = d->cs_pin;
@@ -238,7 +267,7 @@ bool od_epd_esp_open(const struct DisplayConfig *d)
     spi_device_interface_config_t devcfg = {};
     devcfg.clock_speed_hz = PANEL_SPI_HZ;
     devcfg.mode = 0;
-    devcfg.spics_io_num = -1;   /* CS is a GPIO, framed per cmd/data above */
+    devcfg.spics_io_num = -1;   /* CS is a GPIO, framed per command above */
     devcfg.queue_size = 1;
     devcfg.flags = SPI_DEVICE_HALFDUPLEX;
     rc = spi_bus_add_device(PANEL_SPI_HOST, &devcfg, &s_dev);

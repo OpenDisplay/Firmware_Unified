@@ -398,12 +398,25 @@ def normalise(events: list[str], side: str) -> list[tuple]:
     return out
 
 
+# D9: DRF addressed to both dual-controller chips goes to the slave (cs1) first, then the main chip
+# (cs0). The slave's refresh runs off the main chip's: a slave DRF that arrives after the main one
+# has started still draws, then holds BUSY low for good; the main chip alone draws only its half
+# (EE02 7.09in, 3.0 fw, 2026-11-25).
+DRF = 0x12
+
+
+def cs_both_targets(cmd: int) -> list[str]:
+    """D6/D9: the chip selects a both-controller transfer is replayed on, in order."""
+    return ["1", "0"] if cmd == DRF else ["0", "1"]
+
+
 def expand_cs_both(toks: list[tuple]) -> list[tuple]:
-    """D6: a transfer to both controllers is compared as the same transfer to cs0 then cs1."""
+    """D6: a transfer to both controllers is compared as the same transfer to cs0 then cs1 (D9:
+    cs1 then cs0 for DRF)."""
     out = []
     for t in toks:
         if t[0] == "CMD" and t[3] == "01":
-            out.append(("CMD", t[1], t[2], "0")); out.append(("CMD", t[1], t[2], "1"))
+            out += [("CMD", t[1], t[2], c) for c in cs_both_targets(t[1])]
         else:
             out.append(t)
     return out
@@ -441,7 +454,7 @@ def tokens_to_steps(toks: list[tuple], layout: str, flow: str) -> tuple[list[tup
         elif k == "DELAY":
             steps.append(("delay", t[1]))
         elif k == "CMD":
-            targets = ["0", "1"] if t[3] == "01" else [t[3]]
+            targets = cs_both_targets(t[1]) if t[3] == "01" else [t[3]]
             for c in targets:
                 if c not in ("0", "1"):
                     blocked.add("CS_BOTH")

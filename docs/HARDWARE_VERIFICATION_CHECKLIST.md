@@ -46,6 +46,32 @@ Nordic's 0x0085 was on glass before the move to shared code; nothing below has r
 - [ ] ESP32: CMD_SPI_RAW sub-opcodes, and refusal on a FastEPD/IT8951 board
 - [ ] ESP32: ordinary bb_epaper upload still works after a drive or raw session
 
+### ESP32 (`s3-n16r8`) — EE02 dual-CS 7.09in Spectra 6 on glass, 2026-11-25
+
+EE02 (XIAO ESP32-S3 Plus, BLE `OD1488B0`) + GDEB0709E01 1200x1600, panel_ic 0x0042, scheme 8
+split, `ee02_709_spectra6` drive config from `panels/generated/refresh_modes.json` (pins RST 38,
+BUSY 4, DC 10, CS 44 / CS_2 41, MOSI 9, SCK 7, PWR 43). Evidence: `v3_worktrees/reports/
+refresh_modes_desk/` (`ee02_dualcs_trace_*.txt` console traces with per-command logging from a
+debug build, `photos/ee02_dualcs_*.jpg` rigcam crops). Two defects, both needed:
+
+- **CS framing (`od_epd_esp.cpp`).** CS was released between a command byte and its parameters.
+  The panel ignored them: PON worked (BUSY low 180 ms), DRF `12 01` never pulled BUSY low, and
+  every write ACKed in ~9.5 s with nothing drawn. CS now stays low from the command through its
+  data (2.x framing, README D2).
+- **DRF order (README D9).** DRF to cs0 then cs1: both halves draw, then BUSY stays low past the
+  120 s cap. DRF to cs0 only: 30.2 s, but only the main half changes. DRF to cs1 then cs0: both
+  halves draw and BUSY releases (write ACK 39.8 s including the upload).
+
+- [x] Boot screen draws on both halves (framing fix, slave-first DRF config), 2026-11-25
+- [x] Stock `full` (mode 0, lab-order stream) via CMD_DRIVE_WRITE (0x0071/0x0072, compressed):
+      grid with all six inks, then the same grid rotated 180°; every cell changed on both halves,
+      ACK 39.8 / 39.9 s, 2026-11-25 (`photos/ee02_dualcs_3*`, `_4*`)
+- [ ] The generated `0x0042` default preset (PON before the frame) on this glass
+- [ ] `0x002B` EP81 Spectra 1024x576 (same D9 change) and the 13.3in T133A01 — no such panel here
+- [ ] Refresh modes 1-4 of `ee02_709_spectra6` (deskee02.py re-run)
+- [ ] Nordic: `od_epd_nordic.c` still frames CS per cmd/data call; a dual-CS panel there needs
+      the same fix
+
 ### EFR32BG22 (`efr32bg22-slc`) — 3.0 rollout on six units, 2026-11-13
 
 Release image `v3/head2` `3c5e1f7` (gbl sha256 `5366fdf2…`, RAM gate heap 9,664 B), delivered by
