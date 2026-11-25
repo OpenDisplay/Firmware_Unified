@@ -742,7 +742,7 @@ static void test_read_ident(void)
     CHECK(od_txq_process() == 1u);
     CHECK(fake_silabs_sent_n == 1u);
     f = fake_silabs_sent[0].data;
-    CHECK(fake_silabs_sent[0].len == 11u);
+    CHECK(fake_silabs_sent[0].len == 16u);
     CHECK(f[0] == RESP_ACK && f[1] == RESP_READ_IDENT);
     CHECK(f[2] == (uint8_t)OD_PROTOCOL_VERSION_MINOR && f[3] == OD_IDENT_TARGET_SILABS);
     CHECK(f[4] == 0u);
@@ -753,6 +753,8 @@ static void test_read_ident(void)
     CHECK(f[6] == (3120u & 0xFFu) && f[7] == (3120u >> 8));
     CHECK(f[8] == 128u && f[9] == 0u);
     CHECK(f[10] == 0u);
+    /* The release board, as the BG22 build names it. */
+    CHECK(f[11] == 4u && memcmp(&f[12], "bg22", 4u) == 0);
 
     CASE("READ_IDENT reports each display's ic type, geometry and colour scheme, LE, PLAINTEXT");
     setup();
@@ -770,7 +772,7 @@ static void test_read_ident(void)
     od_txq_release(&r);
     CHECK(od_txq_process() == 1u);
     f = fake_silabs_sent[0].data;
-    CHECK(fake_silabs_sent[0].len == 18u);
+    CHECK(fake_silabs_sent[0].len == 23u);
     CHECK(f[4] == 1u);
     CHECK(f[5] == 0x1Eu && f[6] == 0x00u);
     CHECK(f[7] == 168u && f[8] == 0u);

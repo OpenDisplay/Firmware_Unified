@@ -97,5 +97,14 @@ add_executable(od_ident_test ident_test.c od_log_test_stub.c
     ${OD_SHARED_CORE}/od_cmd_ident.c ${OD_SHARED_CORE}/od_cfg_index.c)
 target_link_libraries(od_ident_test od_shared)
 target_compile_definitions(od_ident_test PRIVATE
-    OD_CAP_READ_IDENT=1 OD_IDENT_NATIVE_PANELS=1 OD_IDENT_TARGET=OD_IDENT_TARGET_NRF52840)
+    OD_CAP_READ_IDENT=1 OD_IDENT_NATIVE_PANELS=1 OD_IDENT_TARGET=OD_IDENT_TARGET_NRF52840
+    OD_IDENT_BOARD="xiao_nrf52840")
 add_test(NAME ident COMMAND od_ident_test)
+
+# The same without a release board: board_len 0 closes the reply.
+add_executable(od_ident_noboard_test ident_test.c od_log_test_stub.c
+    ${OD_SHARED_CORE}/od_cmd_ident.c ${OD_SHARED_CORE}/od_cfg_index.c)
+target_link_libraries(od_ident_noboard_test od_shared)
+target_compile_definitions(od_ident_noboard_test PRIVATE
+    OD_CAP_READ_IDENT=1 OD_IDENT_NATIVE_PANELS=1 OD_IDENT_TARGET=OD_IDENT_TARGET_NRF52840)
+add_test(NAME ident_noboard COMMAND od_ident_noboard_test)

@@ -55,6 +55,11 @@
  *   Unreleased (since 2.5)
  *     - Add each further wire-spec change here as it lands. On the next version
  *       bump, move these under a new "MAJOR.MINOR (YYYY-MM-DD)" heading.
+ *     - ADDITIVE: CMD_READ_IDENT tail gains [board_len:1][board:board_len]
+ *       after escapes: the release board this image was built for, ASCII, as
+ *       in the release manifest's boards[].board (OD_IDENT_BOARD_MAX bytes at
+ *       most; 0 = unknown). Lets a host pick the update image when several
+ *       release boards share one chip. Read by length; no minor bump.
  *
  *   2.5  (2026-11-25)  -- drive-write etag (host-side priors)
  *     - MINOR: CMD_DRIVE_WRITE_START (0x0085) flag bit3 ETAG with a 4-byte
@@ -490,8 +495,18 @@
  *            max_seq_steps = most steps one drive sequence may have;
  *            escapes = OD_IDENT_ESC_* drive-sequence escapes compiled in
  *                      beyond the base set.
+ *            then (Unreleased, after 2.5):
+ *              [board_len:1][board:board_len]
+ *            board = the release board this image was built for, ASCII
+ *                    [a-z0-9_-], exactly the release manifest's boards[].board
+ *                    (e.g. "s3-n32r8-extuart", "xiao_nrf52840", "bg22"). A
+ *                    debug build reports the release board of the same
+ *                    hardware. board_len 0 = not a release board (DIY build);
+ *                    board_len <= OD_IDENT_BOARD_MAX. Absent on older 3.0
+ *                    firmware: a reply ending after escapes means unknown.
  *            Further bytes may follow in later versions: read by length.
- * @limits:   max 4 displays -> response <= 5 + 4*7 + 6 = 39 bytes; fits one frame.
+ * @limits:   max 4 displays -> response <= 5 + 4*7 + 6 + 1 + 32 = 72 bytes;
+ *            fits one frame.
  * @targets:  every 3.0 target (Firmware_Unified); Silabs 2.3+
  * @since:    2.3 (DRIVER_MIGRATION.md Rev 2, review point R8); tail 3.0
  * -------------------------------------------------------------------------- */
@@ -511,6 +526,9 @@
                                                 * packets, or mode 0 breaks the mode-0 rule */
 #define OD_IDENT_FLAG_BUILTIN_DRIVER   0x04u   /* a display is driven by a native controller
                                                 * driver selected by config packet 0xB3 */
+
+/* CMD_READ_IDENT tail: longest board name after board_len. */
+#define OD_IDENT_BOARD_MAX             32u
 
 /* CMD_READ_IDENT tail: escapes byte. */
 #define OD_IDENT_ESC_WINDOW            0x01u   /* drive-sequence escape 0x0C WINDOW */

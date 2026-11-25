@@ -267,7 +267,8 @@ Per-board flows in 3.0:
   - nRF52840: py has None; the contract has **`opendisplay-xiao_nrf52840-ota.bin`** (SMP, 3.x
     layout only).
   - ESP32: py has None; the contract has **`opendisplay-<board>-app.bin`** (SMP). The board
-    is not derivable from the IC type alone; see `READ_IDENT` / `legacy_names`.
+    is not derivable from the IC type alone: READ_IDENT's tail names it (`board`, equal to
+    `boards[].board` here; absent on firmware before that field), else `legacy_names`.
   - nRF54: `opendisplay-xiao_nrf54l15-ota.bin` and `opendisplay-xiao_nrf54lm20a-ota.bin`
     match.
 - **Home Assistant**: watches `Firmware_Silabs` for BG22. Under rule 1 it sees no 3.x there,

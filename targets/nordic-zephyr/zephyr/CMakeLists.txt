@@ -179,6 +179,17 @@ endif()
 # It was silent rather than fatal because the pin decoder rejects a port whose gpio node is
 # not okay and returns false, so every one of those writes was a no-op. Silent-and-wrong is
 # still wrong: the board got no init of its own.
+# READ_IDENT reports the release board, as build.sh names the artefacts and the release manifest
+# lists them: the Zephyr board without qualifiers, and xiao_ble as xiao_nrf52840.
+string(REGEX REPLACE "/.*" "" OD_IDENT_BOARD "${BOARD}")
+if(OD_IDENT_BOARD STREQUAL "xiao_ble")
+  set(OD_IDENT_BOARD "xiao_nrf52840")
+endif()
+if(NOT OD_IDENT_BOARD MATCHES "^[a-z0-9_-]+$")
+  message(FATAL_ERROR "od: board name '${OD_IDENT_BOARD}' is not [a-z0-9_-]+ (READ_IDENT)")
+endif()
+target_compile_definitions(app PRIVATE OD_IDENT_BOARD="${OD_IDENT_BOARD}")
+
 if(CONFIG_OD_PLATFORM_NRF52840)
   target_compile_definitions(app PRIVATE
     OD_PLATFORM_NRF52840

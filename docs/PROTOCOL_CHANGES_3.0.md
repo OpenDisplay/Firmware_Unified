@@ -33,6 +33,7 @@ Nothing below has been exercised on hardware.
 | 12 | **Panel id `0xF001` EP20YR_200x152** (provisional): the 2.0" BWRY glass of the legacy firmware's Telink tags, JD79661 | `panels/panels.yaml` (`status: provisional`); not in `panels/generated/` or the website set | provisional: id outside every canonical block until `../opendisplay-protocol` assigns one; the entry is glass-verified only when the checklist records a refresh | py-opendisplay / website: none until assigned (the firmware is config-driven, so the id is identity only) |
 | 13 | **Panel id `0xF002` EP35Y_184x384** (provisional): the 3.5" Hanshow BWY glass of the legacy firmware's Telink tags (legacy screen type 1), UC81xx-family controller | `panels/panels.yaml` (`status: provisional`); not in `panels/generated/` or the website set | provisional, as row 12; glass-verified on OD060F40 | py-opendisplay / website: none until assigned |
 | 14 | **CMD_SPI_RAW GPIO sub-opcode `0x07`** (provisional): `[00][84][07][pin][mode]` → `[00][84][07][pin][level]`; mode 0 read only, 1 input floating, 2 pull-up, 3 pull-down, 4 output low, 5 output high, anything else `[FF][84][01][07][diag]`. No SPI_RAW session needed (a SEC2 session still is, on a claimed device, as for every command); the mode holds until the firmware next drives that pin. Pin numbering is the target's config numbering; a target refuses pins that would cut its own flash or debug path with BAD_ARGS (Telink: PA7 SWS, and only PA0..PD7 exist). Routed only under `OD_CAP_SPI_RAW_GPIO` (default 0), so a target without it answers UNKNOWN_SUB | `shared/core/od_spi_raw_app.h` (`SPI_RAW_SUB_GPIO`, `#ifndef`-guarded), `shared/core/od_caps.h`, `shared/core/od_cmd_spi_raw.c`; seam `opendisplay_display_spi_raw_gpio()`, implemented by `targets/telink-tlsr/src/od_tlsr_display.c` only, in its bring-up build (`-DOD_TLSR_BRINGUP=ON`) | provisional: needs `SPI_RAW_SUB_GPIO` in `../opendisplay-protocol`; tested on OD060F40 | py-opendisplay: optional debug helper; other targets opt in by setting the cap and implementing the seam |
+| 15 | **READ_IDENT release board** after `escapes`: `[board_len:1][board:board_len]`, ASCII `[a-z0-9_-]`, at most `OD_IDENT_BOARD_MAX` 32, the release manifest's `boards[].board`; 0 = unknown (issue #107) | `shared/protocol/opendisplay_protocol.h` CMD_READ_IDENT, `OD_IDENT_BOARD_MAX`; `shared/core/od_cmd_ident.c` (`OD_IDENT_BOARD`, set by each target's build); tests `tests/host/ident_test.c`, `silabs_fault_test.c`; spec `docs/CONFIG_DRIVEN_DISPLAY.md` § READ_IDENT | final (decided 2026-11-25) | py-opendisplay keeps the bytes in `DeviceIdent.extra`: must parse the board and pick `opendisplay-<board>-app.bin` from `manifest.json`; website: none |
 
 ## Host-visible behaviour (not new opcodes)
 
@@ -81,7 +82,7 @@ canonical copies by exactly these edits (each also carries a changelog bullet un
 
 `opendisplay_protocol.h`:
 - CMD_READ_IDENT doc, `OD_IDENT_TARGET_ESP32` / `_NRF52840` (0x05), `OD_IDENT_FLAG_*`,
-  `OD_IDENT_ESC_*` (rows 4, 5).
+  `OD_IDENT_ESC_*` (rows 4, 5); the board tail and `OD_IDENT_BOARD_MAX` (wire row 15).
 - § 4e `OD_ERR_DRIVE_PANEL_BUSY 0x08`; new § 4h `OD_ERR_NEEDS_MIGRATION 0x08`,
   `OD_ERR_PANEL_BUSY 0x09`; new § 4g `OD_ERR_CONFIG_WRITE_FAILED 0x00`,
   `OD_ERR_CONFIG_WRITE_BUSY 0x01`, and the CMD_CONFIG_WRITE @errors line.
