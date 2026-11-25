@@ -4,6 +4,7 @@
 #include "od_cfg_index.h"
 #include "od_config_store.h"
 #include "od_epd.h"
+#include "od_epd_lut.h"
 #include "od_log.h"
 #include "opendisplay_protocol.h"
 #include "opendisplay_structs.h"
@@ -58,6 +59,7 @@ static int s_last_rc;
 static uint8_t s_mode_entry[OD_CFG_INDEX_MAX];
 static uint8_t s_mode_entries;
 static uint8_t s_desc_diag;
+static uint16_t s_inline_expect;
 
 /* Load-failure stage, for od_epd_desc_diag(). Same packing as BG22: stage in bits 7..5, indexed
  * packet count in bits 4..0; stage 0 is success. */
@@ -175,66 +177,148 @@ static bool io_mode_read(uint8_t index, od_epd_mode_t *out)
 }
 
 /* Matched on body[0..1] (instance_number, lut_slot): the packet-header byte is a don't-care the
- * host writers disagree about. Slot numbers are per display, so the instance must match too. */
+ * host writers disagree about. Slot numbers are per display, so the instance must match too.
+ * The slot byte's bits 0..3 are the id a mode names; bit 7 marks a deflated body. */
 static uint8_t s_instance;
 
 static const od_cfg_entry_t *find_lut(uint8_t slot)
 {
+    if (slot >= OD_LUT_SLOT_MAX) {
+        return NULL;
+    }
     for (int i = 0; i < od_cfg_index_count(); i++) {
         const od_cfg_entry_t *e = od_cfg_index_entry(i);
 
         if (e != NULL && e->type == OD_PKT_DISPLAY_LUT && e->instance == s_instance &&
-            e->sub == slot) {
+            (e->sub & OD_LUT_SLOT_ID_MASK) == slot && (e->sub & 0x70u) == 0u) {
             return e;
         }
     }
     return NULL;
 }
 
-static uint16_t io_lut_read(uint8_t slot, uint16_t off, uint8_t *dst, uint16_t len)
+#if OD_EPD_LUT_CACHE > 0
+static uint32_t cfg_gen(void)
 {
-    const od_cfg_entry_t *e = find_lut(slot);
-
-    return e != NULL ? (uint16_t)od_cfg_read(e, (uint16_t)(LUT_OFF_DATA + off), dst, len) : 0u;
+    return od_config_store_generation();
 }
 
-/* A bad CRC reports the slot as absent: a truncated waveform still has a plausible analog header,
- * so it would drive sane voltages with nonsense frames and render the wrong image. */
+/* An inline table from the running CMD_DRIVE_WRITE_START shadows the stored slot; a stored
+ * deflated slot is served from its inflated copy. NULL: read the stored bytes directly. */
+static const od_lut_cache_entry_t *lut_cached(uint8_t slot)
+{
+    const od_lut_cache_entry_t *c = od_lut_cache_find(s_instance, slot, true, 0u);
+
+    return c != NULL ? c : od_lut_cache_find(s_instance, slot, false, cfg_gen());
+}
+
+static uint16_t cfg_reader(void *ctx, uint16_t off, uint8_t *dst, uint16_t len)
+{
+    return (uint16_t)od_cfg_read((const od_cfg_entry_t *)ctx, (uint16_t)(LUT_OFF_DATA + off),
+                                 dst, len);
+}
+#endif
+
+static uint16_t io_lut_read(uint8_t slot, uint16_t off, uint8_t *dst, uint16_t len)
+{
+    const od_cfg_entry_t *e;
+#if OD_EPD_LUT_CACHE > 0
+    const od_lut_cache_entry_t *c = lut_cached(slot);
+
+    if (c != NULL) {
+        if ((uint32_t)off + len > c->len) {
+            return 0u;
+        }
+        memcpy(dst, &c->data[off], len);
+        return len;
+    }
+#endif
+    e = find_lut(slot);
+    if (e == NULL || (e->sub & OD_LUT_SLOT_COMPRESSED) != 0u) {
+        return 0u;
+    }
+    return (uint16_t)od_cfg_read(e, (uint16_t)(LUT_OFF_DATA + off), dst, len);
+}
+
+/* A bad CRC or a failed family lint reports the slot as absent: a truncated waveform still has
+ * a plausible analog header, so it would drive sane voltages with nonsense frames and render the
+ * wrong image. The CRC covers the STORED bytes (compressed or not) and is checked first. */
 static bool io_lut_info(uint8_t slot, uint16_t *len_out)
 {
-    const od_cfg_entry_t *e = find_lut(slot);
+    const od_cfg_entry_t *e;
     uint8_t hdr[LUT_OFF_DATA];
     uint8_t buf[64];
     uint16_t len;
     uint16_t want;
     uint16_t crc = 0xFFFFu;
     uint16_t off = 0u;
+    od_lut_lint_t lint;
+    bool compressed;
 
+#if OD_EPD_LUT_CACHE > 0
+    {
+        const od_lut_cache_entry_t *c = lut_cached(slot);
+
+        if (c != NULL) {
+            if (len_out != NULL) {
+                *len_out = c->len;
+            }
+            return true;
+        }
+    }
+#endif
+    e = find_lut(slot);
     if (e == NULL || e->len <= LUT_OFF_DATA ||
         od_cfg_read(e, 0u, hdr, sizeof(hdr)) != sizeof(hdr)) {
         return false;
     }
+    compressed = (e->sub & OD_LUT_SLOT_COMPRESSED) != 0u;
     len = (uint16_t)(e->len - LUT_OFF_DATA);
     want = rd16(&hdr[LUT_OFF_CRC]);
     if (len > OD_EPD_LUT_BYTES) {
         return false;
     }
+    od_lut_lint_begin(&lint, s_desc.lut_family);
     while (off < len) {
         const uint16_t chunk = min16((uint32_t)(len - off), sizeof(buf));
 
         if (od_cfg_read(e, (uint16_t)(LUT_OFF_DATA + off), buf, chunk) != chunk) {
             return false;
         }
-        for (uint16_t i = 0u; i < chunk; i++) {
-            crc ^= (uint16_t)((uint16_t)buf[i] << 8);
-            for (int b = 0; b < 8; b++) {
-                crc = (crc & 0x8000u) ? (uint16_t)((crc << 1) ^ 0x1021u) : (uint16_t)(crc << 1);
-            }
+        crc = od_lut_crc16(crc, buf, chunk);
+        if (!compressed) {
+            od_lut_lint_feed(&lint, buf, chunk);
         }
         off = (uint16_t)(off + chunk);
     }
     if (crc != want) {
         od_log_warn("drive: lut slot %u CRC mismatch", (unsigned)slot);
+        return false;
+    }
+    if (compressed) {
+#if OD_EPD_LUT_CACHE > 0
+        od_lut_cache_entry_t *c = od_lut_cache_claim();
+        uint16_t out = 0u;
+
+        if (c == NULL ||
+            !od_lut_inflate(cfg_reader, (void *)e, len, c->data, sizeof(c->data), &out) ||
+            !od_lut_lint(s_desc.lut_family, c->data, out)) {
+            od_log_warn("drive: lut slot %u inflate/lint failed", (unsigned)slot);
+            return false;
+        }
+        c->used = true;
+        c->is_inline = false;
+        c->instance = s_instance;
+        c->slot = slot;
+        c->len = out;
+        c->gen = cfg_gen();
+        len = out;
+#else
+        return false;   /* no inflater on this target: the slot is absent */
+#endif
+    } else if (!od_lut_lint_done(&lint)) {
+        od_log_warn("drive: lut slot %u failed family %u lint", (unsigned)slot,
+                    (unsigned)s_desc.lut_family);
         return false;
     }
     if (len_out != NULL) {
@@ -324,6 +408,12 @@ bool od_epd_cfg_load(const struct DisplayConfig *d, const od_epd_cfg_bus_t *bus)
     }
     s_bus = bus;
     s_instance = d->instance_number;
+    s_inline_expect = 0u;
+#if OD_EPD_LUT_CACHE > 0
+    /* Inline tables live for one drive; inflated slots are re-made from the config just loaded
+     * (the generation key alone misses a store that bypasses od_config_store). */
+    od_lut_cache_clear();
+#endif
     memset(&s_desc, 0, sizeof(s_desc));
     s_mode_entries = 0u;
     s_desc.width = d->pixel_width;
@@ -372,6 +462,29 @@ bool od_epd_cfg_load(const struct DisplayConfig *d, const od_epd_cfg_bus_t *bus)
         s_desc.sleep_seq_len = 0u;
     }
     memcpy(s_desc.sleep_seq, &body[PANEL_OFF_SLEEPSEQ], OD_EPD_SLEEP_SEQ_MAX);
+    {
+        /* 0xB1 tail v1 after sleep_seq: only lut_family and busy_timeout_s mean anything here;
+         * the rest is host information. Unknown versions are read as v1 (append-only). */
+        uint8_t ext[OD_PANEL_EXT_V1_LEN];
+        const uint16_t at = (uint16_t)(PANEL_OFF_SLEEPSEQ + body[PANEL_OFF_SLEEPLEN]);
+        uint16_t n = 0u;
+
+        memset(ext, 0, sizeof(ext));
+        if (body[PANEL_OFF_SLEEPLEN] <= OD_EPD_SLEEP_SEQ_MAX && panel->len > at) {
+            n = min16((uint32_t)(panel->len - at), sizeof(ext));
+            if (od_cfg_read(panel, at, ext, n) != n) {
+                n = 0u;
+            }
+        }
+        if (n > OD_PANEL_EXT_FAMILY && ext[OD_PANEL_EXT_VERSION] >= 1u &&
+            ext[OD_PANEL_EXT_FAMILY] < OD_LUT_FAMILY_COUNT) {
+            s_desc.lut_family = ext[OD_PANEL_EXT_FAMILY];
+        }
+        if (n > OD_PANEL_EXT_TIMEOUT_S && ext[OD_PANEL_EXT_VERSION] >= 1u &&
+            ext[OD_PANEL_EXT_TIMEOUT_S] != 0u) {
+            s_desc.busy_timeout_ms = (uint32_t)ext[OD_PANEL_EXT_TIMEOUT_S] * 1000u;
+        }
+    }
 
     s_aux_pins[0] = d->aux_pin_1;
     s_aux_pins[1] = d->aux_pin_2;
@@ -628,11 +741,89 @@ static uint32_t marker_budget(const od_epd_cfg_stream_t *s)
     return part + 1u == of ? unit - b * (uint32_t)(of - 1u) : b;
 }
 
+bool od_epd_cfg_inline_expect(uint16_t prefix_len)
+{
+#if OD_EPD_LUT_CACHE > 0
+    s_inline_expect = prefix_len;
+    return s_loaded && prefix_len > OD_LUT_INLINE_HDR;
+#else
+    (void)prefix_len;
+    return false;
+#endif
+}
+
+int od_epd_cfg_check_pass(uint8_t pass)
+{
+    return s_loaded ? od_epd_check_pass(&s_epd, pass) : OD_EPD_RC_ARG;
+}
+
+#if OD_EPD_LUT_CACHE > 0
+/* One inline table header or body chunk. Tables are checked as each completes; the pass begins
+ * when the whole prefix is in (od_epd_cfg_stream_write). */
+static bool inline_feed(od_epd_cfg_stream_t *s, const uint8_t *d, uint32_t n)
+{
+    while (n > 0u) {
+        od_lut_cache_entry_t *c = (od_lut_cache_entry_t *)s->in_entry;
+
+        if (s->in_hdr_n < OD_LUT_INLINE_HDR) {
+            s->in_hdr[s->in_hdr_n++] = *d++;
+            n--;
+            if (s->in_hdr_n < OD_LUT_INLINE_HDR) {
+                continue;
+            }
+            s->in_len = rd16(&s->in_hdr[1]);
+            s->in_got = 0u;
+            if (s->in_hdr[0] >= OD_LUT_SLOT_MAX || s->in_len == 0u ||
+                s->in_len > OD_LUT_MAX_BYTES ||
+                od_lut_cache_find(s_instance, s->in_hdr[0], true, 0u) != NULL ||
+                (c = od_lut_cache_claim()) == NULL) {
+                od_log_error("drive: inline table %u refused", (unsigned)s->in_hdr[0]);
+                return false;
+            }
+            c->used = false;
+            c->is_inline = false;
+            s->in_entry = c;
+            continue;
+        }
+        {
+            uint32_t take = (uint32_t)(s->in_len - s->in_got);
+
+            if (take > n) {
+                take = n;
+            }
+            memcpy(&c->data[s->in_got], d, take);
+            s->in_got = (uint16_t)(s->in_got + take);
+            d += take;
+            n -= take;
+        }
+        if (s->in_got == s->in_len) {
+            if (od_lut_crc16(0xFFFFu, c->data, s->in_len) != rd16(&s->in_hdr[3]) ||
+                !od_lut_lint(s_desc.lut_family, c->data, s->in_len)) {
+                od_log_error("drive: inline table %u CRC/lint failed", (unsigned)s->in_hdr[0]);
+                return false;
+            }
+            c->used = true;
+            c->is_inline = true;
+            c->instance = s_instance;
+            c->slot = s->in_hdr[0];
+            c->len = s->in_len;
+            c->gen = 0u;
+            s->in_entry = NULL;
+            s->in_hdr_n = 0u;
+            s->in_tables++;
+        }
+    }
+    return true;
+}
+#endif
+
 bool od_epd_cfg_stream_init(od_epd_cfg_stream_t *s, const od_color_geometry_t *frame,
                             uint8_t passes, bool compressed, const uint8_t *tail,
                             uint16_t tail_len)
 {
-    const uint64_t total = frame != NULL ? (uint64_t)frame->total_bytes * passes : 0u;
+    const uint32_t prefix = s_inline_expect;
+    const uint64_t total = frame != NULL
+                         ? (uint64_t)frame->total_bytes * passes + prefix : 0u;
 
     if (s == NULL || total == 0u || total > UINT32_MAX) {
         return false;
@@ -652,6 +843,8 @@ bool od_epd_cfg_stream_init(od_epd_cfg_stream_t *s, const od_color_geometry_t *f
         }
     }
     memset(s, 0, sizeof(*s));
+    s_inline_expect = 0u;
+    s->prefix_len = prefix;
     s->frame_bytes = frame->total_bytes;
     s->total_bytes = (uint32_t)total;
     s->passes = passes;
@@ -671,6 +864,40 @@ bool od_epd_cfg_stream_write(od_epd_cfg_stream_t *s, uint32_t stream_offset,
     if (s == NULL || data == NULL) {
         return false;
     }
+    while (off < len && stream_offset + (uint32_t)off < s->prefix_len) {
+#if OD_EPD_LUT_CACHE > 0
+        const uint32_t at = stream_offset + (uint32_t)off;
+        uint32_t take = s->prefix_len - at;
+
+        if (take > len - off) {
+            take = (uint32_t)(len - off);
+        }
+        if (!inline_feed(s, data + off, take)) {
+            return false;
+        }
+        off += take;
+        if (at + take == s->prefix_len) {
+            if (s->in_hdr_n != 0u || s->in_tables == 0u) {
+                od_log_error("drive: inline prefix ends inside a table");
+                return false;
+            }
+            if (!od_epd_cfg_begin_pass(0u)) {
+                od_log_error("drive: pass 0 begin failed after inline tables (rc %d)",
+                             od_epd_cfg_last_rc());
+                return false;
+            }
+        }
+#else
+        return false;
+#endif
+    }
+    if (off < len && stream_offset + (uint32_t)off < s->prefix_len) {
+        return false;
+    }
+    if (off == len) {
+        return true;
+    }
+    stream_offset -= s->prefix_len;
     while (off < len) {
         const uint32_t logical = stream_offset + (uint32_t)off;
         const uint32_t frame_end = (uint32_t)(s->pass + 1u) * s->frame_bytes;

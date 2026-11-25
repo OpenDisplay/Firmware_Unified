@@ -1,0 +1,399 @@
+{
+  "schema_version": 1,
+  "note": "experimental refresh modes; layouts provisional (docs/REFRESH_MODES.md)",
+  "panels": {
+    "s73_spectra6": {
+      "name": "s73_spectra6",
+      "key": "0x0023",
+      "base_preset": "0x0023",
+      "drive_rev": 1,
+      "budget_limit": 10,
+      "lut_family": 1,
+      "busy_timeout_s": 120,
+      "modes": [
+        {
+          "mode_index": 2,
+          "name": "pll08",
+          "experimental": true,
+          "experimental_note": "stock waveform, PLL 08 (dynamic rate): 19.2 s vs 22.3 s (R-0013)",
+          "budget_cost": 0,
+          "lut_slot": null,
+          "temp_window_c": null,
+          "seq_steps": 26,
+          "seq_bytes": 100
+        },
+        {
+          "mode_index": 3,
+          "name": "replica6",
+          "experimental": true,
+          "experimental_note": "upload-path acceptance test: byte-true OTP set 6 at its rails, = stock (R-0186)",
+          "budget_cost": 1,
+          "lut_slot": 0,
+          "temp_window_c": [
+            -40,
+            24
+          ],
+          "seq_steps": 36,
+          "seq_bytes": 140
+        },
+        {
+          "mode_index": 4,
+          "name": "replica7",
+          "experimental": true,
+          "experimental_note": "upload-path acceptance test: byte-true OTP set 7 at its rails (R-0229)",
+          "budget_cost": 1,
+          "lut_slot": 1,
+          "temp_window_c": [
+            25,
+            60
+          ],
+          "seq_steps": 36,
+          "seq_bytes": 140
+        },
+        {
+          "mode_index": 5,
+          "name": "fast6",
+          "experimental": true,
+          "experimental_note": "F1d6 shake trim on set 6, 16.2 s, band <= 24.5 C (R-0205, R-0231)",
+          "budget_cost": 1,
+          "lut_slot": 2,
+          "temp_window_c": [
+            -40,
+            24
+          ],
+          "seq_steps": 36,
+          "seq_bytes": 140
+        },
+        {
+          "mode_index": 6,
+          "name": "fast7",
+          "experimental": true,
+          "experimental_note": "F1d7 shake trim on set 7, 16.2 s, band > 24.5 C (R-0231)",
+          "budget_cost": 1,
+          "lut_slot": 3,
+          "temp_window_c": [
+            25,
+            60
+          ],
+          "seq_steps": 36,
+          "seq_bytes": 140
+        },
+        {
+          "mode_index": 7,
+          "name": "partial6",
+          "experimental": true,
+          "experimental_note": "flashing partial S3_N0_wgap0 on set 6, 15.2 s; code 4 = hold (R-0234)",
+          "budget_cost": 1,
+          "lut_slot": 4,
+          "temp_window_c": [
+            -40,
+            24
+          ],
+          "seq_steps": 36,
+          "seq_bytes": 140
+        },
+        {
+          "mode_index": 8,
+          "name": "hosttable",
+          "experimental": true,
+          "experimental_note": "host-built per-update table (N2): needs INLINE_LUT for slot 5 every time (R-0239)",
+          "budget_cost": 1,
+          "lut_slot": 5,
+          "temp_window_c": null,
+          "seq_steps": 36,
+          "seq_bytes": 140
+        }
+      ],
+      "luts": [
+        {
+          "slot": 0,
+          "compressed": true,
+          "wave": "s6_73_replica_set6.bin",
+          "raw_bytes": 800,
+          "stored_bytes": 261
+        },
+        {
+          "slot": 1,
+          "compressed": true,
+          "wave": "s6_73_replica_set7.bin",
+          "raw_bytes": 800,
+          "stored_bytes": 257
+        },
+        {
+          "slot": 2,
+          "compressed": true,
+          "wave": "s6_73_F1d6.bin",
+          "raw_bytes": 800,
+          "stored_bytes": 235
+        },
+        {
+          "slot": 3,
+          "compressed": true,
+          "wave": "s6_73_F1d7.bin",
+          "raw_bytes": 800,
+          "stored_bytes": 232
+        },
+        {
+          "slot": 4,
+          "compressed": true,
+          "wave": "s6_73_S3_N0_wgap0.bin",
+          "raw_bytes": 800,
+          "stored_bytes": 200
+        }
+      ],
+      "config_bytes": 2882,
+      "packets": [
+        {
+          "id": 177,
+          "body_hex": "00030160ea000000010203090502020000000123000100000a0178"
+        },
+        {
+          "id": 174,
+          "body_hex": "000066756c6c00000000000000000401000000ffffffffffffffff0000000000000000640007aa49552008091807013f00322a0e2a03005f690503005400440505401f1f2c05066f1f162505086f1f1f220313000402300202410002503f036002000561032001e002821e02840102860002e32f02e00002e600010400010110000302120000010000"
+        },
+        {
+          "id": 174,
+          "body_hex": "00016661737400000000000000000401000000ffffffffffffffff0000000000000000bd0007aa49552008091807013f00322a0e2a03005f690503005400440505401f1f2c05066f1f162505086f1f1f220313000402300202410002503f036002000561032001e002821e02840102860002e32f02e00002e600010400010110000307aa49552008091807013f00322a0e2a03005f690503005400440505401f1f2c05066f1f162505086f1f1f220313000402300402410002503f036002000561032001e002821e02840102860002e32f02e00002e6000104000102120000010000"
+        },
+        {
+          "id": 174,
+          "body_hex": "0002706c6c303800000000000000ff01000000ffffffffffffffff0000000000000000640007aa49552008091807013f00322a0e2a03005f690503005400440505401f1f2c05066f1f162505086f1f1f220313000402300802410002503f036002000561032001e002821e02840102860002e32f02e00002e600010400010110000302120000010000010100ff"
+        },
+        {
+          "id": 174,
+          "body_hex": "00037265706c6963613600000000ff01d8180000ffffffffffffff00000000000000008c0007aa49552008091807013f00322a0e2a03005f690503005400440505401f1f2c05066f1f162505086f1f1f220313000402300202410002503f036002000561032001e002821e02840102860002e32f02e00002e60003005fe907013f001e18233e02820f023002011000030120000403005fe907013f001e18233e02820f0230020104000102120000010000010101ff"
+        },
+        {
+          "id": 174,
+          "body_hex": "00047265706c6963613700000000ff01193c0001ffffffffffffff00000000000000008c0007aa49552008091807013f00322a0e2a03005f690503005400440505401f1f2c05066f1f162505086f1f1f220313000402300202410002503f036002000561032001e002821e02840102860002e32f02e00002e60003005fe907013f001c19273e02820f023002011000030120000403005fe907013f001c19273e02820f0230020104000102120000010000010101ff"
+        },
+        {
+          "id": 174,
+          "body_hex": "0005666173743600000000000000ff01d8180002ffffffffffffff00000000000000008c0007aa49552008091807013f00322a0e2a03005f690503005400440505401f1f2c05066f1f162505086f1f1f220313000402300202410002503f036002000561032001e002821e02840102860002e32f02e00002e60003005fe907013f001e18233e02820f023002011000030120000403005fe907013f001e18233e02820f0230020104000102120000010000010101ff"
+        },
+        {
+          "id": 174,
+          "body_hex": "0006666173743700000000000000ff01193c0003ffffffffffffff00000000000000008c0007aa49552008091807013f00322a0e2a03005f690503005400440505401f1f2c05066f1f162505086f1f1f220313000402300202410002503f036002000561032001e002821e02840102860002e32f02e00002e60003005fe907013f001c19273e02820f023002011000030120000403005fe907013f001c19273e02820f0230020104000102120000010000010101ff"
+        },
+        {
+          "id": 174,
+          "body_hex": "00077061727469616c3600000000ff01d8180004ffffffffffffff00000000000000008c0007aa49552008091807013f00322a0e2a03005f690503005400440505401f1f2c05066f1f162505086f1f1f220313000402300202410002503f036002000561032001e002821e02840102860002e32f02e00002e60003005fe907013f001e18233e02820f023002011000030120000403005fe907013f001e18233e02820f0230020104000102120000010000010101ff"
+        },
+        {
+          "id": 174,
+          "body_hex": "0008686f73747461626c65000000ff0100000005ffffffffffffff00000000000000008c0007aa49552008091807013f00322a0e2a03005f690503005400440505401f1f2c05066f1f162505086f1f1f220313000402300202410002503f036002000561032001e002821e02840102860002e32f02e00002e60003005fe907013f001e18233e02820f023002011000030120000403005fe907013f001e18233e02820f0230020104000102120000010000010101ff"
+        },
+        {
+          "id": 175,
+          "body_hex": "0080b834c5923d4e033110468fc04956db5046f824883205b2dc259533351527a0e0002b3751845876f73434449baf8a5224de8ff126848dc44f1ac4c8b29e64f9cd78c61cedc69799836347c27b5a4511aea9a108dd7317678ab9b05a4c3c12221d68381ee34b442c5b83bdb7fcf46ecae40dcecfd01cbcd7c0e2e8c5c7fa2ed4f09af5f5b643ef740ac92da46df5eeddc180aeabc0d60af1bb3796c5555faf1f7a0b1a2fee4d49d18f82b94d18b7b661303ccfcba72679f3933ef0657f0d5812d583ddf52910026ae21effd7874d7981de1b865e6e8b34b7e62603c7134571b6d657049e3fb7c7bcf79a13ef7a957e9b488df82c863e4af4aa99cf916a75da0d637e4af1577de03b"
+        },
+        {
+          "id": 175,
+          "body_hex": "00819e34c5924f4a033114c68fe0315c95d9b814721271e9426276d355e61dc11378034b104a17a69db98ea8f55b95016be6f365aa75c43fcc467c84f083905f5ebe84cbc7c3a389836347c27b5a45116ea8a5089d0b972ac542b85a941e199117b41cf7f52d22c5b5c1ce1b3fbc6dccdee07c85e6cd7b022cf65ebc8f9f4a0dcf5ddf6f31f44ea782c242d6d7e8280d1b968462e5c67a53ec2efa7efdd03ba3f1e2ee9514fd7130e719d3d6360c26e3082fef8a2ffdb65ceeb6010fc4eacabef4472004d4c425fe2f87361ea0f786a197db597eb7e674029e958ae26cadb7081cefbd49bdd77cf26e9ef26f13a9916ec5d027495e35f33972064ed330e6b723fe2a07be02"
+        },
+        {
+          "id": 175,
+          "body_hex": "008234b1cd91314ec43010458fc049a234942b7c1244b905b2dced56dea9a93801050788dcac568890f834db80c2af508a5de733763800590909574f339a37e319aeceebebcac17122e13d8d22146b97768ab5b03b6c3c322227963da4763098bd639bbdc1f91de28ff716385ce61ddb6355e68dd86e21b5850c836a1e38cb304d1d385859e6d6799b9b326f4043e3c5bd6b50d1af82b9cf984e3632182ef6f22566af60e4db5c0d7c10dd933d971608013df1887fb187b1bd42f16adda9c9778b7715b8de288ab3bdfe22f0a2bb3dd7c50bf0eb53034ea4477a15439f247935eef7d0249d6ec3985fb6f8ab3df01b"
+        },
+        {
+          "id": 175,
+          "body_hex": "0083e7becd91314e033110458fc031a8a26d28917c1244498196e93695778ec009b801918514a56093f5752220fc0aad44f07ec65e0e405642c2d59347f3e67bcceddbf9c542201c49784f6708c34a526b5829779bc6232372e1b483d41d1c26efd0656f10df22fe78af80cd3cefd07d8e25af62b9545435f4f088911a19d91086adccca3bde95bc012b3aaff2629786fe32b8db8ce9584706c7d3dce6e5be9af20edc4eddc02bb17ba8bfca0884809eb8c7bfd8c3d09da178adf7b8caff16af17e04d63a852f7f68ac059dea754bc003fdeed42547ba46775f4499337e37a0d2b526c1bcefd72c45fed81df"
+        },
+        {
+          "id": 175,
+          "body_hex": "0084e4d6cd92310ac24010454f14d2588a7b052f601d41966063aa758f6067e70514d92e8dc6949e441025fcd2229aefa8248b852062912d661fc3f0f6332cbbd7a813c420f764ce7f1ff12e9f554a4955e36523375c6ca6c8195a66e96400a40cf11af8c6dbaf656f386e9e60e5bbca67a8bb1fbd2b3fdbab714d656c7c1212345da7460fbc953aa753fc22b3c8863ed9f685c099c816fafaf4c239ec8819d8822321e63eefb1d96434916a63bd93ae23f18377e13fc121208ca14392c0861ab6285055195868cb56ec8177"
+        }
+      ]
+    },
+    "ep29yr_bwry": {
+      "name": "ep29yr_bwry",
+      "key": "0x001E",
+      "base_preset": "0x001E",
+      "drive_rev": 1,
+      "budget_limit": 20,
+      "lut_family": 2,
+      "busy_timeout_s": 120,
+      "modes": [
+        {
+          "mode_index": 2,
+          "name": "pll07",
+          "experimental": true,
+          "experimental_note": "stock waveform at fixed PLL 07: 9.2 s, ~8 % chroma loss (R-0046)",
+          "budget_cost": 0,
+          "lut_slot": null,
+          "temp_window_c": null,
+          "seq_steps": 21,
+          "seq_bytes": 71
+        },
+        {
+          "mode_index": 3,
+          "name": "bwpartial",
+          "experimental": true,
+          "experimental_note": "BW2_kick3_w10 (B4 N0) full-window partial: 0 = to K, 1 = to W, 2/3 hold; product cycle K 3.1 / W 2.9 dE00 at 100 updates (R-0237, R-0238) [1 ex]",
+          "budget_cost": 1,
+          "lut_slot": 2,
+          "temp_window_c": null,
+          "seq_steps": 26,
+          "seq_bytes": 96
+        }
+      ],
+      "luts": [
+        {
+          "slot": 2,
+          "compressed": false,
+          "wave": "bwry29_BW2_kick3_w10.bin",
+          "raw_bytes": 535,
+          "stored_bytes": 535
+        }
+      ],
+      "config_bytes": 2308,
+      "packets": [
+        {
+          "id": 177,
+          "body_hex": "000301307500000001020304080202000207a50000011e00010000140278"
+        },
+        {
+          "id": 174,
+          "body_hex": "000066756c6c0000000000000000ff01122000ffffffffffffffff00000000000000004700024d7803000f29030107000403105444080605003f0a25121a02503703600202056100a8018002e71c02e32202b4d002b50302e901023008010400010110000302120000010000"
+        },
+        {
+          "id": 174,
+          "body_hex": "0001636f6c6f75723136000000000a03122000000101ffffffffff00144100000000006300024d7803000fa900020700010007ff00ff01ff02ff03ff040403105444080605003f0a25121a0002020030ff0602503703600202056100a8018002e71c02e32202b4d002b50302e9010002020082ffff01200004011000030104000102120000010000"
+        },
+        {
+          "id": 175,
+          "body_hex": "0000af770022782d222008ef7fffffff657fffffffff7f7fff7fafef3faf7feffdef7fff7f7fff3c3ce6f5efef7fff00877defbebe3fefef7fffafefffefffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffefdddf696dffefffffffef7fdede7fafef3faf7feffdefdefe7f7fff3c6fed6fafefffb17f6faf7e7ffd7e6f6fb5ffefef2def7f3fffef6fd6ffefbe6fef2dffffefefd3d67fefbcef6fbff7efefffffffffffefffffffffefbbfbb47cffefffffffef7fdede7fafef3faf7feffdefdeff7f7fff3cff6cefefefdede6fefefbefdef3fbfefdfdf7dafffbfef7fbdefeffff7d9ef73efac7dffefffffffffffffffffffffffffffffffffffffffffffffefdddf36f7ffefffffffef7fdede7fafef3faf7feffdefdefe7f7fff3c6d6c6eefeff29def6f2f7e7f7f7e6fef9ddfefe77fbf7fef6fafefd9f77fedafef7afdffefffffffffffffffffffffffffffffffffffffffffffffefdddfaaefffefffffffef7fdede7fafef3faf7feffdefdeb77f7fff3caf7d7fafeff2b5ef6faf7eafbf6e6fefd6ffefbeed6fbd3fffef6f94ffef6d2fef6fadffefefbdf6ef7dbeeffd7effefffffffffffffffffffffffefffffffff657fffffffff7fffff7fafef3faf7feffdefffba7f7fff3c3c87beefeffbffe700ffefffffffffefffffffafffefedffffefefffbfbebeffeffdec6defffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "id": 175,
+          "body_hex": "000124d000147814142408ef7fff3dedfeefee6fafefef7fffedadedefffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffeff7deeeedafefbdef7f6fefbbdbed3f6fefefffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff3dedfeefee6fafefefffffedadedefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeff5ff7cedbfefee6fafefeff9ff3fbeafefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffdbf3f2f37efefef2fefeff3ff2faf2eefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefbebabd6dfeefee6fafefefbaffedadedefffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "id": 176,
+          "body_hex": "000100100200e70b6603ca011500aa1a410356021600ae180308d01a1700d80d90112d0b1400f812c30ff10d31008f15cc04790319005e13cf01a8002200cc16d005dd0a3600190fea01ce0a1e001606bc016a0227000b155a0a34111800620c010c88081c00ba08040910061b00790cb20c850804003f01c7018a0013006f030a060603"
+        },
+        {
+          "id": 174,
+          "body_hex": "0002706c6c303700000000000000ff01000000ffffffffffffffff00000000000000004700024d7803000f29030107000403105444080605003f0a25121a02503703600202056100a8018002e71c02e32202b4d002b50302e901023007010400010110000302120000010000010100ff"
+        },
+        {
+          "id": 174,
+          "body_hex": "000362777061727469616c000000ff0100000002ffffffffffffff00000000000000006000024d7803000fa907010700222d2d220403105444080605003f0a25121a02300202503703600202056100a8018002e71c02e32202b4d002b50302e9010282a0012000040a83000000a70000017f01011000030250970104000102120000010000010101ff"
+        },
+        {
+          "id": 175,
+          "body_hex": "0002b78500222d2d222002efffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffbff3dffffefffffffefeffffff6ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefb7dc2d7d7fef7d7f7defeff3ff7f7dffefffffffefefffffefffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffebb2d7d7fef7d7f7defeffeff7f7dffefffffffefefffffefffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      ]
+    },
+    "ee02_709_spectra6": {
+      "name": "ee02_709_spectra6",
+      "key": "0x0000",
+      "base_preset": "0x0042",
+      "drive_rev": 1,
+      "budget_limit": 10,
+      "lut_family": 1,
+      "busy_timeout_s": 120,
+      "modes": [
+        {
+          "mode_index": 1,
+          "name": "pll04",
+          "experimental": true,
+          "experimental_note": "stock waveform at PLL 04: 22.6 s vs 30.2 s, max dE 2.7 (R-0032)",
+          "budget_cost": 0,
+          "lut_slot": null,
+          "temp_window_c": null,
+          "seq_steps": 88,
+          "seq_bytes": 316
+        },
+        {
+          "mode_index": 2,
+          "name": "hold47",
+          "experimental": true,
+          "experimental_note": "stock waveform; pixel codes 4 and 7 are hardwired holds on this chip, so the host writes 4 for unchanged pixels (R-0032) [1 ex]",
+          "budget_cost": 1,
+          "lut_slot": null,
+          "temp_window_c": null,
+          "seq_steps": 86,
+          "seq_bytes": 310
+        },
+        {
+          "mode_index": 3,
+          "name": "fastg13",
+          "experimental": true,
+          "experimental_note": "G13 on set 4, 17.5 s, worst 2.04; scrub every ~10 (R-0204, R-0221)",
+          "budget_cost": 1,
+          "lut_slot": 0,
+          "temp_window_c": [
+            -40,
+            25
+          ],
+          "seq_steps": 94,
+          "seq_bytes": 330
+        },
+        {
+          "mode_index": 4,
+          "name": "partialmix",
+          "experimental": true,
+          "experimental_note": "G7_N8_mixB flashing partial, 11.5 s, band-robust (sets 4 and 5); K/W/Y/B targets only (no R/G drive: an R or G cell keeps its old ink); codes 4/7 hold (R-0240, R-0242) [1 ex]",
+          "budget_cost": 1,
+          "lut_slot": 1,
+          "temp_window_c": null,
+          "seq_steps": 94,
+          "seq_bytes": 330
+        }
+      ],
+      "luts": [
+        {
+          "slot": 0,
+          "compressed": true,
+          "wave": "s6_709_G13.bin",
+          "raw_bytes": 800,
+          "stored_bytes": 315
+        },
+        {
+          "slot": 1,
+          "compressed": true,
+          "wave": "s6_709_G7_N8_mixB.bin",
+          "raw_bytes": 800,
+          "stored_bytes": 191
+        }
+      ],
+      "config_bytes": 2376,
+      "packets": [
+        {
+          "id": 177,
+          "body_hex": "00030160ea000000010203050b02020000080102020000000100000100000a0178"
+        },
+        {
+          "id": 174,
+          "body_hex": "000066756c6c00000000000000000801000000ffffffffffffffff000000000000000036010a74000c0cd9dddd15155500050a0007f04955135d051000080107f04955135d051000080000050a000300df690008010300df6900080000050a0004a544540000050a0002503700080102503700080000050a00036003030008010360030300080000050a0002861000080102861000080000050a0002e32200080102e32200080000050a00056104b00320000801056104b0032000080000050a0007010f00282c283800050a0002b60700050a000306e02000050a0002b70100050a000305e02000050a0002b00100050a0002b10200050a0002e00100080102e0010008000005010000010110000700020008010110000701020008000104000801010400080000050100000100051e0000080102120100080002120100050100000100051e000202000008010202000008000005010000010000"
+        },
+        {
+          "id": 174,
+          "body_hex": "0001706c6c303400000000000000ff01000000ffffffffffffffff00000000000000003c010a74000c0cd9dddd15155500050a0007f04955135d051000080107f04955135d051000080000050a000300df690008010300df6900080000050a0004a544540000050a0002503700080102503700080000050a00036003030008010360030300080000050a0002861000080102861000080000050a0002e32200080102e32200080000050a00056104b00320000801056104b0032000080000050a0007010f00282c283800050a0002b60700050a000306e02000050a0002b70100050a000305e02000050a0002b00100050a0002b10200080002300400050a0002e00100080102e0010008000005010000010110000700020008010110000701020008000104000801010400080000050100000100051e0000080102120100080002120100050100000100051e000202000008010202000008000005010000010000010100ff"
+        },
+        {
+          "id": 174,
+          "body_hex": "0002686f6c643437000000000000ff01000000ffffffffffffffff000000000000000036010a74000c0cd9dddd15155500050a0007f04955135d051000080107f04955135d051000080000050a000300df690008010300df6900080000050a0004a544540000050a0002503700080102503700080000050a00036003030008010360030300080000050a0002861000080102861000080000050a0002e32200080102e32200080000050a00056104b00320000801056104b0032000080000050a0007010f00282c283800050a0002b60700050a000306e02000050a0002b70100050a000305e02000050a0002b00100050a0002b10200050a0002e00100080102e0010008000005010000010110000700020008010110000701020008000104000801010400080000050100000100051e0000080102120100080002120100050100000100051e000202000008010202000008000005010000010000010101ff"
+        },
+        {
+          "id": 174,
+          "body_hex": "0003666173746731330000000000ff01d8190000ffffffffffffff00000000000000004a010a74000c0cd9dddd15155500050a0007f04955135d051000080107f04955135d051000080000050a000300dfe90008010300dfe900080000050a0004a544540000050a0002503700080102503700080000050a00036003030008010360030300080000050a0002861000080102861000080000050a0002e32200080102e32200080000050a00056104b00320000801056104b0032000080000050a0007010f001a24303800050a0002b60700050a000306e02000050a0002b70100050a000305e02000050a0002b00100050a0002b102000800023008012000040008010120000400080000050a0002e00100080102e0010008000005010000010110000700020008010110000701020008000104000801010400080000050100000100051e0000080102120100080002120100050100000100051e000202000008010202000008000005010000010000010101ff"
+        },
+        {
+          "id": 174,
+          "body_hex": "00047061727469616c6d69780000ff0100000001ffffffffffffff00000000000000004a010a74000c0cd9dddd15155500050a0007f04955135d051000080107f04955135d051000080000050a000300dfe90008010300dfe900080000050a0004a544540000050a0002503700080102503700080000050a00036003030008010360030300080000050a0002861000080102861000080000050a0002e32200080102e32200080000050a00056104b00320000801056104b0032000080000050a0007010f001a22242600050a0002b60700050a000306e02000050a0002b70100050a000305e02000050a0002b00100050a0002b102000800023004012000040008010120000400080000050a0002e00100080102e0010008000005010000010110000700020008010110000701020008000104000801010400080000050100000100051e0000080102120100080002120100050100000100051e000202000008010202000008000005010000010000010101ff"
+        },
+        {
+          "id": 175,
+          "body_hex": "0080eb0cc5523b4e0331143c412e8264250720d913204e10ed0912774b938d4f40418da04154616521400856591f21251512e9634d4180227887b7d9052424200de215f6e83dcfbc9f39ba7e5e16011a17a4a198c047396b48f1ba0616ef5ef3e9351fde9acc2f10213fdd5a214988a997c091300894aeed765566a8e138d088a854009d5af4616d23f893c1e5c387e55a172c99992eb358f99272556c49c1a18fa31a8e756af4b64d37d19d142117dd047861d2f46633da45046900162ba4f788a448046a935a2af6e4d59ef1683bf74d0ae15e753aeba03bb919b816f45414e67365f6adc64e11cde9715c976e32114668f77faff7af4cd6529c1fe0b22a87afeb4d0f62051e4ab7e519d88c12a99b19c81fe8c24c116f30dfa7bc6727d5de4c2de29d6e8d714b0baf944c3a0a770cf2db5c95d8ead10c1966ff3707be01"
+        },
+        {
+          "id": 175,
+          "body_hex": "008106fed5502b0ec250103c0297c0a3484d438fc0116a0949790e04b4ef28281469aa00c1e749243740e1a019039414fa86d762a8a206d14d76339bdd994c8693d1cada65fc5321e5eed44301e737ad35b43ea20493029a3ba6544a6ced3e1131319620450c28ab2d2f1038e05bf7cea61ce39cd37ee9c666846ece86d907b1eb7c60207c29ecc82fe95e394bdb15fd8661cb539169804f76a822c79386fb9864589807d6b7b0e47ac88a39f0451d009b6e1ea5b6094739126aaf0421468d3ae7c037"
+        }
+      ]
+    }
+  }
+}

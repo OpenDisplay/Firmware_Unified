@@ -126,6 +126,15 @@ int     od_epd_cfg_last_rc(void);
  * IMAGE_SLICE 0/2, 1/2, which is how the partial OLD/NEW planes are encoded. The writer advances to the next marker when a budget is spent, so a
  * sequence that declares fewer markers than the layout needs fails loudly mid-stream. */
 typedef struct {
+    /* INLINE_LUT: bytes [0, prefix_len) of the stream are inline tables, not frames. Pass 0
+     * begins once they have all arrived and passed their CRC and lint. */
+    uint32_t prefix_len;
+    uint8_t  in_hdr[5];
+    uint8_t  in_hdr_n;
+    uint16_t in_len;
+    uint16_t in_got;
+    void    *in_entry;
+    uint8_t  in_tables;
     uint32_t frame_bytes;
     uint32_t plane_size;   /* 0 unless the layout is CONTROLLER_PLANES */
     uint32_t total_bytes;
@@ -135,6 +144,14 @@ typedef struct {
     uint8_t  passes;
     uint8_t  pass;
 } od_epd_cfg_stream_t;
+
+/* CMD_DRIVE_WRITE_START INLINE_LUT: the next od_epd_cfg_stream_init() reserves `prefix_len`
+ * bytes at the start of the stream for inline tables ([slot][len:2][crc16:2][bytes], repeated)
+ * and does not begin pass 0 until they are in. False when this build has no table cache.
+ * Inline tables last until the next od_epd_cfg_load(). */
+bool od_epd_cfg_inline_expect(uint16_t prefix_len);
+/* Validation, capability and family lint of `pass` of the selected mode, without panel I/O. */
+int  od_epd_cfg_check_pass(uint8_t pass);
 
 /* Validates passes*frame against the START tail (a compressed stream's 4-byte declared length
  * must equal it, so a host with the wrong pass count is told at START) and fills `s`. */

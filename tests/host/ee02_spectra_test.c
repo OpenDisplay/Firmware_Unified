@@ -387,7 +387,8 @@ static void bus_data(const uint8_t *d, size_t n)
         t->d[t->len++] = d[i];
     }
     t->n += (uint32_t)n;
-    if (t->kind == TK_CMD && t->cmd == 0x12u && g_cs == 1u) {
+    /* The refresh starts on the main chip's DRF, which follows the slave's (README D9). */
+    if (t->kind == TK_CMD && t->cmd == 0x12u && g_cs == 0u) {
         g_busy_until = g_now + g_refresh_ms;
     }
 }
@@ -935,8 +936,8 @@ static void test_database_preset(bool compressed)
     ccset = find_cmd(pon, 0xE0u);
     CHECK(ccset < g_ntok && ccset > pon);
     tail_shape(pon, shape, sizeof shape);
-    CHECK(strcmp(shape, "04b B E0b B 10m 10s 12b B 02b B 02b ") == 0);
-    if (strcmp(shape, "04b B E0b B 10m 10s 12b B 02b B 02b ") != 0) {
+    CHECK(strcmp(shape, "04b B E0b B 10m 10s 12s 12m B 02b B 02b ") == 0);
+    if (strcmp(shape, "04b B E0b B 10m 10s 12s 12m B 02b B 02b ") != 0) {
         printf("  tail: %s\n", shape);
     }
     CHECK(never_sent_forbidden());
@@ -960,9 +961,9 @@ static void test_lab_order(void)
     CHECK(frame_matches_lab());
     tail_shape(ccset, shape, sizeof shape);
     /* main.cpp pushFrame (CCSET both, wait, DTM main, DTM slave) then refreshFull (PON both, wait,
-     * 30 ms, DRF both, wait, 30 ms, POF both, wait); the sleep sequence's POF follows. */
-    CHECK(strcmp(shape, "E0b D1 B 10m 10s 04b D1 B D30 12b D1 B D30 02b D1 B 02b ") == 0);
-    if (strcmp(shape, "E0b D1 B 10m 10s 04b D1 B D30 12b D1 B D30 02b D1 B 02b ") != 0) {
+     * 30 ms, DRF slave then main (README D9), wait, 30 ms, POF both, wait); the sleep sequence's POF follows. */
+    CHECK(strcmp(shape, "E0b D1 B 10m 10s 04b D1 B D30 12s 12m D1 B D30 02b D1 B 02b ") == 0);
+    if (strcmp(shape, "E0b D1 B 10m 10s 04b D1 B D30 12s 12m D1 B D30 02b D1 B 02b ") != 0) {
         printf("  tail: %s\n", shape);
     }
     CHECK(never_sent_forbidden());
@@ -982,7 +983,7 @@ static void test_busy_cap(void)
     CHECK(g_last_reply[0] == RESP_ACK && g_last_reply[1] == RESP_DIRECT_WRITE_REFRESH_TIMEOUT);
     drf = find_cmd(0u, 0x12u);
     CHECK(drf + 2u < g_ntok);
-    /* drf is the cs0 copy, drf + 1 the cs1 copy, then the BUSY wait. */
+    /* drf is the slave's copy, drf + 1 the main chip's (README D9), then the BUSY wait. */
     wait = &g_tok[drf + 2u];
     CHECK(wait->kind == TK_BUSY && wait->ms == 60000u);
     /* The mode's own POF never ran (the walk stopped at the failed wait); the 0xB1 sleep
@@ -1213,7 +1214,8 @@ static void test_multipass(void)
     CHECK(g_ncap == 4u);
     CHECK(dtm_pair_is(0u, g_frame, g_frame + HALF_BYTES));
     CHECK(dtm_pair_is(2u, g_frame2, g_frame2 + HALF_BYTES));
-    CHECK(nth_cmd(0x12u, 1u, 1u) != NULL && nth_cmd(0x12u, 1u, 2u) == NULL);
+    CHECK(nth_cmd(0x12u, 0u, 1u) != NULL && nth_cmd(0x12u, 0u, 2u) == NULL &&
+          nth_cmd(0x12u, 1u, 1u) != NULL && nth_cmd(0x12u, 1u, 2u) == NULL);
     CHECK(never_sent_forbidden());
 #endif
 }

@@ -433,7 +433,7 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
                             for cls in P.CLASSES}
         diffs = list(DIFFS_BASE)
         if p["flags"] & 0x0400:
-            diffs += ["D6", "D7"]
+            diffs += ["D6", "D7", "D9"]
         if any(m.get("window") for m in top["modes"]):
             diffs.append("D8")
         e["differences"] = sorted(set(diffs))

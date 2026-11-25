@@ -591,9 +591,23 @@ add_test(NAME config_tlv COMMAND od_config_tlv_test)
 # epd_seq: the shared od_epd sequence executor over a recording io table -- the escapes no panel
 # on the bench exercises (CS_SELECT, READ/WRITE_SCRATCH) and the refuse-before-any-I/O rule.
 # od_epd.c is compiled in directly: it is the APP_EPD tier, which od_shared does not take.
-add_executable(od_epd_seq_test epd_seq_test.c ../../shared/core/od_epd.c)
+add_executable(od_epd_seq_test epd_seq_test.c ../../shared/core/od_epd.c ../../shared/core/od_epd_lut.c)
 target_link_libraries(od_epd_seq_test od_shared)
 add_test(NAME epd_seq COMMAND od_epd_seq_test)
+
+# epd_lut: the 0xAF compressed-slot inflater, the per-family table lint and the waveform cache,
+# against every table in panels/waves (lut_vectors.inc, from gen_lut_vectors.py).
+add_executable(od_epd_lut_test epd_lut_test.c ../../shared/core/od_epd_lut.c)
+target_include_directories(od_epd_lut_test PRIVATE ../../shared/core ${CMAKE_CURRENT_LIST_DIR})
+add_test(NAME epd_lut COMMAND od_epd_lut_test)
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME lut_vectors_fresh
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/gen_lut_vectors.py --check)
+    add_test(NAME refresh_modes_fresh
+             COMMAND ${Python3_EXECUTABLE}
+                     ${CMAKE_CURRENT_LIST_DIR}/../../panels/tools/gen_refresh_modes.py --check)
+endif()
 
 # display: the shared config-driven display path (od_display -> od_epd_cfg -> od_epd) from a
 # stored config record to the bytes on a recorded panel bus, for every colour class, the real
@@ -602,6 +616,7 @@ add_executable(od_display_test display_test.c boot_key_stub.c
     ../../shared/core/od_display.c
     ../../shared/core/od_epd_cfg.c
     ../../shared/core/od_epd.c
+    ../../shared/core/od_epd_lut.c
     ../../shared/core/od_cfg_index.c
     od_log_test_stub.c
     ${CMAKE_CURRENT_LIST_DIR}/../../third_party/qrcode/qrcode.c)
@@ -622,6 +637,7 @@ add_executable(od_xfer_split_test xfer_split_test.c boot_key_stub.c
     ../../shared/core/od_display.c
     ../../shared/core/od_epd_cfg.c
     ../../shared/core/od_epd.c
+    ../../shared/core/od_epd_lut.c
     ../../shared/core/od_cfg_index.c
     od_log_test_stub.c
     ${CMAKE_CURRENT_LIST_DIR}/../../third_party/qrcode/qrcode.c)
@@ -635,6 +651,7 @@ add_executable(od_ee02_spectra_test ee02_spectra_test.c boot_key_stub.c
     ../../shared/core/od_display.c
     ../../shared/core/od_epd_cfg.c
     ../../shared/core/od_epd.c
+    ../../shared/core/od_epd_lut.c
     ../../shared/core/od_cfg_index.c
     od_log_test_stub.c
     ${CMAKE_CURRENT_LIST_DIR}/../../third_party/qrcode/qrcode.c)
@@ -647,6 +664,7 @@ add_executable(od_ee02_spectra_lut1k_test ee02_spectra_test.c boot_key_stub.c
     ../../shared/core/od_display.c
     ../../shared/core/od_epd_cfg.c
     ../../shared/core/od_epd.c
+    ../../shared/core/od_epd_lut.c
     ../../shared/core/od_cfg_index.c
     od_log_test_stub.c
     ${CMAKE_CURRENT_LIST_DIR}/../../third_party/qrcode/qrcode.c)
@@ -662,6 +680,7 @@ add_executable(od_legacy_upload_test legacy_upload_test.c boot_key_stub.c
     ../../shared/core/od_display.c
     ../../shared/core/od_epd_cfg.c
     ../../shared/core/od_epd.c
+    ../../shared/core/od_epd_lut.c
     ../../shared/core/od_cfg_index.c
     od_log_test_stub.c
     ${CMAKE_CURRENT_LIST_DIR}/../../third_party/qrcode/qrcode.c)

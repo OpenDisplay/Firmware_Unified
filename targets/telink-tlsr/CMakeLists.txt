@@ -86,6 +86,7 @@ set(OD_PROFILE_TELINK
     OD_CONFIG_WITH_FINDMY=0
     OD_CONFIG_WITH_DATA_EXTENDED=0
     OD_EPD_WITH_WINDOW=0
+    OD_EPD_LUT_CACHE=0
     # The scale-2 and -3 boot logos are chosen only under 30 % of a 500+ px logical width;
     # these tags' glass is 200 px, so only scale 1 can ever be drawn (17.6 KB of flash saved).
     OD_BOOT_LOGO_SIZES=1)

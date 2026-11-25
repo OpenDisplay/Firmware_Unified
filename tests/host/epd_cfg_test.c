@@ -19,7 +19,10 @@
 #include "od_config_store.h"
 #include "od_epd.h"
 #include "od_epd_cfg.h"
+#include "od_epd_lut.h"
 #include "opendisplay_protocol.h"
+
+#include "lut_vectors.inc"
 
 #ifndef OD_GOLDEN_DIR
 #error "OD_GOLDEN_DIR must name tests/vectors/epd_golden"
@@ -519,13 +522,13 @@ static void test_lut_crc(void)
     CHECK(od_epd_cfg_last_rc() == OD_EPD_RC_LUT);
     CHECK(strstr(fx_trace, "C 20\nD ") == NULL);   /* no waveform bytes reached the panel */
 
-    CASE("a LUT body longer than 535 B is absent too");
+    CASE("a LUT body longer than 1024 B is absent too");
     begin_cfg(&c, 1u);
     add_panel(&c, 0u);
     add_mode(&c, 0u, 0u, "full", 0, 0, 0, 0u, SEQ_PLAIN, sizeof SEQ_PLAIN);
     {
-        static uint8_t big[4u + 600u];
-        fx_cfg_ext(&c, OD_PKT_DISPLAY_LUT, big, lut_body(big, 0u, 0u, 1u, 536u));
+        static uint8_t big[4u + 1100u];
+        fx_cfg_ext(&c, OD_PKT_DISPLAY_LUT, big, lut_body(big, 0u, 0u, 1u, 1025u));
     }
     fx_cfg_finish(&c);
     fx_cfg_store(&c);
@@ -1034,6 +1037,409 @@ static void test_config_write_during_pass(void)
     CHECK(od_config_store_save(ws, sizeof ws, other, sizeof other) == OD_CONFIG_STORE_OK);
 }
 
+
+/* ------------------------------------------------------------ refresh-mode additions (F1/F2/F5/F7) -- */
+
+/* 0xB1 with the v1 tail: [ver 1][key 2][rev 2][flags][budget][family][busy_timeout_s]. */
+static uint32_t panel_body_ext(uint8_t *out, uint8_t inst, uint8_t family, uint8_t timeout_s)
+{
+    const uint32_t n = panel_body(out, inst, NULL, 0u);
+    const uint8_t ext[OD_PANEL_EXT_V1_LEN] = { 1u, 0x23u, 0x00u, 1u, 0u, 0u, 0xFFu, family,
+                                               timeout_s };
+
+    memcpy(&out[n], ext, sizeof ext);
+    return n + (uint32_t)sizeof ext;
+}
+
+static uint32_t lut_body_bytes(uint8_t *out, uint8_t inst, uint8_t slot_byte, const uint8_t *d,
+                               uint16_t n)
+{
+    const uint16_t c = lut_crc(d, n);
+
+    out[0] = inst;
+    out[1] = slot_byte;
+    out[2] = (uint8_t)c;
+    out[3] = (uint8_t)(c >> 8);
+    memcpy(&out[4], d, n);
+    return 4u + n;
+}
+
+/* The waveform as the executor streams it: "C 20" then 64-byte "D" lines. */
+static bool trace_has_lut(const uint8_t *t, uint16_t n)
+{
+    static char want[8u * 1024u];
+    size_t o = (size_t)snprintf(want, sizeof want, "C 20\n");
+
+    for (uint16_t i = 0u; i < n; i += 64u) {
+        const unsigned left = (unsigned)n - (unsigned)i;
+        const unsigned k = left < 64u ? left : 64u;
+
+        o += (size_t)snprintf(want + o, sizeof want - o, "D");
+        for (unsigned j = 0u; j < k; j++) {
+            o += (size_t)snprintf(want + o, sizeof want - o, " %02x", (unsigned)t[i + j]);
+        }
+        o += (size_t)snprintf(want + o, sizeof want - o, "\n");
+    }
+    return strstr(fx_trace, want) != NULL;
+}
+
+static const lut_vector_t *vector_of(uint8_t family)
+{
+    for (size_t i = 0; i < sizeof k_lut_vectors / sizeof k_lut_vectors[0]; i++) {
+        if (k_lut_vectors[i].family == family) {
+            return &k_lut_vectors[i];
+        }
+    }
+    return NULL;
+}
+
+static void store_one(fx_cfg_t *c, uint8_t family, uint8_t timeout_s, const uint8_t *seq,
+                      uint16_t seq_len, uint8_t slot)
+{
+    begin_cfg(c, 1u);
+    fx_cfg_ext(c, OD_PKT_DISPLAY_PANEL, g_b, panel_body_ext(g_b, 0u, family, timeout_s));
+    add_mode(c, 0u, 0u, "full", 0, 0, 0, slot, seq, seq_len);
+}
+
+static void test_refresh_modes(void)
+{
+    static uint8_t body[4u + OD_LUT_MAX_BYTES];
+    const lut_vector_t *s6 = vector_of(OD_LUT_FAMILY_S6_800);
+    const lut_vector_t *jd = vector_of(OD_LUT_FAMILY_JD_BWRY);
+    fx_cfg_t c;
+
+    CHECK(s6 != NULL && jd != NULL);
+    if (s6 == NULL || jd == NULL) {
+        return;
+    }
+
+    for (int e = 0; e < 3; e++) {
+        CASE("a deflated 0xAF slot (bit 7) streams the inflated table, CRC over stored bytes");
+        store_one(&c, OD_LUT_FAMILY_S6_800, 0u, SEQ_PLAIN, sizeof SEQ_PLAIN, 2u);
+        fx_cfg_ext(&c, OD_PKT_DISPLAY_LUT, body,
+                   lut_body_bytes(body, 0u, 0x80u | 2u, s6->z[e], s6->z_len[e]));
+        fx_cfg_finish(&c);
+        fx_cfg_store(&c);
+        CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL));
+        CHECK(pass0());
+        CHECK(trace_has_lut(s6->raw, s6->raw_len));
+    }
+
+    CASE("a deflated slot without a family tail still inflates (no lint)");
+    begin_cfg(&c, 1u);
+    add_panel(&c, 0u);
+    add_mode(&c, 0u, 0u, "full", 0, 0, 0, 5u, SEQ_PLAIN, sizeof SEQ_PLAIN);
+    fx_cfg_ext(&c, OD_PKT_DISPLAY_LUT, body,
+               lut_body_bytes(body, 0u, 0x80u | 5u, jd->z[0], jd->z_len[0]));
+    fx_cfg_finish(&c);
+    fx_cfg_store(&c);
+    CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL) && pass0());
+    CHECK(trace_has_lut(jd->raw, jd->raw_len));
+
+    CASE("slot ids 8..15 resolve; reserved bits 4..6 make the packet no slot");
+    store_one(&c, OD_LUT_FAMILY_JD_BWRY, 0u, SEQ_PLAIN, sizeof SEQ_PLAIN, 13u);
+    fx_cfg_ext(&c, OD_PKT_DISPLAY_LUT, body, lut_body_bytes(body, 0u, 13u, jd->raw, jd->raw_len));
+    fx_cfg_finish(&c);
+    fx_cfg_store(&c);
+    CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL) && pass0());
+    CHECK(trace_has_lut(jd->raw, jd->raw_len));
+    store_one(&c, OD_LUT_FAMILY_JD_BWRY, 0u, SEQ_PLAIN, sizeof SEQ_PLAIN, 13u);
+    fx_cfg_ext(&c, OD_PKT_DISPLAY_LUT, body,
+               lut_body_bytes(body, 0u, 0x10u | 13u, jd->raw, jd->raw_len));
+    fx_cfg_finish(&c);
+    fx_cfg_store(&c);
+    CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL));
+    CHECK(!od_epd_cfg_begin_pass(0u) && od_epd_cfg_last_rc() == OD_EPD_RC_LINT);
+
+    CASE("CRC over the inflated bytes (wrong convention): slot absent, refused before I/O");
+    store_one(&c, OD_LUT_FAMILY_S6_800, 0u, SEQ_PLAIN, sizeof SEQ_PLAIN, 2u);
+    {
+        const uint32_t n = lut_body_bytes(body, 0u, 0x82u, s6->z[0], s6->z_len[0]);
+        const uint16_t bad = lut_crc(s6->raw, s6->raw_len);
+
+        body[2] = (uint8_t)bad;
+        body[3] = (uint8_t)(bad >> 8);
+        fx_cfg_ext(&c, OD_PKT_DISPLAY_LUT, body, n);
+    }
+    fx_cfg_finish(&c);
+    fx_cfg_store(&c);
+    CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL));
+    CHECK(!od_epd_cfg_begin_pass(0u) && od_epd_cfg_last_rc() == OD_EPD_RC_LINT);
+    CHECK(fx_reset_count == 0u && fx_cmd_count == 0u);
+
+    CASE("S6 table with 8 zero bytes: refused before I/O when the family is declared");
+    {
+        static uint8_t t[800];
+
+        memcpy(t, s6->raw, s6->raw_len);
+        memset(&t[300], 0, 8u);
+        store_one(&c, OD_LUT_FAMILY_S6_800, 0u, SEQ_PLAIN, sizeof SEQ_PLAIN, 0u);
+        fx_cfg_ext(&c, OD_PKT_DISPLAY_LUT, body, lut_body_bytes(body, 0u, 0u, t, s6->raw_len));
+        fx_cfg_finish(&c);
+        fx_cfg_store(&c);
+        CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL));
+        CHECK(!od_epd_cfg_begin_pass(0u) && od_epd_cfg_last_rc() == OD_EPD_RC_LINT);
+        CHECK(fx_reset_count == 0u);
+
+        CASE("... the same table with no family declared runs (configs before the tail)");
+        begin_cfg(&c, 1u);
+        add_panel(&c, 0u);
+        add_mode(&c, 0u, 0u, "full", 0, 0, 0, 0u, SEQ_PLAIN, sizeof SEQ_PLAIN);
+        fx_cfg_ext(&c, OD_PKT_DISPLAY_LUT, body, lut_body_bytes(body, 0u, 0u, t, s6->raw_len));
+        fx_cfg_finish(&c);
+        fx_cfg_store(&c);
+        CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL) && pass0());
+    }
+
+    CASE("never-send: an OTP program command in a declared family is refused before I/O");
+    {
+        static const uint8_t seq[] = { 2, 0xA0, 0x00, 1, 0x12, 0, 3, 0, 1, 0, 0 };
+
+        store_one(&c, OD_LUT_FAMILY_JD_BWRY, 0u, seq, sizeof seq, 0xFFu);
+        fx_cfg_finish(&c);
+        fx_cfg_store(&c);
+        CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL));
+        CHECK(!od_epd_cfg_begin_pass(0u) && od_epd_cfg_last_rc() == OD_EPD_RC_LINT);
+        CHECK(fx_reset_count == 0u);
+        begin_cfg(&c, 1u);
+        add_panel(&c, 0u);
+        add_mode(&c, 0u, 0u, "full", 0, 0, 0, 0xFFu, seq, sizeof seq);
+        fx_cfg_finish(&c);
+        fx_cfg_store(&c);
+        CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL) && pass0());
+    }
+    CASE("never-send also covers SUBST and WRITE_SCRATCH command bytes");
+    {
+        static const uint8_t subst[] = { 0, 2, 2, 0x00, 0x91, 0x00, 0x01, 0, 3, 0, 0 };
+        static const uint8_t wscr[] = { 0, 10, 0xFB, 0, 1, 0, 3, 0, 0 };
+
+        store_one(&c, OD_LUT_FAMILY_S6_800, 0u, subst, sizeof subst, 0xFFu);
+        fx_cfg_finish(&c);
+        fx_cfg_store(&c);
+        CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL));
+        CHECK(!od_epd_cfg_begin_pass(0u) && od_epd_cfg_last_rc() == OD_EPD_RC_LINT);
+        store_one(&c, OD_LUT_FAMILY_S6_800, 0u, wscr, sizeof wscr, 0xFFu);
+        fx_cfg_finish(&c);
+        fx_cfg_store(&c);
+        CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL));
+        CHECK(!od_epd_cfg_begin_pass(0u) && od_epd_cfg_last_rc() == OD_EPD_RC_LINT);
+    }
+
+    CASE("a TSC read (0x40) between waveform upload and refresh is refused; before it is fine");
+    {
+        static const uint8_t after[] = { 1, 0x20, 0, 4, 1, 0x40, 0, 3, 2, 0x12, 0x00, 0, 1, 0, 0 };
+        static const uint8_t before[] = { 1, 0x40, 1, 0x20, 0, 4, 0, 3, 2, 0x12, 0x00, 0, 1,
+                                          1, 0x40, 0, 0 };
+
+        store_one(&c, OD_LUT_FAMILY_S6_800, 0u, after, sizeof after, 0u);
+        fx_cfg_ext(&c, OD_PKT_DISPLAY_LUT, body,
+                   lut_body_bytes(body, 0u, 0u, s6->raw, s6->raw_len));
+        fx_cfg_finish(&c);
+        fx_cfg_store(&c);
+        CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL));
+        CHECK(!od_epd_cfg_begin_pass(0u) && od_epd_cfg_last_rc() == OD_EPD_RC_LINT);
+        store_one(&c, OD_LUT_FAMILY_S6_800, 0u, before, sizeof before, 0u);
+        fx_cfg_ext(&c, OD_PKT_DISPLAY_LUT, body,
+                   lut_body_bytes(body, 0u, 0u, s6->raw, s6->raw_len));
+        fx_cfg_finish(&c);
+        fx_cfg_store(&c);
+        CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL) && pass0());
+    }
+
+    CASE("0xB1 busy_timeout_s wins over busy_timeout_ms (120 s floor for cold bands)");
+    store_one(&c, 0u, 120u, SEQ_NOLUT, sizeof SEQ_NOLUT, 0xFFu);
+    fx_cfg_finish(&c);
+    fx_cfg_store(&c);
+    CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL));
+    fx_busy_release_after = 1000000u;
+    fx_clock_ms = 0u;
+    CHECK(!od_epd_cfg_begin_pass(0u) && od_epd_cfg_last_rc() == OD_EPD_RC_BUSY);
+    CHECK(fx_clock_ms >= 120000u && fx_clock_ms <= 120010u);
+    fx_busy_release_after = 0u;
+
+    CASE("a v1 tail with busy_timeout_s 0 keeps busy_timeout_ms");
+    store_one(&c, 0u, 0u, SEQ_NOLUT, sizeof SEQ_NOLUT, 0xFFu);
+    fx_cfg_finish(&c);
+    fx_cfg_store(&c);
+    CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL));
+    fx_busy_release_after = 1000000u;
+    fx_clock_ms = 0u;
+    CHECK(!od_epd_cfg_begin_pass(0u));
+    CHECK(fx_clock_ms >= 1000u && fx_clock_ms <= 1010u);
+    fx_busy_release_after = 0u;
+}
+
+static const uint8_t k_frame8[8] = { 0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7 };
+
+/* `want` appears in the concatenation of every "D" line (the frame may arrive in any slices). */
+static bool trace_data_has(const uint8_t *want, size_t n)
+{
+    static uint8_t all[64u * 1024u];
+    size_t m = 0u;
+    const char *p = fx_trace;
+
+    while ((p = strstr(p, "\nD ")) != NULL) {
+        p += 2;
+        while (*p == ' ' && m < sizeof all) {
+            all[m++] = (uint8_t)strtoul(p + 1, (char **)&p, 16);
+        }
+    }
+    for (size_t i = 0u; i + n <= m; i++) {
+        if (memcmp(&all[i], want, n) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* INLINE_LUT through the stream: [slot][len:2][crc:2][table] prefixes, then the frame. */
+static uint32_t inline_entry(uint8_t *out, uint8_t slot, const uint8_t *t, uint16_t n)
+{
+    const uint16_t c = lut_crc(t, n);
+
+    out[0] = slot;
+    out[1] = (uint8_t)n;
+    out[2] = (uint8_t)(n >> 8);
+    out[3] = (uint8_t)c;
+    out[4] = (uint8_t)(c >> 8);
+    memcpy(&out[5], t, n);
+    return 5u + n;
+}
+
+static bool run_inline(const uint8_t *prefix, uint16_t prefix_n, uint32_t chunk)
+{
+    static uint8_t stream[4096];
+    od_color_geometry_t g;
+    od_epd_cfg_stream_t st;
+    const uint32_t frame = 8u;   /* 16x4 px mono = 8 B */
+    uint32_t off = 0u;
+
+    if (od_color_direct_geometry(g_d0.color_scheme, g_d0.pixel_width, g_d0.pixel_height, &g) !=
+            OD_COLOR_OK || g.total_bytes != frame) {
+        return false;
+    }
+    memcpy(stream, prefix, prefix_n);
+    for (uint32_t i = 0u; i < frame; i++) {
+        stream[prefix_n + i] = (uint8_t)(0xC0u + i);
+    }
+    if (!od_epd_cfg_inline_expect(prefix_n) ||
+        !od_epd_cfg_stream_init(&st, &g, 1u, false, NULL, 0u)) {
+        return false;
+    }
+    while (off < prefix_n + frame) {
+        const uint32_t n = (prefix_n + frame - off) < chunk ? (prefix_n + frame - off) : chunk;
+
+        if (!od_epd_cfg_stream_write(&st, off, stream + off, n, NULL)) {
+            return false;
+        }
+        off += n;
+    }
+    return od_epd_cfg_finish();
+}
+
+static void test_inline_lut(void)
+{
+    static uint8_t prefix[2200];
+    static uint8_t stored[4u + 800u];
+    const lut_vector_t *s6 = vector_of(OD_LUT_FAMILY_S6_800);
+    fx_cfg_t c;
+    uint32_t n;
+
+    if (s6 == NULL) {
+        CHECK(false);
+        return;
+    }
+    static const uint32_t chunks[] = { 1u, 7u, 64u, 244u, 4096u };
+    for (size_t k = 0; k < sizeof chunks / sizeof chunks[0]; k++) {
+        CASE("INLINE_LUT: an inline table shadows the stored slot, at any DATA chunking");
+        store_one(&c, OD_LUT_FAMILY_S6_800, 0u, SEQ_PLAIN, sizeof SEQ_PLAIN, 1u);
+        {
+            static uint8_t other[800];
+
+            memcpy(other, s6->raw, sizeof other);
+            other[100] ^= 0x01u;   /* still lints; differs from the inline table */
+            fx_cfg_ext(&c, OD_PKT_DISPLAY_LUT, stored, lut_body_bytes(stored, 0u, 1u, other, 800u));
+        }
+        fx_cfg_finish(&c);
+        fx_cfg_store(&c);
+        CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL));
+        n = inline_entry(prefix, 1u, s6->raw, s6->raw_len);
+        CHECK(fx_reset_count == 0u);
+        CHECK(run_inline(prefix, (uint16_t)n, chunks[k]));
+        CHECK(fx_reset_count == 1u);                     /* pass 0 began after the prefix */
+        CHECK(trace_has_lut(s6->raw, s6->raw_len));
+        CHECK(trace_data_has(k_frame8, sizeof k_frame8));
+    }
+
+    CASE("INLINE_LUT: without a stored slot at all");
+    store_one(&c, OD_LUT_FAMILY_S6_800, 0u, SEQ_PLAIN, sizeof SEQ_PLAIN, 4u);
+    fx_cfg_finish(&c);
+    fx_cfg_store(&c);
+    CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL));
+    n = inline_entry(prefix, 4u, s6->raw, s6->raw_len);
+    CHECK(run_inline(prefix, (uint16_t)n, 100u));
+    CHECK(trace_has_lut(s6->raw, s6->raw_len));
+
+    CASE("INLINE_LUT: the next load drops the inline table");
+    CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL));
+    CHECK(!od_epd_cfg_begin_pass(0u) && od_epd_cfg_last_rc() == OD_EPD_RC_LINT);
+
+    CASE("INLINE_LUT: bad CRC, failed lint, duplicate slot, bad slot id, short prefix all refuse");
+    {
+        static uint8_t t[800];
+
+        CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL));
+        n = inline_entry(prefix, 4u, s6->raw, s6->raw_len);
+        prefix[10] ^= 0x01u;
+        CHECK(!run_inline(prefix, (uint16_t)n, 64u));
+        CHECK(fx_reset_count == 0u);
+
+        CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL));
+        memcpy(t, s6->raw, sizeof t);
+        memset(&t[500], 0, 8u);
+        n = inline_entry(prefix, 4u, t, sizeof t);
+        CHECK(!run_inline(prefix, (uint16_t)n, 64u));
+
+        CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL));
+        n = inline_entry(prefix, 4u, s6->raw, s6->raw_len);
+        n += inline_entry(prefix + n, 4u, s6->raw, s6->raw_len);
+        CHECK(!run_inline(prefix, (uint16_t)n, 64u));
+
+        CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL));
+        n = inline_entry(prefix, 16u, s6->raw, s6->raw_len);
+        CHECK(!run_inline(prefix, (uint16_t)n, 64u));
+
+        CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL));
+        n = inline_entry(prefix, 4u, s6->raw, s6->raw_len);
+        CHECK(!run_inline(prefix, (uint16_t)(n - 3u), 64u));   /* prefix ends inside a table */
+        CHECK(fx_reset_count == 0u);
+    }
+
+    CASE("INLINE_LUT: two tables for two slots (cache size permitting)");
+    {
+        static const uint8_t seq2[] = { 1, 0x20, 0, 4, 0, 3, 0, 1, 0, 0 };
+
+        begin_cfg(&c, 1u);
+        fx_cfg_ext(&c, OD_PKT_DISPLAY_PANEL, g_b, panel_body_ext(g_b, 0u, OD_LUT_FAMILY_S6_800, 0u));
+        fx_cfg_ext(&c, OD_PKT_DISPLAY_MODE, g_b,
+                   mode_body(g_b, 0u, 0u, "full", 1u, 0, 0, 0, 6u, seq2, sizeof seq2));
+        fx_cfg_finish(&c);
+        fx_cfg_store(&c);
+        CHECK(load(&g_d0) && od_epd_cfg_select(0u, NULL));
+        n = inline_entry(prefix, 3u, s6->raw, s6->raw_len);
+        const lut_vector_t *s6b = NULL;
+
+        for (size_t v = 0; v < sizeof k_lut_vectors / sizeof k_lut_vectors[0]; v++) {
+            if (k_lut_vectors[v].family == OD_LUT_FAMILY_S6_800 && &k_lut_vectors[v] != s6) {
+                s6b = &k_lut_vectors[v];
+            }
+        }
+        CHECK(s6b != NULL);
+        n += inline_entry(prefix + n, 6u, s6b->raw, s6b->raw_len);
+        CHECK(run_inline(prefix, (uint16_t)n, 50u) == (OD_EPD_LUT_CACHE >= 2u));
+    }
+}
+
 int main(void)
 {
     test_golden();
@@ -1046,6 +1452,8 @@ int main(void)
     test_sleep_sequence();
     test_busy();
     test_config_write_during_pass();
+    test_refresh_modes();
+    test_inline_lut();
     printf("epd_cfg: %u known bugs\n", fx_xfail_count);
     return OD_CHECK_REPORT_NONEMPTY("epd_cfg", 130);
 }

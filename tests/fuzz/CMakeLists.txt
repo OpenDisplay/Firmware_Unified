@@ -64,6 +64,7 @@ set(OD_FUZZ_CORE ${CMAKE_CURRENT_LIST_DIR}/../../shared/core)
 set(OD_FUZZ_DRIVE_SOURCES
     ${OD_FUZZ_CORE}/od_cfg_index.c
     ${OD_FUZZ_CORE}/od_epd.c
+    ${OD_FUZZ_CORE}/od_epd_lut.c
     ${OD_FUZZ_CORE}/od_epd_cfg.c
     ${OD_FUZZ_CORE}/od_action.c
     ../host/od_log_test_stub.c)

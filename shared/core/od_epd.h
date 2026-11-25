@@ -72,7 +72,7 @@ extern "C" {
  * buffer: slots are streamed. Published to hosts as drive_presets.json caps.lut_max, so a build
  * that overrides it diverges from what hosts assume; only host tests do. */
 #ifndef OD_EPD_LUT_BYTES
-#define OD_EPD_LUT_BYTES      535u   /* 7-byte analog header + 528-byte body */
+#define OD_EPD_LUT_BYTES      1024u  /* S6 800 B, JD-BWRY 535 B; also the inflated ceiling */
 #endif
 /* 20: the longest sleep sequence is the 4.2in SSD16xx's discharge plus its 200 ms bleed DELAY
  * (19 B; panels/tools/pdlib.py POST_SLEEP_BLEED). */
@@ -194,6 +194,9 @@ extern "C" {
 #define OD_EPD_RC_IO         -8   /* a sequence read failed or came back short */
 #define OD_EPD_RC_STALE      -9   /* the stored config changed under the pass
                                    * (io->config_gen moved since it began) */
+#define OD_EPD_RC_LINT      -10   /* refused by the family lint (od_epd_lut.h): a never-send
+                                   * command, a TSC read between waveform upload and refresh,
+                                   * or a waveform step with no valid slot. NOTHING was sent. */
 
 /* One drive mode. */
 typedef struct {
@@ -219,6 +222,8 @@ typedef struct {
     uint32_t busy_fixed_delay_ms;
     uint8_t  sleep_seq[OD_EPD_SLEEP_SEQ_MAX];
     uint8_t  sleep_seq_len;
+    /* 0xB1 tail lut_family (OD_LUT_FAMILY_*); 0 = undeclared, no family lint. */
+    uint8_t  lut_family;
     /* How many modes the config declares. NOT an array bound: modes are read
      * one at a time through io->mode_read, so the count is limited only by how
      * many 0x2E packets fit in the config. An earlier revision held
@@ -292,6 +297,7 @@ typedef struct {
     /* Filled by od_epd_validate(): whether the sequence has a WINDOW step, and the offset just
      * past its last image marker (0 = none). */
     bool                   seq_has_window;
+    bool                   seq_has_lut;
     uint16_t               seq_tail;
     /* io->config_gen at pass start (gen_on: the hook exists and a pass sampled it). */
     uint32_t               gen;
@@ -325,6 +331,9 @@ typedef struct {
 
 int  od_epd_init(od_epd_t *e, const od_panel_desc_t *d, const od_epd_io_t *io);
 int  od_epd_select_mode(od_epd_t *e, uint8_t mode);
+/* The structure, capability and family-lint scan begin_pass runs first, alone: no panel I/O,
+ * no waveform resolve. Lets a START refuse a mode whose waveform arrives later in the stream. */
+int  od_epd_check_pass(od_epd_t *e, uint8_t pass);
 
 /* Static pre-scan of the referenced sequence, read through the same window as
  * execution: structure (step bounds, arg counts) plus CAPABILITY (every escape

@@ -12,6 +12,7 @@
 #include "od_cmd_app.h"
 
 #include "od_display_drive.h"
+#include "od_epd_lut.h"
 #include "od_reply.h"
 #include "od_xfer.h"
 #include "opendisplay_display.h"
@@ -53,6 +54,10 @@ od_cmd_result_t od_cmd_app_drive_write_start(const od_cmd_ctx_t *ctx, od_span_t 
     }
     /* Reserved bytes are REJECTED, not ignored: accepting junk now means a future host cannot
      * tell whether this device understood a field it set. */
+    /* INLINE_LUT needs the waveform cache this part has no RAM for. */
+    if ((body.p[2] & DRIVE_WRITE_FLAG_INLINE_LUT) != 0u) {
+        return nack(ctx, OD_ERR_DRIVE_UNSUPPORTED, body.p[0]);
+    }
     if (body.p[3] != 0u || body.p[4] != 0u) {
         return nack(ctx, OD_ERR_DRIVE_BAD_ARGS, body.p[0]);
     }

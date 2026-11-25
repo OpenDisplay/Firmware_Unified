@@ -107,6 +107,11 @@ Accepted, documented differences (a stream that differs only by these is `equiva
 - **D6 both-CS transfers.** On the dual-controller Spectra panels bb_epaper sends some commands
   to both controllers at once; od_epd has no both-CS select, so the same transfer goes to cs0
   then cs1. The reference stream is expanded the same way before comparing.
+- **D9 DRF slave first.** The one exception to D6's order: a both-CS DRF (0x12) goes to cs1, then
+  cs0. The slave's refresh runs off the main chip's. On the GDEB0709E01 a slave DRF sent after the
+  main one still draws but then holds BUSY low indefinitely, and a DRF to the main chip alone
+  draws only its half; slave-then-main draws both halves and releases BUSY after the stock
+  ~30 s (EE02, 2026-11-25, docs/HARDWARE_VERIFICATION_CHECKLIST.md).
 - **D8 partial window on a whole-panel update.** A WINDOW/FILL partial mode always sends the
   window commands and the two white fills; 2.x skips both when the rectangle is the whole panel.
   Equivalence for these modes is checked on the three captured sub-rectangles.
