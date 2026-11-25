@@ -254,10 +254,13 @@ def build_ee02() -> dict:
         (4, "partial4ink", s709_custom("0F 00 1A 22 24 26", 0x04), 1, 0, 0, 1,
          "G7_N8_mixB flashing partial, 11.5 s, band-robust (sets 4 and 5); K/W/Y/B targets only "
          "(no R/G drive: an R or G cell keeps its old ink); codes 4/7 hold (R-0240, R-0242) [1 ex]"),
-        (5, "morecolours", s709_custom("0F 00 1A 24 30 38", 0x08), [0, 2, 3], -40, 25, 1,
-         "3 passes G13 -> PS_best_A -> MIXg on set 4 (PLL-04 tables carry a rate-4 LUTC), about 40 s; "
-         "74 distinct colours at dE00 5 (38 at 8) vs 6 stock, camera-provisional; the 0xB0 holds a "
-         "32-entry maximin palette in 3-bit codes (T-115)"),
+        (5, "colour32", s709_custom("0F 00 1A 24 30 38", 0x08), [0, 2, 3], -40, 25, 1,
+         "32 colours in 3 passes, G13 -> PS_best_A -> MIXg on set 4 (PLL-04 tables carry a rate-4 "
+         "LUTC), about 35 s; 74 distinct at dE00 5 (38 at 8) vs 6 stock, camera-provisional; 0xB0 = "
+         "32-entry maximin palette in 3-bit codes (T-115, R-0244)"),
+        (6, "colour20", s709_custom("0F 00 1A 24 30 38", 0x08), [0, 2], -40, 25, 1,
+         "20 colours in 2 passes, G13 -> PS_best_A on set 4, about 27 s; 29 distinct at dE00 5 (19 at "
+         "8) vs 6 stock, camera-provisional; 0xB0 = 20-entry maximin palette in 3-bit codes (R-0244)"),
     ]
     luts = {0: "s6_709_G13.bin", 1: "s6_709_G7_N8_mixB.bin", 2: "s6_709_PSA_r4.bin",
             3: "s6_709_MIXg_r4.bin"}
@@ -269,7 +272,7 @@ def build_ee02() -> dict:
             b = b[:35] + struct.pack("<H", len(seq)) + seq
         pkts.append((pid, b))
     return assemble(key, "0x0042", pkts, modes, luts, budget=10, family=FAMILY_S6, timeout_s=120,
-                    cals={5: "palettes/ee02_709_morecolours.json"})
+                    cals={5: "palettes/ee02_709_colour32.json", 6: "palettes/ee02_709_colour20.json"})
 
 
 # ------------------------------------------------------------------------------------- assembly
