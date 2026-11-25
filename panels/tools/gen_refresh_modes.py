@@ -29,6 +29,7 @@ sys.path.insert(0, str(HERE))
 import pdlib as P  # noqa: E402
 
 REPO = HERE.parents[1]
+PANELS = REPO / "panels"
 WAVES = REPO / "panels" / "waves"
 PRESETS = REPO / "panels" / "generated" / "drive_presets.json"
 OUT_JSON = REPO / "panels" / "generated" / "refresh_modes.json"
@@ -253,8 +254,13 @@ def build_ee02() -> dict:
         (4, "partial4ink", s709_custom("0F 00 1A 22 24 26", 0x04), 1, 0, 0, 1,
          "G7_N8_mixB flashing partial, 11.5 s, band-robust (sets 4 and 5); K/W/Y/B targets only "
          "(no R/G drive: an R or G cell keeps its old ink); codes 4/7 hold (R-0240, R-0242) [1 ex]"),
+        (5, "morecolours", s709_custom("0F 00 1A 24 30 38", 0x08), [0, 2, 3], -40, 25, 1,
+         "3 passes G13 -> PS_best_A -> MIXg on set 4 (PLL-04 tables carry a rate-4 LUTC), about 40 s; "
+         "74 distinct colours at dE00 5 (38 at 8) vs 6 stock, camera-provisional; the 0xB0 holds a "
+         "32-entry maximin palette in 3-bit codes (T-115)"),
     ]
-    luts = {0: "s6_709_G13.bin", 1: "s6_709_G7_N8_mixB.bin"}
+    luts = {0: "s6_709_G13.bin", 1: "s6_709_G7_N8_mixB.bin", 2: "s6_709_PSA_r4.bin",
+            3: "s6_709_MIXg_r4.bin"}
     # Base: the 0x0042 packets with mode 0 replaced by the lab-order stream.
     pkts = []
     for pid, b in base_packets("0x0042"):
@@ -262,14 +268,15 @@ def build_ee02() -> dict:
             seq = ee02_lab_seq()
             b = b[:35] + struct.pack("<H", len(seq)) + seq
         pkts.append((pid, b))
-    return assemble(key, "0x0042", pkts, modes, luts, budget=10, family=FAMILY_S6, timeout_s=120)
+    return assemble(key, "0x0042", pkts, modes, luts, budget=10, family=FAMILY_S6, timeout_s=120,
+                    cals={5: "palettes/ee02_709_morecolours.json"})
 
 
 # ------------------------------------------------------------------------------------- assembly
 name_of = {"0x0023": "s73_spectra6", "0x001E": "ep29yr_bwry", "0x0042": "ee02_709_spectra6"}
 
 def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int,
-             timeout_s: int, compress: bool = True) -> dict:
+             timeout_s: int, compress: bool = True, cals=None) -> dict:
     out_pkts, extra = [], []
     top = max(m[0] for m in modes) + 1
     for pid, b in pkts:
@@ -278,11 +285,14 @@ def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int
         out_pkts.append((pid, b))
     for idx, name, steps, slot, tmin, tmax, cost, note in modes:
         seq = P.encode_steps(steps)
-        body = P.mode_body(idx, name, seq, slots=[slot] if slot is not None else None,
+        # A list of slots is a multi-pass mode: pass n uploads slots[n]; the sequence runs once per pass.
+        slots = list(slot) if isinstance(slot, (list, tuple)) else [slot] if slot is not None else None
+        body = P.mode_body(idx, name, seq, slots=slots, passes=len(slots) if slots else 1,
                            tmin=tmin, tmax=tmax, policy=ADVISORY) + mode_tail(cost, hold_mask=HOLD_MASK.get((name_of[base], name)))
         out_pkts.append((0xAE, body))
         extra.append({"mode_index": idx, "name": name, "experimental": True,
                       "experimental_note": note, "budget_cost": cost, "lut_slot": slot,
+                      "passes": len(slots) if slots else 1,
                       "hold_mask": HOLD_MASK.get((name_of[base], name)),
                       "temp_window_c": [tmin, tmax] if (tmin or tmax) else None,
                       "seq_steps": len(steps) + 1, "seq_bytes": len(seq)})
@@ -293,10 +303,18 @@ def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int
         out_pkts.append((0xAF, body))
         lut_meta.append({"slot": slot, "compressed": compress, "wave": fn, "raw_bytes": len(data),
                          "stored_bytes": len(body) - 4})
+    cal_meta = []
+    # cals: {mode_index: palette JSON path}; the 0xB0 a host needs to encode that multi-pass mode.
+    for idx, fn in sorted((cals or {}).items()):
+        pal = json.loads((PANELS / fn).read_text())
+        entries = [(tuple(e["codes"]), tuple(e["lab"])) for e in pal["entries"]]
+        out_pkts.append((0xB0, P.cal_body(idx, entries, pal["measured"], code_bits=pal["code_bits"])))
+        cal_meta.append({"mode_index": idx, "palette": fn, "entries": len(entries),
+                         "code_bits": pal["code_bits"], "measured": pal["measured"]})
     framed = b"".join(P.frame(i + 1, pid, b) for i, (pid, b) in enumerate(out_pkts))
     return {"name": name_of[base], "key": f"0x{key:04X}", "base_preset": base, "drive_rev": DRIVE_REV,
             "budget_limit": budget, "lut_family": family, "busy_timeout_s": timeout_s,
-            "modes": extra, "luts": lut_meta, "config_bytes": len(framed),
+            "modes": extra, "luts": lut_meta, **({"calibrations": cal_meta} if cal_meta else {}), "config_bytes": len(framed),
             "packets": [{"id": pid, "body_hex": b.hex()} for pid, b in out_pkts],
             "_framed": framed}
 

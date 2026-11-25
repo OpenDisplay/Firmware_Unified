@@ -18,6 +18,7 @@
           "experimental_note": "stock waveform, PLL 08 (dynamic rate): 19.2 s vs 22.3 s (R-0013)",
           "budget_cost": 0,
           "lut_slot": null,
+          "passes": 1,
           "hold_mask": null,
           "temp_window_c": null,
           "seq_steps": 26,
@@ -30,6 +31,7 @@
           "experimental_note": "upload-path acceptance test: byte-true OTP set 6 at its rails, = stock (R-0186)",
           "budget_cost": 1,
           "lut_slot": 0,
+          "passes": 1,
           "hold_mask": null,
           "temp_window_c": [
             -40,
@@ -45,6 +47,7 @@
           "experimental_note": "upload-path acceptance test: byte-true OTP set 7 at its rails (R-0229)",
           "budget_cost": 1,
           "lut_slot": 1,
+          "passes": 1,
           "hold_mask": null,
           "temp_window_c": [
             25,
@@ -60,6 +63,7 @@
           "experimental_note": "F1d6 shake trim on set 6, 16.2 s, band <= 24.5 C (R-0205, R-0231)",
           "budget_cost": 1,
           "lut_slot": 2,
+          "passes": 1,
           "hold_mask": null,
           "temp_window_c": [
             -40,
@@ -75,6 +79,7 @@
           "experimental_note": "F1d7 shake trim on set 7, 16.2 s, band > 24.5 C (R-0231)",
           "budget_cost": 1,
           "lut_slot": 3,
+          "passes": 1,
           "hold_mask": null,
           "temp_window_c": [
             25,
@@ -90,6 +95,7 @@
           "experimental_note": "flashing partial S3_N0_wgap0 on set 6, 15.2 s; code 4 = hold (R-0234)",
           "budget_cost": 1,
           "lut_slot": 4,
+          "passes": 1,
           "hold_mask": 16,
           "temp_window_c": [
             -40,
@@ -105,6 +111,7 @@
           "experimental_note": "host-built per-update table (N2): needs INLINE_LUT for slot 5 every time (R-0239)",
           "budget_cost": 1,
           "lut_slot": 5,
+          "passes": 1,
           "hold_mask": null,
           "temp_window_c": null,
           "seq_steps": 36,
@@ -228,6 +235,7 @@
           "experimental_note": "stock waveform at fixed PLL 07: 9.2 s, ~8 % chroma loss (R-0046)",
           "budget_cost": 0,
           "lut_slot": null,
+          "passes": 1,
           "hold_mask": null,
           "temp_window_c": null,
           "seq_steps": 21,
@@ -240,6 +248,7 @@
           "experimental_note": "BW2_kick3_w10 (B4 N0) full-window partial: 0 = to K, 1 = to W, 2/3 hold; product cycle K 3.1 / W 2.9 dE00 at 100 updates (R-0237, R-0238) [1 ex]",
           "budget_cost": 1,
           "lut_slot": 2,
+          "passes": 1,
           "hold_mask": 12,
           "temp_window_c": null,
           "seq_steps": 26,
@@ -311,6 +320,7 @@
           "experimental_note": "stock waveform at PLL 04: 22.6 s vs 30.2 s, max dE 2.7 (R-0032)",
           "budget_cost": 0,
           "lut_slot": null,
+          "passes": 1,
           "hold_mask": null,
           "temp_window_c": null,
           "seq_steps": 88,
@@ -323,6 +333,7 @@
           "experimental_note": "stock waveform; pixel codes 4 and 7 are hardwired holds on this chip, so the host writes 4 for unchanged pixels (R-0032) [1 ex]",
           "budget_cost": 1,
           "lut_slot": null,
+          "passes": 1,
           "hold_mask": 144,
           "temp_window_c": null,
           "seq_steps": 86,
@@ -335,6 +346,7 @@
           "experimental_note": "G13 on set 4, 17.5 s, worst 2.04; scrub every ~10 (R-0204, R-0221)",
           "budget_cost": 1,
           "lut_slot": 0,
+          "passes": 1,
           "hold_mask": null,
           "temp_window_c": [
             -40,
@@ -350,8 +362,29 @@
           "experimental_note": "G7_N8_mixB flashing partial, 11.5 s, band-robust (sets 4 and 5); K/W/Y/B targets only (no R/G drive: an R or G cell keeps its old ink); codes 4/7 hold (R-0240, R-0242) [1 ex]",
           "budget_cost": 1,
           "lut_slot": 1,
+          "passes": 1,
           "hold_mask": 144,
           "temp_window_c": null,
+          "seq_steps": 94,
+          "seq_bytes": 330
+        },
+        {
+          "mode_index": 5,
+          "name": "morecolours",
+          "experimental": true,
+          "experimental_note": "3 passes G13 -> PS_best_A -> MIXg on set 4 (PLL-04 tables carry a rate-4 LUTC), about 40 s; 74 distinct colours at dE00 5 (38 at 8) vs 6 stock, camera-provisional; the 0xB0 holds a 32-entry maximin palette in 3-bit codes (T-115)",
+          "budget_cost": 1,
+          "lut_slot": [
+            0,
+            2,
+            3
+          ],
+          "passes": 3,
+          "hold_mask": null,
+          "temp_window_c": [
+            -40,
+            25
+          ],
           "seq_steps": 94,
           "seq_bytes": 330
         }
@@ -370,13 +403,36 @@
           "wave": "s6_709_G7_N8_mixB.bin",
           "raw_bytes": 800,
           "stored_bytes": 191
+        },
+        {
+          "slot": 2,
+          "compressed": true,
+          "wave": "s6_709_PSA_r4.bin",
+          "raw_bytes": 800,
+          "stored_bytes": 111
+        },
+        {
+          "slot": 3,
+          "compressed": true,
+          "wave": "s6_709_MIXg_r4.bin",
+          "raw_bytes": 800,
+          "stored_bytes": 180
         }
       ],
-      "config_bytes": 2378,
+      "calibrations": [
+        {
+          "mode_index": 5,
+          "palette": "palettes/ee02_709_morecolours.json",
+          "entries": 32,
+          "code_bits": 3,
+          "measured": true
+        }
+      ],
+      "config_bytes": 3324,
       "packets": [
         {
           "id": 177,
-          "body_hex": "00030160ea000000010203050b02020000080102020000000100000100000a0178"
+          "body_hex": "00030160ea000000010203060b02020000080102020000000100000100000a0178"
         },
         {
           "id": 174,
@@ -399,12 +455,28 @@
           "body_hex": "00047061727469616c34696e6b00ff0100000001ffffffffffffff00000000000000004a010a74000c0cd9dddd15155500050a0007f04955135d051000080107f04955135d051000080000050a000300dfe90008010300dfe900080000050a0004a544540000050a0002503700080102503700080000050a00036003030008010360030300080000050a0002861000080102861000080000050a0002e32200080102e32200080000050a00056104b00320000801056104b0032000080000050a0007010f001a22242600050a0002b60700050a000306e02000050a0002b70100050a000305e02000050a0002b00100050a0002b102000800023004012000040008010120000400080000050a0002e00100080102e0010008000005010000010110000700020008010110000701020008000104000801010400080000050100000100051e0000080102120100080002120100050100000100051e000202000008010202000008000005010000010000010101ff90"
         },
         {
+          "id": 174,
+          "body_hex": "00056d6f7265636f6c6f75727300ff03d81900000203ffffffffff00000000000000004a010a74000c0cd9dddd15155500050a0007f04955135d051000080107f04955135d051000080000050a000300dfe90008010300dfe900080000050a0004a544540000050a0002503700080102503700080000050a00036003030008010360030300080000050a0002861000080102861000080000050a0002e32200080102e32200080000050a00056104b00320000801056104b0032000080000050a0007010f001a24303800050a0002b60700050a000306e02000050a0002b70100050a000305e02000050a0002b00100050a0002b102000800023008012000040008010120000400080000050a0002e00100080102e0010008000005010000010110000700020008010110000701020008000104000801010400080000050100000100051e0000080102120100080002120100050100000100051e000202000008010202000008000005010000010000010101ff"
+        },
+        {
           "id": 175,
           "body_hex": "0080eb0cc5523b4e0331143c412e8264250720d913204e10ed0912774b938d4f40418da04154616521400856591f21251512e9634d4180227887b7d9052424200de215f6e83dcfbc9f39ba7e5e16011a17a4a198c047396b48f1ba0616ef5ef3e9351fde9acc2f10213fdd5a214988a997c091300894aeed765566a8e138d088a854009d5af4616d23f893c1e5c387e55a172c99992eb358f99272556c49c1a18fa31a8e756af4b64d37d19d142117dd047861d2f46633da45046900162ba4f788a448046a935a2af6e4d59ef1683bf74d0ae15e753aeba03bb919b816f45414e67365f6adc64e11cde9715c976e32114668f77faff7af4cd6529c1fe0b22a87afeb4d0f62051e4ab7e519d88c12a99b19c81fe8c24c116f30dfa7bc6727d5de4c2de29d6e8d714b0baf944c3a0a770cf2db5c95d8ead10c1966ff3707be01"
         },
         {
           "id": 175,
           "body_hex": "008106fed5502b0ec250103c0297c0a3484d438fc0116a0949790e04b4ef28281469aa00c1e749243740e1a019039414fa86d762a8a206d14d76339bdd994c8693d1cada65fc5321e5eed44301e737ad35b43ea20493029a3ba6544a6ced3e1131319620450c28ab2d2f1038e05bf7cea61ce39cd37ee9c666846ece86d907b1eb7c60207c29ecc82fe95e394bdb15fd8661cb539169804f76a822c79386fb9864589807d6b7b0e47ac88a39f0451d009b6e1ea5b6094739126aaf0421468d3ae7c037"
+        },
+        {
+          "id": 175,
+          "body_hex": "00829b06fb5fb3fddb977d7fdfff7feffffffffbff6000a5a8c104324aa0dcf7dfffdbc198f7ff97c19830441a006ac88499f0fbbf2e8cf9f9ff578acdfd8530f70dc2e96f2836b71061ee7e84b97b11a27f29b382aa0068fb5f84cb4a61cceb88d0213b1cf21091f50a6185cd20f23c320000"
+        },
+        {
+          "id": 175,
+          "body_hex": "0083ecb2b591310a023110452fa478008b3d897804b137ce4d3c819a5254743d815b5a8a8d8dc82f14b758c237814d82109b751d486632307f665e3859bd9e7b03e240827417c675185ce310258dd7adb6508431946f45cabeeec0708a0d017485d49939b991e00e35f202820256b7e375cfec7fe8fc62567719e6e5d5870fae633734e866cb8e75998e594972c893d9ec62d1cc5c0290054702d31bb4b47562de2a40b5486e91c33c72d835e150baf5bc826aeddffe666f"
+        },
+        {
+          "id": 176,
+          "body_hex": "0005032031019c2904fd61122001350a340657fead01e71cf5fe31f8060093187b01fe0d0b017a0e0e14c51333019322710ac11921019c27380060000e011a151dfa730315010b11f50076ef9001db178504ab026a01b71f3001e905e200670f14008b061801881c1509dc0da601891c07fa070a4a00f421c6ff1b17e0001610ce062b0959016820ff021ffe55005b270b02b007e900021491ffe8fe1b019f170e14861122016d28860070209601ee1929fcabfe8001a9223605ba0880001c172bfe1e0832007b162f07350e1d01a4239bfe460ba001f910e007ea011201920dd20238fc29014c1877014ef1990171265afe0e05a801db1a02018f035300522050056410"
         }
       ]
     }
