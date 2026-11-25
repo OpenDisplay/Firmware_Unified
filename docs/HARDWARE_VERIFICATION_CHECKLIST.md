@@ -68,7 +68,15 @@ debug build, `photos/ee02_dualcs_*.jpg` rigcam crops). Two defects, both needed:
       ACK 39.8 / 39.9 s, 2026-11-25 (`photos/ee02_dualcs_3*`, `_4*`)
 - [ ] The generated `0x0042` default preset (PON before the frame) on this glass
 - [ ] `0x002B` EP81 Spectra 1024x576 (same D9 change) and the 13.3in T133A01 — no such panel here
-- [ ] Refresh modes 1-4 of `ee02_709_spectra6` (deskee02.py re-run)
+- [x] Mode 1 `pll04`: write ACK 32.8 s vs `full` 39.8 s; dE00 [cam] vs `full` median 0.60, max
+      2.27 (repeat `full` vs `full`: 0.72 / 1.96), 2026-11-25 (`runee02_run3.out`)
+- [x] Mode 2 `hold47`: code-4 cells kept their ink (max 1.63), driven cells match `full` (max
+      0.46), 2026-11-25
+- [ ] Mode 3 `fastg13`: not run. deskee02.py needs a panel temperature for its -40..25 C window,
+      and this path reports none (`temp_c` null: no SHT40, and the bus has no MISO read)
+- [ ] Mode 4 `partialmix`: **FAILS** on this run. After three partial updates, 8 of 48 cells kept
+      their previous ink, all W->R or R->G transitions; other driven changes landed. The script's
+      median (0.26) hides it, max 17.2. Panel temperature unknown (lab result was for sets 4/5)
 - [ ] Nordic: `od_epd_nordic.c` still frames CS per cmd/data call; a dual-CS panel there needs
       the same fix
 
