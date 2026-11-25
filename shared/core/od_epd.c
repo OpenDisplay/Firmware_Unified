@@ -5,6 +5,7 @@
  * every byte it writes came out of the device config.
  */
 #include "od_epd.h"
+#include "od_epd_lut.h"
 #include "opendisplay_structs.h" /* OD_STATIC_ASSERT only */
 
 #include <string.h>
@@ -19,6 +20,7 @@
 #define OD_ERR_UNSUP    OD_EPD_RC_UNSUP
 #define OD_ERR_IO       OD_EPD_RC_IO
 #define OD_ERR_STALE    OD_EPD_RC_STALE
+#define OD_ERR_LINT     OD_EPD_RC_LINT
 
 /* Streaming chunk for the waveform. 64 B of stack against a 535-byte upload:
  * the alternative is a resident 535-byte buffer, which is 1.7% of this part's
@@ -295,7 +297,13 @@ int od_epd_validate(od_epd_t *e)
     if (e == NULL || e->io == NULL) {
         return OD_ERR_ARG;
     }
+    const uint8_t family = e->desc != NULL ? e->desc->lut_family : 0u;
+    /* A waveform upload is followed by its refresh (0x12) with no temperature read (0x40) in
+     * between: on the 7.09in class a TSC read reloads the waveform register from OTP. */
+    bool lut_pending = false;
+
     e->seq_has_window = false;
+    e->seq_has_lut = false;
     e->seq_tail = 0u;
 
     while (i < e->seq_len) {
@@ -306,6 +314,32 @@ int od_epd_validate(od_epd_t *e)
         if (rc != OD_OK) {
             return rc;
         }
+        if (family != 0u) {
+            int cmd = -1;
+
+            if (st.n != 0u) {
+                const uint8_t *p = seq_at(e, i, 2u, &rc);
+
+                if (p == NULL) {
+                    return rc;
+                }
+                cmd = p[1];
+            } else if (st.esc == OD_EPD_ESC_WRITE_SCRATCH) {
+                cmd = st.a[0];
+            } else if ((st.esc == OD_EPD_ESC_WAVE || st.esc == OD_EPD_ESC_WINDOW) &&
+                       st.a[0] == 0x00u) {
+                cmd = st.a[1];
+            }
+            if (cmd >= 0) {
+                if (od_lut_never_send(family, (uint8_t)cmd) ||
+                    (lut_pending && cmd == 0x40)) {
+                    return OD_ERR_LINT;
+                }
+                if (cmd == 0x12) {
+                    lut_pending = false;
+                }
+            }
+        }
         i = (uint16_t)(i + st.size);
         if (st.n == 0u) {
             if (st.esc == OD_EPD_SEQ_END) {
@@ -313,6 +347,10 @@ int od_epd_validate(od_epd_t *e)
             }
             if (st.esc == OD_EPD_ESC_IMAGE || st.esc == OD_EPD_ESC_IMAGE_SLICE) {
                 e->seq_tail = i;
+            }
+            if (st.esc == OD_EPD_ESC_LUT || st.esc == OD_EPD_ESC_LUT_SLICE) {
+                e->seq_has_lut = true;
+                lut_pending = true;
             }
             e->seq_has_window = e->seq_has_window || st.esc == OD_EPD_ESC_WINDOW;
         }
@@ -656,6 +694,28 @@ static int pass_failed(od_epd_t *e, int rc)
     return rc;
 }
 
+int od_epd_check_pass(od_epd_t *e, uint8_t pass)
+{
+    const od_epd_mode_t *m = &e->active;
+    int vrc;
+
+    if (pass >= m->passes) {
+        return OD_ERR_MODE;
+    }
+    if (m->seq_len == 0u) {
+        return OD_ERR_SEQ;
+    }
+    e->pass = pass;
+    seq_open(e, SRC_MODE, e->mode, m->seq_len);
+    vrc = od_epd_validate(e);
+#if OD_EPD_WITH_WINDOW
+    if (vrc == OD_OK && !window_is_panel(e) && !e->seq_has_window) {
+        vrc = OD_ERR_UNSUP;
+    }
+#endif
+    return vrc;
+}
+
 int od_epd_begin_pass(od_epd_t *e, uint8_t pass)
 {
     const od_epd_mode_t *m = &e->active;
@@ -693,6 +753,11 @@ int od_epd_begin_pass(od_epd_t *e, uint8_t pass)
         int lrc = resolve_lut(e, m->lut_slot[pass], m->vsn1[pass]);
         if (lrc != OD_OK) {
             return lrc;
+        }
+        /* The slot is absent, failed its CRC or its family lint: refuse before any panel I/O
+         * rather than at the LUT step, mid-sequence with the rails coming up. */
+        if (e->seq_has_lut && !e->lut_have && e->desc->lut_family != 0u) {
+            return OD_ERR_LINT;
         }
     }
 

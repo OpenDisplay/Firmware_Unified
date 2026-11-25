@@ -28,7 +28,7 @@ endforeach()
 # Default profile only: the BG22 interpreter differs only by OD_EPD_WITH_WINDOW=0, a target
 # compile definition outside od_shared_silabs; tests/panels replays every panel through that build.
 add_executable(od_epd_cfg_test epd_cfg_test.c od_log_test_stub.c
-    ${OD_SHARED_CORE}/od_epd_cfg.c ${OD_SHARED_CORE}/od_epd.c ${OD_SHARED_CORE}/od_cfg_index.c)
+    ${OD_SHARED_CORE}/od_epd_cfg.c ${OD_SHARED_CORE}/od_epd.c ${OD_SHARED_CORE}/od_epd_lut.c ${OD_SHARED_CORE}/od_cfg_index.c)
 target_link_libraries(od_epd_cfg_test od_shared)
 target_compile_definitions(od_epd_cfg_test PRIVATE
     OD_GOLDEN_DIR="${CMAKE_CURRENT_LIST_DIR}/../vectors/epd_golden")
@@ -73,7 +73,7 @@ endforeach()
 # OD_CAP_DRIVE_WRITE and OD_CAP_SPI_RAW; neither handler has BG22-specific code.
 add_executable(od_drive_cmd_test drive_cmd_test.c od_log_test_stub.c
     ${OD_SHARED_CORE}/od_cmd_drive.c ${OD_SHARED_CORE}/od_cmd_spi_raw.c
-    ${OD_SHARED_CORE}/od_epd_cfg.c ${OD_SHARED_CORE}/od_epd.c ${OD_SHARED_CORE}/od_cfg_index.c)
+    ${OD_SHARED_CORE}/od_epd_cfg.c ${OD_SHARED_CORE}/od_epd.c ${OD_SHARED_CORE}/od_epd_lut.c ${OD_SHARED_CORE}/od_cfg_index.c)
 target_link_libraries(od_drive_cmd_test od_shared_silabs)
 # The GPIO sub-opcode is off on every archive profile; only this executable compiles the
 # handler, so turning it on here tests the routing without changing BG22's ABI.

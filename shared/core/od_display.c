@@ -121,7 +121,7 @@ static od_display_rc_t open_pass(const struct DisplayConfig *d, const od_color_g
     }
     if (!od_epd_cfg_begin_pass(0u)) {
         const int rc = od_epd_cfg_last_rc();
-        const bool unsup = rc == OD_EPD_RC_UNSUP;
+        const bool unsup = rc == OD_EPD_RC_UNSUP || rc == OD_EPD_RC_LINT;
 
         od_log_error("display: pass 0 begin failed rc=%d", rc);
         od_epd_cfg_sleep();

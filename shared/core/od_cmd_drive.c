@@ -11,6 +11,7 @@
 #include "od_drive_app.h"
 #include "od_epd.h"
 #include "od_epd_cfg.h"
+#include "od_epd_lut.h"
 #include "od_reply.h"
 #include "od_xfer.h"
 #include "opendisplay_protocol.h"
@@ -32,8 +33,14 @@ static od_cmd_result_t nack(const od_cmd_ctx_t *ctx, uint8_t err, uint8_t mode)
 }
 
 /* Returns 0, or an OD_ERR_DRIVE_* code with the panel left down. */
-static uint8_t drive_begin(uint8_t *mode, uint8_t flags, od_span_t tail, uint8_t *passes,
-                           int8_t *temp_c, od_color_geometry_t *geom)
+static uint8_t pass_error(int rc)
+{
+    return (rc == OD_EPD_RC_UNSUP || rc == OD_EPD_RC_LINT) ? OD_ERR_DRIVE_SEQ_UNSUPPORTED
+         : rc == OD_EPD_RC_BUSY ? OD_ERR_DRIVE_PANEL_BUSY : OD_ERR_DRIVE_NO_CONFIG;
+}
+
+static uint8_t drive_begin(uint8_t *mode, uint8_t flags, uint16_t inline_len, od_span_t tail,
+                           uint8_t *passes, int8_t *temp_c, od_color_geometry_t *geom)
 {
     const struct DisplayConfig *d = od_drive_app_display();
     od_epd_cfg_mode_t hdr;
@@ -66,15 +73,26 @@ static uint8_t drive_begin(uint8_t *mode, uint8_t flags, od_span_t tail, uint8_t
                                  d->pixel_width, d->pixel_height, geom) != OD_COLOR_OK) {
         return OD_ERR_DRIVE_NO_CONFIG;
     }
+    if (inline_len != 0u) {
+        /* Pass 0 needs the inline tables, which arrive in the stream: check what can be checked
+         * without them now, and begin the pass once they are in. */
+        const int rc = od_epd_cfg_check_pass(0u);
+
+        if (rc != OD_EPD_RC_OK) {
+            return pass_error(rc);
+        }
+        if (!od_epd_cfg_inline_expect(inline_len)) {
+            return OD_ERR_DRIVE_UNSUPPORTED;
+        }
+    }
     if (!od_drive_app_panel_up(d)) {
         return OD_ERR_DRIVE_NO_CONFIG;
     }
-    if (!od_epd_cfg_begin_pass(0u)) {
+    if (inline_len == 0u && !od_epd_cfg_begin_pass(0u)) {
         const int rc = od_epd_cfg_last_rc();
 
         od_drive_app_panel_down();
-        return rc == OD_EPD_RC_UNSUP ? OD_ERR_DRIVE_SEQ_UNSUPPORTED
-             : rc == OD_EPD_RC_BUSY  ? OD_ERR_DRIVE_PANEL_BUSY : OD_ERR_DRIVE_NO_CONFIG;
+        return pass_error(rc);
     }
     if (!od_drive_app_adopt(geom, hdr.passes, (flags & DRIVE_WRITE_FLAG_COMPRESSED) != 0u,
                             tail)) {
@@ -93,6 +111,7 @@ od_cmd_result_t od_cmd_app_drive_write_start(const od_cmd_ctx_t *ctx, od_span_t 
     int8_t temp_c = OD_DRIVE_TEMP_UNKNOWN;
     od_color_geometry_t geom;
     uint32_t expected;
+    uint16_t inline_len = 0u;
     bool compressed;
     od_span_t tail;
     uint8_t r[5];
@@ -100,18 +119,23 @@ od_cmd_result_t od_cmd_app_drive_write_start(const od_cmd_ctx_t *ctx, od_span_t 
     if (body.p == NULL || body.n < DRIVE_START_HDR) {
         return nack(ctx, OD_ERR_DRIVE_BAD_ARGS, 0x00u);
     }
-    if (body.p[3] != 0u || body.p[4] != 0u) {
+    if ((body.p[2] & DRIVE_WRITE_FLAG_INLINE_LUT) != 0u) {
+        inline_len = (uint16_t)(body.p[3] | ((uint16_t)body.p[4] << 8));
+        if (inline_len == 0u) {
+            return nack(ctx, OD_ERR_DRIVE_BAD_ARGS, body.p[0]);
+        }
+    } else if (body.p[3] != 0u || body.p[4] != 0u) {
         return nack(ctx, OD_ERR_DRIVE_BAD_ARGS, body.p[0]);
     }
     mode = body.p[0];
     compressed = (body.p[2] & DRIVE_WRITE_FLAG_COMPRESSED) != 0u;
     tail = od_span_drop(body, DRIVE_START_HDR);
 
-    err = drive_begin(&mode, body.p[2], tail, &passes, &temp_c, &geom);
+    err = drive_begin(&mode, body.p[2], inline_len, tail, &passes, &temp_c, &geom);
     if (err != 0u) {
         return nack(ctx, err, body.p[0]);
     }
-    expected = geom.total_bytes * passes;
+    expected = geom.total_bytes * passes + inline_len;
     geom.total_bytes = expected;
     /* The 4-byte uncompressed_size is a START field, not stream data. */
     if (compressed) {

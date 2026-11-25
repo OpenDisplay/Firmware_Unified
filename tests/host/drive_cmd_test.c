@@ -17,6 +17,7 @@
 #include "od_drive_app.h"
 #include "od_epd.h"
 #include "od_epd_cfg.h"
+#include "od_epd_lut.h"
 #include "od_inflate_app.h"
 #include "od_reply.h"
 #include "od_config_store.h"
@@ -473,6 +474,24 @@ static void test_start_sizes(void)
     }
     od_xfer_reset();
     od_drive_app_abort();
+
+    CASE("INLINE_LUT with inline_len 0: BAD_ARGS before anything is touched");
+    {
+        const uint8_t b[5] = { 0, 0, DRIVE_WRITE_FLAG_INLINE_LUT, 0, 0 };
+        const unsigned ups = g_ups;
+        CHECK(start(b, 5u) == OD_CMD_NACK && reply_is(NACK(OD_ERR_DRIVE_BAD_ARGS, 0u)));
+        CHECK(g_ups == ups);
+    }
+#if OD_EPD_LUT_CACHE == 0
+    CASE("INLINE_LUT on a build without the LUT cache: UNSUPPORTED, panel never raised");
+    {
+        const uint8_t b[5] = { 0, 0, DRIVE_WRITE_FLAG_INLINE_LUT, 0x20, 0x03 };
+        const unsigned ups = g_ups;
+        fx_bus_clear();
+        CHECK(start(b, 5u) == OD_CMD_NACK && reply_is(NACK(OD_ERR_DRIVE_UNSUPPORTED, 0u)));
+        CHECK(g_ups == ups && fx_reset_count == 0u && !od_xfer_active());
+    }
+#endif
 }
 
 #define RNACK(err, sub, diag) ((const uint8_t[]){ RESP_NACK, RESP_SPI_RAW, (err), (sub), (diag) }), 5u

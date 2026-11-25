@@ -43,7 +43,11 @@ set(OD_PROFILE_SILABS
     OD_CAP_READ_IDENT=1
     # od_epd's WINDOW/FILL escapes (partial update) cost flash this part does not have, and it
     # has no partial transfer to use them; a sequence carrying them is refused SEQ_UNSUPPORTED.
-    OD_EPD_WITH_WINDOW=0)
+    OD_EPD_WITH_WINDOW=0
+    # No inflated-waveform cache (2 x 1 KB + the inflater's trees): a deflated 0xAF slot reads
+    # as absent and CMD_DRIVE_WRITE_START INLINE_LUT is refused UNSUPPORTED. Stored plain slots
+    # up to 1024 B still stream from NVM3.
+    OD_EPD_LUT_CACHE=0)
 
 # Compile-time log level, one selector for every target.
 #

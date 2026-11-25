@@ -15,6 +15,7 @@ extern "C" {
 #include "od_cfg_index.h"
 #include "od_config_store.h"
 #include "od_epd_io_silabs.h"
+#include "od_epd_lut.h"
 #include "opendisplay_ble.h"   /* opendisplay_get_global_config */
 #include "opendisplay_config_parser.h"
 #include "opendisplay_constants.h"
@@ -152,13 +153,16 @@ static bool io_mode_read(uint8_t index, od_epd_mode_t *out)
  * toolbox-built config unable to find its own waveforms. Slot numbers are per display, so
  * the body's instance_number must match as well. */
 static uint8_t s_lut_instance;
+static uint8_t s_lut_family;
 
 static const od_cfg_entry_t *find_lut(uint8_t slot)
 {
     for (int i = 0; i < od_cfg_index_count(); i++) {
         const od_cfg_entry_t *e = od_cfg_index_entry(i);
+        /* Bits 0..3 = slot id; bit 7 = deflated body, which this target cannot inflate
+         * (OD_EPD_LUT_CACHE=0), so such a slot is absent. */
         if (e != NULL && e->type == OD_PKT_DISPLAY_LUT && e->instance == s_lut_instance &&
-            e->sub == slot) {
+            slot < OD_LUT_SLOT_MAX && e->sub == slot) {
             return e;
         }
     }
@@ -199,25 +203,26 @@ static bool io_lut_info(uint8_t slot, uint16_t *len_out)
 
     uint16_t crc = 0xFFFFu;
     uint16_t off = 0u;
+    od_lut_lint_t lint;
+    od_lut_lint_begin(&lint, s_lut_family);
     while (off < len) {
         uint16_t chunk = (uint16_t)((len - off) < (uint16_t)sizeof(buf)
                                     ? (uint16_t)(len - off) : (uint16_t)sizeof(buf));
         if (od_cfg_read(e, (uint16_t)(LUT_OFF_DATA + off), buf, chunk) != chunk) {
             return false;
         }
-        /* Running CRC over chunks: same polynomial, fed incrementally. */
-        for (uint16_t i = 0; i < chunk; i++) {
-            crc ^= (uint16_t)((uint16_t)buf[i] << 8);
-            for (int b = 0; b < 8; b++) {
-                crc = (crc & 0x8000u) ? (uint16_t)((crc << 1) ^ 0x1021u)
-                                      : (uint16_t)(crc << 1);
-            }
-        }
+        crc = od_lut_crc16(crc, buf, chunk);
+        od_lut_lint_feed(&lint, buf, chunk);
         off += chunk;
     }
     if (crc != want_crc) {
         OD_DIAG("[OD] lut slot %u CRC %04X != %04X -- treating as absent\r\n",
                (unsigned)slot, (unsigned)crc, (unsigned)want_crc);
+        return false;
+    }
+    if (!od_lut_lint_done(&lint)) {
+        OD_DIAG("[OD] lut slot %u failed family %u lint -- treating as absent\r\n",
+               (unsigned)slot, (unsigned)s_lut_family);
         return false;
     }
     if (len_out != NULL) {
@@ -356,6 +361,27 @@ extern "C" int od_epd_desc_from_config(od_panel_desc_t *out, uint8_t display_ins
         out->sleep_seq_len = 0u;
     }
     memcpy(out->sleep_seq, &body[PANEL_OFF_SLEEPSEQ], OD_EPD_SLEEP_SEQ_MAX);
+    /* 0xB1 tail v1 after sleep_seq (od_epd_lut.h): lut_family and busy_timeout_s. */
+    s_lut_family = 0u;
+    if (body[PANEL_OFF_SLEEPLEN] <= OD_EPD_SLEEP_SEQ_MAX) {
+        uint8_t ext[OD_PANEL_EXT_V1_LEN];
+        const uint16_t at = (uint16_t)(PANEL_OFF_SLEEPSEQ + body[PANEL_OFF_SLEEPLEN]);
+        uint16_t n = (uint16_t)(pe->len > at ? pe->len - at : 0u);
+
+        if (n > sizeof(ext)) {
+            n = sizeof(ext);
+        }
+        memset(ext, 0, sizeof(ext));
+        if (n > 0u && od_cfg_read(pe, at, ext, n) == n && ext[OD_PANEL_EXT_VERSION] >= 1u) {
+            if (n > OD_PANEL_EXT_FAMILY && ext[OD_PANEL_EXT_FAMILY] < OD_LUT_FAMILY_COUNT) {
+                s_lut_family = ext[OD_PANEL_EXT_FAMILY];
+            }
+            if (n > OD_PANEL_EXT_TIMEOUT_S && ext[OD_PANEL_EXT_TIMEOUT_S] != 0u) {
+                out->busy_timeout_ms = (uint32_t)ext[OD_PANEL_EXT_TIMEOUT_S] * 1000u;
+            }
+        }
+    }
+    out->lut_family = s_lut_family;
 
     /* 0xAE: one per mode. Only INDEXED here -- the header of whichever mode is
      * selected gets read later by io_mode_read, so a display may declare as

@@ -274,6 +274,7 @@ set(OD_SHARED_SOURCES_HAL_WDT
 set(OD_SHARED_SOURCES_APP_EPD
     "${CMAKE_CURRENT_LIST_DIR}/core/od_cfg_index.c"
     "${CMAKE_CURRENT_LIST_DIR}/core/od_epd.c"
+    "${CMAKE_CURRENT_LIST_DIR}/core/od_epd_lut.c"
 )
 
 # APP_NET_A is the finding-network advertising policy, network A (od_net_a) and network G /
