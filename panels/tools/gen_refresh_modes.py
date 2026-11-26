@@ -77,6 +77,7 @@ HOLD_MASK = {
     ("ep75yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
     ("ep35yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
     ("ep42yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
+    ("ep154yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
     ("s73_spectra6", "partialcool"): 1 << 4,  # code 4 = hold (R-0234)
     ("ee02_709_spectra6", "changedonly"): (1 << 4) | (1 << 7),  # 4/7 hardwired holds (R-0032)
     ("ee02_709_spectra6", "partial4ink"): (1 << 4) | (1 << 7),  # codes 4/7 hold (R-0240)
@@ -241,6 +242,19 @@ def build_bwry35() -> dict:
                     family=FAMILY_JD, timeout_s=120, compress=False)
 
 
+def build_bwry154() -> dict:
+    key = 0x0038
+    pkts = base_packets("0x0038")
+    modes = [
+        (2, "partial_bw", jd_partial(mode_seq(pkts, 1), 200, 200), 2, 0, 0, 1,
+         "BW2_kick3_w10 (the 2.9in table) full-window flashing partial: 0 = to K, 1 = to W, "
+         "2/3 hold; 2.9 s per update over BLE; counter 00-05 on OD1F9C0E with clean white, judged "
+         "by eye, not measured [1 ex, prov]"),
+    ]
+    return assemble(key, "0x0038", pkts, modes, {2: "bwry29_BW2_kick3_w10.bin"}, budget=20,
+                    family=FAMILY_JD, timeout_s=120, compress=False)
+
+
 def build_bwry42() -> dict:
     key = 0x003A
     # BUSY polled, 35 s fixed delay kept as the cap: the stock record waits the fixed delay on
@@ -360,7 +374,7 @@ def build_ee02() -> dict:
 
 
 # ------------------------------------------------------------------------------------- assembly
-name_of = {"0x0023": "s73_spectra6", "0x001E": "ep29yr_bwry", "0x0036": "ep35yr_bwry", "0x003A": "ep42yr_bwry", "0x0040": "ep75yr_bwry",
+name_of = {"0x0023": "s73_spectra6", "0x001E": "ep29yr_bwry", "0x0036": "ep35yr_bwry", "0x0038": "ep154yr_bwry", "0x003A": "ep42yr_bwry", "0x0040": "ep75yr_bwry",
            "0x0042": "ee02_709_spectra6"}
 
 def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int,
@@ -409,7 +423,7 @@ def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int
 
 
 def render() -> tuple[str, str]:
-    panels = [build_s73(), build_bwry29(), build_bwry35(), build_bwry42(), build_bwry75(), build_ee02()]
+    panels = [build_s73(), build_bwry29(), build_bwry35(), build_bwry154(), build_bwry42(), build_bwry75(), build_ee02()]
     presets = json.loads(PRESETS.read_text())["panels"]
     js = {"schema_version": 1, "note": "experimental refresh modes; layouts provisional "
           "(docs/REFRESH_MODES.md)", "panels": {}}

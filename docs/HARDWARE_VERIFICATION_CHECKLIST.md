@@ -1809,3 +1809,13 @@ colour16 0xB0 kept).
 |---|---|
 | BW2_kick3_w10 (the 2.9" table as is), counter 00-05, 21-24 C | **PASS** by eye: clean white, 5.5 s per update |
 | Drift over 100 updates, strip outside the counter, meter | **OPEN** |
+
+## BWRY 1.54" `partial_bw` refresh mode on OD1F9C0E (BG22), 2026-11-26
+
+Same procedure as the 7.5" above, `ep154yr_bwry` entry (2766 B config; the unit had no measured
+0xB0, so it now carries the preset palettes).
+
+| Row | Result |
+|---|---|
+| BW2_kick3_w10 (the 2.9" table as is), counter 00-05, 25-27 C | **PASS** by eye: clean white, 2.9 s per update |
+| Drift over 100 updates, strip outside the counter, meter | **OPEN** |
