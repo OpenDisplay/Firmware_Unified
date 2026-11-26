@@ -1790,3 +1790,12 @@ K/W/Y/R strip), then a two-digit counter in the centre through `partial_bw` (py-
 | BW2_kick3_w10 (2.9" table as is), 00-10 | Works, 6.1-6.5 s; more grey left than on the 2.9" |
 | BW2_kick3_w20 (20-frame white runs), 00-05, 23-26 C | **PASS**: "way better" white; 7.3-7.4 s per update. Shipped |
 | Black/white drift over 100 updates, strip outside the counter, meter | **OPEN** |
+
+## BWRY 3.5" `partial_bw` refresh mode on OD507E22 (BG22), 2026-11-26
+
+Same procedure as the 7.5" above, `ep35yr_bwry` entry (2825 B config, measured colour16 0xB0 kept).
+
+| Row | Result |
+|---|---|
+| BW2_kick3_w10 (the 2.9" table as is), counter 00-05, 24-26 C | **PASS** by eye: clean white, 3.1 s per update |
+| Drift over 100 updates, strip outside the counter, meter | **OPEN** |

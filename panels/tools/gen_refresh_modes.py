@@ -75,6 +75,7 @@ def mode_tail(cost: int, scrub_before: int = NO_SCRUB, hold_mask: int | None = N
 HOLD_MASK = {
     ("ep29yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
     ("ep75yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
+    ("ep35yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
     ("s73_spectra6", "partialcool"): 1 << 4,  # code 4 = hold (R-0234)
     ("ee02_709_spectra6", "changedonly"): (1 << 4) | (1 << 7),  # 4/7 hardwired holds (R-0032)
     ("ee02_709_spectra6", "partial4ink"): (1 << 4) | (1 << 7),  # codes 4/7 hold (R-0240)
@@ -214,6 +215,32 @@ def build_bwry29() -> dict:
                     family=FAMILY_JD, timeout_s=120, compress=False)
 
 
+# ------------------------------------------------------------------------- 3.5in F51-BWRY (0x0036)
+# The 2.9in partial cycle on the 3.5in's own colour16 init: rails, PLL and VCOM come from the
+# table header (analog_from_wave), the table goes in before the frame, then a full-panel 0x83
+# window (BG22), data, CDI 97 and PON/DRF as in jd29_partial.
+def jd35_partial(colour16: list[tuple]) -> list[tuple]:
+    w, h = 184, 384
+    i = next(k for k, s in enumerate(colour16) if s[0] == "lut") + 1
+    j = next(k for k, s in enumerate(colour16) if s[0] == "image") + 1
+    assert colour16[i] == cmd(0x10) and colour16[j] == cmd(0x04), (colour16[i], colour16[j])
+    win = cmd(0x83, 0x00, 0x00, 0x00, w - 1, 0x00, 0x00, (h - 1) >> 8, (h - 1) & 0xFF, 0x01)
+    return colour16[:i] + [win] + colour16[i:j] + [cmd(0x50, 0x97)] + colour16[j:]
+
+
+def build_bwry35() -> dict:
+    key = 0x0036
+    pkts = base_packets("0x0036")
+    modes = [
+        (2, "partial_bw", jd35_partial(mode_seq(pkts, 1)), 2, 0, 0, 1,
+         "BW2_kick3_w10 (the 2.9in table) full-window flashing partial: 0 = to K, 1 = to W, "
+         "2/3 hold; 3.1 s per update over BLE; counter 00-05 on OD507E22 with clean white, judged "
+         "by eye, not measured [1 ex, prov]"),
+    ]
+    return assemble(key, "0x0036", pkts, modes, {2: "bwry29_BW2_kick3_w10.bin"}, budget=20,
+                    family=FAMILY_JD, timeout_s=120, compress=False)
+
+
 # ------------------------------------------------------------------------- 7.5in F52-BWRY (0x0040)
 # Windowed partial on ODBF064E, the sequence of Firmware_Silabs scripts/f75_counter.py: RST, the
 # stock colour16 init (LUT_EN, PON inside, booster tail, table after the tail: the only placement
@@ -317,7 +344,7 @@ def build_ee02() -> dict:
 
 
 # ------------------------------------------------------------------------------------- assembly
-name_of = {"0x0023": "s73_spectra6", "0x001E": "ep29yr_bwry", "0x0040": "ep75yr_bwry",
+name_of = {"0x0023": "s73_spectra6", "0x001E": "ep29yr_bwry", "0x0036": "ep35yr_bwry", "0x0040": "ep75yr_bwry",
            "0x0042": "ee02_709_spectra6"}
 
 def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int,
@@ -366,7 +393,7 @@ def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int
 
 
 def render() -> tuple[str, str]:
-    panels = [build_s73(), build_bwry29(), build_bwry75(), build_ee02()]
+    panels = [build_s73(), build_bwry29(), build_bwry35(), build_bwry75(), build_ee02()]
     presets = json.loads(PRESETS.read_text())["panels"]
     js = {"schema_version": 1, "note": "experimental refresh modes; layouts provisional "
           "(docs/REFRESH_MODES.md)", "panels": {}}

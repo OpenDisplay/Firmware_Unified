@@ -175,6 +175,8 @@ def encode_steps(steps: list[tuple]) -> bytes:
             out += bytes([0, ESC["window"], len(st[1])]) + bytes(b for kv in st[1] for b in kv)
         elif k == "fill":              # ("fill", cmd, value, flags)
             out += bytes([0, ESC["fill"], st[1], st[2], st[3]])
+        elif k == "subst":             # ("subst", (flag, value) byte pairs), as walk_seq yields it
+            out += bytes([0, ESC["subst"], len(st[1]) // 2]) + bytes(st[1])
         else:
             raise ValueError(st)
     out += bytes([0, 0])

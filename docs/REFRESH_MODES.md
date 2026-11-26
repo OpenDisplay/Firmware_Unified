@@ -68,8 +68,8 @@ reported on the wire as `OD_ERR_DRIVE_SEQ_UNSUPPORTED` (0x07).
    cannot tell "table refused by the lint" from "escape not supported here".
 4. **BG22 and Telink have no LUT cache** (`OD_EPD_LUT_CACHE=0`, RAM): compressed slots read as
    absent there and `INLINE_LUT` is NACKed with `OD_ERR_DRIVE_UNSUPPORTED`. Panels driven by
-   BG22 boards must store their tables uncompressed (the 2.9in and 7.5in BWRY entries in
-   `panels/generated/refresh_modes.json` do). BG22 also has no WINDOW escape, so both BWRY
+   BG22 boards must store their tables uncompressed (the 2.9in, 3.5in and 7.5in BWRY entries in
+   `panels/generated/refresh_modes.json` do). BG22 also has no WINDOW escape, so the BWRY
    windowed partials (`partial_bw`) are written as a literal full-panel 0x83 with hold codes for
    unchanged pixels. The 7.5in loads its table after the whole init including the booster tail,
    the only placement that panel honours, then sets PLL 02 for the table's 20 ms frames.
