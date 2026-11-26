@@ -1763,3 +1763,16 @@ T_CLEAR 10 s). Host: py-opendisplay `v3/py` (f838fe0) CLI. Rows 1-3 on the perma
 | Unclaim: `opendisplay unclaim` | **PASS**: SEC_STATUS `UNCLAIMED`, no claim mode; plaintext config read answers (295 B); plain `tlsr_ota.py stage` verifies (updater open again); the key store forgot the uid |
 | Not run: reset pin (no 0x27 pin on this tag), session timeout, replay | **OPEN** |
 | Boot screen on power-up (CLEAR_ON_BOOT cleared in the stored config, CMD_REBOOT), image 43c7946 | **FAIL**: watchdog reset loop from ~1 s after every boot (~3.6 mA, ~5.5 s period = 4 s watchdog + boot), never advertises; the five-cycle factory reset does not count (render starts before T_ARM). Tag needs SWS. Fix 0ff7a43 (watchdog fed from data writes) not yet run on a tag |
+
+## BWRY presets — measured colour16 palettes on glass (2026-11-26)
+
+Frames only through 0x0085 (no config write), each unit's own stored 3-pass mode 1, py-opendisplay
+`v3/py`. Palettes are `panels/palettes/palette16_dither_*.json`. Glass judged by Jonas.
+
+| Row | Result |
+|---|---|
+| 3.5" OD507E22: dithered test scene, current preset palette then the dither set, 25-26 C | **PASS**: both rendered; dither set approved |
+| 2.66" OD6FACF2: dither set as a 4x4 swatch grid, 24 C | **PASS**: cells as predicted from the sweep (yellow, red, orange where expected) |
+| 4.2" OD01AAA9: dither set as a 4x4 swatch grid, 23 C | **PASS**: cells as predicted |
+| 7.5" ODBF064E: dither set as a 4x4 swatch grid, raw codes (no palette_code_swap), 23 C | **PASS**: yellow and red in place, so the codes are not swapped |
+| Same sets written by a preset migration and rendered through py-opendisplay's own encoder | **OPEN** |

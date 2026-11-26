@@ -13,7 +13,9 @@ panels/
   glass_reports.yaml        on-glass sightings of GENERATED entries -> per-mode verified: glass
   panel_ids.json            legacy panel_ic_type id -> bb_epaper enum, scheme, preset ids
   palettes/                 0xB0 sources. A panels.yaml mode names one with `palette:`
-                            (a multi-pass mode without one takes the ODBEEBA6 photo palette)
+                            (a multi-pass mode without one takes the ODBEEBA6 photo palette).
+                            palette16_dither_<id>_<unit>.json: i1Pro, dither-optimised colour16
+                            set of one unit; `raw_codes: true` skips palette_code_swap
                             i1pro_fleet_<date>.json: per-unit i1Pro reads of the native colours;
                             `palette: {fleet: <file>, unit: <device>}` gives a single-pass mode
                             that unit's lab_rel_white colours, matched by name, coded via code_map
