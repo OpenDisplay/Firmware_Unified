@@ -465,6 +465,82 @@
         }
       ]
     },
+    "ep42yr_bwry": {
+      "name": "ep42yr_bwry",
+      "key": "0x003A",
+      "base_preset": "0x003A",
+      "drive_rev": 1,
+      "budget_limit": 20,
+      "lut_family": 2,
+      "busy_timeout_s": 120,
+      "modes": [
+        {
+          "mode_index": 2,
+          "name": "partial_bw",
+          "experimental": true,
+          "experimental_note": "BW2_kick3_w10 (the 2.9in table) full-window flashing partial: 0 = to K, 1 = to W, 2/3 hold; 5.5 s per update over BLE (2 s fixed settle after PON); counter 00-05 on OD01AAA9 with clean white, judged by eye, not measured [1 ex, prov]",
+          "budget_cost": 1,
+          "lut_slot": 2,
+          "passes": 1,
+          "hold_mask": 12,
+          "temp_window_c": [
+            15,
+            30
+          ],
+          "temp_policy": "substitute",
+          "seq_steps": 29,
+          "seq_bytes": 127
+        }
+      ],
+      "luts": [
+        {
+          "slot": 2,
+          "compressed": false,
+          "wave": "bwry29_BW2_kick3_w10.bin",
+          "raw_bytes": 535,
+          "stored_bytes": 535
+        }
+      ],
+      "config_bytes": 2300,
+      "packets": [
+        {
+          "id": 177,
+          "body_hex": "0003013075b8880001020303080202000207a50000013a00010000140278"
+        },
+        {
+          "id": 174,
+          "body_hex": "000066756c6c0000000000000000ff01000000ffffffffffffffff00000000000000005900024d7803000f090701070022780a22040310364408060f0a2f25222e210230080241000250370360020205610190012c05650000000002e71c02e32202e00002b4d002b50302e9010110000301040005d00702120000010000"
+        },
+        {
+          "id": 174,
+          "body_hex": "0001636f6c6f75723136000000000a030f1e01000101ffffffffff00144100000000007100024d7803000f8900020700010007ff00ff01ff02ff03ff04040310364408060f0a2f25222e210002020030ff060241000250370360020205610190012c05650000000002e71c02e32202e00002b4d002b50302e9010002020082ffff012000040110000301040005d00702120000010000010101ff"
+        },
+        {
+          "id": 175,
+          "body_hex": "0000af770022782d222008ef7fffffff657fffffffff7f7fff7fafef3faf7feffdef7fff7f7fff3c3ce6f5efef7fff00877defbebe3fefef7fffafefffefffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffefdddf696dffefffffffef7fdede7fafef3faf7feffdefdefe7f7fff3c6fed6fafefffb17f6faf7e7ffd7e6f6fb5ffefef2def7f3fffef6fd6ffefbe6fef2dffffefefd3d67fefbcef6fbff7efefffffffffffefffffffffefbbfbb47cffefffffffef7fdede7fafef3faf7feffdefdeff7f7fff3cff6cefefefdede6fefefbefdef3fbfefdfdf7dafffbfef7fbdefeffff7d9ef73efac7dffefffffffffffffffffffffffffffffffffffffffffffffefdddf36f7ffefffffffef7fdede7fafef3faf7feffdefdefe7f7fff3c6d6c6eefeff29def6f2f7e7f7f7e6fef9ddfefe77fbf7fef6fafefd9f77fedafef7afdffefffffffffffffffffffffffffffffffffffffffffffffefdddfaaefffefffffffef7fdede7fafef3faf7feffdefdeb77f7fff3caf7d7fafeff2b5ef6faf7eafbf6e6fefd6ffefbeed6fbd3fffef6f94ffef6d2fef6fadffefefbdf6ef7dbeeffd7effefffffffffffffffffffffffefffffffff657fffffffff7fffff7fafef3faf7feffdefffba7f7fff3c3c87beefeffbffe700ffefffffffffefffffffafffefedffffefefffbfbebeffeffdec6defffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "id": 175,
+          "body_hex": "000124d000147814142408ef7fff3dedfeefee6fafefef7fffedadedefffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffeff7deeeedafefbdef7f6fefbbdbed3f6fefefffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff3dedfeefee6fafefefffffedadedefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeff5ff7cedbfefee6fafefeff9ff3fbeafefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffdbf3f2f37efefef2fefeff3ff2faf2eefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefbebabd6dfeefee6fafefefbaffedadedefffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "id": 176,
+          "body_hex": "00000004000008088f0232ff01001027000000000200f32215085f1c030075107114f80b"
+        },
+        {
+          "id": 176,
+          "body_hex": "000100100900bd080d02fdfe15005b270600fdff1600a3247a08261f17005411ec15d10c2d0088215d00e6ff21006f20d50266002600de1ce0037d102200a31cc60446053500051c67ff8dfe19007e1a94ffc8fd14001c194c1010113c00bd181f04d303360013182a0173061d00f51292ffa1fd1e00c210b40117011c00a3103a08b203"
+        },
+        {
+          "id": 174,
+          "body_hex": "00027061727469616c5f62770000ff010f1e0102ffffffffffffff00000000000000007f00024d7803000f8900020700010007ff00ff01ff02ff03ff04040310364408060f0a2f25222e210002020030ff060241000250370360020205610190012c05650000000002e71c02e32202e00002b4d002b50302e9010002020082ffff012000040a830000018f0000012b010110000302509701040005d00702120000010000010101ff0c"
+        },
+        {
+          "id": 175,
+          "body_hex": "0002b78500222d2d222002efffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffbff3dffffefffffffefeffffff6ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefb7dc2d7d7fef7d7f7defeff3ff7f7dffefffffffefefffffefffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffebb2d7d7fef7d7f7defeffeff7f7dffefffffffefefffffefffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      ]
+    },
     "ep75yr_bwry": {
       "name": "ep75yr_bwry",
       "key": "0x0040",

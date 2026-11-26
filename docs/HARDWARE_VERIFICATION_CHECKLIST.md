@@ -1799,3 +1799,13 @@ Same procedure as the 7.5" above, `ep35yr_bwry` entry (2825 B config, measured c
 |---|---|
 | BW2_kick3_w10 (the 2.9" table as is), counter 00-05, 24-26 C | **PASS** by eye: clean white, 3.1 s per update |
 | Drift over 100 updates, strip outside the counter, meter | **OPEN** |
+
+## BWRY 4.2" `partial_bw` refresh mode on OD01AAA9 (BG22), 2026-11-26
+
+Same procedure as the 7.5" above, `ep42yr_bwry` entry (2879 B config, BUSY polled, measured
+colour16 0xB0 kept).
+
+| Row | Result |
+|---|---|
+| BW2_kick3_w10 (the 2.9" table as is), counter 00-05, 21-24 C | **PASS** by eye: clean white, 5.5 s per update |
+| Drift over 100 updates, strip outside the counter, meter | **OPEN** |
