@@ -64,9 +64,14 @@ def lut_packet(slot: int, data: bytes, compress: bool) -> bytes:
     return struct.pack("<BBH", 0, 0x80 | slot, P.crc16_ccitt(z)) + z
 
 
-def mode_tail(cost: int, scrub_before: int = NO_SCRUB, hold_mask: int | None = None) -> bytes:
+def mode_tail(cost: int, scrub_before: int = NO_SCRUB, hold_mask: int | None = None,
+              held_k_code: int | None = None) -> bytes:
     tail = bytes([1, EXPERIMENTAL, cost, scrub_before])
-    return tail + bytes([hold_mask]) if hold_mask is not None else tail
+    if hold_mask is not None:
+        tail += bytes([hold_mask])
+        if held_k_code is not None:
+            tail += bytes([held_k_code])
+    return tail
 
 
 # 0xAE tail [4] hold_mask: bit n = frame code n leaves the pixel as it is. The host sends the
@@ -78,9 +83,19 @@ HOLD_MASK = {
     ("ep35yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
     ("ep42yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
     ("ep154yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
+    ("ep266yr_bwry", "partial_bw"): 0b1000,  # 0 = to K, 1 = to W, 2 = held K top-up, 3 hold
     ("s73_spectra6", "partialcool"): 1 << 4,  # code 4 = hold (R-0234)
     ("ee02_709_spectra6", "changedonly"): (1 << 4) | (1 << 7),  # 4/7 hardwired holds (R-0032)
     ("ee02_709_spectra6", "partial4ink"): (1 << 4) | (1 << 7),  # codes 4/7 hold (R-0240)
+}
+
+
+# 0xAE tail [5] held_k_code (provisional, after hold_mask): the code to send for an unchanged
+# pixel whose prior code is 0 (black), in place of the lowest hold code. It drives a DC-balanced
+# W|K pulse ending on K that re-darkens black faded by the per-update rail-up and reset; a code
+# outside hold_mask, so a host that ignores the field sends the plain hold and black fades.
+HELD_K_CODE = {
+    ("ep266yr_bwry", "partial_bw"): 2,
 }
 
 
@@ -242,6 +257,20 @@ def build_bwry35() -> dict:
                     family=FAMILY_JD, timeout_s=120, compress=False)
 
 
+def build_bwry266() -> dict:
+    key = 0x001C
+    pkts = base_packets("0x001C")
+    modes = [
+        (2, "partial_bw", jd_partial(mode_seq(pkts, 1), 184, 360), 2, 0, 0, 1,
+         "BW2_kick3_w10 plus a held-K top-up: full-window flashing partial, 0 = to K, 1 = to W, "
+         "2 = unchanged K (W 4 | K 4, net 0, ends on K), 3 hold. Without the top-up held K "
+         "fades a step per update from the rail-up/reset before the first command. 3.2 s per "
+         "update; counter 00-10 on OD6FACF2 with K held, judged by eye, not measured [1 ex, prov]"),
+    ]
+    return assemble(key, "0x001C", pkts, modes, {2: "bwry266_BW2_kick3_w10_hk4.bin"}, budget=20,
+                    family=FAMILY_JD, timeout_s=120, compress=False)
+
+
 def build_bwry154() -> dict:
     key = 0x0038
     pkts = base_packets("0x0038")
@@ -374,7 +403,7 @@ def build_ee02() -> dict:
 
 
 # ------------------------------------------------------------------------------------- assembly
-name_of = {"0x0023": "s73_spectra6", "0x001E": "ep29yr_bwry", "0x0036": "ep35yr_bwry", "0x0038": "ep154yr_bwry", "0x003A": "ep42yr_bwry", "0x0040": "ep75yr_bwry",
+name_of = {"0x0023": "s73_spectra6", "0x001E": "ep29yr_bwry", "0x0036": "ep35yr_bwry", "0x001C": "ep266yr_bwry", "0x0038": "ep154yr_bwry", "0x003A": "ep42yr_bwry", "0x0040": "ep75yr_bwry",
            "0x0042": "ee02_709_spectra6"}
 
 def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int,
@@ -391,12 +420,15 @@ def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int
         # A list of slots is a multi-pass mode: pass n uploads slots[n]; the sequence runs once per pass.
         slots = list(slot) if isinstance(slot, (list, tuple)) else [slot] if slot is not None else None
         body = P.mode_body(idx, name, seq, slots=slots, passes=len(slots) if slots else 1,
-                           tmin=tmin, tmax=tmax, policy=SUBSTITUTE) + mode_tail(cost, hold_mask=HOLD_MASK.get((name_of[base], name)))
+                           tmin=tmin, tmax=tmax, policy=SUBSTITUTE) + mode_tail(
+            cost, hold_mask=HOLD_MASK.get((name_of[base], name)),
+            held_k_code=HELD_K_CODE.get((name_of[base], name)))
         out_pkts.append((0xAE, body))
         extra.append({"mode_index": idx, "name": name, "experimental": True,
                       "experimental_note": note, "budget_cost": cost, "lut_slot": slot,
                       "passes": len(slots) if slots else 1,
                       "hold_mask": HOLD_MASK.get((name_of[base], name)),
+                      "held_k_code": HELD_K_CODE.get((name_of[base], name)),
                       "temp_window_c": [tmin, tmax], "temp_policy": "substitute",
                       "seq_steps": len(steps) + 1, "seq_bytes": len(seq)})
     lut_meta = []
@@ -423,7 +455,7 @@ def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int
 
 
 def render() -> tuple[str, str]:
-    panels = [build_s73(), build_bwry29(), build_bwry35(), build_bwry154(), build_bwry42(), build_bwry75(), build_ee02()]
+    panels = [build_s73(), build_bwry266(), build_bwry29(), build_bwry35(), build_bwry154(), build_bwry42(), build_bwry75(), build_ee02()]
     presets = json.loads(PRESETS.read_text())["panels"]
     js = {"schema_version": 1, "note": "experimental refresh modes; layouts provisional "
           "(docs/REFRESH_MODES.md)", "panels": {}}

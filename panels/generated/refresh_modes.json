@@ -20,6 +20,7 @@
           "lut_slot": null,
           "passes": 1,
           "hold_mask": null,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             30
@@ -37,6 +38,7 @@
           "lut_slot": 0,
           "passes": 1,
           "hold_mask": null,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             24
@@ -54,6 +56,7 @@
           "lut_slot": 1,
           "passes": 1,
           "hold_mask": null,
+          "held_k_code": null,
           "temp_window_c": [
             25,
             30
@@ -71,6 +74,7 @@
           "lut_slot": 2,
           "passes": 1,
           "hold_mask": null,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             24
@@ -88,6 +92,7 @@
           "lut_slot": 3,
           "passes": 1,
           "hold_mask": null,
+          "held_k_code": null,
           "temp_window_c": [
             25,
             30
@@ -105,6 +110,7 @@
           "lut_slot": 4,
           "passes": 1,
           "hold_mask": 16,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             24
@@ -122,6 +128,7 @@
           "lut_slot": 5,
           "passes": 1,
           "hold_mask": null,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             30
@@ -143,6 +150,7 @@
           ],
           "passes": 3,
           "hold_mask": null,
+          "held_k_code": null,
           "temp_window_c": [
             25,
             30
@@ -292,6 +300,83 @@
         }
       ]
     },
+    "ep266yr_bwry": {
+      "name": "ep266yr_bwry",
+      "key": "0x001C",
+      "base_preset": "0x001C",
+      "drive_rev": 1,
+      "budget_limit": 20,
+      "lut_family": 2,
+      "busy_timeout_s": 120,
+      "modes": [
+        {
+          "mode_index": 2,
+          "name": "partial_bw",
+          "experimental": true,
+          "experimental_note": "BW2_kick3_w10 plus a held-K top-up: full-window flashing partial, 0 = to K, 1 = to W, 2 = unchanged K (W 4 | K 4, net 0, ends on K), 3 hold. Without the top-up held K fades a step per update from the rail-up/reset before the first command. 3.2 s per update; counter 00-10 on OD6FACF2 with K held, judged by eye, not measured [1 ex, prov]",
+          "budget_cost": 1,
+          "lut_slot": 2,
+          "passes": 1,
+          "hold_mask": 8,
+          "held_k_code": 2,
+          "temp_window_c": [
+            15,
+            30
+          ],
+          "temp_policy": "substitute",
+          "seq_steps": 26,
+          "seq_bytes": 113
+        }
+      ],
+      "luts": [
+        {
+          "slot": 2,
+          "compressed": false,
+          "wave": "bwry266_BW2_kick3_w10_hk4.bin",
+          "raw_bytes": 535,
+          "stored_bytes": 535
+        }
+      ],
+      "config_bytes": 2255,
+      "packets": [
+        {
+          "id": 177,
+          "body_hex": "000301307500000001020303080202000207a50000011c00010000140278"
+        },
+        {
+          "id": 174,
+          "body_hex": "000066756c6c0000000000000000ff01000000ffffffffffffffff00000000000000004700024d7803000f29030107000403105444080605003f0a25121a02503703600202056100b8016802e71c02e32202b4d002b50302e901023008010400010110000302120000010000"
+        },
+        {
+          "id": 174,
+          "body_hex": "0001636f6c6f75723136000000000a03121e01000101ffffffffff00144100000000006300024d7803000fa900020700010007ff00ff01ff02ff03ff040403105444080605003f0a25121a0002020030ff0602503703600202056100b8016802e71c02e32202b4d002b50302e9010002020082ffff01200004011000030104000102120000010000010101ff"
+        },
+        {
+          "id": 175,
+          "body_hex": "0000af770022782d222008ef7fffffff657fffffffff7f7fff7fafef3faf7feffdef7fff7f7fff3c3ce6f5efef7fff00877defbebe3fefef7fffafefffefffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffefdddf696dffefffffffef7fdede7fafef3faf7feffdefdefe7f7fff3c6fed6fafefffb17f6faf7e7ffd7e6f6fb5ffefef2def7f3fffef6fd6ffefbe6fef2dffffefefd3d67fefbcef6fbff7efefffffffffffefffffffffefbbfbb47cffefffffffef7fdede7fafef3faf7feffdefdeff7f7fff3cff6cefefefdede6fefefbefdef3fbfefdfdf7dafffbfef7fbdefeffff7d9ef73efac7dffefffffffffffffffffffffffffffffffffffffffffffffefdddf36f7ffefffffffef7fdede7fafef3faf7feffdefdefe7f7fff3c6d6c6eefeff29def6f2f7e7f7f7e6fef9ddfefe77fbf7fef6fafefd9f77fedafef7afdffefffffffffffffffffffffffffffffffffffffffffffffefdddfaaefffefffffffef7fdede7fafef3faf7feffdefdeb77f7fff3caf7d7fafeff2b5ef6faf7eafbf6e6fefd6ffefbeed6fbd3fffef6f94ffef6d2fef6fadffefefbdf6ef7dbeeffd7effefffffffffffffffffffffffefffffffff657fffffffff7fffff7fafef3faf7feffdefffba7f7fff3c3c87beefeffbffe700ffefffffffffefffffffafffefedffffefefffbfbebeffeffdec6defffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "id": 175,
+          "body_hex": "000124d000147814142408ef7fff3dedfeefee6fafefef7fffedadedefffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffeff7deeeedafefbdef7f6fefbbdbed3f6fefefffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff3dedfeefee6fafefefffffedadedefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeff5ff7cedbfefee6fafefeff9ff3fbeafefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffdbf3f2f37efefef2fefeff3ff2faf2eefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefbebabd6dfeefee6fafefefbaffedadedefffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "id": 176,
+          "body_hex": "000000040000ab088a02f1fe010010270000000002009923050b6b2303002511d9152d0e"
+        },
+        {
+          "id": 176,
+          "body_hex": "000100100a009c0866023cfe15001027ffff000016001524c408c4201700f81076163e0d2900232505007dfe210074249002f1ff2200df202103c1061900061d0bffd5fb26008d1c6502540f3e00131b830071ff38009b19b702c2013600f9187200e5031400da18de0fe71034005317c4037e041f00bf11d408de011e003a1093005dfe"
+        },
+        {
+          "id": 174,
+          "body_hex": "00027061727469616c5f62770000ff010f1e0102ffffffffffffff00000000000000007100024d7803000fa900020700010007ff00ff01ff02ff03ff040403105444080605003f0a25121a0002020030ff0602503703600202056100b8016802e71c02e32202b4d002b50302e9010002020082ffff012000040a83000000b70000016701011000030250970104000102120000010000010101ff0802"
+        },
+        {
+          "id": 175,
+          "body_hex": "0002c22100222d2d222002efffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffbff3dffffefffffffefeffffff6ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefb7dc2d7d7fef7d7f7defeff3ff7f7dffefffffffefefffffefffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefdeffbfbfffefffffffefefffff36ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffebb2d7d7fef7d7f7defeffeff7f7dffefffffffefefffffefffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      ]
+    },
     "ep29yr_bwry": {
       "name": "ep29yr_bwry",
       "key": "0x001E",
@@ -310,6 +395,7 @@
           "lut_slot": null,
           "passes": 1,
           "hold_mask": null,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             30
@@ -327,6 +413,7 @@
           "lut_slot": 2,
           "passes": 1,
           "hold_mask": 12,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             30
@@ -407,6 +494,7 @@
           "lut_slot": 2,
           "passes": 1,
           "hold_mask": 12,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             30
@@ -483,6 +571,7 @@
           "lut_slot": 2,
           "passes": 1,
           "hold_mask": 12,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             30
@@ -559,6 +648,7 @@
           "lut_slot": 2,
           "passes": 1,
           "hold_mask": 12,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             30
@@ -635,6 +725,7 @@
           "lut_slot": 2,
           "passes": 1,
           "hold_mask": 12,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             30
@@ -711,6 +802,7 @@
           "lut_slot": null,
           "passes": 1,
           "hold_mask": null,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             30
@@ -728,6 +820,7 @@
           "lut_slot": null,
           "passes": 1,
           "hold_mask": 144,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             30
@@ -745,6 +838,7 @@
           "lut_slot": 0,
           "passes": 1,
           "hold_mask": null,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             25
@@ -762,6 +856,7 @@
           "lut_slot": 1,
           "passes": 1,
           "hold_mask": 144,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             30
@@ -783,6 +878,7 @@
           ],
           "passes": 3,
           "hold_mask": null,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             25
@@ -803,6 +899,7 @@
           ],
           "passes": 2,
           "hold_mask": null,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             25

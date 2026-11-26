@@ -1819,3 +1819,16 @@ Same procedure as the 7.5" above, `ep154yr_bwry` entry (2766 B config; the unit 
 |---|---|
 | BW2_kick3_w10 (the 2.9" table as is), counter 00-05, 25-27 C | **PASS** by eye: clean white, 2.9 s per update |
 | Drift over 100 updates, strip outside the counter, meter | **OPEN** |
+
+## BWRY 2.66" `partial_bw` refresh mode on OD6FACF2 (BG22), 2026-11-26
+
+Same procedure as the 7.5" above, `ep266yr_bwry` entry. Judged by eye, not measured.
+
+| Row | Result |
+|---|---|
+| BW2_kick3_w10, full-panel 0x83, counter 00-10 | updates, but held black fades a step per update: **FAIL** for shipping |
+| Where it fades: a 20 s pause after PON, before PON, and before the first command | fades at once in all three; no fade after the last update: the rail-up / 10 ms reset before the sequence |
+| bwry266_BW2_kick3_w10_hk4 (held K sent as code 2), counter 00-10, 24-26 C | **PASS** by eye: K holds, 3.2 s per update; held K greys during an update and is dark again at its end |
+| Rail-up vs reset as the cause (needs a firmware build) | **OPEN** |
+| Host sends `held_k_code` (py-opendisplay) | **OPEN**: the desk script built the frames; a host without the field sends code 3 and K fades |
+| Drift over 100 updates, meter | **OPEN** |

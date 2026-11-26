@@ -23,6 +23,8 @@ panels/
                             tables gen_refresh_modes.py names. bwry75_cnt_k10w10.bin is not used:
                             the 7.5in non-flashing partial (about 5 s per update, greyer white),
                             kept because a BG22 config holds only one partial table
+                            bwry266_BW2_kick3_w10_hk4.bin: BW2_kick3_w10 with code 2 = W 4 | K 4
+                            from frame 0 (net 0 under both DC models), the 2.66in held-K top-up
   tools/                    generators (stdlib Python + a host C compiler)
     pdlib.py                encoders, capture/replay drivers, normaliser, deriver
     gen_all.py              capture -> derive -> replay -> generated/*  (--check: staleness)

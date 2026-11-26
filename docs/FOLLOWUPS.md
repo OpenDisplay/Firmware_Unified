@@ -1822,3 +1822,13 @@ pieces that belong elsewhere or wait on hardware.
   generated presets while its id is provisional.
 - **Website presets** (`opendisplay.org`) still ship no mode-0 0xB0 and the photo colour16
   palette; `tests/panels/test_panels.py` `website_packets()` states the difference.
+
+## BWRY partials — held black on the 2.66in
+
+- **py-opendisplay: 0xAE tail byte [5] `held_k_code`.** `ModeExt` keeps it in `extra`;
+  `prior.mask_unchanged` should send that code for an unchanged pixel whose prior code is 0 and
+  the lowest hold code for the rest. Until it does, the 2.66in partial holds K plainly and K fades
+  a step per update. The field is provisional here; `../opendisplay-protocol` owns the layout.
+- **Lean cycle on BG22** (rail up and no reset between back-to-back partials, rail down on a
+  timeout) is the fix for the fade itself; the top-up only repairs it after each update. It also
+  needs a firmware A/B to tell the rail-up from the reset pulse.
