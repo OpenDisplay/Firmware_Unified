@@ -1806,3 +1806,19 @@ pieces that belong elsewhere or wait on hardware.
   the SDK at a pinned commit. The tarball is fetched over plain HTTP from a single host and
   cached for 7 days; a mirror the project controls would remove both risks.
   `tools/check.sh --telink` builds it locally when `TC32_DIR` and `TELINK_SDK_DIR` are set.
+
+## BWRY measured palettes — what the presets' 0xB0 still needs outside `panels/`
+
+- **`py-opendisplay` ignores a single-pass mode's 0xB0.** `prepare_multipass` reads 0xB0 only for
+  passes > 1, so the stock-colour 0xB0 on each BWRY `full` mode is carried but unused until the
+  4-colour path dithers against it.
+- **No wire flag for a measured type default.** `cal_flags` bit 0 means "measured on this unit",
+  and the host keeps such a packet across preset updates, so the presets ship bit 0 = 0 even for
+  i1Pro values. A second bit ("measured, on another unit of this type") needs
+  `../opendisplay-protocol` first.
+- **2.9in (0x001E) and 1.54in (0x0038) colour16** keep the ODBEEBA6 photo palette until their
+  64-state sweeps exist; then the same `palette16_dither_<id>_<unit>.json` step applies.
+- **2.0in Telink 0xF001** has its stock 0xB0 in `panels.yaml` (OD05B911) but is not in the
+  generated presets while its id is provisional.
+- **Website presets** (`opendisplay.org`) still ship no mode-0 0xB0 and the photo colour16
+  palette; `tests/panels/test_panels.py` `website_packets()` states the difference.
