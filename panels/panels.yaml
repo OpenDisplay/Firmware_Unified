@@ -62,6 +62,9 @@ panels:
         palette: { fleet: i1pro_fleet_20261117.json, unit: ODF4DA34 }
       - name: colour16
         color_scheme: 10   # BWRY16: what the mode RENDERS (0xAE field; never in 0x20)
+        # i1Pro dither-optimised 16 of the 64 states, a type default (see the file). Raw codes,
+        # so palette_code_swap is not applied.
+        palette: palette16_dither_0x001E_OD18FCAA.json
         passes: 3
         # Each pass uses a different LUT *and* different pixel data; pass N's
         # code comes from palette[cell][N]. Passes 1-2 patch wave header byte 3
@@ -604,6 +607,9 @@ panels:
         palette: { fleet: i1pro_fleet_20261117.json, unit: OD1F9C0E }
       - name: colour16
         color_scheme: 10   # BWRY16: what the mode RENDERS (0xAE field; never in 0x20)
+        # i1Pro dither-optimised 16 of the 64 states, a type default (see the file). Raw codes,
+        # so palette_code_swap is not applied.
+        palette: palette16_dither_0x0038_OD1F9C0E.json
         passes: 3
         lut_per_pass: [wave_colour, wave_edit, wave_edit]
         vsn1_per_pass: [null, 0x14, 0x41]

@@ -1775,6 +1775,8 @@ Frames only through 0x0085 (no config write), each unit's own stored 3-pass mode
 | 2.66" OD6FACF2: dither set as a 4x4 swatch grid, 24 C | **PASS**: cells as predicted from the sweep (yellow, red, orange where expected) |
 | 4.2" OD01AAA9: dither set as a 4x4 swatch grid, 23 C | **PASS**: cells as predicted |
 | 7.5" ODBF064E: dither set as a 4x4 swatch grid, raw codes (no palette_code_swap), 23 C | **PASS**: yellow and red in place, so the codes are not swapped |
+| 2.9" OD18FCAA (3.1.1, the 2026-11-26 sweep unit): dither set as a 4x4 swatch grid, raw codes, 24 C | **PASS**: cells as predicted |
+| 1.54" OD1F9C0E (the 2026-11-26 sweep unit): dither set as a 4x4 swatch grid, raw codes, 25 C | **PASS**: cells as predicted |
 | Same sets written by a preset migration and rendered through py-opendisplay's own encoder | **OPEN** |
 
 ## BWRY 7.5" `partial_bw` refresh mode on ODBF064E (BG22, 3.0.0 bg22-dev), 2026-11-26

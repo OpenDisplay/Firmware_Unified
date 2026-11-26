@@ -1816,8 +1816,9 @@ pieces that belong elsewhere or wait on hardware.
   and the host keeps such a packet across preset updates, so the presets ship bit 0 = 0 even for
   i1Pro values. A second bit ("measured, on another unit of this type") needs
   `../opendisplay-protocol` first.
-- **2.9in (0x001E) and 1.54in (0x0038) colour16** keep the ODBEEBA6 photo palette until their
-  64-state sweeps exist; then the same `palette16_dither_<id>_<unit>.json` step applies.
+- **1.54in (0x0038) sweep temperature:** its first six states (100, 222, 213, 130, 102 and the
+  first white) read at 28-30 C, the rest at 25-27 C. 213 is in the palette (111 is also
+  read later in the run); a re-read of 213 at 25 C would settle whether it carries a warm offset.
 - **2.0in Telink 0xF001** has its stock 0xB0 in `panels.yaml` (OD05B911) but is not in the
   generated presets while its id is provisional.
 - **Website presets** (`opendisplay.org`) still ship no mode-0 0xB0 and the photo colour16

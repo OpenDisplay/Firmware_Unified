@@ -1,0 +1,217 @@
+{
+ "_comment": "colour16 palette for 0x0038 (1.54in), a type default from OD1F9C0E: 16 of the 64 three-pass states, picked for error-diffusion dithering (greens_palettes.py objective: hull reach, grain, grey ramp; white, yellow 211, red 311 and the darkest state forced). Lab is the i1Pro sweep of 2026-11-26, D50 media-relative (panel white = L* 100), copied from en05_ep397yr_uart/host/results/bwry/20261126_bwry154_sweep/states_154.csv. Codes are this panel's raw codes as rendered in the sweep (code 2 = yellow, 3 = red), so palette_code_swap does not apply. The first six states read at 28-30 C, the rest 25-27 C.",
+ "device": "OD1F9C0E",
+ "mode": "colour16",
+ "source": "i1Pro sweep 2026-11-26, en05_ep397yr_uart/host/results/bwry/20261126_bwry154_sweep/states_154.csv",
+ "raw_codes": true,
+ "entries": [
+  {
+   "index": 0,
+   "codes": [
+    2,
+    3,
+    0
+   ],
+   "lab": [
+    22.15,
+    5.06,
+    -4.17
+   ]
+  },
+  {
+   "index": 1,
+   "codes": [
+    1,
+    1,
+    1
+   ],
+   "lab": [
+    100.03,
+    -0.01,
+    -0.03
+   ]
+  },
+  {
+   "index": 2,
+   "codes": [
+    2,
+    1,
+    1
+   ],
+   "lab": [
+    89.54,
+    23.13,
+    91.24
+   ]
+  },
+  {
+   "index": 3,
+   "codes": [
+    3,
+    1,
+    1
+   ],
+   "lab": [
+    42.3,
+    54.86,
+    33.07
+   ]
+  },
+  {
+   "index": 4,
+   "codes": [
+    1,
+    1,
+    2
+   ],
+   "lab": [
+    94.47,
+    -0.95,
+    -2.01
+   ]
+  },
+  {
+   "index": 5,
+   "codes": [
+    2,
+    3,
+    2
+   ],
+   "lab": [
+    81.55,
+    3.79,
+    27.95
+   ]
+  },
+  {
+   "index": 6,
+   "codes": [
+    1,
+    2,
+    1
+   ],
+   "lab": [
+    81.11,
+    -2.73,
+    -7.77
+   ]
+  },
+  {
+   "index": 7,
+   "codes": [
+    1,
+    0,
+    3
+   ],
+   "lab": [
+    76.3,
+    3.03,
+    -2.53
+   ]
+  },
+  {
+   "index": 8,
+   "codes": [
+    3,
+    3,
+    3
+   ],
+   "lab": [
+    70.85,
+    6.29,
+    5.94
+   ]
+  },
+  {
+   "index": 9,
+   "codes": [
+    2,
+    1,
+    2
+   ],
+   "lab": [
+    70.68,
+    5.27,
+    44.74
+   ]
+  },
+  {
+   "index": 10,
+   "codes": [
+    0,
+    3,
+    3
+   ],
+   "lab": [
+    66.32,
+    6.18,
+    10.52
+   ]
+  },
+  {
+   "index": 11,
+   "codes": [
+    2,
+    1,
+    3
+   ],
+   "lab": [
+    64.17,
+    1.05,
+    20.3
+   ]
+  },
+  {
+   "index": 12,
+   "codes": [
+    0,
+    1,
+    1
+   ],
+   "lab": [
+    60.72,
+    41.68,
+    44.87
+   ]
+  },
+  {
+   "index": 13,
+   "codes": [
+    1,
+    3,
+    1
+   ],
+   "lab": [
+    49.88,
+    -1.81,
+    -8.57
+   ]
+  },
+  {
+   "index": 14,
+   "codes": [
+    3,
+    3,
+    1
+   ],
+   "lab": [
+    49.31,
+    17.19,
+    6.57
+   ]
+  },
+  {
+   "index": 15,
+   "codes": [
+    2,
+    3,
+    1
+   ],
+   "lab": [
+    43.82,
+    -0.02,
+    0.83
+   ]
+  }
+ ]
+}
