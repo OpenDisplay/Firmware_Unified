@@ -224,7 +224,8 @@ def build_bwry29() -> dict:
          "stock waveform at fixed PLL 07: 9.2 s, ~8 % chroma loss (R-0046)"),
         (3, "partial_bw", jd29_partial(t[:7]), 2, 0, 0, 1,
          "BW2_kick3_w10 (B4 N0) full-window partial: 0 = to K, 1 = to W, 2/3 hold; "
-         "product cycle K 3.1 / W 2.9 dE00 at 100 updates (R-0237, R-0238) [1 ex]"),
+         "product cycle K 3.1 / W 2.9 dE00 at 100 updates (R-0237, R-0238) [1 ex]; through the "
+         "firmware on OD18FCAA held K fades a step per update, as on the 2.66in [1 ex, prov]"),
     ]
     # Slots 0/1 hold the colour16 waves of the stock preset; the partial table takes slot 2.
     # Stored uncompressed: BG22 (the M3 Pro) has no inflate cache, so a deflated slot reads absent.

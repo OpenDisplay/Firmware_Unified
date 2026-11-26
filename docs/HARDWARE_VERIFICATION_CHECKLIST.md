@@ -1834,3 +1834,14 @@ Same procedure as the 7.5" above, `ep266yr_bwry` entry. Judged by eye, not measu
 | Rail-up vs reset as the cause (needs a firmware build) | **OPEN** |
 | Host sends `held_k_code` (py-opendisplay) | **OPEN**: the desk script built the frames; a host without the field sends code 3 and K fades |
 | Drift over 100 updates, meter | **OPEN** |
+
+## BWRY 2.9" `partial_bw` refresh mode on OD18FCAA (BG22, 3.1.1), 2026-11-26
+
+Same procedure as the 7.5" above, `ep29yr_bwry` entry (2998 B config; the unit had no measured
+0xB0, so it now carries the preset palettes). Judged by eye, not measured. The lab rows
+(R-0237/R-0238) were raw SPI on the lab rig; this is the stored mode through the firmware.
+
+| Row | Result |
+|---|---|
+| BW2_kick3_w10, counter 00-10, 24-26 C | updates, 3.1 s per update, but held K fades a step per update as on the 2.66": **FAIL** for shipping as is |
+| The 2.66" held-K top-up on the 2.9" | **OPEN** |

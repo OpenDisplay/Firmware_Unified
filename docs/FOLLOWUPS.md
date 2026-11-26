@@ -1824,7 +1824,10 @@ pieces that belong elsewhere or wait on hardware.
 - **Website presets** (`opendisplay.org`) still ship no mode-0 0xB0 and the photo colour16
   palette; `tests/panels/test_panels.py` `website_packets()` states the difference.
 
-## BWRY partials — held black on the 2.66in
+## BWRY partials — held black on the 2.66in and 2.9in
+
+- **2.9in (OD18FCAA) fades held K the same way** through the firmware path; its entry still
+  has the plain table. Next: the 2.66in top-up table and `held_k_code` on the 2.9in.
 
 - **py-opendisplay: 0xAE tail byte [5] `held_k_code`.** `ModeExt` keeps it in `extra`;
   `prior.mask_unchanged` should send that code for an unchanged pixel whose prior code is 0 and
