@@ -389,6 +389,82 @@
         }
       ]
     },
+    "ep75yr_bwry": {
+      "name": "ep75yr_bwry",
+      "key": "0x0040",
+      "base_preset": "0x0040",
+      "drive_rev": 1,
+      "budget_limit": 20,
+      "lut_family": 2,
+      "busy_timeout_s": 120,
+      "modes": [
+        {
+          "mode_index": 2,
+          "name": "partial_bw",
+          "experimental": true,
+          "experimental_note": "BW2_kick3_w20 (2.9in recipe, 20-frame white runs) full-window flashing partial: 0 = to K, 1 = to W, 2/3 hold; about 2.4 s DRF, 7.3 s per update over BLE; counter 00-10 on ODBF064E with clean white, judged by eye, not measured [1 ex, prov]",
+          "budget_cost": 1,
+          "lut_slot": 2,
+          "passes": 1,
+          "hold_mask": 12,
+          "temp_window_c": [
+            15,
+            30
+          ],
+          "temp_policy": "substitute",
+          "seq_steps": 27,
+          "seq_bytes": 98
+        }
+      ],
+      "luts": [
+        {
+          "slot": 2,
+          "compressed": false,
+          "wave": "bwry75_BW2_kick3_w20.bin",
+          "raw_bytes": 535,
+          "stored_bytes": 535
+        }
+      ],
+      "config_bytes": 2233,
+      "packets": [
+        {
+          "id": 177,
+          "body_hex": "000301409c00000001020303080202000207a50000014000010000140278"
+        },
+        {
+          "id": 174,
+          "body_hex": "000066756c6c0000000000000000ff01000000ffffffffffffffff0000000000000000500003000f2905060f8b93a1024100025037036002020561032001e0096298989875cab2987e05650000000002e71c02e30002e9010230080104000102e00202e65a02a50000010110000302120000010000"
+        },
+        {
+          "id": 174,
+          "body_hex": "0001636f6c6f75723136000000000a030f1e01000101ffffffffff0014410000000000540003000fa905060f8b93a1024100025037036002020561032001e0096298989875cab2987e05650000000002e71c02e30002e9010230080104000102e00202e65a02a5000001012000040110000302120000010000010101ff"
+        },
+        {
+          "id": 175,
+          "body_hex": "0000af770022782d222008ef7fffffff657fffffffff7f7fff7fafef3faf7feffdef7fff7f7fff3c3ce6f5efef7fff00877defbebe3fefef7fffafefffefffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffefdddf696dffefffffffef7fdede7fafef3faf7feffdefdefe7f7fff3c6fed6fafefffb17f6faf7e7ffd7e6f6fb5ffefef2def7f3fffef6fd6ffefbe6fef2dffffefefd3d67fefbcef6fbff7efefffffffffffefffffffffefbbfbb47cffefffffffef7fdede7fafef3faf7feffdefdeff7f7fff3cff6cefefefdede6fefefbefdef3fbfefdfdf7dafffbfef7fbdefeffff7d9ef73efac7dffefffffffffffffffffffffffffffffffffffffffffffffefdddf36f7ffefffffffef7fdede7fafef3faf7feffdefdefe7f7fff3c6d6c6eefeff29def6f2f7e7f7f7e6fef9ddfefe77fbf7fef6fafefd9f77fedafef7afdffefffffffffffffffffffffffffffffffffffffffffffffefdddfaaefffefffffffef7fdede7fafef3faf7feffdefdeb77f7fff3caf7d7fafeff2b5ef6faf7eafbf6e6fefd6ffefbeed6fbd3fffef6f94ffef6d2fef6fadffefefbdf6ef7dbeeffd7effefffffffffffffffffffffffefffffffff657fffffffff7fffff7fafef3faf7feffdefffba7f7fff3c3c87beefeffbffe700ffefffffffffefffffffafffefedffffefefffbfbebeffeffdec6defffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "id": 175,
+          "body_hex": "000124d000147814142408ef7fff3dedfeefee6fafefef7fffedadedefffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffeff7deeeedafefbdef7f6fefbbdbed3f6fefefffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff3dedfeefee6fafefefffffedadedefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeff5ff7cedbfefee6fafefeff9ff3fbeafefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffdbf3f2f37efefef2fefeff3ff2faf2eefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefbebabd6dfeefee6fafefefbaffedadedefffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "id": 176,
+          "body_hex": "0000000400002509a30203ff010010270000000002009b25c909dc230300a511f416c90e"
+        },
+        {
+          "id": 176,
+          "body_hex": "000100100e0070085b03b8ff1500492710001a0016006f2569091c2517003c126218471019004b1cddff61fe1400ce199711ec132d001b17050179fe2600b615160454082100ab15e204d6ff2c005314e006fb012e00491481014bff22002912fa049b0038001c108607a7023c001c109c057b011e00320ff401cb011000870b580b5c05"
+        },
+        {
+          "id": 174,
+          "body_hex": "00027061727469616c5f62770000ff010f1e0102ffffffffffffff0000000000000000620003000fa905060f8b93a1024100025037036002020561032001e0096298989875cab2987e05650000000002e71c02e30002e9010230080104000102e00202e65a02a5000001012000040230020a830000031f000001df010110000302120000010000010101ff0c"
+        },
+        {
+          "id": 175,
+          "body_hex": "0002924d00222d2d222002efffff70ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffbff77ffffefffffffefeffffff8ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefb7dc67be7fefbe7fbeefeff3ff7fbeffefffffffefefffffefffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff70ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff70ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffebb67be7fefbe7fbeefeffeff7fbeffefffffffefefffffefffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      ]
+    },
     "ee02_709_spectra6": {
       "name": "ee02_709_spectra6",
       "key": "0x0000",

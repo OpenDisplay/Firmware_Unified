@@ -1776,3 +1776,17 @@ Frames only through 0x0085 (no config write), each unit's own stored 3-pass mode
 | 4.2" OD01AAA9: dither set as a 4x4 swatch grid, 23 C | **PASS**: cells as predicted |
 | 7.5" ODBF064E: dither set as a 4x4 swatch grid, raw codes (no palette_code_swap), 23 C | **PASS**: yellow and red in place, so the codes are not swapped |
 | Same sets written by a preset migration and rendered through py-opendisplay's own encoder | **OPEN** |
+
+## BWRY 7.5" `partial_bw` refresh mode on ODBF064E (BG22, 3.0.0 bg22-dev), 2026-11-26
+
+Drive data replaced with the `ep75yr_bwry` entry of `panels/generated/refresh_modes.json` (2812 B
+config; the unit's own measured colour16 0xB0 kept). Per run: one stock `full` (white with a
+K/W/Y/R strip), then a two-digit counter in the centre through `partial_bw` (py-opendisplay
+`show()`, only changed pixels driven, the rest code 2). Judged by Jonas by eye; no meter or camera.
+
+| Row | Result |
+|---|---|
+| cnt_k10w10 (non-flashing), counter 00-10, 23-25 C | **PASS**: digits correct, 5.0-5.5 s per update; white greyer than the 2.9" |
+| BW2_kick3_w10 (2.9" table as is), 00-10 | Works, 6.1-6.5 s; more grey left than on the 2.9" |
+| BW2_kick3_w20 (20-frame white runs), 00-05, 23-26 C | **PASS**: "way better" white; 7.3-7.4 s per update. Shipped |
+| Black/white drift over 100 updates, strip outside the counter, meter | **OPEN** |

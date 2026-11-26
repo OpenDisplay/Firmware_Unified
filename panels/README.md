@@ -19,7 +19,10 @@ panels/
                             i1pro_fleet_<date>.json: per-unit i1Pro reads of the native colours;
                             `palette: {fleet: <file>, unit: <device>}` gives a single-pass mode
                             that unit's lab_rel_white colours, matched by name, coded via code_map
-  waves/                    the two 535-byte BWRY16 waveforms (0xAF source)
+  waves/                    535-byte 0xAF tables: the two BWRY16 waveforms, and the refresh-mode
+                            tables gen_refresh_modes.py names. bwry75_cnt_k10w10.bin is not used:
+                            the 7.5in non-flashing partial (about 5 s per update, greyer white),
+                            kept because a BG22 config holds only one partial table
   tools/                    generators (stdlib Python + a host C compiler)
     pdlib.py                encoders, capture/replay drivers, normaliser, deriver
     gen_all.py              capture -> derive -> replay -> generated/*  (--check: staleness)

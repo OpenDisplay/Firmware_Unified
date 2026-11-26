@@ -74,6 +74,7 @@ def mode_tail(cost: int, scrub_before: int = NO_SCRUB, hold_mask: int | None = N
 # Keyed by (panel, mode name): names repeat across panels with different code maps.
 HOLD_MASK = {
     ("ep29yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
+    ("ep75yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
     ("s73_spectra6", "partialcool"): 1 << 4,  # code 4 = hold (R-0234)
     ("ee02_709_spectra6", "changedonly"): (1 << 4) | (1 << 7),  # 4/7 hardwired holds (R-0032)
     ("ee02_709_spectra6", "partial4ink"): (1 << 4) | (1 << 7),  # codes 4/7 hold (R-0240)
@@ -213,6 +214,37 @@ def build_bwry29() -> dict:
                     family=FAMILY_JD, timeout_s=120, compress=False)
 
 
+# ------------------------------------------------------------------------- 7.5in F52-BWRY (0x0040)
+# Windowed partial on ODBF064E, the sequence of Firmware_Silabs scripts/f75_counter.py: RST, the
+# stock colour16 init (LUT_EN, PON inside, booster tail, table after the tail: the only placement
+# this panel honours), PLL 02 (the table is built for 20 ms frames; the init sets 08), 0x83
+# window, data, DRF, then the 0xB1 sleep. The window is the whole panel (BG22 has no WINDOW
+# escape): codes 0 = to K, 1 = to W, 2/3 = hold.
+# The table is the 2.9in BW2_kick3_w10 recipe with 20-frame white runs (followups/bwry29
+# b4_tables.build(0, wrun=20), DC rebalanced): w10 left grey on this glass. Only one partial
+# table fits a BG22 config next to the two colour16 waves (3120 B cap).
+def f75_partial(colour16: list[tuple]) -> list[tuple]:
+    w, h = 800, 480
+    i = next(k for k, s in enumerate(colour16) if s[0] == "lut") + 1
+    assert colour16[i] == cmd(0x10), colour16[i]
+    win = cmd(0x83, 0x00, 0x00, (w - 1) >> 8, (w - 1) & 0xFF, 0x00, 0x00, (h - 1) >> 8, (h - 1) & 0xFF, 0x01)
+    return colour16[:i] + [cmd(0x30, 0x02), win] + colour16[i:]
+
+
+def build_bwry75() -> dict:
+    key = 0x0040
+    pkts = base_packets("0x0040")
+    modes = [
+        (2, "partial_bw", f75_partial(mode_seq(pkts, 1)), 2, 0, 0, 1,
+         "BW2_kick3_w20 (2.9in recipe, 20-frame white runs) full-window flashing partial: 0 = to K, "
+         "1 = to W, 2/3 hold; about 2.4 s DRF, 7.3 s per update over BLE; counter 00-10 on ODBF064E "
+         "with clean white, judged by eye, not measured [1 ex, prov]"),
+    ]
+    # Slots 0/1 hold the colour16 waves; stored uncompressed for BG22 (no inflate cache).
+    return assemble(key, "0x0040", pkts, modes, {2: "bwry75_BW2_kick3_w20.bin"}, budget=20,
+                    family=FAMILY_JD, timeout_s=120, compress=False)
+
+
 # ---------------------------------------------------------------------------- 7.09in S6 (EE02)
 # The lab-order stream (tests/host/ee02_spectra_preset.inc k_lab_order_seq, from
 # ee02_spectra709/src/main.cpp) with PSR DF E9, the table's PWR on the main chip, PLL, and the
@@ -285,7 +317,8 @@ def build_ee02() -> dict:
 
 
 # ------------------------------------------------------------------------------------- assembly
-name_of = {"0x0023": "s73_spectra6", "0x001E": "ep29yr_bwry", "0x0042": "ee02_709_spectra6"}
+name_of = {"0x0023": "s73_spectra6", "0x001E": "ep29yr_bwry", "0x0040": "ep75yr_bwry",
+           "0x0042": "ee02_709_spectra6"}
 
 def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int,
              timeout_s: int, compress: bool = True, cals=None) -> dict:
@@ -333,7 +366,7 @@ def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int
 
 
 def render() -> tuple[str, str]:
-    panels = [build_s73(), build_bwry29(), build_ee02()]
+    panels = [build_s73(), build_bwry29(), build_bwry75(), build_ee02()]
     presets = json.loads(PRESETS.read_text())["panels"]
     js = {"schema_version": 1, "note": "experimental refresh modes; layouts provisional "
           "(docs/REFRESH_MODES.md)", "panels": {}}
