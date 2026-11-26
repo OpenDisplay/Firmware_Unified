@@ -394,14 +394,31 @@ class Equivalence(unittest.TestCase):
                     self.assertEqual(eq["all_equal"], v["status"] == "equivalent", (key, cls))
 
 
-def website_packets(key: str) -> list[dict]:
+def yaml_entries() -> dict[str, dict]:
+    try:
+        import yaml
+    except ImportError:
+        raise unittest.SkipTest("PyYAML not installed")
+    doc = yaml.safe_load((P.PANELS / "panels.yaml").read_text())
+    return {f"0x{int(str(e['id']), 0):04X}": e for e in doc["panels"]}
+
+
+def website_packets(key: str, ent: dict) -> list[dict]:
     """The website's packets for one glass entry, with this repo's deliberate differences applied:
-    the 0xAE tail that flags an experimental mode (the device ignores it), and the enforced
+    the 0xAE tail that flags an experimental mode (the device ignores it), the enforced
     temperature windows (pdlib.custom_window): an experimental mode's window clipped to
-    CUSTOM_WINDOW_C with policy SUBSTITUTE, and none on mode 0, the stock-full fallback."""
+    CUSTOM_WINDOW_C with policy SUBSTITUTE, and none on mode 0, the stock-full fallback; and
+    the 0xB0 of every mode that names a `palette` in panels.yaml, built from that palette source
+    in place of the website's (which has none for single-pass modes)."""
+    own = {mi for mi, m in enumerate(ent["modes"]) if m.get("palette") is not None}
     out = []
+    cals = []
     for p in WEB[key]["drivePackets"]:
         raw = bytes.fromhex(p["raw"])
+        if p["pid"] == "176":
+            if raw[1] not in own:
+                cals.append((raw[1], raw))
+            continue
         if p["pid"] == "174":
             name = raw[2:14].rstrip(b"\0").decode()
             if raw[1] == 0:
@@ -411,15 +428,19 @@ def website_packets(key: str) -> list[dict]:
                 raw = raw[:16] + struct.pack("<bbB", tmin, tmax, P.POLICY_SUBSTITUTE) + raw[19:]
                 raw += P.mode_tail(P.MODE_EXPERIMENTAL, P.EXPERIMENTAL_YAML_MODES[name])
         out.append({"pid": p["pid"], "raw": raw.hex()})
+    for mi in own:
+        cals.append((mi, P.cal_body(mi, P.mode_palette(ent, ent["modes"][mi], {}), measured=False)))
+    out += [{"pid": "176", "raw": raw.hex()} for _, raw in sorted(cals, key=lambda c: c[0])]
     return out
 
 
 class Glass(unittest.TestCase):
     def test_byte_identical_with_website(self):
+        ents = yaml_entries()
         for key in GLASS:
             with self.subTest(key=key):
                 mine = [{"pid": str(p["id"]), "raw": p["body_hex"]} for p in PRESETS["panels"][key]["packets"]]
-                self.assertEqual(mine, website_packets(key))
+                self.assertEqual(mine, website_packets(key, ents[key]))
 
     def test_yaml_encoder_reproduces_website(self):
         try:
@@ -435,7 +456,7 @@ class Glass(unittest.TestCase):
             key = f"0x{int(str(ent['id']), 0):04X}"
             with self.subTest(key=key):
                 mine = [{"pid": str(pid), "raw": b.hex()} for _, pid, b in P.yaml_panel_packets(ent, waves, pal)]
-                self.assertEqual(mine, website_packets(key))
+                self.assertEqual(mine, website_packets(key, ent))
 
     def test_colour16_is_flagged_experimental(self):
         for key in GLASS:

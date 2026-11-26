@@ -345,7 +345,7 @@
           "stored_bytes": 535
         }
       ],
-      "config_bytes": 2313,
+      "config_bytes": 2353,
       "packets": [
         {
           "id": 177,
@@ -366,6 +366,10 @@
         {
           "id": 175,
           "body_hex": "000124d000147814142408ef7fff3dedfeefee6fafefef7fffedadedefffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffeff7deeeedafefbdef7f6fefbbdbed3f6fefefffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff3dedfeefee6fafefefffffedadedefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeff5ff7cedbfefee6fafefeff9ff3fbeafefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffdbf3f2f37efefef2fefeff3ff2faf2eefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefbebabd6dfeefee6fafefefbaffedadedefffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "id": 176,
+          "body_hex": "000000040000c208b4025bff010010270000000002008b24a70a332703004411da16b50f"
         },
         {
           "id": 176,

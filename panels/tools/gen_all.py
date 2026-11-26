@@ -466,6 +466,11 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
             e["color_scheme"] = int((ent.get("modes") or [{}])[0].get("color_scheme", native))
             e["notes"].append("hand-written panels.yaml sequences, kept byte-identical to the website "
                               "presets; not derived from bb_epaper")
+            for m in ent.get("modes") or []:
+                src = m.get("palette")
+                if isinstance(src, dict):
+                    e["notes"].append(f"0xB0 for {m['name']}: i1Pro stock colours of {src['unit']} "
+                                      f"({src['fleet']}), a type default; measured bit 0")
             if num == 0x003A:
                 e["notes"].append("DOUBT: 16-colour palette is the 2.9in (ODBEEBA6) photo palette, not "
                                   "measured on this panel")
