@@ -68,10 +68,15 @@ GRAY_INTO = {
 # every panel. A 4-gray enum with u8Colors_4gray_v2 (3, 2, 1, 0) takes its two planes the other
 # way round, which swaps codes 1 and 2, so one host table serves every gray mode.
 GRAY_LOOKUP_V2 = [3, 2, 1, 0]
+# BWR ids no simple-config display uses (opendisplay.org simple-config-presets.json): no drive
+# data is shipped for them. A device configured with one is moved to a preset by hand.
+UNUSED_REMOVED = ("0x000C", "0x000F", "0x0010", "0x0019", "0x0021", "0x0024", "0x0025", "0x0026",
+                  "0x0029", "0x002D")
 # 4-gray enums whose plane order on glass is the opposite of what their bb_epaper lookup implies
 # (the mid-grays come out swapped), with the checklist section that shows it.
 GRAY_SWAP_ON_GLASS = {"EP42B_400x300_4GRAY": 'HARDWARE_VERIFICATION_CHECKLIST.md § 4.2" BW (0x0002)',
-                      "EP29_128x296_4GRAY": 'HARDWARE_VERIFICATION_CHECKLIST.md § 2.9" flex BW (0x0017)'}
+                      "EP29_128x296_4GRAY": 'HARDWARE_VERIFICATION_CHECKLIST.md § 2.9" flex BW (0x0017)',
+                      "EP154_200x200_4GRAY": 'HARDWARE_VERIFICATION_CHECKLIST.md § 1.54" BW (0x001A)'}
 
 
 def swap_gray_planes(toks: list[tuple]) -> list[tuple]:
@@ -551,7 +556,7 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
 
     out: dict[str, dict] = {}
     for key, idinfo in ids.items():
-        if key in GRAY_INTO:
+        if key in GRAY_INTO or key in UNUSED_REMOVED:
             continue
         num = idinfo["panel_ic_type"]
         enum = idinfo["bb_epaper_enum"]
@@ -692,8 +697,10 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
         "names": {e["name"]: k for k, e in out.items() if not e.get("alias_of")},
         "panels": out,
         # Keys with no drive data any more: a device configured with one is moved to `use` by hand.
-        "removed": {k: {"name": ids[k]["bb_epaper_enum"], "use": bw, "modes": sorted(fl.values())}
-                    for k, (bw, fl) in GRAY_INTO.items()},
+        "removed": {**{k: {"name": ids[k]["bb_epaper_enum"], "use": bw, "modes": sorted(fl.values())}
+                       for k, (bw, fl) in GRAY_INTO.items()},
+                    **{k: {"name": ids[k]["bb_epaper_enum"], "use": None, "modes": []}
+                       for k in UNUSED_REMOVED}},
         "native_controllers": native_controllers(prev),
     }
     streams["drift_vs_vendored"] = drift

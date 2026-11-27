@@ -249,7 +249,8 @@ removes or changes the meaning of a field bumps `schema_version`.
   // swapped where bb_epaper uses u8Colors_4gray_v2, so the host's u8Colors_4gray codes fit all.
   // A class drops gray modes, last first, that would push the config over its cap.
   "removed": {                          // keys with no drive data: the device is moved to `use` by hand
-    "0x0015": {"name": "EP75_800x480_4GRAY", "use": "0x0014", "modes": ["gray4"]}
+    "0x0015": {"name": "EP75_800x480_4GRAY", "use": "0x0014", "modes": ["gray4"]},
+    "0x000C": {"name": "EP29R_128x296", "use": null, "modes": []}   // BWR no simple-config display uses
   },
   "native_controllers": {              // minor 3: IT8951 / FastEPD parallel ids (ESP32 only)
     "0x0BBD": {                         // key: legacy panel_ic_type 3000-3005, "0x%04X"

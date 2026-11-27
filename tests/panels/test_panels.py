@@ -86,10 +86,14 @@ class Schema(unittest.TestCase):
         self.assertEqual(PRESETS["caps"]["nordic"], 4096)
 
     def test_every_legacy_id_present(self):
-        # A 4-gray id is a mode of its BW panel: listed under `removed`, with no entry.
+        # A 4-gray id is a mode of its BW panel, and an unused BWR id has no `use`: both listed
+        # under `removed`, with no entry.
         self.assertEqual(set(PRESETS["panels"]) | set(PRESETS["removed"]), set(IDS))
         self.assertFalse(set(PRESETS["panels"]) & set(PRESETS["removed"]))
         for key, r in PRESETS["removed"].items():
+            if r["use"] is None:
+                self.assertEqual(r["modes"], [])
+                continue
             with self.subTest(key=key):
                 modes = {m["name"] for m in PRESETS["panels"][r["use"]]["modes"]}
                 self.assertTrue(set(r["modes"]) <= modes | {"gray4"}, (r, modes))
@@ -358,7 +362,9 @@ class Equivalence(unittest.TestCase):
     def test_long_double_init_runs_on_bg22(self):
         """Full flows longer than the old 128 B BG22 cap (the doubled bb_epaper init) now run there
         unchanged: same full-mode packet as the default class, replayed by the BG22 build."""
-        e = PRESETS["panels"]["0x000C"]
+        e = next(e for e in PRESETS["panels"].values()
+                 if e.get("modes") and e["modes"][0]["seq_bytes"] > 128 and "bg22" in e.get("targets", {})
+                 and e["targets"]["bg22"]["status"] == "equivalent")
         self.assertEqual(e["targets"]["bg22"]["status"], "equivalent")
         full = e["modes"][0]
         self.assertEqual(full["name"], "full")
@@ -507,7 +513,6 @@ class DisplayPresets(unittest.TestCase):
     catch them drifting."""
     WANT = (("display_presets.inc", "EP29YR", "0x001E", None),
             ("display_presets.inc", "EP42B", "0x0002", "bg22"),
-            ("display_presets.inc", "EP74R", "0x0024", None),
             ("ee02_spectra_preset.inc", "EP133S", "0x0042", None))
 
     def test_inc_matches_database(self):
