@@ -12,10 +12,19 @@ panels/
   panels.yaml               hand-authored, ON-GLASS-VERIFIED entries (6 BWRY panels). Frozen.
   glass_reports.yaml        on-glass sightings of GENERATED entries -> per-mode verified: glass
   panel_ids.json            legacy panel_ic_type id -> bb_epaper enum, scheme, preset ids
-  palettes/                 measured BWRY 16-colour palettes (0xB0 source)
-                            i1pro_fleet_<date>.json: per-unit i1Pro reads of the native colours
-                            (reference data; nothing generates from it)
-  waves/                    the two 535-byte BWRY16 waveforms (0xAF source)
+  palettes/                 0xB0 sources. A panels.yaml mode names one with `palette:`
+                            (a multi-pass mode without one takes the ODBEEBA6 photo palette).
+                            palette16_dither_<id>_<unit>.json: i1Pro, dither-optimised colour16
+                            set of one unit; `raw_codes: true` skips palette_code_swap
+                            i1pro_fleet_<date>.json: per-unit i1Pro reads of the native colours;
+                            `palette: {fleet: <file>, unit: <device>}` gives a single-pass mode
+                            that unit's lab_rel_white colours, matched by name, coded via code_map
+  waves/                    535-byte 0xAF tables: the two BWRY16 waveforms, and the refresh-mode
+                            tables gen_refresh_modes.py names. bwry75_cnt_k10w10.bin is not used:
+                            the 7.5in non-flashing partial (about 5 s per update, greyer white),
+                            kept because a BG22 config holds only one partial table
+                            bwry266_BW2_kick3_w10_hk4.bin: BW2_kick3_w10 with code 2 = W 4 | K 4
+                            from frame 0 (net 0 under both DC models), the 2.66in held-K top-up
   tools/                    generators (stdlib Python + a host C compiler)
     pdlib.py                encoders, capture/replay drivers, normaliser, deriver
     gen_all.py              capture -> derive -> replay -> generated/*  (--check: staleness)

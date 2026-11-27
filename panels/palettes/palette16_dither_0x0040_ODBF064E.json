@@ -1,0 +1,217 @@
+{
+ "_comment": "colour16 palette for 0x0040 (7.5in), a type default from ODBF064E: 16 of the 64 three-pass states, picked for error-diffusion dithering (greens_palettes.py objective: hull reach, grain, grey ramp; white, yellow 211, red 311 and the darkest state forced). Lab is the i1Pro sweep of 2026-11-19, D50 media-relative (panel white = L* 100), copied from i1pro/20261119_75sweep/states_75.csv. Codes are this panel's raw codes as rendered in the sweep, so palette_code_swap does not apply.",
+ "device": "ODBF064E",
+ "mode": "colour16",
+ "source": "i1Pro sweep 2026-11-19, i1pro/20261119_75sweep/states_75.csv",
+ "raw_codes": true,
+ "entries": [
+  {
+   "index": 0,
+   "codes": [
+    2,
+    3,
+    0
+   ],
+   "lab": [
+    21.6,
+    8.59,
+    -0.72
+   ]
+  },
+  {
+   "index": 1,
+   "codes": [
+    1,
+    1,
+    1
+   ],
+   "lab": [
+    100.57,
+    0.16,
+    0.26
+   ]
+  },
+  {
+   "index": 2,
+   "codes": [
+    2,
+    1,
+    1
+   ],
+   "lab": [
+    95.83,
+    24.09,
+    95.0
+   ]
+  },
+  {
+   "index": 3,
+   "codes": [
+    3,
+    1,
+    1
+   ],
+   "lab": [
+    46.68,
+    62.42,
+    41.67
+   ]
+  },
+  {
+   "index": 4,
+   "codes": [
+    1,
+    2,
+    1
+   ],
+   "lab": [
+    72.43,
+    -0.35,
+    -4.15
+   ]
+  },
+  {
+   "index": 5,
+   "codes": [
+    0,
+    1,
+    1
+   ],
+   "lab": [
+    66.06,
+    45.03,
+    51.0
+   ]
+  },
+  {
+   "index": 6,
+   "codes": [
+    1,
+    3,
+    2
+   ],
+   "lab": [
+    59.15,
+    2.61,
+    -3.91
+   ]
+  },
+  {
+   "index": 7,
+   "codes": [
+    2,
+    1,
+    2
+   ],
+   "lab": [
+    55.58,
+    10.46,
+    21.32
+   ]
+  },
+  {
+   "index": 8,
+   "codes": [
+    1,
+    0,
+    2
+   ],
+   "lab": [
+    55.47,
+    12.5,
+    -0.42
+   ]
+  },
+  {
+   "index": 9,
+   "codes": [
+    0,
+    3,
+    2
+   ],
+   "lab": [
+    52.03,
+    17.6,
+    5.07
+   ]
+  },
+  {
+   "index": 10,
+   "codes": [
+    2,
+    3,
+    2
+   ],
+   "lab": [
+    51.93,
+    3.85,
+    -1.81
+   ]
+  },
+  {
+   "index": 11,
+   "codes": [
+    2,
+    0,
+    2
+   ],
+   "lab": [
+    46.49,
+    12.74,
+    1.55
+   ]
+  },
+  {
+   "index": 12,
+   "codes": [
+    0,
+    2,
+    3
+   ],
+   "lab": [
+    41.24,
+    19.26,
+    6.79
+   ]
+  },
+  {
+   "index": 13,
+   "codes": [
+    0,
+    3,
+    3
+   ],
+   "lab": [
+    41.24,
+    14.36,
+    3.79
+   ]
+  },
+  {
+   "index": 14,
+   "codes": [
+    2,
+    3,
+    1
+   ],
+   "lab": [
+    38.9,
+    5.0,
+    4.59
+   ]
+  },
+  {
+   "index": 15,
+   "codes": [
+    0,
+    0,
+    1
+   ],
+   "lab": [
+    29.51,
+    29.04,
+    13.72
+   ]
+  }
+ ]
+}

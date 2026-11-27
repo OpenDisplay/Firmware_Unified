@@ -466,9 +466,17 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
             e["color_scheme"] = int((ent.get("modes") or [{}])[0].get("color_scheme", native))
             e["notes"].append("hand-written panels.yaml sequences, kept byte-identical to the website "
                               "presets; not derived from bb_epaper")
-            if num == 0x003A:
-                e["notes"].append("DOUBT: 16-colour palette is the 2.9in (ODBEEBA6) photo palette, not "
-                                  "measured on this panel")
+            for m in ent.get("modes") or []:
+                src = m.get("palette")
+                if isinstance(src, dict):
+                    e["notes"].append(f"0xB0 for {m['name']}: i1Pro stock colours of {src['unit']} "
+                                      f"({src['fleet']}), a type default; measured bit 0")
+                elif src:
+                    e["notes"].append(f"0xB0 for {m['name']}: {src}, i1Pro on "
+                                      f"{P.load_palette(src)['device']}, a type default; measured bit 0")
+                elif m.get("passes", 1) > 1:
+                    e["notes"].append(f"DOUBT: 0xB0 for {m['name']} is the 2.9in (ODBEEBA6) photo palette, "
+                                      "not measured on this panel")
             e["notes"].append("DOUBT: 0xB1 code_map is carried but od_epd_cfg never applies it")
             views = {cls: class_view(p, cls, pk, json.loads(json.dumps(gmodes))) for cls in P.CLASSES}
             # bb_epaper comparison for the record only: the glass sequences are not derived from it

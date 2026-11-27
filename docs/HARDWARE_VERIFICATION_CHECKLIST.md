@@ -1763,3 +1763,94 @@ T_CLEAR 10 s). Host: py-opendisplay `v3/py` (f838fe0) CLI. Rows 1-3 on the perma
 | Unclaim: `opendisplay unclaim` | **PASS**: SEC_STATUS `UNCLAIMED`, no claim mode; plaintext config read answers (295 B); plain `tlsr_ota.py stage` verifies (updater open again); the key store forgot the uid |
 | Not run: reset pin (no 0x27 pin on this tag), session timeout, replay | **OPEN** |
 | Boot screen on power-up (CLEAR_ON_BOOT cleared in the stored config, CMD_REBOOT), image 43c7946 | **FAIL**: watchdog reset loop from ~1 s after every boot (~3.6 mA, ~5.5 s period = 4 s watchdog + boot), never advertises; the five-cycle factory reset does not count (render starts before T_ARM). Tag needs SWS. Fix 0ff7a43 (watchdog fed from data writes) not yet run on a tag |
+
+## BWRY presets — measured colour16 palettes on glass (2026-11-26)
+
+Frames only through 0x0085 (no config write), each unit's own stored 3-pass mode 1, py-opendisplay
+`v3/py`. Palettes are `panels/palettes/palette16_dither_*.json`. Glass judged by Jonas.
+
+| Row | Result |
+|---|---|
+| 3.5" OD507E22: dithered test scene, current preset palette then the dither set, 25-26 C | **PASS**: both rendered; dither set approved |
+| 2.66" OD6FACF2: dither set as a 4x4 swatch grid, 24 C | **PASS**: cells as predicted from the sweep (yellow, red, orange where expected) |
+| 4.2" OD01AAA9: dither set as a 4x4 swatch grid, 23 C | **PASS**: cells as predicted |
+| 7.5" ODBF064E: dither set as a 4x4 swatch grid, raw codes (no palette_code_swap), 23 C | **PASS**: yellow and red in place, so the codes are not swapped |
+| 2.9" OD18FCAA (3.1.1, the 2026-11-26 sweep unit): dither set as a 4x4 swatch grid, raw codes, 24 C | **PASS**: cells as predicted |
+| 1.54" OD1F9C0E (the 2026-11-26 sweep unit): dither set as a 4x4 swatch grid, raw codes, 25 C | **PASS**: cells as predicted |
+| Same sets written by a preset migration and rendered through py-opendisplay's own encoder | **OPEN** |
+
+## BWRY 7.5" `partial_bw` refresh mode on ODBF064E (BG22, 3.0.0 bg22-dev), 2026-11-26
+
+Drive data replaced with the `ep75yr_bwry` entry of `panels/generated/refresh_modes.json` (2812 B
+config; the unit's own measured colour16 0xB0 kept). Per run: one stock `full` (white with a
+K/W/Y/R strip), then a two-digit counter in the centre through `partial_bw` (py-opendisplay
+`show()`, only changed pixels driven, the rest code 2). Judged by Jonas by eye; no meter or camera.
+
+| Row | Result |
+|---|---|
+| cnt_k10w10 (non-flashing), counter 00-10, 23-25 C | **PASS**: digits correct, 5.0-5.5 s per update; white greyer than the 2.9" |
+| BW2_kick3_w10 (2.9" table as is), 00-10 | Works, 6.1-6.5 s; more grey left than on the 2.9" |
+| BW2_kick3_w20 (20-frame white runs), 00-05, 23-26 C | **PASS**: "way better" white; 7.3-7.4 s per update. Shipped |
+| Black/white drift over 100 updates, strip outside the counter, meter | **OPEN** |
+
+## BWRY 3.5" `partial_bw` refresh mode on OD507E22 (BG22), 2026-11-26
+
+Same procedure as the 7.5" above, `ep35yr_bwry` entry (2825 B config, measured colour16 0xB0 kept).
+
+| Row | Result |
+|---|---|
+| BW2_kick3_w10 (the 2.9" table as is), counter 00-05, 24-26 C | **PASS** by eye: clean white, 3.1 s per update |
+| Drift over 100 updates, strip outside the counter, meter | **OPEN** |
+
+## BWRY 4.2" `partial_bw` refresh mode on OD01AAA9 (BG22), 2026-11-26
+
+Same procedure as the 7.5" above, `ep42yr_bwry` entry (2879 B config, BUSY polled, measured
+colour16 0xB0 kept).
+
+| Row | Result |
+|---|---|
+| BW2_kick3_w10 (the 2.9" table as is), counter 00-05, 21-24 C | **PASS** by eye: clean white, 5.5 s per update |
+| Drift over 100 updates, strip outside the counter, meter | **OPEN** |
+
+## BWRY 1.54" `partial_bw` refresh mode on OD1F9C0E (BG22), 2026-11-26
+
+Same procedure as the 7.5" above, `ep154yr_bwry` entry (2766 B config; the unit had no measured
+0xB0, so it now carries the preset palettes).
+
+| Row | Result |
+|---|---|
+| BW2_kick3_w10 (the 2.9" table as is), counter 00-05, 25-27 C | **PASS** by eye: clean white, 2.9 s per update |
+| Drift over 100 updates, strip outside the counter, meter | **OPEN** |
+
+## BWRY 2.66" `partial_bw` refresh mode on OD6FACF2 (BG22), 2026-11-26
+
+Same procedure as the 7.5" above, `ep266yr_bwry` entry. Judged by eye, not measured.
+
+| Row | Result |
+|---|---|
+| BW2_kick3_w10, full-panel 0x83, counter 00-10 | updates, but held black fades a step per update: **FAIL** for shipping |
+| Where it fades: a 20 s pause after PON, before PON, and before the first command | fades at once in all three; no fade after the last update: the rail-up / 10 ms reset before the sequence |
+| bwry266_BW2_kick3_w10_hk4 (held K sent as code 2), counter 00-10, 24-26 C | **PASS** by eye: K holds, 3.2 s per update; held K greys during an update and is dark again at its end |
+| Rail-up vs reset as the cause (needs a firmware build) | **OPEN** |
+| Host sends `held_k_code` (py-opendisplay) | **OPEN**: the desk script built the frames; a host without the field sends code 3 and K fades |
+| Drift over 100 updates, meter | **OPEN** |
+
+## BWRY 2.9" `partial_bw` refresh mode on OD18FCAA (BG22, 3.1.1), 2026-11-26
+
+Same procedure as the 7.5" above, `ep29yr_bwry` entry (2998 B config; the unit had no measured
+0xB0, so it now carries the preset palettes). Judged by eye, not measured. The lab rows
+(R-0237/R-0238) were raw SPI on the lab rig; this is the stored mode through the firmware.
+
+| Row | Result |
+|---|---|
+| BW2_kick3_w10, counter 00-10, 24-26 C | updates, 3.1 s per update, but held K fades a step per update as on the 2.66": **FAIL** for shipping as is |
+| The 2.66" held-K top-up on the 2.9" | **OPEN** |
+| Same, 30 s between updates (2026-11-27) | black drawn by the partial (counter, tens "0" held 00-09) holds; black drawn by the stock full (strip, squares in the counter rows and elsewhere) fades. Not a per-row effect |
+| Back to back, a square painted K by the first partial beside a full-drawn square, 26-29 C | all held K fades except pixels driven in that update |
+| **ODBDD245** (2.9", HA unit, 3.1.1, drive packets byte-identical to `ep29yr_bwry`), same back-to-back test, frames only, 20-23 C | **PASS** by eye: nothing fades |
+| OD18FCAA again after 40 min idle, same test | fades at 26-28 C |
+| ODBDD245 heated by hand, same test, 27-29 C (the band OD18FCAA faded in) | **PASS** by eye: nothing fades. Temperature is not the cause |
+| Firmware | both 3.1.1 7c3d11a; OD18FCAA's image is the GitHub 3.1.1 `opendisplay-bg22-ota.gbl` (sha256 8e5d56b2...dc4ad matches the release asset); ODBDD245 took the same asset through HA's guided 2.x->3.x upgrade on 2026-11-25 (HA checks the manifest sha256; the flashed bytes cannot be read back) |
+| Configs | differ only in host-side 0xB0 palettes, encryption and name strings; every 0xAE/0xAF/0xB1 packet and pin identical. Same hardware batch (Jonas) |
+| **OD6A1908** (2.9", upgraded 0.25 -> 3.1.1 for this test, `ep29yr_bwry` written, never swept), same back-to-back test, 26-28 C | **PASS** by eye: nothing fades |
+| Verdict | panel-to-panel: 2 of 3 2.9" units hold K. The two units that fade (OD18FCAA, the 2.66" OD6FACF2) each ran a full 64-state colour16 sweep; whether stock refreshes or rest restore them is **OPEN** |

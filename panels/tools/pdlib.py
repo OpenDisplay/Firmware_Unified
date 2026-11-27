@@ -175,6 +175,8 @@ def encode_steps(steps: list[tuple]) -> bytes:
             out += bytes([0, ESC["window"], len(st[1])]) + bytes(b for kv in st[1] for b in kv)
         elif k == "fill":              # ("fill", cmd, value, flags)
             out += bytes([0, ESC["fill"], st[1], st[2], st[3]])
+        elif k == "subst":             # ("subst", (flag, value) byte pairs), as walk_seq yields it
+            out += bytes([0, ESC["subst"], len(st[1]) // 2]) + bytes(st[1])
         else:
             raise ValueError(st)
     out += bytes([0, 0])
@@ -669,7 +671,8 @@ def encode_yaml_steps(steps: list[str]) -> bytes:
 
 def yaml_panel_packets(entry: dict, waves: dict[str, bytes], palette: dict) -> list[tuple[int, int, bytes]]:
     """One panels.yaml entry -> [(number, pid, body)] in the order the website ships them:
-    0xB1, 0xAE per mode, 0xAF per waveform slot, 0xB0 per multi-pass mode."""
+    0xB1, 0xAE per mode, 0xAF per waveform slot, 0xB0 per multi-pass mode and per mode naming a
+    `palette`, in mode order."""
     seqs = {k: encode_yaml_steps(v) for k, v in (entry.get("init_sequences") or {}).items()}
     slot_of: dict[str, int] = {}
     luts: list[tuple[int, int, bytes]] = []
@@ -709,16 +712,44 @@ def yaml_panel_packets(entry: dict, waves: dict[str, bytes], palette: dict) -> l
                      code_map=list(colour.get("code_map") or [0, 1, 2, 3]), mode_count=len(modes),
                      sleep=sleep, lut_supported=bool((entry.get("lut") or {}).get("supported")))
     out = [(0, PKT_PANEL, pan)] + modes + luts
-    swap = colour.get("palette_code_swap")
     for (mi, _, _), m in zip(modes, mode_meta):
-        if m.get("passes", 1) <= 1:
-            continue
-        ents = []
-        for e in palette["entries"]:
-            codes = tuple(swap[c] for c in e["codes"]) if swap else tuple(e["codes"])
-            ents.append((codes, tuple(e["lab"])))
-        out.append((PKT_CAL, PKT_CAL, cal_body(mi, ents, measured=False)))
+        ents = mode_palette(entry, m, palette)
+        if ents is not None:
+            out.append((PKT_CAL, PKT_CAL, cal_body(mi, ents, measured=False)))
     return out
+
+
+# Logical colour order of a 4-colour BWRY frame (code_map's index), by fleet-file colour name.
+BWRY_LOGICAL = {"black": 0, "white": 1, "yellow": 2, "red": 3}
+
+
+def load_palette(name: str) -> dict:
+    return json.loads((PANELS / "palettes" / name).read_text())
+
+
+def mode_palette(entry: dict, mode: dict, default: dict) -> list | None:
+    """The 0xB0 entries of one mode, or None for a mode without one.
+
+    A mode's `palette` names its source in palettes/: a file of 0xB0 entries, or
+    {fleet: <file>, unit: <device>} for a single-pass mode, whose colours are matched by name and
+    coded through code_map. A multi-pass mode without one takes ``default``. A palette file with
+    `raw_codes: true` was measured through this panel's own codes; any other file goes through
+    the panel's palette_code_swap. The measured bit stays 0: on the wire it means "measured on
+    this unit", and a preset is a type default from another unit."""
+    colour = entry.get("colour") or {}
+    src = mode.get("palette")
+    if isinstance(src, dict):
+        fleet = load_palette(src["fleet"])
+        unit = next(u for u in fleet["units"] if u["device"] == src["unit"])
+        cmap = list(colour.get("code_map") or [0, 1, 2, 3])
+        rows = sorted(unit["entries"], key=lambda e: BWRY_LOGICAL[e["name"]])
+        return [((cmap[BWRY_LOGICAL[e["name"]]],), tuple(e["lab_rel_white"])) for e in rows]
+    if src is None and mode.get("passes", 1) <= 1:
+        return None
+    pal = load_palette(src) if src else default
+    swap = None if pal.get("raw_codes") else colour.get("palette_code_swap")
+    return [(tuple(swap[c] for c in e["codes"]) if swap else tuple(e["codes"]), tuple(e["lab"]))
+            for e in pal["entries"]]
 
 
 # ----------------------------------------------------------------------------- partial window

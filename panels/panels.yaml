@@ -56,8 +56,15 @@ panels:
       - name: full
         init: full
         passes: 1
+        # Stock colours, i1Pro type default from one named unit (palettes/i1pro_fleet_20261117.json,
+        # lab_rel_white, matched by name, coded through code_map). Unit-to-unit spread is several
+        # dE00, so this is a type default, not a calibration of the unit that receives it.
+        palette: { fleet: i1pro_fleet_20261117.json, unit: ODF4DA34 }
       - name: colour16
         color_scheme: 10   # BWRY16: what the mode RENDERS (0xAE field; never in 0x20)
+        # i1Pro dither-optimised 16 of the 64 states, a type default (see the file). Raw codes,
+        # so palette_code_swap is not applied.
+        palette: palette16_dither_0x001E_OD18FCAA.json
         passes: 3
         # Each pass uses a different LUT *and* different pixel data; pass N's
         # code comes from palette[cell][N]. Passes 1-2 patch wave header byte 3
@@ -175,8 +182,12 @@ panels:
       - name: full
         init: full
         passes: 1
+        # Stock colours, i1Pro type default (see 0x001E).
+        palette: { fleet: i1pro_fleet_20261117.json, unit: OD6FACF2 }
       - name: colour16
         color_scheme: 10   # BWRY16: what the mode RENDERS (0xAE field; never in 0x20)
+        # i1Pro dither-optimised 16 of the 64 states, a type default (see the file).
+        palette: palette16_dither_0x001C_OD6FACF2.json
         passes: 3
         lut_per_pass: [wave_colour, wave_edit, wave_edit]
         vsn1_per_pass: [null, 0x14, 0x41]
@@ -268,8 +279,12 @@ panels:
       - name: full
         init: full
         passes: 1
+        # Stock colours, i1Pro type default (see 0x001E).
+        palette: { fleet: i1pro_fleet_20261117.json, unit: OD01AAA9 }
       - name: colour16
         color_scheme: 10   # BWRY16: what the mode RENDERS (0xAE field; never in 0x20)
+        # i1Pro dither-optimised 16 of the 64 states, a type default (see the file).
+        palette: palette16_dither_0x003A_OD01AAA9.json
         passes: 3
         lut_per_pass: [wave_colour, wave_edit, wave_edit]
         vsn1_per_pass: [null, 0x14, 0x41]
@@ -387,8 +402,13 @@ panels:
       - name: full
         init: full
         passes: 1
+        # Stock colours, i1Pro type default (see 0x001E).
+        palette: { fleet: i1pro_fleet_20261117.json, unit: ODBF064E }
       - name: colour16
         color_scheme: 10   # BWRY16: what the mode RENDERS (0xAE field; never in 0x20)
+        # i1Pro dither-optimised 16 of the 64 states, a type default (see the file). Raw codes,
+        # so palette_code_swap is not applied.
+        palette: palette16_dither_0x0040_ODBF064E.json
         passes: 3
         lut_per_pass: [wave_colour, wave_edit, wave_edit]
         vsn1_per_pass: [null, 0x14, 0x41]
@@ -484,8 +504,13 @@ panels:
       - name: full
         init: full
         passes: 1
+        # Stock colours, i1Pro type default (see 0x001E). OD507E22 was read bare (no front);
+        # glazed units read darker.
+        palette: { fleet: i1pro_fleet_20261117.json, unit: OD507E22 }
       - name: colour16
         color_scheme: 10   # BWRY16: what the mode RENDERS (0xAE field; never in 0x20)
+        # i1Pro dither-optimised 16 of the 64 states, a type default (see the file).
+        palette: palette16_dither_0x0036_OD507E22.json
         passes: 3
         lut_per_pass: [wave_colour, wave_edit, wave_edit]
         vsn1_per_pass: [null, 0x14, 0x41]
@@ -578,8 +603,13 @@ panels:
       - name: full
         init: full
         passes: 1
+        # Stock colours, i1Pro type default (see 0x001E).
+        palette: { fleet: i1pro_fleet_20261117.json, unit: OD1F9C0E }
       - name: colour16
         color_scheme: 10   # BWRY16: what the mode RENDERS (0xAE field; never in 0x20)
+        # i1Pro dither-optimised 16 of the 64 states, a type default (see the file). Raw codes,
+        # so palette_code_swap is not applied.
+        palette: palette16_dither_0x0038_OD1F9C0E.json
         passes: 3
         lut_per_pass: [wave_colour, wave_edit, wave_edit]
         vsn1_per_pass: [null, 0x14, 0x41]
@@ -683,6 +713,8 @@ panels:
       - name: full
         init: full
         passes: 1
+        # Stock colours, i1Pro type default (see 0x001E).
+        palette: { fleet: i1pro_fleet_20261117.json, unit: OD05B911 }
     init_sequences:
       full:
         - "4D 78"

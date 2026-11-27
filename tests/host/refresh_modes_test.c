@@ -214,7 +214,7 @@ static void test_panel(const rm_panel_t *p)
             CASE("table modes upload 0x20 per chip per pass and set the custom-table PSR bit");
             CHECK(count("C 20\n") >= (unsigned)info.passes);
             CHECK(strstr(fx_trace, "C 00\nD 5f e9") != NULL || strstr(fx_trace, "C 00\nD df e9") != NULL ||
-                  strstr(fx_trace, "C 00\nD 0f a9") != NULL);
+                  strstr(fx_trace, "C 00\nD 0f a9") != NULL || strstr(fx_trace, "C 00\nD 0f 89") != NULL);
         }
         if (is_experimental(p, m) && !any_lut) {
             CASE("stock-waveform experimental modes upload no table");

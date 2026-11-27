@@ -1806,3 +1806,35 @@ pieces that belong elsewhere or wait on hardware.
   the SDK at a pinned commit. The tarball is fetched over plain HTTP from a single host and
   cached for 7 days; a mirror the project controls would remove both risks.
   `tools/check.sh --telink` builds it locally when `TC32_DIR` and `TELINK_SDK_DIR` are set.
+
+## BWRY measured palettes — what the presets' 0xB0 still needs outside `panels/`
+
+- **`py-opendisplay` ignores a single-pass mode's 0xB0.** `prepare_multipass` reads 0xB0 only for
+  passes > 1, so the stock-colour 0xB0 on each BWRY `full` mode is carried but unused until the
+  4-colour path dithers against it.
+- **No wire flag for a measured type default.** `cal_flags` bit 0 means "measured on this unit",
+  and the host keeps such a packet across preset updates, so the presets ship bit 0 = 0 even for
+  i1Pro values. A second bit ("measured, on another unit of this type") needs
+  `../opendisplay-protocol` first.
+- **1.54in (0x0038) sweep temperature:** its first six states (100, 222, 213, 130, 102 and the
+  first white) read at 28-30 C, the rest at 25-27 C. 213 is in the palette (111 is also
+  read later in the run); a re-read of 213 at 25 C would settle whether it carries a warm offset.
+- **2.0in Telink 0xF001** has its stock 0xB0 in `panels.yaml` (OD05B911) but is not in the
+  generated presets while its id is provisional.
+- **Website presets** (`opendisplay.org`) still ship no mode-0 0xB0 and the photo colour16
+  palette; `tests/panels/test_panels.py` `website_packets()` states the difference.
+
+## BWRY partials — held black on the 2.66in and 2.9in
+
+- **The fade is unit-specific.** OD18FCAA fades; ODBDD245 and OD6A1908 do not, with the same
+  firmware, drive data and temperature. Both fading units (OD18FCAA, the 2.66in OD6FACF2) ran a
+  64-state colour16 sweep. Open: does a series of stock refreshes or a rest restore them, and
+  does a second 2.66in unit need the top-up at all.
+
+- **py-opendisplay: 0xAE tail byte [5] `held_k_code`.** `ModeExt` keeps it in `extra`;
+  `prior.mask_unchanged` should send that code for an unchanged pixel whose prior code is 0 and
+  the lowest hold code for the rest. Until it does, the 2.66in partial holds K plainly and K fades
+  a step per update. The field is provisional here; `../opendisplay-protocol` owns the layout.
+- **Lean cycle on BG22** (rail up and no reset between back-to-back partials, rail down on a
+  timeout) is the fix for the fade itself; the top-up only repairs it after each update. It also
+  needs a firmware A/B to tell the rail-up from the reset pulse.

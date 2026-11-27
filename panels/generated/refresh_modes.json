@@ -20,6 +20,7 @@
           "lut_slot": null,
           "passes": 1,
           "hold_mask": null,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             30
@@ -37,6 +38,7 @@
           "lut_slot": 0,
           "passes": 1,
           "hold_mask": null,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             24
@@ -54,6 +56,7 @@
           "lut_slot": 1,
           "passes": 1,
           "hold_mask": null,
+          "held_k_code": null,
           "temp_window_c": [
             25,
             30
@@ -71,6 +74,7 @@
           "lut_slot": 2,
           "passes": 1,
           "hold_mask": null,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             24
@@ -88,6 +92,7 @@
           "lut_slot": 3,
           "passes": 1,
           "hold_mask": null,
+          "held_k_code": null,
           "temp_window_c": [
             25,
             30
@@ -105,6 +110,7 @@
           "lut_slot": 4,
           "passes": 1,
           "hold_mask": 16,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             24
@@ -122,6 +128,7 @@
           "lut_slot": 5,
           "passes": 1,
           "hold_mask": null,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             30
@@ -143,6 +150,7 @@
           ],
           "passes": 3,
           "hold_mask": null,
+          "held_k_code": null,
           "temp_window_c": [
             25,
             30
@@ -292,6 +300,83 @@
         }
       ]
     },
+    "ep266yr_bwry": {
+      "name": "ep266yr_bwry",
+      "key": "0x001C",
+      "base_preset": "0x001C",
+      "drive_rev": 1,
+      "budget_limit": 20,
+      "lut_family": 2,
+      "busy_timeout_s": 120,
+      "modes": [
+        {
+          "mode_index": 2,
+          "name": "partial_bw",
+          "experimental": true,
+          "experimental_note": "BW2_kick3_w10 plus a held-K top-up: full-window flashing partial, 0 = to K, 1 = to W, 2 = unchanged K (W 4 | K 4, net 0, ends on K), 3 hold. Without the top-up held K fades a step per update from the rail-up/reset before the first command. 3.2 s per update; counter 00-10 on OD6FACF2 with K held, judged by eye, not measured [1 ex, prov]",
+          "budget_cost": 1,
+          "lut_slot": 2,
+          "passes": 1,
+          "hold_mask": 8,
+          "held_k_code": 2,
+          "temp_window_c": [
+            15,
+            30
+          ],
+          "temp_policy": "substitute",
+          "seq_steps": 26,
+          "seq_bytes": 113
+        }
+      ],
+      "luts": [
+        {
+          "slot": 2,
+          "compressed": false,
+          "wave": "bwry266_BW2_kick3_w10_hk4.bin",
+          "raw_bytes": 535,
+          "stored_bytes": 535
+        }
+      ],
+      "config_bytes": 2255,
+      "packets": [
+        {
+          "id": 177,
+          "body_hex": "000301307500000001020303080202000207a50000011c00010000140278"
+        },
+        {
+          "id": 174,
+          "body_hex": "000066756c6c0000000000000000ff01000000ffffffffffffffff00000000000000004700024d7803000f29030107000403105444080605003f0a25121a02503703600202056100b8016802e71c02e32202b4d002b50302e901023008010400010110000302120000010000"
+        },
+        {
+          "id": 174,
+          "body_hex": "0001636f6c6f75723136000000000a03121e01000101ffffffffff00144100000000006300024d7803000fa900020700010007ff00ff01ff02ff03ff040403105444080605003f0a25121a0002020030ff0602503703600202056100b8016802e71c02e32202b4d002b50302e9010002020082ffff01200004011000030104000102120000010000010101ff"
+        },
+        {
+          "id": 175,
+          "body_hex": "0000af770022782d222008ef7fffffff657fffffffff7f7fff7fafef3faf7feffdef7fff7f7fff3c3ce6f5efef7fff00877defbebe3fefef7fffafefffefffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffefdddf696dffefffffffef7fdede7fafef3faf7feffdefdefe7f7fff3c6fed6fafefffb17f6faf7e7ffd7e6f6fb5ffefef2def7f3fffef6fd6ffefbe6fef2dffffefefd3d67fefbcef6fbff7efefffffffffffefffffffffefbbfbb47cffefffffffef7fdede7fafef3faf7feffdefdeff7f7fff3cff6cefefefdede6fefefbefdef3fbfefdfdf7dafffbfef7fbdefeffff7d9ef73efac7dffefffffffffffffffffffffffffffffffffffffffffffffefdddf36f7ffefffffffef7fdede7fafef3faf7feffdefdefe7f7fff3c6d6c6eefeff29def6f2f7e7f7f7e6fef9ddfefe77fbf7fef6fafefd9f77fedafef7afdffefffffffffffffffffffffffffffffffffffffffffffffefdddfaaefffefffffffef7fdede7fafef3faf7feffdefdeb77f7fff3caf7d7fafeff2b5ef6faf7eafbf6e6fefd6ffefbeed6fbd3fffef6f94ffef6d2fef6fadffefefbdf6ef7dbeeffd7effefffffffffffffffffffffffefffffffff657fffffffff7fffff7fafef3faf7feffdefffba7f7fff3c3c87beefeffbffe700ffefffffffffefffffffafffefedffffefefffbfbebeffeffdec6defffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "id": 175,
+          "body_hex": "000124d000147814142408ef7fff3dedfeefee6fafefef7fffedadedefffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffeff7deeeedafefbdef7f6fefbbdbed3f6fefefffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff3dedfeefee6fafefefffffedadedefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeff5ff7cedbfefee6fafefeff9ff3fbeafefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffdbf3f2f37efefef2fefeff3ff2faf2eefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefbebabd6dfeefee6fafefefbaffedadedefffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "id": 176,
+          "body_hex": "000000040000ab088a02f1fe010010270000000002009923050b6b2303002511d9152d0e"
+        },
+        {
+          "id": 176,
+          "body_hex": "000100100a009c0866023cfe15001027ffff000016001524c408c4201700f81076163e0d2900232505007dfe210074249002f1ff2200df202103c1061900061d0bffd5fb26008d1c6502540f3e00131b830071ff38009b19b702c2013600f9187200e5031400da18de0fe71034005317c4037e041f00bf11d408de011e003a1093005dfe"
+        },
+        {
+          "id": 174,
+          "body_hex": "00027061727469616c5f62770000ff010f1e0102ffffffffffffff00000000000000007100024d7803000fa900020700010007ff00ff01ff02ff03ff040403105444080605003f0a25121a0002020030ff0602503703600202056100b8016802e71c02e32202b4d002b50302e9010002020082ffff012000040a83000000b70000016701011000030250970104000102120000010000010101ff0802"
+        },
+        {
+          "id": 175,
+          "body_hex": "0002c22100222d2d222002efffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffbff3dffffefffffffefeffffff6ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefb7dc2d7d7fef7d7f7defeff3ff7f7dffefffffffefefffffefffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefdeffbfbfffefffffffefefffff36ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffebb2d7d7fef7d7f7defeffeff7f7dffefffffffefefffffefffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      ]
+    },
     "ep29yr_bwry": {
       "name": "ep29yr_bwry",
       "key": "0x001E",
@@ -310,6 +395,7 @@
           "lut_slot": null,
           "passes": 1,
           "hold_mask": null,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             30
@@ -322,11 +408,12 @@
           "mode_index": 3,
           "name": "partial_bw",
           "experimental": true,
-          "experimental_note": "BW2_kick3_w10 (B4 N0) full-window partial: 0 = to K, 1 = to W, 2/3 hold; product cycle K 3.1 / W 2.9 dE00 at 100 updates (R-0237, R-0238) [1 ex]",
+          "experimental_note": "BW2_kick3_w10 (B4 N0) full-window partial: 0 = to K, 1 = to W, 2/3 hold; product cycle K 3.1 / W 2.9 dE00 at 100 updates (R-0237, R-0238) [1 ex]; through the firmware, counter 00-10 holds K on ODBDD245 and OD6A1908 at 20-29 C; OD18FCAA, after a 64-state colour16 sweep, fades held K a step per update (panel history, not the data) [2 ex + 1 outlier, prov]",
           "budget_cost": 1,
           "lut_slot": 2,
           "passes": 1,
           "hold_mask": 12,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             30
@@ -345,7 +432,7 @@
           "stored_bytes": 535
         }
       ],
-      "config_bytes": 2313,
+      "config_bytes": 2353,
       "packets": [
         {
           "id": 177,
@@ -369,7 +456,11 @@
         },
         {
           "id": 176,
-          "body_hex": "000100100200e70b6603ca011500aa1a410356021600ae180308d01a1700d80d90112d0b1400f812c30ff10d31008f15cc04790319005e13cf01a8002200cc16d005dd0a3600190fea01ce0a1e001606bc016a0227000b155a0a34111800620c010c88081c00ba08040910061b00790cb20c850804003f01c7018a0013006f030a060603"
+          "body_hex": "000000040000c208b4025bff010010270000000002008b24a70a332703004411da16b50f"
+        },
+        {
+          "id": 176,
+          "body_hex": "0001001005002708890288fe1500072702001c001600fd23ee08ca2317002c111117950e2100c8236802370025002022e9ff98ff2200d81e76039c082600d41bec02c0101900221b4eff87fc3e00fb190601dd013800d918b803450414009318d7109b123600da172e01bd063400b1167e0456071f006211ca0a48041e00420f7c010300"
         },
         {
           "id": 174,
@@ -382,6 +473,314 @@
         {
           "id": 175,
           "body_hex": "0002b78500222d2d222002efffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffbff3dffffefffffffefeffffff6ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefb7dc2d7d7fef7d7f7defeff3ff7f7dffefffffffefefffffefffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffebb2d7d7fef7d7f7defeffeff7f7dffefffffffefefffffefffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      ]
+    },
+    "ep35yr_bwry": {
+      "name": "ep35yr_bwry",
+      "key": "0x0036",
+      "base_preset": "0x0036",
+      "drive_rev": 1,
+      "budget_limit": 20,
+      "lut_family": 2,
+      "busy_timeout_s": 120,
+      "modes": [
+        {
+          "mode_index": 2,
+          "name": "partial_bw",
+          "experimental": true,
+          "experimental_note": "BW2_kick3_w10 (the 2.9in table) full-window flashing partial: 0 = to K, 1 = to W, 2/3 hold; 3.1 s per update over BLE; counter 00-05 on OD507E22 with clean white, judged by eye, not measured [1 ex, prov]",
+          "budget_cost": 1,
+          "lut_slot": 2,
+          "passes": 1,
+          "hold_mask": 12,
+          "held_k_code": null,
+          "temp_window_c": [
+            15,
+            30
+          ],
+          "temp_policy": "substitute",
+          "seq_steps": 27,
+          "seq_bytes": 121
+        }
+      ],
+      "luts": [
+        {
+          "slot": 2,
+          "compressed": false,
+          "wave": "bwry29_BW2_kick3_w10.bin",
+          "raw_bytes": 535,
+          "stored_bytes": 535
+        }
+      ],
+      "config_bytes": 2278,
+      "packets": [
+        {
+          "id": 177,
+          "body_hex": "000301307500000001020303080202000207a50000013600010000140278"
+        },
+        {
+          "id": 174,
+          "body_hex": "000066756c6c0000000000000000ff01000000ffffffffffffffff00000000000000004f0007664955135d051002497803000f2903010700040310544408060f0a2f25222e2102503703600202056100b8018002e71c02e32202b66f02b4d002e901023008010400010110000302120000010000"
+        },
+        {
+          "id": 174,
+          "body_hex": "0001636f6c6f75723136000000000a030f1e01000101ffffffffff00144100000000006b0007664955135d051002497803000fa900020700010007ff00ff01ff02ff03ff04040310544408060f0a2f25222e210002020030ff0602503703600202056100b8018002e71c02e32202b66f02b4d002e9010002020082ffff01200004011000030104000102120000010000010101ff"
+        },
+        {
+          "id": 175,
+          "body_hex": "0000af770022782d222008ef7fffffff657fffffffff7f7fff7fafef3faf7feffdef7fff7f7fff3c3ce6f5efef7fff00877defbebe3fefef7fffafefffefffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffefdddf696dffefffffffef7fdede7fafef3faf7feffdefdefe7f7fff3c6fed6fafefffb17f6faf7e7ffd7e6f6fb5ffefef2def7f3fffef6fd6ffefbe6fef2dffffefefd3d67fefbcef6fbff7efefffffffffffefffffffffefbbfbb47cffefffffffef7fdede7fafef3faf7feffdefdeff7f7fff3cff6cefefefdede6fefefbefdef3fbfefdfdf7dafffbfef7fbdefeffff7d9ef73efac7dffefffffffffffffffffffffffffffffffffffffffffffffefdddf36f7ffefffffffef7fdede7fafef3faf7feffdefdefe7f7fff3c6d6c6eefeff29def6f2f7e7f7f7e6fef9ddfefe77fbf7fef6fafefd9f77fedafef7afdffefffffffffffffffffffffffffffffffffffffffffffffefdddfaaefffefffffffef7fdede7fafef3faf7feffdefdeb77f7fff3caf7d7fafeff2b5ef6faf7eafbf6e6fefd6ffefbeed6fbd3fffef6f94ffef6d2fef6fadffefefbdf6ef7dbeeffd7effefffffffffffffffffffffffefffffffff657fffffffff7fffff7fafef3faf7feffdefffba7f7fff3c3c87beefeffbffe700ffefffffffffefffffffafffefedffffefefffbfbebeffeffdec6defffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "id": 175,
+          "body_hex": "000124d000147814142408ef7fff3dedfeefee6fafefef7fffedadedefffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffeff7deeeedafefbdef7f6fefbbdbed3f6fefefffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff3dedfeefee6fafefefffffedadedefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeff5ff7cedbfefee6fafefeff9ff3fbeafefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffdbf3f2f37efefef2fefeff3ff2faf2eefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefbebabd6dfeefee6fafefefbaffedadedefffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "id": 176,
+          "body_hex": "0000000400007b08d401a4fe01001027000000000200d022090a2e230300f00f2815730d"
+        },
+        {
+          "id": 176,
+          "body_hex": "000100100a00f5077b0290fe150011270000fdff16001f2398091c2417006e11fb17790f2500b124adff39ff2100882362022e0022002f1f44031b071900271c11ff40fd3d00061cffff9dfe2600431b7202c7103c004a18f103c3031400fb17d711b612360002173200cd051d00df125fff16fd1f00da11cd0890031e006d0f9b003001"
+        },
+        {
+          "id": 174,
+          "body_hex": "00027061727469616c5f62770000ff010f1e0102ffffffffffffff0000000000000000790007664955135d051002497803000fa900020700010007ff00ff01ff02ff03ff04040310544408060f0a2f25222e210002020030ff0602503703600202056100b8018002e71c02e32202b66f02b4d002e9010002020082ffff012000040a83000000b70000017f01011000030250970104000102120000010000010101ff0c"
+        },
+        {
+          "id": 175,
+          "body_hex": "0002b78500222d2d222002efffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffbff3dffffefffffffefeffffff6ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefb7dc2d7d7fef7d7f7defeff3ff7f7dffefffffffefefffffefffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffebb2d7d7fef7d7f7defeffeff7f7dffefffffffefefffffefffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      ]
+    },
+    "ep154yr_bwry": {
+      "name": "ep154yr_bwry",
+      "key": "0x0038",
+      "base_preset": "0x0038",
+      "drive_rev": 1,
+      "budget_limit": 20,
+      "lut_family": 2,
+      "busy_timeout_s": 120,
+      "modes": [
+        {
+          "mode_index": 2,
+          "name": "partial_bw",
+          "experimental": true,
+          "experimental_note": "BW2_kick3_w10 (the 2.9in table) full-window flashing partial: 0 = to K, 1 = to W, 2/3 hold; 2.9 s per update over BLE; counter 00-05 on OD1F9C0E with clean white, judged by eye, not measured [1 ex, prov]",
+          "budget_cost": 1,
+          "lut_slot": 2,
+          "passes": 1,
+          "hold_mask": 12,
+          "held_k_code": null,
+          "temp_window_c": [
+            15,
+            30
+          ],
+          "temp_policy": "substitute",
+          "seq_steps": 20,
+          "seq_bytes": 92
+        }
+      ],
+      "luts": [
+        {
+          "slot": 2,
+          "compressed": false,
+          "wave": "bwry29_BW2_kick3_w10.bin",
+          "raw_bytes": 535,
+          "stored_bytes": 535
+        }
+      ],
+      "config_bytes": 2187,
+      "packets": [
+        {
+          "id": 177,
+          "body_hex": "000301307500000001020303080202000207a50000013800010000140278"
+        },
+        {
+          "id": 174,
+          "body_hex": "000066756c6c0000000000000000ff01000000ffffffffffffffff00000000000000002e00024d7803000f2908060d123020192a22025037056100c800c802e901023008010400010110000302120000010000"
+        },
+        {
+          "id": 174,
+          "body_hex": "0001636f6c6f75723136000000000a030f1e01000101ffffffffff00144100000000004e00024d7803000fa900020700010007ff00ff01ff02ff03ff0408060d123020192a220002020030ff06025037056100c800c802e9010002020082ffff01200004011000030104000102120000010000010101ff"
+        },
+        {
+          "id": 175,
+          "body_hex": "0000af770022782d222008ef7fffffff657fffffffff7f7fff7fafef3faf7feffdef7fff7f7fff3c3ce6f5efef7fff00877defbebe3fefef7fffafefffefffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffefdddf696dffefffffffef7fdede7fafef3faf7feffdefdefe7f7fff3c6fed6fafefffb17f6faf7e7ffd7e6f6fb5ffefef2def7f3fffef6fd6ffefbe6fef2dffffefefd3d67fefbcef6fbff7efefffffffffffefffffffffefbbfbb47cffefffffffef7fdede7fafef3faf7feffdefdeff7f7fff3cff6cefefefdede6fefefbefdef3fbfefdfdf7dafffbfef7fbdefeffff7d9ef73efac7dffefffffffffffffffffffffffffffffffffffffffffffffefdddf36f7ffefffffffef7fdede7fafef3faf7feffdefdefe7f7fff3c6d6c6eefeff29def6f2f7e7f7f7e6fef9ddfefe77fbf7fef6fafefd9f77fedafef7afdffefffffffffffffffffffffffffffffffffffffffffffffefdddfaaefffefffffffef7fdede7fafef3faf7feffdefdeb77f7fff3caf7d7fafeff2b5ef6faf7eafbf6e6fefd6ffefbeed6fbd3fffef6f94ffef6d2fef6fadffefefbdf6ef7dbeeffd7effefffffffffffffffffffffffefffffffff657fffffffff7fffff7fafef3faf7feffdefffba7f7fff3c3c87beefeffbffe700ffefffffffffefffffffafffefedffffefefffbfbebeffeffdec6defffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "id": 175,
+          "body_hex": "000124d000147814142408ef7fff3dedfeefee6fafefef7fffedadedefffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffeff7deeeedafefbdef7f6fefbbdbed3f6fefefffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff3dedfeefee6fafefefffffedadedefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeff5ff7cedbfefee6fafefeff9ff3fbeafefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffdbf3f2f37efefef2fefeff3ff2faf2eefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefbebabd6dfeefee6fafefefbaffedadedefffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "id": 176,
+          "body_hex": "000000040000ec08ad024cff010010270000000002005e228b0aea230300ff10ec151f0e"
+        },
+        {
+          "id": 176,
+          "body_hex": "000100100e00a708fa015ffe15001327fffffdff1600fa220909a423170086106e15eb0c2500e724a1ff37ff2e00db1f7b01eb0a1900af1feffef7fc3100ce1d2f0103ff3f00ad1b7502520226009c1b0f027a113c00e8196a021c04360011196900ee071400b817481087111d007c134bffa7fc1f004313b70691021e001e11feff5300"
+        },
+        {
+          "id": 174,
+          "body_hex": "00027061727469616c5f62770000ff010f1e0102ffffffffffffff00000000000000005c00024d7803000fa900020700010007ff00ff01ff02ff03ff0408060d123020192a220002020030ff06025037056100c800c802e9010002020082ffff012000040a83000000c7000000c701011000030250970104000102120000010000010101ff0c"
+        },
+        {
+          "id": 175,
+          "body_hex": "0002b78500222d2d222002efffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffbff3dffffefffffffefeffffff6ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefb7dc2d7d7fef7d7f7defeff3ff7f7dffefffffffefefffffefffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffebb2d7d7fef7d7f7defeffeff7f7dffefffffffefefffffefffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      ]
+    },
+    "ep42yr_bwry": {
+      "name": "ep42yr_bwry",
+      "key": "0x003A",
+      "base_preset": "0x003A",
+      "drive_rev": 1,
+      "budget_limit": 20,
+      "lut_family": 2,
+      "busy_timeout_s": 120,
+      "modes": [
+        {
+          "mode_index": 2,
+          "name": "partial_bw",
+          "experimental": true,
+          "experimental_note": "BW2_kick3_w10 (the 2.9in table) full-window flashing partial: 0 = to K, 1 = to W, 2/3 hold; 5.5 s per update over BLE (2 s fixed settle after PON); counter 00-05 on OD01AAA9 with clean white, judged by eye, not measured [1 ex, prov]",
+          "budget_cost": 1,
+          "lut_slot": 2,
+          "passes": 1,
+          "hold_mask": 12,
+          "held_k_code": null,
+          "temp_window_c": [
+            15,
+            30
+          ],
+          "temp_policy": "substitute",
+          "seq_steps": 29,
+          "seq_bytes": 127
+        }
+      ],
+      "luts": [
+        {
+          "slot": 2,
+          "compressed": false,
+          "wave": "bwry29_BW2_kick3_w10.bin",
+          "raw_bytes": 535,
+          "stored_bytes": 535
+        }
+      ],
+      "config_bytes": 2300,
+      "packets": [
+        {
+          "id": 177,
+          "body_hex": "0003013075b8880001020303080202000207a50000013a00010000140278"
+        },
+        {
+          "id": 174,
+          "body_hex": "000066756c6c0000000000000000ff01000000ffffffffffffffff00000000000000005900024d7803000f090701070022780a22040310364408060f0a2f25222e210230080241000250370360020205610190012c05650000000002e71c02e32202e00002b4d002b50302e9010110000301040005d00702120000010000"
+        },
+        {
+          "id": 174,
+          "body_hex": "0001636f6c6f75723136000000000a030f1e01000101ffffffffff00144100000000007100024d7803000f8900020700010007ff00ff01ff02ff03ff04040310364408060f0a2f25222e210002020030ff060241000250370360020205610190012c05650000000002e71c02e32202e00002b4d002b50302e9010002020082ffff012000040110000301040005d00702120000010000010101ff"
+        },
+        {
+          "id": 175,
+          "body_hex": "0000af770022782d222008ef7fffffff657fffffffff7f7fff7fafef3faf7feffdef7fff7f7fff3c3ce6f5efef7fff00877defbebe3fefef7fffafefffefffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffefdddf696dffefffffffef7fdede7fafef3faf7feffdefdefe7f7fff3c6fed6fafefffb17f6faf7e7ffd7e6f6fb5ffefef2def7f3fffef6fd6ffefbe6fef2dffffefefd3d67fefbcef6fbff7efefffffffffffefffffffffefbbfbb47cffefffffffef7fdede7fafef3faf7feffdefdeff7f7fff3cff6cefefefdede6fefefbefdef3fbfefdfdf7dafffbfef7fbdefeffff7d9ef73efac7dffefffffffffffffffffffffffffffffffffffffffffffffefdddf36f7ffefffffffef7fdede7fafef3faf7feffdefdefe7f7fff3c6d6c6eefeff29def6f2f7e7f7f7e6fef9ddfefe77fbf7fef6fafefd9f77fedafef7afdffefffffffffffffffffffffffffffffffffffffffffffffefdddfaaefffefffffffef7fdede7fafef3faf7feffdefdeb77f7fff3caf7d7fafeff2b5ef6faf7eafbf6e6fefd6ffefbeed6fbd3fffef6f94ffef6d2fef6fadffefefbdf6ef7dbeeffd7effefffffffffffffffffffffffefffffffff657fffffffff7fffff7fafef3faf7feffdefffba7f7fff3c3c87beefeffbffe700ffefffffffffefffffffafffefedffffefefffbfbebeffeffdec6defffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "id": 175,
+          "body_hex": "000124d000147814142408ef7fff3dedfeefee6fafefef7fffedadedefffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffeff7deeeedafefbdef7f6fefbbdbed3f6fefefffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff3dedfeefee6fafefefffffedadedefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeff5ff7cedbfefee6fafefeff9ff3fbeafefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffdbf3f2f37efefef2fefeff3ff2faf2eefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefbebabd6dfeefee6fafefefbaffedadedefffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "id": 176,
+          "body_hex": "00000004000008088f0232ff01001027000000000200f32215085f1c030075107114f80b"
+        },
+        {
+          "id": 176,
+          "body_hex": "000100100900bd080d02fdfe15005b270600fdff1600a3247a08261f17005411ec15d10c2d0088215d00e6ff21006f20d50266002600de1ce0037d102200a31cc60446053500051c67ff8dfe19007e1a94ffc8fd14001c194c1010113c00bd181f04d303360013182a0173061d00f51292ffa1fd1e00c210b40117011c00a3103a08b203"
+        },
+        {
+          "id": 174,
+          "body_hex": "00027061727469616c5f62770000ff010f1e0102ffffffffffffff00000000000000007f00024d7803000f8900020700010007ff00ff01ff02ff03ff04040310364408060f0a2f25222e210002020030ff060241000250370360020205610190012c05650000000002e71c02e32202e00002b4d002b50302e9010002020082ffff012000040a830000018f0000012b010110000302509701040005d00702120000010000010101ff0c"
+        },
+        {
+          "id": 175,
+          "body_hex": "0002b78500222d2d222002efffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffbff3dffffefffffffefeffffff6ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefb7dc2d7d7fef7d7f7defeff3ff7f7dffefffffffefefffffefffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffebb2d7d7fef7d7f7defeffeff7f7dffefffffffefefffffefffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      ]
+    },
+    "ep75yr_bwry": {
+      "name": "ep75yr_bwry",
+      "key": "0x0040",
+      "base_preset": "0x0040",
+      "drive_rev": 1,
+      "budget_limit": 20,
+      "lut_family": 2,
+      "busy_timeout_s": 120,
+      "modes": [
+        {
+          "mode_index": 2,
+          "name": "partial_bw",
+          "experimental": true,
+          "experimental_note": "BW2_kick3_w20 (2.9in recipe, 20-frame white runs) full-window flashing partial: 0 = to K, 1 = to W, 2/3 hold; about 2.4 s DRF, 7.3 s per update over BLE; counter 00-10 on ODBF064E with clean white, judged by eye, not measured [1 ex, prov]",
+          "budget_cost": 1,
+          "lut_slot": 2,
+          "passes": 1,
+          "hold_mask": 12,
+          "held_k_code": null,
+          "temp_window_c": [
+            15,
+            30
+          ],
+          "temp_policy": "substitute",
+          "seq_steps": 27,
+          "seq_bytes": 98
+        }
+      ],
+      "luts": [
+        {
+          "slot": 2,
+          "compressed": false,
+          "wave": "bwry75_BW2_kick3_w20.bin",
+          "raw_bytes": 535,
+          "stored_bytes": 535
+        }
+      ],
+      "config_bytes": 2233,
+      "packets": [
+        {
+          "id": 177,
+          "body_hex": "000301409c00000001020303080202000207a50000014000010000140278"
+        },
+        {
+          "id": 174,
+          "body_hex": "000066756c6c0000000000000000ff01000000ffffffffffffffff0000000000000000500003000f2905060f8b93a1024100025037036002020561032001e0096298989875cab2987e05650000000002e71c02e30002e9010230080104000102e00202e65a02a50000010110000302120000010000"
+        },
+        {
+          "id": 174,
+          "body_hex": "0001636f6c6f75723136000000000a030f1e01000101ffffffffff0014410000000000540003000fa905060f8b93a1024100025037036002020561032001e0096298989875cab2987e05650000000002e71c02e30002e9010230080104000102e00202e65a02a5000001012000040110000302120000010000010101ff"
+        },
+        {
+          "id": 175,
+          "body_hex": "0000af770022782d222008ef7fffffff657fffffffff7f7fff7fafef3faf7feffdef7fff7f7fff3c3ce6f5efef7fff00877defbebe3fefef7fffafefffefffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffefdddf696dffefffffffef7fdede7fafef3faf7feffdefdefe7f7fff3c6fed6fafefffb17f6faf7e7ffd7e6f6fb5ffefef2def7f3fffef6fd6ffefbe6fef2dffffefefd3d67fefbcef6fbff7efefffffffffffefffffffffefbbfbb47cffefffffffef7fdede7fafef3faf7feffdefdeff7f7fff3cff6cefefefdede6fefefbefdef3fbfefdfdf7dafffbfef7fbdefeffff7d9ef73efac7dffefffffffffffffffffffffffffffffffffffffffffffffefdddf36f7ffefffffffef7fdede7fafef3faf7feffdefdefe7f7fff3c6d6c6eefeff29def6f2f7e7f7f7e6fef9ddfefe77fbf7fef6fafefd9f77fedafef7afdffefffffffffffffffffffffffffffffffffffffffffffffefdddfaaefffefffffffef7fdede7fafef3faf7feffdefdeb77f7fff3caf7d7fafeff2b5ef6faf7eafbf6e6fefd6ffefbeed6fbd3fffef6f94ffef6d2fef6fadffefefbdf6ef7dbeeffd7effefffffffffffffffffffffffefffffffff657fffffffff7fffff7fafef3faf7feffdefffba7f7fff3c3c87beefeffbffe700ffefffffffffefffffffafffefedffffefefffbfbebeffeffdec6defffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "id": 175,
+          "body_hex": "000124d000147814142408ef7fff3dedfeefee6fafefef7fffedadedefffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffff7fffffffffffffffffffeff7deeeedafefbdef7f6fefbbdbed3f6fefefffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff3dedfeefee6fafefefffffedadedefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeff5ff7cedbfefee6fafefeff9ff3fbeafefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffdbf3f2f37efefef2fefeff3ff2faf2eefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefbebabd6dfeefee6fafefefbaffedadedefffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        {
+          "id": 176,
+          "body_hex": "0000000400002509a30203ff010010270000000002009b25c909dc230300a511f416c90e"
+        },
+        {
+          "id": 176,
+          "body_hex": "000100100e0070085b03b8ff1500492710001a0016006f2569091c2517003c126218471019004b1cddff61fe1400ce199711ec132d001b17050179fe2600b615160454082100ab15e204d6ff2c005314e006fb012e00491481014bff22002912fa049b0038001c108607a7023c001c109c057b011e00320ff401cb011000870b580b5c05"
+        },
+        {
+          "id": 174,
+          "body_hex": "00027061727469616c5f62770000ff010f1e0102ffffffffffffff0000000000000000620003000fa905060f8b93a1024100025037036002020561032001e0096298989875cab2987e05650000000002e71c02e30002e9010230080104000102e00202e65a02a5000001012000040230020a830000031f000001df010110000302120000010000010101ff0c"
+        },
+        {
+          "id": 175,
+          "body_hex": "0002924d00222d2d222002efffff70ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffbff77ffffefffffffefeffffff8ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefb7dc67be7fefbe7fbeefeff3ff7fbeffefffffffefefffffefffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff70ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff70ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffebb67be7fefbe7fbeefeffeff7fbeffefffffffefefffffefffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
         }
       ]
     },
@@ -403,6 +802,7 @@
           "lut_slot": null,
           "passes": 1,
           "hold_mask": null,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             30
@@ -420,6 +820,7 @@
           "lut_slot": null,
           "passes": 1,
           "hold_mask": 144,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             30
@@ -437,6 +838,7 @@
           "lut_slot": 0,
           "passes": 1,
           "hold_mask": null,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             25
@@ -454,6 +856,7 @@
           "lut_slot": 1,
           "passes": 1,
           "hold_mask": 144,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             30
@@ -475,6 +878,7 @@
           ],
           "passes": 3,
           "hold_mask": null,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             25
@@ -495,6 +899,7 @@
           ],
           "passes": 2,
           "hold_mask": null,
+          "held_k_code": null,
           "temp_window_c": [
             15,
             25

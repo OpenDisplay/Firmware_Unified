@@ -64,9 +64,14 @@ def lut_packet(slot: int, data: bytes, compress: bool) -> bytes:
     return struct.pack("<BBH", 0, 0x80 | slot, P.crc16_ccitt(z)) + z
 
 
-def mode_tail(cost: int, scrub_before: int = NO_SCRUB, hold_mask: int | None = None) -> bytes:
+def mode_tail(cost: int, scrub_before: int = NO_SCRUB, hold_mask: int | None = None,
+              held_k_code: int | None = None) -> bytes:
     tail = bytes([1, EXPERIMENTAL, cost, scrub_before])
-    return tail + bytes([hold_mask]) if hold_mask is not None else tail
+    if hold_mask is not None:
+        tail += bytes([hold_mask])
+        if held_k_code is not None:
+            tail += bytes([held_k_code])
+    return tail
 
 
 # 0xAE tail [4] hold_mask: bit n = frame code n leaves the pixel as it is. The host sends the
@@ -74,9 +79,23 @@ def mode_tail(cost: int, scrub_before: int = NO_SCRUB, hold_mask: int | None = N
 # Keyed by (panel, mode name): names repeat across panels with different code maps.
 HOLD_MASK = {
     ("ep29yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
+    ("ep75yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
+    ("ep35yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
+    ("ep42yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
+    ("ep154yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
+    ("ep266yr_bwry", "partial_bw"): 0b1000,  # 0 = to K, 1 = to W, 2 = held K top-up, 3 hold
     ("s73_spectra6", "partialcool"): 1 << 4,  # code 4 = hold (R-0234)
     ("ee02_709_spectra6", "changedonly"): (1 << 4) | (1 << 7),  # 4/7 hardwired holds (R-0032)
     ("ee02_709_spectra6", "partial4ink"): (1 << 4) | (1 << 7),  # codes 4/7 hold (R-0240)
+}
+
+
+# 0xAE tail [5] held_k_code (provisional, after hold_mask): the code to send for an unchanged
+# pixel whose prior code is 0 (black), in place of the lowest hold code. It drives a DC-balanced
+# W|K pulse ending on K that re-darkens black faded by the per-update rail-up and reset; a code
+# outside hold_mask, so a host that ignores the field sends the plain hold and black fades.
+HELD_K_CODE = {
+    ("ep266yr_bwry", "partial_bw"): 2,
 }
 
 
@@ -205,11 +224,113 @@ def build_bwry29() -> dict:
          "stock waveform at fixed PLL 07: 9.2 s, ~8 % chroma loss (R-0046)"),
         (3, "partial_bw", jd29_partial(t[:7]), 2, 0, 0, 1,
          "BW2_kick3_w10 (B4 N0) full-window partial: 0 = to K, 1 = to W, 2/3 hold; "
-         "product cycle K 3.1 / W 2.9 dE00 at 100 updates (R-0237, R-0238) [1 ex]"),
+         "product cycle K 3.1 / W 2.9 dE00 at 100 updates (R-0237, R-0238) [1 ex]; through the "
+         "firmware, counter 00-10 holds K on ODBDD245 and OD6A1908 at 20-29 C; OD18FCAA, after a "
+         "64-state colour16 sweep, fades held K a step per update (panel history, not the data) "
+         "[2 ex + 1 outlier, prov]"),
     ]
     # Slots 0/1 hold the colour16 waves of the stock preset; the partial table takes slot 2.
     # Stored uncompressed: BG22 (the M3 Pro) has no inflate cache, so a deflated slot reads absent.
     return assemble(key, "0x001E", pkts, modes, {2: "bwry29_BW2_kick3_w10.bin"}, budget=20,
+                    family=FAMILY_JD, timeout_s=120, compress=False)
+
+
+# ------------------------------------------------------------- 3.5in / 4.2in JD-BWRY (0x0036, 0x003A)
+# The 2.9in partial cycle on a panel's own colour16 init: rails, PLL and VCOM come from the table
+# header (analog_from_wave), the table goes in before the frame, then a full-panel 0x83 window
+# (BG22), data, CDI 97 and the init's own PON/DRF tail.
+def jd_partial(colour16: list[tuple], w: int, h: int) -> list[tuple]:
+    i = next(k for k, s in enumerate(colour16) if s[0] == "lut") + 1
+    j = next(k for k, s in enumerate(colour16) if s[0] == "image") + 1
+    assert colour16[i] == cmd(0x10) and colour16[j] == cmd(0x04), (colour16[i], colour16[j])
+    win = cmd(0x83, 0x00, 0x00, (w - 1) >> 8, (w - 1) & 0xFF, 0x00, 0x00, (h - 1) >> 8, (h - 1) & 0xFF, 0x01)
+    return colour16[:i] + [win] + colour16[i:j] + [cmd(0x50, 0x97)] + colour16[j:]
+
+
+def build_bwry35() -> dict:
+    key = 0x0036
+    pkts = base_packets("0x0036")
+    modes = [
+        (2, "partial_bw", jd_partial(mode_seq(pkts, 1), 184, 384), 2, 0, 0, 1,
+         "BW2_kick3_w10 (the 2.9in table) full-window flashing partial: 0 = to K, 1 = to W, "
+         "2/3 hold; 3.1 s per update over BLE; counter 00-05 on OD507E22 with clean white, judged "
+         "by eye, not measured [1 ex, prov]"),
+    ]
+    return assemble(key, "0x0036", pkts, modes, {2: "bwry29_BW2_kick3_w10.bin"}, budget=20,
+                    family=FAMILY_JD, timeout_s=120, compress=False)
+
+
+def build_bwry266() -> dict:
+    key = 0x001C
+    pkts = base_packets("0x001C")
+    modes = [
+        (2, "partial_bw", jd_partial(mode_seq(pkts, 1), 184, 360), 2, 0, 0, 1,
+         "BW2_kick3_w10 plus a held-K top-up: full-window flashing partial, 0 = to K, 1 = to W, "
+         "2 = unchanged K (W 4 | K 4, net 0, ends on K), 3 hold. Without the top-up held K "
+         "fades a step per update from the rail-up/reset before the first command. 3.2 s per "
+         "update; counter 00-10 on OD6FACF2 with K held, judged by eye, not measured [1 ex, prov]"),
+    ]
+    return assemble(key, "0x001C", pkts, modes, {2: "bwry266_BW2_kick3_w10_hk4.bin"}, budget=20,
+                    family=FAMILY_JD, timeout_s=120, compress=False)
+
+
+def build_bwry154() -> dict:
+    key = 0x0038
+    pkts = base_packets("0x0038")
+    modes = [
+        (2, "partial_bw", jd_partial(mode_seq(pkts, 1), 200, 200), 2, 0, 0, 1,
+         "BW2_kick3_w10 (the 2.9in table) full-window flashing partial: 0 = to K, 1 = to W, "
+         "2/3 hold; 2.9 s per update over BLE; counter 00-05 on OD1F9C0E with clean white, judged "
+         "by eye, not measured [1 ex, prov]"),
+    ]
+    return assemble(key, "0x0038", pkts, modes, {2: "bwry29_BW2_kick3_w10.bin"}, budget=20,
+                    family=FAMILY_JD, timeout_s=120, compress=False)
+
+
+def build_bwry42() -> dict:
+    key = 0x003A
+    # BUSY polled, 35 s fixed delay kept as the cap: the stock record waits the fixed delay on
+    # every @busy. Polling was A/B'd against the fixed delay on OD01AAA9 (2026-11-19, i1Pro:
+    # 0.05-0.24 dE00, refresh not truncated).
+    pkts = [(pid, bytes([b[0], b[1] | 0x01]) + b[2:] if pid == 0xB1 else b) for pid, b in base_packets("0x003A")]
+    modes = [
+        (2, "partial_bw", jd_partial(mode_seq(pkts, 1), 400, 300), 2, 0, 0, 1,
+         "BW2_kick3_w10 (the 2.9in table) full-window flashing partial: 0 = to K, 1 = to W, "
+         "2/3 hold; 5.5 s per update over BLE (2 s fixed settle after PON); counter 00-05 on "
+         "OD01AAA9 with clean white, judged by eye, not measured [1 ex, prov]"),
+    ]
+    return assemble(key, "0x003A", pkts, modes, {2: "bwry29_BW2_kick3_w10.bin"}, budget=20,
+                    family=FAMILY_JD, timeout_s=120, compress=False)
+
+
+# ------------------------------------------------------------------------- 7.5in F52-BWRY (0x0040)
+# Windowed partial on ODBF064E, the sequence of Firmware_Silabs scripts/f75_counter.py: RST, the
+# stock colour16 init (LUT_EN, PON inside, booster tail, table after the tail: the only placement
+# this panel honours), PLL 02 (the table is built for 20 ms frames; the init sets 08), 0x83
+# window, data, DRF, then the 0xB1 sleep. The window is the whole panel (BG22 has no WINDOW
+# escape): codes 0 = to K, 1 = to W, 2/3 = hold.
+# The table is the 2.9in BW2_kick3_w10 recipe with 20-frame white runs (followups/bwry29
+# b4_tables.build(0, wrun=20), DC rebalanced): w10 left grey on this glass. Only one partial
+# table fits a BG22 config next to the two colour16 waves (3120 B cap).
+def f75_partial(colour16: list[tuple]) -> list[tuple]:
+    w, h = 800, 480
+    i = next(k for k, s in enumerate(colour16) if s[0] == "lut") + 1
+    assert colour16[i] == cmd(0x10), colour16[i]
+    win = cmd(0x83, 0x00, 0x00, (w - 1) >> 8, (w - 1) & 0xFF, 0x00, 0x00, (h - 1) >> 8, (h - 1) & 0xFF, 0x01)
+    return colour16[:i] + [cmd(0x30, 0x02), win] + colour16[i:]
+
+
+def build_bwry75() -> dict:
+    key = 0x0040
+    pkts = base_packets("0x0040")
+    modes = [
+        (2, "partial_bw", f75_partial(mode_seq(pkts, 1)), 2, 0, 0, 1,
+         "BW2_kick3_w20 (2.9in recipe, 20-frame white runs) full-window flashing partial: 0 = to K, "
+         "1 = to W, 2/3 hold; about 2.4 s DRF, 7.3 s per update over BLE; counter 00-10 on ODBF064E "
+         "with clean white, judged by eye, not measured [1 ex, prov]"),
+    ]
+    # Slots 0/1 hold the colour16 waves; stored uncompressed for BG22 (no inflate cache).
+    return assemble(key, "0x0040", pkts, modes, {2: "bwry75_BW2_kick3_w20.bin"}, budget=20,
                     family=FAMILY_JD, timeout_s=120, compress=False)
 
 
@@ -285,7 +406,8 @@ def build_ee02() -> dict:
 
 
 # ------------------------------------------------------------------------------------- assembly
-name_of = {"0x0023": "s73_spectra6", "0x001E": "ep29yr_bwry", "0x0042": "ee02_709_spectra6"}
+name_of = {"0x0023": "s73_spectra6", "0x001E": "ep29yr_bwry", "0x0036": "ep35yr_bwry", "0x001C": "ep266yr_bwry", "0x0038": "ep154yr_bwry", "0x003A": "ep42yr_bwry", "0x0040": "ep75yr_bwry",
+           "0x0042": "ee02_709_spectra6"}
 
 def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int,
              timeout_s: int, compress: bool = True, cals=None) -> dict:
@@ -301,12 +423,15 @@ def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int
         # A list of slots is a multi-pass mode: pass n uploads slots[n]; the sequence runs once per pass.
         slots = list(slot) if isinstance(slot, (list, tuple)) else [slot] if slot is not None else None
         body = P.mode_body(idx, name, seq, slots=slots, passes=len(slots) if slots else 1,
-                           tmin=tmin, tmax=tmax, policy=SUBSTITUTE) + mode_tail(cost, hold_mask=HOLD_MASK.get((name_of[base], name)))
+                           tmin=tmin, tmax=tmax, policy=SUBSTITUTE) + mode_tail(
+            cost, hold_mask=HOLD_MASK.get((name_of[base], name)),
+            held_k_code=HELD_K_CODE.get((name_of[base], name)))
         out_pkts.append((0xAE, body))
         extra.append({"mode_index": idx, "name": name, "experimental": True,
                       "experimental_note": note, "budget_cost": cost, "lut_slot": slot,
                       "passes": len(slots) if slots else 1,
                       "hold_mask": HOLD_MASK.get((name_of[base], name)),
+                      "held_k_code": HELD_K_CODE.get((name_of[base], name)),
                       "temp_window_c": [tmin, tmax], "temp_policy": "substitute",
                       "seq_steps": len(steps) + 1, "seq_bytes": len(seq)})
     lut_meta = []
@@ -333,7 +458,7 @@ def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int
 
 
 def render() -> tuple[str, str]:
-    panels = [build_s73(), build_bwry29(), build_ee02()]
+    panels = [build_s73(), build_bwry266(), build_bwry29(), build_bwry35(), build_bwry154(), build_bwry42(), build_bwry75(), build_ee02()]
     presets = json.loads(PRESETS.read_text())["panels"]
     js = {"schema_version": 1, "note": "experimental refresh modes; layouts provisional "
           "(docs/REFRESH_MODES.md)", "panels": {}}

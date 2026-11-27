@@ -1,0 +1,217 @@
+{
+ "_comment": "colour16 palette for 0x0036 (3.5in), a type default from OD507E22: 16 of the 64 three-pass states, picked for error-diffusion dithering (greens_palettes.py objective: hull reach, grain, grey ramp; white, yellow 211, red 311 and the darkest state forced). Lab is the i1Pro sweep of 2026-11-18, D50 media-relative (panel white = L* 100), copied from en05_ep397yr_uart/host/results/bwry/greens_20261118/states_35.csv. Read bare (no front); glazed units read darker. This is the set picked on glass (palette_dither_35.json).",
+ "device": "OD507E22",
+ "mode": "colour16",
+ "source": "i1Pro sweep 2026-11-18, en05_ep397yr_uart/host/results/bwry/greens_20261118/states_35.csv",
+ "raw_codes": true,
+ "entries": [
+  {
+   "index": 0,
+   "codes": [
+    2,
+    2,
+    0
+   ],
+   "lab": [
+    20.37,
+    6.35,
+    -3.68
+   ]
+  },
+  {
+   "index": 1,
+   "codes": [
+    1,
+    1,
+    1
+   ],
+   "lab": [
+    100.01,
+    -0.0,
+    -0.03
+   ]
+  },
+  {
+   "index": 2,
+   "codes": [
+    2,
+    1,
+    1
+   ],
+   "lab": [
+    89.91,
+    24.56,
+    92.44
+   ]
+  },
+  {
+   "index": 3,
+   "codes": [
+    3,
+    1,
+    1
+   ],
+   "lab": [
+    44.62,
+    61.39,
+    39.61
+   ]
+  },
+  {
+   "index": 4,
+   "codes": [
+    1,
+    1,
+    2
+   ],
+   "lab": [
+    93.93,
+    -0.83,
+    -1.99
+   ]
+  },
+  {
+   "index": 5,
+   "codes": [
+    1,
+    0,
+    2
+   ],
+   "lab": [
+    90.96,
+    6.1,
+    0.46
+   ]
+  },
+  {
+   "index": 6,
+   "codes": [
+    2,
+    0,
+    2
+   ],
+   "lab": [
+    79.83,
+    8.36,
+    18.19
+   ]
+  },
+  {
+   "index": 7,
+   "codes": [
+    1,
+    2,
+    1
+   ],
+   "lab": [
+    72.07,
+    -2.39,
+    -7.04
+   ]
+  },
+  {
+   "index": 8,
+   "codes": [
+    1,
+    3,
+    3
+   ],
+   "lab": [
+    71.74,
+    -0.01,
+    -3.55
+   ]
+  },
+  {
+   "index": 9,
+   "codes": [
+    2,
+    1,
+    2
+   ],
+   "lab": [
+    69.79,
+    6.26,
+    42.95
+   ]
+  },
+  {
+   "index": 10,
+   "codes": [
+    0,
+    3,
+    3
+   ],
+   "lab": [
+    62.18,
+    10.09,
+    9.63
+   ]
+  },
+  {
+   "index": 11,
+   "codes": [
+    0,
+    1,
+    1
+   ],
+   "lab": [
+    61.39,
+    45.67,
+    47.9
+   ]
+  },
+  {
+   "index": 12,
+   "codes": [
+    2,
+    1,
+    3
+   ],
+   "lab": [
+    58.9,
+    0.5,
+    14.85
+   ]
+  },
+  {
+   "index": 13,
+   "codes": [
+    1,
+    3,
+    1
+   ],
+   "lab": [
+    48.31,
+    -1.61,
+    -7.46
+   ]
+  },
+  {
+   "index": 14,
+   "codes": [
+    3,
+    3,
+    1
+   ],
+   "lab": [
+    45.7,
+    22.53,
+    9.12
+   ]
+  },
+  {
+   "index": 15,
+   "codes": [
+    2,
+    3,
+    1
+   ],
+   "lab": [
+    39.49,
+    1.55,
+    3.04
+   ]
+  }
+ ]
+}
