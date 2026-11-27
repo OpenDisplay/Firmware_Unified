@@ -1874,3 +1874,10 @@ Seeed lists its 2.9in 128x296 mono panel as id 5 (EP293_128x296), and 0x0005 wor
 references 0x0005; the only 2.9in mono entry is the flexible `ep29-128x296` (0x0017). External
 follow-up: add a display preset for it, with `partial_update_support` 1.
 
+## Website preset `ep213-122x250` names a panel id that does not drive Seeed's 2.13in mono glass
+
+`ep213-122x250` uses panel id 3 (EP213_122x250), which draws only a faint noisy image on the
+Seeed 2.13in mono panel; id 4 (EP213B_122x250) drives it correctly
+(HARDWARE_VERIFICATION_CHECKLIST.md § 2.13" BW (0x0004)). External follow-up: confirm which glass
+the preset is sold with and switch it to id 4, keeping a migration for devices configured as 3.
+

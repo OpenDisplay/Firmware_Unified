@@ -1793,6 +1793,18 @@ K/W/Y/R strip), then a two-digit counter in the centre through `partial_bw` (py-
 | BW2_kick3_w20 (20-frame white runs), 00-05, 23-26 C | **PASS**: "way better" white; 7.3-7.4 s per update. Shipped |
 | Black/white drift over 100 updates, strip outside the counter, meter | **OPEN** |
 
+## 2.13" BW (0x0004) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
+
+Bare Seeed 2.13in 122x250 mono panel, SSD16xx. Preset written from `drive_presets.json` with the
+`ep213-122x250` display packet. Camera snapshots, 10 fps video, i1Pro S/N 324492 (D50, M0).
+
+| Row | Result |
+|---|---|
+| 0x0003 EP213_122x250 (the website preset's id), full | **FAIL**: faint noisy image only |
+| 0x0004 `full`, i1Pro K / W | **PASS**: L* 18.8 / 71.0, 3.7 s (tile drift 0 % Y) |
+| 0x0004 `fast`, inverted frame | **PASS** on camera: clean, 3.6 s |
+| 0x0004 `partial` (PartialState), counter 01-03 | **PASS** on video: 2.5 s per update, no flash in an untouched area |
+
 ## Seeed 2.9" BW (0x0005) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
 
 Bare Seeed 2.9in 128x296 mono panel, SSD16xx; id 5 per the Seeed product page. No simple-config

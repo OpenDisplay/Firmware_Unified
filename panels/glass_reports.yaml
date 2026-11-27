@@ -162,3 +162,17 @@ reports:
       flash in an untouched area on 5 fps video. Sighted with fast as mode 1; fast was then
       dropped by project decision, so partial is now mode 1 and the full and partial sequence
       bytes are unchanged.
+  - panel: "0x0004"
+    target_class: default
+    framed_sha256: 25b0ee912b9393962d547c945caebfd1aea1f7a625b25ae1ad8af7391ed58191
+    modes: [full, fast, partial]
+    board: EE04 (ESP32-S3), OD7C42E9
+    firmware: 3.0.0
+    date: 2026-11-27
+    reporter: jonasniesner
+    source: docs/HARDWARE_VERIFICATION_CHECKLIST.md § 2.13" BW (0x0004) on EE04 OD7C42E9
+    note: >-
+      Bare Seeed 2.13in 122x250 mono panel (SSD16xx). full: K/W frame correct, 3.7 s, i1Pro
+      K L* 18.8 / W L* 71.0. fast: inverted frame clean, 3.6 s. partial (host PartialState):
+      counter 01-03, 2.5 s per update, no flash in an untouched area on 5 fps video. 0x0003, the
+      website preset's id, draws only a faint noisy image on this glass.

@@ -1386,7 +1386,7 @@
    },
    "color_scheme": 0,
    "status": "equivalent",
-   "verified": "equivalent",
+   "verified": "glass",
    "blocked_on": [],
    "blocked_detail": {},
    "modes": [
@@ -1404,7 +1404,7 @@
       "default": true,
       "bg22": true
      },
-     "verified": "equivalent"
+     "verified": "glass"
     },
     {
      "index": 1,
@@ -1420,7 +1420,7 @@
       "default": true,
       "bg22": true
      },
-     "verified": "equivalent"
+     "verified": "glass"
     },
     {
      "index": 2,
@@ -1436,7 +1436,7 @@
       "default": true,
       "bg22": false
      },
-     "verified": "equivalent"
+     "verified": "glass"
     }
    ],
    "modes_blocked": [],
@@ -1529,7 +1529,22 @@
     },
     "all_equal": true
    },
-   "glass_reports": [],
+   "glass_reports": [
+    {
+     "framed_sha256": "25b0ee912b9393962d547c945caebfd1aea1f7a625b25ae1ad8af7391ed58191",
+     "modes": [
+      "full",
+      "fast",
+      "partial"
+     ],
+     "board": "EE04 (ESP32-S3), OD7C42E9",
+     "firmware": "3.0.0",
+     "date": "2026-11-27",
+     "reporter": "jonasniesner",
+     "source": "docs/HARDWARE_VERIFICATION_CHECKLIST.md \u00a7 2.13\" BW (0x0004) on EE04 OD7C42E9",
+     "note": "Bare Seeed 2.13in 122x250 mono panel (SSD16xx). full: K/W frame correct, 3.7 s, i1Pro K L* 18.8 / W L* 71.0. fast: inverted frame clean, 3.6 s. partial (host PartialState): counter 01-03, 2.5 s per update, no flash in an untouched area on 5 fps video. 0x0003, the website preset's id, draws only a faint noisy image on this glass."
+    }
+   ],
    "targets": {
     "default": {
      "limits": {
@@ -1538,7 +1553,7 @@
       "window": true
      },
      "status": "equivalent",
-     "verified": "equivalent",
+     "verified": "glass",
      "blocked_on": [],
      "blocked_detail": {},
      "modes_blocked": [],
@@ -1559,7 +1574,7 @@
         "default": true,
         "bg22": true
        },
-       "verified": "equivalent"
+       "verified": "glass"
       },
       {
        "index": 1,
@@ -1575,7 +1590,7 @@
         "default": true,
         "bg22": true
        },
-       "verified": "equivalent"
+       "verified": "glass"
       },
       {
        "index": 2,
@@ -1591,7 +1606,7 @@
         "default": true,
         "bg22": false
        },
-       "verified": "equivalent"
+       "verified": "glass"
       }
      ],
      "packets": [
@@ -1624,7 +1639,22 @@
       "esp32": true,
       "nordic": true
      },
-     "glass_reports": []
+     "glass_reports": [
+      {
+       "framed_sha256": "25b0ee912b9393962d547c945caebfd1aea1f7a625b25ae1ad8af7391ed58191",
+       "modes": [
+        "full",
+        "fast",
+        "partial"
+       ],
+       "board": "EE04 (ESP32-S3), OD7C42E9",
+       "firmware": "3.0.0",
+       "date": "2026-11-27",
+       "reporter": "jonasniesner",
+       "source": "docs/HARDWARE_VERIFICATION_CHECKLIST.md \u00a7 2.13\" BW (0x0004) on EE04 OD7C42E9",
+       "note": "Bare Seeed 2.13in 122x250 mono panel (SSD16xx). full: K/W frame correct, 3.7 s, i1Pro K L* 18.8 / W L* 71.0. fast: inverted frame clean, 3.6 s. partial (host PartialState): counter 01-03, 2.5 s per update, no flash in an untouched area on 5 fps video. 0x0003, the website preset's id, draws only a faint noisy image on this glass."
+      }
+     ]
     },
     "bg22": {
      "limits": {
