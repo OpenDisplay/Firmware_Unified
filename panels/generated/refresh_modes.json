@@ -630,6 +630,63 @@
         }
       ]
     },
+    "ep213yr_bwry": {
+      "name": "ep213yr_bwry",
+      "key": "0x0034",
+      "base_preset": "0x0034",
+      "drive_rev": 1,
+      "budget_limit": 20,
+      "lut_family": 2,
+      "busy_timeout_s": 120,
+      "modes": [
+        {
+          "mode_index": 1,
+          "name": "partial_bw",
+          "experimental": true,
+          "experimental_note": "BW2_kick3_w10 (the 2.9in table) on the 2.9in init: full-window flashing partial, 0 = to K, 1 = to W, 2/3 hold; 2.8 s per update over BLE; counter 00-03 on OD7C42E9 with the colour bar held, judged by eye, not measured [1 ex, prov]",
+          "budget_cost": 1,
+          "lut_slot": 2,
+          "passes": 1,
+          "hold_mask": 12,
+          "held_k_code": null,
+          "temp_window_c": [
+            15,
+            30
+          ],
+          "temp_policy": "substitute",
+          "seq_steps": 26,
+          "seq_bytes": 96
+        }
+      ],
+      "luts": [
+        {
+          "slot": 2,
+          "compressed": false,
+          "wave": "bwry29_BW2_kick3_w10.bin",
+          "raw_bytes": 535,
+          "stored_bytes": 535
+        }
+      ],
+      "config_bytes": 787,
+      "packets": [
+        {
+          "id": 177,
+          "body_hex": "000301409c000000010203020a02020000010207a50000013400010000140278"
+        },
+        {
+          "id": 174,
+          "body_hex": "000066756c6c00000000000000000301000000ffffffffffffffff0000000000000000190002e901010400010110000302e9010104000102120000010000"
+        },
+        {
+          "id": 174,
+          "body_hex": "00017061727469616c5f62770000ff010f1e0102ffffffffffffff00000000000000006000024d7803000fa907010700222d2d220403105444080605003f0a25121a023002025037036002020561008000fa02e71c02e32202b4d002b50302e9010282a0012000040a830000007f000000f901011000030250970104000102120000010000010101ff0c"
+        },
+        {
+          "id": 175,
+          "body_hex": "0002b78500222d2d222002efffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffbff3dffffefffffffefeffffff6ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefb7dc2d7d7fef7d7f7defeff3ff7f7dffefffffffefefffffefffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffebb2d7d7fef7d7f7defeffeff7f7dffefffffffefefffffefffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      ]
+    },
     "ep42yr_bwry": {
       "name": "ep42yr_bwry",
       "key": "0x003A",
