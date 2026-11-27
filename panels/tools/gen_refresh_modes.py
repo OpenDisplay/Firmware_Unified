@@ -85,6 +85,7 @@ HOLD_MASK = {
     ("ep42yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
     ("ep154yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
     ("ep213yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
+    ("ep29yr128_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
     ("ep266yr_bwry", "partial_bw"): 0b1000,  # 0 = to K, 1 = to W, 2 = held K top-up, 3 hold
     ("s73_spectra6", "partialcool"): 1 << 4,  # code 4 = hold (R-0234)
     ("ee02_709_spectra6", "changedonly"): (1 << 4) | (1 << 7),  # 4/7 hardwired holds (R-0032)
@@ -337,6 +338,21 @@ def build_bwry213() -> dict:
                     family=FAMILY_JD, timeout_s=120, compress=False)
 
 
+# 2.9in 128x296 JD-BWRY (0x001D, GDEY029F51): the stock init is the 2.9in 168x384 one at this
+# panel's RAM geometry, so the 2.9in partial runs unchanged at 128x296.
+def build_bwry29s() -> dict:
+    key = 0x001D
+    pkts = base_packets("0x001D")
+    modes = [
+        (1, "partial_bw", jd29_partial(wave("bwry29_BW2_kick3_w10.bin")[:7], 128, 296), 2, 0, 0, 1,
+         "BW2_kick3_w10 (the 2.9in table) on the 2.9in init: full-window flashing partial, 0 = to K, "
+         "1 = to W, 2/3 hold; 2.7 s per update over BLE; counter 00-05 on OD7C42E9 with the colour "
+         "bar held, judged by eye, not measured [1 ex, prov]"),
+    ]
+    return assemble(key, "0x001D", pkts, modes, {2: "bwry29_BW2_kick3_w10.bin"}, budget=20,
+                    family=FAMILY_JD, timeout_s=120, compress=False)
+
+
 def build_bwry75() -> dict:
     key = 0x0040
     pkts = base_packets("0x0040")
@@ -457,7 +473,7 @@ def build_ee02() -> dict:
 
 # ------------------------------------------------------------------------------------- assembly
 name_of = {"0x0023": "s73_spectra6", "0x001E": "ep29yr_bwry", "0x0036": "ep35yr_bwry", "0x001C": "ep266yr_bwry", "0x0038": "ep154yr_bwry", "0x003A": "ep42yr_bwry", "0x0040": "ep75yr_bwry",
-           "0x0034": "ep213yr_bwry",
+           "0x0034": "ep213yr_bwry", "0x001D": "ep29yr128_bwry",
            "0x003B": "ep75_bw", "0x0042": "ee02_709_spectra6"}
 
 def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int,
@@ -512,7 +528,7 @@ def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int
 
 
 def render() -> tuple[str, str]:
-    panels = [build_s73(), build_bwry266(), build_bwry29(), build_bwry35(), build_bwry154(), build_bwry213(), build_bwry42(), build_bwry75(), build_ep75bw(), build_ee02()]
+    panels = [build_s73(), build_bwry266(), build_bwry29(), build_bwry29s(), build_bwry35(), build_bwry154(), build_bwry213(), build_bwry42(), build_bwry75(), build_ep75bw(), build_ee02()]
     presets = json.loads(PRESETS.read_text())["panels"]
     js = {"schema_version": 1, "note": "experimental refresh modes; layouts provisional "
           "(docs/REFRESH_MODES.md)", "panels": {}}

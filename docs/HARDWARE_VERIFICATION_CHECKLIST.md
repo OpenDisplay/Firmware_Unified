@@ -1793,6 +1793,20 @@ K/W/Y/R strip), then a two-digit counter in the centre through `partial_bw` (py-
 | BW2_kick3_w20 (20-frame white runs), 00-05, 23-26 C | **PASS**: "way better" white; 7.3-7.4 s per update. Shipped |
 | Black/white drift over 100 updates, strip outside the counter, meter | **OPEN** |
 
+## Seeed 2.9" BWRY (0x001D) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
+
+Bare Seeed 2.9in 128x296 BWRY panel (website preset `ep29r-128x296`, id 29, GDEY029F51). Stock
+preset from `drive_presets.json` plus the `ep29yr128_bwry` entry of `refresh_modes.json`, K/W/Y/R
+2x2 quadrants, no dithering. Camera only.
+
+| Row | Result |
+|---|---|
+| `full`, K/W/Y/R quadrants, bb_epaper `code_map` [0, 1, 3, 2] | **FAIL**: K and W in place, Y and R swapped; 24.4 s |
+| `full`, quadrants rotated one place, same `code_map` | **FAIL**: Y and R swapped again, so the code order, not the layout |
+| `full`, `code_map` [0, 1, 2, 3] (`CODE_MAP_ON_GLASS`) | **PASS** on camera: all four colours in place, 24.4 s |
+| experimental `partial_bw` (the 2.9in BW2_kick3_w10 table on the stock init at 128x296): `full` 00, then counter 01-05 with 1-bit text | **PASS** on camera, provisional: 2.6-2.7 s per update, digits clean, colour bar held; judged by eye, not measured |
+| K/W/Y/R stock colours under i1Pro | open |
+
 ## Seeed 2.13" BWRY (0x0034) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
 
 Bare Seeed 2.13in 122x250 BWRY panel (website preset `ep213r-122x250`, id 52, GDEY0213F52).

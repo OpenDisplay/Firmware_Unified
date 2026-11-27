@@ -291,7 +291,14 @@ def derive(p: dict, cls: str, skip: frozenset[str] = frozenset()) -> dict:
             "requires": sorted(req), "detail": detail, "notes": notes}
 
 
+# BWRY code order seen on glass where bb_epaper's pColorLookup draws yellow and red swapped.
+CODE_MAP_ON_GLASS = {"EP29YR_128x296": [0, 1, 2, 3]}
+GLASS_SECTION = {"EP29YR_128x296": 'Seeed 2.9" BWRY (0x001D)'}
+
+
 def code_map_of(p: dict) -> list[int]:
+    if p["name"] in CODE_MAP_ON_GLASS:
+        return list(CODE_MAP_ON_GLASS[p["name"]])
     if p["flags"] & 0x0008:
         return list(p["lookup"][:4])
     return [0, 1, 2, 3]
@@ -667,7 +674,11 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
             if native == 0 and any(m["name"] == "partial" for v in views.values() for m in v.get("modes", [])):
                 e["notes"].append(f"at most {BW_PARTIAL_BUDGET} partials between full refreshes "
                                   "(0xB1 budget_limit, host-enforced)")
-            if p["flags"] & 0x0008:
+            if enum in CODE_MAP_ON_GLASS:
+                e["notes"].append(f"code_map {code_map_of(p)} from glass: bb_epaper's pColorLookup "
+                                  "draws yellow and red swapped (HARDWARE_VERIFICATION_CHECKLIST.md "
+                                  f"§ {GLASS_SECTION[enum]})")
+            elif p["flags"] & 0x0008:
                 e["notes"].append(f"DOUBT: code_map {code_map_of(p)} is bb_epaper's pColorLookup; for EP42YR "
                                   "and EP75YR that lookup is the identity while the glass panels.yaml "
                                   "entries use [0,1,3,2], so the BWRY code order of this panel is unproven")
