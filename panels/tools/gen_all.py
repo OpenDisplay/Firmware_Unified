@@ -51,18 +51,18 @@ DIFFS_BASE = ["D1", "D2", "D3", "D4", "D5"]
 # register-LUT one in refresh_modes.json (gen_refresh_modes.py).
 GRAY_INTO = {
     "0x0008": ("0x0007", {"full": "gray4"}),
-    "0x0015": ("0x0014", {"full": "gray4", "fast": "gray4_fast"}),
-    "0x0016": ("0x0014", {"full": "gray4_dark"}),
+    "0x0015": ("0x0014", {"full": "gray4"}),
+    "0x0016": ("0x0014", {}),
     "0x0018": ("0x0017", {"full": "gray4"}),
-    "0x0028": ("0x0027", {"full": "gray4", "fast": "gray4_fast"}),
-    "0x002F": ("0x002E", {"full": "gray4", "fast": "gray4_fast"}),
-    "0x0031": ("0x0030", {"full": "gray4", "fast": "gray4_fast"}),
+    "0x0028": ("0x0027", {"full": "gray4"}),
+    "0x002F": ("0x002E", {"full": "gray4"}),
+    "0x0031": ("0x0030", {"full": "gray4"}),
     "0x003C": ("0x003B", {}),
-    "0x0043": ("0x001A", {"full": "gray4", "fast": "gray4_fast"}),
-    "0x0044": ("0x0002", {"full": "gray4", "fast": "gray4_fast"}),
+    "0x0043": ("0x001A", {"full": "gray4"}),
+    "0x0044": ("0x0002", {"full": "gray4"}),
     "0x0046": ("0x0045", {"full": "gray4"}),
     "0x0048": ("0x0047", {"full": "gray4"}),
-    "0x004C": ("0x004B", {"full": "gray4", "fast": "gray4_fast"}),
+    "0x004C": ("0x004B", {"full": "gray4"}),
 }
 # The host maps gray level 0..3 (black..white) to panel codes 3, 1, 2, 0 (u8Colors_4gray) for
 # every panel. A 4-gray enum with u8Colors_4gray_v2 (3, 2, 1, 0) takes its two planes the other

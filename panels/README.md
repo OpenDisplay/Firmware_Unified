@@ -244,12 +244,12 @@ removes or changes the meaning of a field bumps `schema_version`.
     }
   },
   // minor 5: a 4-gray bb_epaper enum is a mode of its BW panel (gen_all.py GRAY_INTO): the BW
-  // entry gains gray4 / gray4_fast / gray4_dark (color_scheme 5, after the stock modes, each with
+  // entry gains one gray4 mode, the enum's full flow (color_scheme 5, after the stock modes, with
   // "source": {"enum", "flow", "planes_swapped"}), and the 4-gray key has no entry. Planes are
   // swapped where bb_epaper uses u8Colors_4gray_v2, so the host's u8Colors_4gray codes fit all.
   // A class drops gray modes, last first, that would push the config over its cap.
   "removed": {                          // keys with no drive data: the device is moved to `use` by hand
-    "0x0015": {"name": "EP75_800x480_4GRAY", "use": "0x0014", "modes": ["gray4", "gray4_fast"]}
+    "0x0015": {"name": "EP75_800x480_4GRAY", "use": "0x0014", "modes": ["gray4"]}
   },
   "native_controllers": {              // minor 3: IT8951 / FastEPD parallel ids (ESP32 only)
     "0x0BBD": {                         // key: legacy panel_ic_type 3000-3005, "0x%04X"

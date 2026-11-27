@@ -1842,8 +1842,8 @@ pieces that belong elsewhere or wait on hardware.
 ## 4-gray is a mode of the BW panel — what the hosts still need
 
 `panels/generated/drive_presets.json` (schema_minor 5) has no entry for the 13 4-gray keys
-(`removed`); each BW panel carries `gray4` (and `gray4_fast`, `gray4_dark` on 0x0014) as
-color_scheme-5 modes. The 0x003B `gray4` is in `refresh_modes.json` (experimental): the GEN2 OTP
+(`removed`); each BW panel carries one `gray4`, the 4-gray enum's full flow, as a
+color_scheme-5 mode. The 0x003B `gray4` is in `refresh_modes.json` (experimental): the GEN2 OTP
 4-gray of 0x003C draws only K and W on GDEY075T7 glass.
 
 - **py-opendisplay: encode a single-pass mode in its own scheme.** `prepare_multipass` refuses a
