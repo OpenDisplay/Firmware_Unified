@@ -1,0 +1,764 @@
+# nRF52811 (Firmware_NRF) drive presets: THE SOURCE. panels/tools/gen_nrf52811.py encodes it into
+# panels/generated/drive_presets_nrf52811.json. See panels/nrf52811/README.md.
+meta:
+  schema: opendisplay.drive_presets
+  schema_version: 1
+  schema_minor: 3
+  provisional_ids: true
+  caps:
+    nrf52811: 2000
+    max_steps: 128
+    sleep_max: 20
+  target_classes:
+    nrf52811:
+      max_steps: 128
+      window: false
+      config: 2000
+      targets:
+      - nrf52811
+  transforms:
+    T1: software plane inversion moved into the controller's polarity register
+    T2: bare data byte joined to the preceding command
+    T3: reset pulse 10 ms per phase instead of 50 ms
+    T4: BWRY frame is the full 2 bpp frame
+    T5: reset before sleep left out
+    T6: sleep delay dropped to fit 20 B
+  statuses:
+    equivalent: replays token-identical to the 2.x driver after the transforms
+    extracted: replays token-identical to an op list that was not compiled
+    corrected: replays token-identical to its source with the listed deviations; the uncorrected packets
+      are under alternatives
+    glass: equivalent or corrected, and these packets were checked on a real panel (see verified)
+    blocked: cannot be expressed on this target
+presets:
+- key: '0xE002'
+  name: SSD1619_420_BWR
+  aliases: []
+  width: 400
+  height: 300
+  color_scheme: 1
+  busy_idle_level: 0
+  source: 2.x C driver, compiled and captured
+  status: glass
+  verified: 'glass 2026-11-13: two 4.2in SSD BWR tags'
+  legacy:
+    panel_ic_type: 1001
+    color_scheme: 1
+    pixel_width: 400
+    pixel_height: 300
+    model_id: 2
+  palette:
+    fleet: i1pro_fleet_20261117.json
+    unit: ODE7D010
+  notes:
+  - '0xB0 for full: i1Pro stock colours of ODE7D010 (i1pro_fleet_20261117.json), a type default; measured
+    bit 0; plastic front, use=ok'
+  - 'deliberately differs from its source: 0x21 08 00 -> 00 00 (SSD RAM polarity: 0x21 RAM options set
+    to normal for the wire''s 1 = white / 1 = colour planes; the source value inverted the image). Checked
+    on glass'
+  init:
+  - '12'
+  - '@busy'
+  - 01 2C 01 00
+  - 3C 05
+  - 18 80
+  - 21 00 00
+  - 11 03
+  - 44 00 31
+  - 4E 00
+  - 45 00 00 2B 01
+  - 4F 00 00
+  - 11 03
+  - 44 00 31
+  - 4E 00
+  - 45 00 00 2B 01
+  - 4F 00 00
+  - '24'
+  - '@image'
+  - 11 03
+  - 44 00 31
+  - 4E 00
+  - 45 00 00 2B 01
+  - 4F 00 00
+  - 11 03
+  - 44 00 31
+  - 4E 00
+  - 45 00 00 2B 01
+  - 4F 00 00
+  - 11 03
+  - 44 00 31
+  - 4E 00
+  - 45 00 00 2B 01
+  - 4F 00 00
+  - '26'
+  - '@image'
+  - 21 00 00
+  - 22 F7
+  - '20'
+  - '@busy'
+  - 11 03
+  - 44 00 31
+  - 4E 00
+  - 45 00 00 2B 01
+  - 4F 00 00
+  - '@busy'
+  sleep:
+  - 10 01
+  - '@delay 100'
+  - '@delay 200'
+- key: '0xE007'
+  name: UC8179_750_BWR
+  aliases: []
+  width: 800
+  height: 480
+  color_scheme: 1
+  busy_idle_level: 1
+  source: 2.x C driver, compiled and captured
+  status: glass
+  verified: 'glass 2026-11-13: 7.4in UC8179 BWR 800x480 tag (CDI 0x31 polarity fix confirmed)'
+  legacy:
+    panel_ic_type: 1006
+    color_scheme: 1
+    pixel_width: 800
+    pixel_height: 480
+    model_id: 7
+  palette:
+    fleet: i1pro_fleet_20261117.json
+    unit: OD5BCEB3
+  notes:
+  - 'T3: 2.x held reset 50 ms per phase; od_epd_begin_pass holds 10 ms'
+  - '0xB0 for full: i1Pro stock colours of OD5BCEB3 (i1pro_fleet_20261117.json), a type default; measured
+    bit 0; plastic front, use=ok'
+  - 'deliberately differs from its source: 0x50 30 07 -> 31 07 (UC8179 data polarity: CDI DDX[0] set so
+    DTM1 bit 1 = white, the wire''s convention; the source value inverted the BW plane). Checked on glass'
+  init:
+  - 00 0F
+  - 50 31 07
+  - 61 03 20 01 E0
+  - '04'
+  - '@busy'
+  - 90 00 00 03 1F 00 00 01 DF 00
+  - '91'
+  - 90 00 00 03 1F 00 00 01 DF 00
+  - '10'
+  - '@image'
+  - 90 00 00 03 1F 00 00 01 DF 00
+  - 90 00 00 03 1F 00 00 01 DF 00
+  - '91'
+  - 90 00 00 03 1F 00 00 01 DF 00
+  - '13'
+  - '@image'
+  - '92'
+  - 90 00 00 03 1F 00 00 01 DF 00
+  - '12'
+  - '@delay 100'
+  - '@busy'
+  - '@busy'
+  sleep:
+  - '02'
+  - '@busy'
+  - '@delay 100'
+  - 07 A5
+  - '@delay 200'
+- key: '0xE00F'
+  name: UC8151_029_BWR
+  aliases: []
+  width: 168
+  height: 384
+  color_scheme: 1
+  busy_idle_level: 1
+  source: 2.x C driver, compiled and captured
+  status: glass
+  verified: 'glass 2026-11-13: two 2.9in UC8151 BWR tags'
+  legacy:
+    panel_ic_type: 1014
+    color_scheme: 1
+    pixel_width: 168
+    pixel_height: 384
+    model_id: 15
+  palette:
+    fleet: i1pro_fleet_20261117.json
+    unit: OD0F71E4
+  notes:
+  - 'T2: bare data 00 after a busy wait is sent with cmd 0x04, before that wait'
+  - 'T3: 2.x held reset 50 ms per phase; od_epd_begin_pass holds 10 ms'
+  - '0xB0 for full: i1Pro stock colours of OD0F71E4 (i1pro_fleet_20261117.json), a type default; measured
+    bit 0; plastic front, use=ok'
+  init:
+  - 4D 55
+  - F3 0A
+  - 31 00
+  - 06 E5 35 3C
+  - 50 57
+  - 00 03 09
+  - 61 A8 01 80
+  - 04 00
+  - '@busy'
+  - '10'
+  - '@image'
+  - '13'
+  - '@image'
+  - '04'
+  - '@busy'
+  - '12'
+  - '@delay 100'
+  - '@busy'
+  - '@busy'
+  sleep:
+  - '02'
+  - '@busy'
+  - 07 A5
+  - '@delay 200'
+  - '@delay 200'
+- key: '0xE011'
+  name: SSD1619_029_BWR
+  aliases: []
+  width: 168
+  height: 384
+  color_scheme: 1
+  busy_idle_level: 0
+  source: 2.x C driver, compiled and captured
+  status: glass
+  verified: 'glass 2026-11-13: two 2.9in SSD BWR tags (2.x 1016 and a 1001-provisioned one)'
+  legacy:
+    panel_ic_type: 1016
+    color_scheme: 1
+    pixel_width: 168
+    pixel_height: 384
+    model_id: 17
+  palette:
+    fleet: i1pro_fleet_20261117.json
+    unit: OD0DB292
+  notes:
+  - 'T1: plane 1 inversion moved into 0x21 RED RAM option (XOR 0x80); datasheet-derived, needs a glass
+    check'
+  - '0xB0 for full: i1Pro stock colours of OD0DB292 (i1pro_fleet_20261117.json), a type default; measured
+    bit 0; plastic front, use=ok'
+  - 'deliberately differs from its source: 0x21 88 00 -> 00 00 (SSD RAM polarity: 0x21 RAM options set
+    to normal for the wire''s 1 = white / 1 = colour planes; the source value inverted the image). Checked
+    on glass'
+  - 'deliberately differs from its source: 0x11 01 -> 03 (SSD gate scan reversed (0x11 Y increment, 0x45
+    window and 0x4F start from row 0): the source drew the wire image mirrored and rotated 180 degrees,
+    a vertical flip). Checked on glass'
+  - 'deliberately differs from its source: 0x45 80 01 00 00 -> 00 00 7f 01 (SSD gate scan reversed (0x11
+    Y increment, 0x45 window and 0x4F start from row 0): the source drew the wire image mirrored and rotated
+    180 degrees, a vertical flip). Checked on glass'
+  - 'deliberately differs from its source: 0x4F 7f 01 -> 00 00 (SSD gate scan reversed (0x11 Y increment,
+    0x45 window and 0x4F start from row 0): the source drew the wire image mirrored and rotated 180 degrees,
+    a vertical flip). Checked on glass'
+  init:
+  - '12'
+  - '@busy'
+  - 01 80 01 00
+  - 3C 05
+  - 18 80
+  - 21 00 00
+  - 11 03
+  - 44 01 15
+  - 4E 01
+  - 45 00 00 7F 01
+  - 4F 00 00
+  - 11 03
+  - 44 01 15
+  - 4E 01
+  - 45 00 00 7F 01
+  - 4F 00 00
+  - '24'
+  - '@image'
+  - 11 03
+  - 44 01 15
+  - 4E 01
+  - 45 00 00 7F 01
+  - 4F 00 00
+  - 11 03
+  - 44 01 15
+  - 4E 01
+  - 45 00 00 7F 01
+  - 4F 00 00
+  - 11 03
+  - 44 01 15
+  - 4E 01
+  - 45 00 00 7F 01
+  - 4F 00 00
+  - '26'
+  - '@image'
+  - 21 00 00
+  - 22 F7
+  - '20'
+  - '@busy'
+  - 11 03
+  - 44 01 15
+  - 4E 01
+  - 45 00 00 7F 01
+  - 4F 00 00
+  - '@busy'
+  sleep:
+  - 10 01
+  - '@delay 100'
+  - '@delay 200'
+- key: '0xE013'
+  name: SSD1619_016_BWR
+  aliases: []
+  width: 200
+  height: 200
+  color_scheme: 1
+  busy_idle_level: 0
+  source: 2.x C driver, compiled and captured
+  status: glass
+  verified: 'glass 2026-11-13: 1.6in SSD BWR tag'
+  legacy:
+    panel_ic_type: 1018
+    color_scheme: 1
+    pixel_width: 200
+    pixel_height: 200
+    model_id: 19
+  palette:
+    fleet: i1pro_fleet_20261117.json
+    unit: OD0295D8
+  notes:
+  - '0xB0 for full: i1Pro stock colours of OD0295D8 (i1pro_fleet_20261117.json), a type default; measured
+    bit 0; plastic front, use=caution (consistent but weak: white about L* 50, contrast 12)'
+  - 'deliberately differs from its source: 0x21 08 00 -> 00 00 (SSD RAM polarity: 0x21 RAM options set
+    to normal for the wire''s 1 = white / 1 = colour planes; the source value inverted the image). Checked
+    on glass'
+  init:
+  - '12'
+  - '@busy'
+  - 01 C8 00 00
+  - 3C 05
+  - 18 80
+  - 21 00 00
+  - 11 03
+  - 44 00 18
+  - 4E 00
+  - 45 00 00 C7 00
+  - 4F 00 00
+  - 11 03
+  - 44 00 18
+  - 4E 00
+  - 45 00 00 C7 00
+  - 4F 00 00
+  - '24'
+  - '@image'
+  - 11 03
+  - 44 00 18
+  - 4E 00
+  - 45 00 00 C7 00
+  - 4F 00 00
+  - 11 03
+  - 44 00 18
+  - 4E 00
+  - 45 00 00 C7 00
+  - 4F 00 00
+  - 11 03
+  - 44 00 18
+  - 4E 00
+  - 45 00 00 C7 00
+  - 4F 00 00
+  - '26'
+  - '@image'
+  - 21 00 00
+  - 22 F7
+  - '20'
+  - '@busy'
+  - 11 03
+  - 44 00 18
+  - 4E 00
+  - 45 00 00 C7 00
+  - 4F 00 00
+  - '@busy'
+  sleep:
+  - 10 01
+  - '@delay 100'
+  - '@delay 200'
+- key: '0xE019'
+  name: UC8151_027_BWR
+  aliases: []
+  width: 200
+  height: 300
+  color_scheme: 1
+  busy_idle_level: 1
+  source: 2.x C driver, compiled and captured
+  status: glass
+  verified: 'glass 2026-11-13: 2.7in UC8151 BWR tag'
+  legacy:
+    panel_ic_type: 1024
+    color_scheme: 1
+    pixel_width: 200
+    pixel_height: 300
+    model_id: 25
+  palette:
+    fleet: i1pro_fleet_20261117.json
+    unit: OD5AAAD9
+  notes:
+  - 'T2: bare data 00 after a busy wait is sent with cmd 0x04, before that wait'
+  - 'T3: 2.x held reset 50 ms per phase; od_epd_begin_pass holds 10 ms'
+  - '0xB0 for full: i1Pro stock colours of OD5AAAD9 (i1pro_fleet_20261117.json), a type default; measured
+    bit 0; plastic front, use=ok'
+  - 'deliberately differs from its source: 0x00 03 09 -> 0f 09 (UC8151 scan direction: PSR UD and SHL
+    set (0F): the 2.7in panel is mounted rotated; the source value drew the image upside down). Checked
+    on glass'
+  init:
+  - 4D 55
+  - F3 0A
+  - 31 00
+  - 06 E5 35 3C
+  - 50 57
+  - 00 0F 09
+  - 61 C8 01 2C
+  - 04 00
+  - '@busy'
+  - '10'
+  - '@image'
+  - '13'
+  - '@image'
+  - '04'
+  - '@busy'
+  - '12'
+  - '@delay 100'
+  - '@busy'
+  - '@busy'
+  sleep:
+  - '02'
+  - '@busy'
+  - 07 A5
+  - '@delay 200'
+  - '@delay 200'
+- key: '0xE01B'
+  name: UCVAR43_430_BWR
+  aliases: []
+  width: 152
+  height: 522
+  color_scheme: 1
+  busy_idle_level: 1
+  source: 2.x C driver, compiled and captured
+  status: glass
+  verified: 'glass 2026-11-13: two 4.3in UCVAR43 BWR tags (orientation; on one the red greys a little
+    after the refresh, with and without the PSR)'
+  legacy:
+    panel_ic_type: 1026
+    color_scheme: 1
+    pixel_width: 152
+    pixel_height: 522
+    model_id: 27
+  palette: null
+  notes:
+  - 'T1: plane 0 inversion moved into 0x50 CDI DDX[0] (XOR 0x10); datasheet-derived, needs a glass check'
+  - 'T3: 2.x held reset 50 ms per phase; od_epd_begin_pass holds 10 ms'
+  - 'deliberately differs from its source: 0x00 (none) -> 0f (UCVAR43 scan direction: PSR 0F inserted
+    (the source sends no PSR); the chip default drew the image mirrored and rotated 180 degrees, a vertical
+    flip). Checked on glass'
+  init:
+  - F8 60 05
+  - F8 A1 00
+  - F8 73 05
+  - F8 7E 31
+  - F8 B8 80
+  - F8 92 00
+  - F8 87 11
+  - F8 88 06
+  - F8 A8 30
+  - 00 0F
+  - 61 00 98 02 0A
+  - 06 57 63 3A
+  - 50 97 00
+  - '10'
+  - '@image'
+  - '13'
+  - '@image'
+  - '04'
+  - '@busy'
+  - '12'
+  - '@delay 100'
+  - '@busy'
+  - '@busy'
+  sleep:
+  - '02'
+  - '@busy'
+  - '@delay 100'
+  - 07 A5
+  - '@delay 200'
+- key: '0xE01D'
+  name: SSD1619_013_BWR
+  aliases: []
+  width: 144
+  height: 200
+  color_scheme: 1
+  busy_idle_level: 0
+  source: 2.x C driver, compiled and captured
+  status: glass
+  verified: 'glass 2026-11-13: 1.3in SSD BWR tag'
+  legacy:
+    panel_ic_type: 1028
+    color_scheme: 1
+    pixel_width: 144
+    pixel_height: 200
+    model_id: 29
+  palette:
+    fleet: i1pro_fleet_20261117.json
+    unit: OD182A7A
+  notes:
+  - 'T1: plane 0 inversion moved into 0x21 BW RAM option (XOR 0x08); datasheet-derived, needs a glass
+    check'
+  - 'T1: plane 1 inversion moved into 0x21 RED RAM option (XOR 0x80); datasheet-derived, needs a glass
+    check'
+  - '0xB0 for full: i1Pro stock colours of OD182A7A (i1pro_fleet_20261117.json), a type default; measured
+    bit 0; bare, use=ok'
+  init:
+  - '12'
+  - '@busy'
+  - 01 C8 00 00
+  - 3C 05
+  - 18 80
+  - 21 00 00
+  - 11 03
+  - 44 01 12
+  - 4E 01
+  - 45 00 00 C7 00
+  - 4F 00 00
+  - 11 03
+  - 44 01 12
+  - 4E 01
+  - 45 00 00 C7 00
+  - 4F 00 00
+  - '24'
+  - '@image'
+  - 11 03
+  - 44 01 12
+  - 4E 01
+  - 45 00 00 C7 00
+  - 4F 00 00
+  - 11 03
+  - 44 01 12
+  - 4E 01
+  - 45 00 00 C7 00
+  - 4F 00 00
+  - 11 03
+  - 44 01 12
+  - 4E 01
+  - 45 00 00 C7 00
+  - 4F 00 00
+  - '26'
+  - '@image'
+  - 21 00 00
+  - 22 F7
+  - '20'
+  - '@busy'
+  - 11 03
+  - 44 01 12
+  - 4E 01
+  - 45 00 00 C7 00
+  - 4F 00 00
+  - '@busy'
+  sleep:
+  - 10 01
+  - '@delay 100'
+  - '@delay 200'
+- key: '0xE01F'
+  name: SSD1619_022_LITE_BWR
+  aliases: []
+  width: 128
+  height: 250
+  color_scheme: 1
+  busy_idle_level: 0
+  source: 2.x C driver, compiled and captured
+  status: glass
+  verified: 'glass 2026-11-13: 2.2in Lite SSD BWR tag'
+  legacy:
+    panel_ic_type: 1030
+    color_scheme: 1
+    pixel_width: 128
+    pixel_height: 250
+    model_id: 31
+  palette:
+    fleet: i1pro_fleet_20261117.json
+    unit: OD545743
+  notes:
+  - 'T1: plane 0 inversion moved into 0x21 BW RAM option (XOR 0x08); datasheet-derived, needs a glass
+    check'
+  - '0xB0 for full: i1Pro stock colours of OD545743 (i1pro_fleet_20261117.json), a type default; measured
+    bit 0; plastic front, use=caution (consistent but weak: white about L* 50, contrast 14)'
+  init:
+  - '12'
+  - '@busy'
+  - 01 FA 00 00
+  - 3C 05
+  - 18 80
+  - 21 00 00
+  - 11 03
+  - 44 01 10
+  - 4E 01
+  - 45 00 00 F9 00
+  - 4F 00 00
+  - 11 03
+  - 44 01 10
+  - 4E 01
+  - 45 00 00 F9 00
+  - 4F 00 00
+  - '24'
+  - '@image'
+  - 11 03
+  - 44 01 10
+  - 4E 01
+  - 45 00 00 F9 00
+  - 4F 00 00
+  - 11 03
+  - 44 01 10
+  - 4E 01
+  - 45 00 00 F9 00
+  - 4F 00 00
+  - 11 03
+  - 44 01 10
+  - 4E 01
+  - 45 00 00 F9 00
+  - 4F 00 00
+  - '26'
+  - '@image'
+  - 21 00 00
+  - 22 F7
+  - '20'
+  - '@busy'
+  - 11 03
+  - 44 01 10
+  - 4E 01
+  - 45 00 00 F9 00
+  - 4F 00 00
+  - '@busy'
+  sleep:
+  - 10 01
+  - '@delay 100'
+  - '@delay 200'
+- key: '0xE020'
+  name: SSD1619_420_BWY
+  aliases: []
+  width: 400
+  height: 300
+  color_scheme: 2
+  busy_idle_level: 0
+  source: 2.x C driver, compiled and captured
+  status: glass
+  verified: 'glass 2026-11-13: 4.2in SSD BWY tag'
+  legacy:
+    color_scheme: 1
+    pixel_width: 400
+    pixel_height: 300
+  palette:
+    fleet: i1pro_fleet_20261117.json
+    unit: OD390B21
+  notes:
+  - 'same drive as 0xE002 (SSD1619_420_BWR) with colour scheme 2; the same 2.x panel_ic_type 1001: pick
+    by the panel''s colour'
+  - '0xB0 for full: i1Pro stock colours of OD390B21 (i1pro_fleet_20261117.json), a type default; measured
+    bit 0; plastic front, use=ok'
+  - 'deliberately differs from its source: 0x21 08 00 -> 00 00 (SSD RAM polarity: 0x21 RAM options set
+    to normal for the wire''s 1 = white / 1 = colour planes; the source value inverted the image). Checked
+    on glass'
+  init:
+  - '12'
+  - '@busy'
+  - 01 2C 01 00
+  - 3C 05
+  - 18 80
+  - 21 00 00
+  - 11 03
+  - 44 00 31
+  - 4E 00
+  - 45 00 00 2B 01
+  - 4F 00 00
+  - 11 03
+  - 44 00 31
+  - 4E 00
+  - 45 00 00 2B 01
+  - 4F 00 00
+  - '24'
+  - '@image'
+  - 11 03
+  - 44 00 31
+  - 4E 00
+  - 45 00 00 2B 01
+  - 4F 00 00
+  - 11 03
+  - 44 00 31
+  - 4E 00
+  - 45 00 00 2B 01
+  - 4F 00 00
+  - 11 03
+  - 44 00 31
+  - 4E 00
+  - 45 00 00 2B 01
+  - 4F 00 00
+  - '26'
+  - '@image'
+  - 21 00 00
+  - 22 F7
+  - '20'
+  - '@busy'
+  - 11 03
+  - 44 00 31
+  - 4E 00
+  - 45 00 00 2B 01
+  - 4F 00 00
+  - '@busy'
+  sleep:
+  - 10 01
+  - '@delay 100'
+  - '@delay 200'
+- key: '0xE101'
+  name: M3_2.2in_BWR_160x296
+  aliases: []
+  width: 160
+  height: 296
+  color_scheme: 1
+  busy_idle_level: 0
+  source: op list (extracted, not cross-checked)
+  status: glass
+  verified: 'glass 2026-11-13: 2.2in EL022H3WRA 160x296 tag (provisioned as 2.x 1020)'
+  legacy:
+    color_scheme: 1
+    pixel_width: 160
+    pixel_height: 296
+  palette:
+    fleet: i1pro_fleet_20261117.json
+    unit: OD18F3CD
+  notes:
+  - 'extracted, not cross-checked: op list transcribed, not compiled'
+  - 'T1: plane 0 inversion moved into 0x21 BW RAM option (XOR 0x08); datasheet-derived, needs a glass
+    check'
+  - 'T5: the hardware reset before the sleep commands is left out (the panel is awake after a refresh)'
+  - '0xB0 for full: i1Pro stock colours of OD18F3CD (i1pro_fleet_20261117.json), a type default; measured
+    bit 0; plastic front, use=ok'
+  - 'deliberately differs from its source: 0x11 01 -> 03 (SSD gate scan reversed (0x11 Y increment, 0x45
+    window and 0x4F start from row 0): the source drew the wire image mirrored and rotated 180 degrees,
+    a vertical flip). Checked on glass'
+  - 'deliberately differs from its source: 0x45 28 01 00 00 -> 00 00 27 01 (SSD gate scan reversed (0x11
+    Y increment, 0x45 window and 0x4F start from row 0): the source drew the wire image mirrored and rotated
+    180 degrees, a vertical flip). Checked on glass'
+  - 'deliberately differs from its source: 0x4F 27 01 -> 00 00 (SSD gate scan reversed (0x11 Y increment,
+    0x45 window and 0x4F start from row 0): the source drew the wire image mirrored and rotated 180 degrees,
+    a vertical flip). Checked on glass'
+  init:
+  - '12'
+  - '@busy'
+  - '@delay 10'
+  - 01 28 01 00
+  - 11 03
+  - 45 00 00 27 01
+  - 44 01 14
+  - 3C 05
+  - 18 80
+  - 21 00 00
+  - 4E 01
+  - 4F 00 00
+  - '24'
+  - '@image'
+  - 4E 01
+  - 4F 00 00
+  - '26'
+  - '@image'
+  - 22 F7
+  - '20'
+  - '@busy'
+  sleep:
+  - '13'
+  - '@busy'
+  - 10 03

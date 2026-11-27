@@ -525,7 +525,8 @@ class NativeControllers(unittest.TestCase):
 
 
 class Nrf52811Presets(unittest.TestCase):
-    """The copied Firmware_NRF output: same schema, glass entries only, ids in its own block."""
+    """panels/nrf52811/presets.yaml -> drive_presets_nrf52811.json (gen_nrf52811.py): same schema,
+    glass entries only, ids in their own block, 0xB0 in two-plane panel codes."""
 
     def test_shape(self):
         d = json.loads((P.GENERATED / "drive_presets_nrf52811.json").read_text())
@@ -539,6 +540,29 @@ class Nrf52811Presets(unittest.TestCase):
                 self.assertNotIn(key, PRESETS["panels"])
                 self.assertEqual(e["status"], "glass")
                 self.assertTrue(e["packets"])
+                self.assertTrue(e["equivalence"]["all_equal"])
+
+    def test_palette_codes(self):
+        """black 0, white 1, the colour 3 (both planes set), cal_flags bit0 clear."""
+        d = json.loads((P.GENERATED / "drive_presets_nrf52811.json").read_text())
+        n = 0
+        for key, e in d["panels"].items():
+            for p in e["packets"]:
+                if p["id"] != P.PKT_CAL:
+                    continue
+                b = bytes.fromhex(p["body_hex"])
+                with self.subTest(key=key):
+                    self.assertEqual((b[0], b[1], b[2] & 1), (0, 0, 0))
+                    codes = [b[4 + 8 * i] | b[5 + 8 * i] << 8 for i in range(b[3])]
+                    self.assertEqual(codes, [0, 1, 3][:b[3]])
+                    n += 1
+        self.assertGreater(n, 0)
+
+    def test_generated_is_current(self):
+        import subprocess
+        r = subprocess.run([sys.executable, str(P.PANELS / "tools" / "gen_nrf52811.py"), "--check"],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
 
 class GlassReports(unittest.TestCase):

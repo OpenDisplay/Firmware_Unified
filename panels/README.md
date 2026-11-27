@@ -12,6 +12,8 @@ panels/
   panels.yaml               hand-authored, ON-GLASS-VERIFIED entries (6 BWRY panels). Frozen.
   glass_reports.yaml        on-glass sightings of GENERATED entries -> per-mode verified: glass
   panel_ids.json            legacy panel_ic_type id -> bb_epaper enum, scheme, preset ids
+  nrf52811/                 THE SOURCE of the nRF52811 presets (Firmware_NRF): presets.yaml +
+                            provenance.json; see nrf52811/README.md
   palettes/                 0xB0 sources. A panels.yaml mode names one with `palette:`
                             (a multi-pass mode without one takes the ODBEEBA6 photo palette).
                             palette16_dither_<id>_<unit>.json: i1Pro, dither-optimised colour16
@@ -28,11 +30,12 @@ panels/
   tools/                    generators (stdlib Python + a host C compiler)
     pdlib.py                encoders, capture/replay drivers, normaliser, deriver
     gen_all.py              capture -> derive -> replay -> generated/*  (--check: staleness)
+    gen_nrf52811.py         nrf52811/presets.yaml -> generated/drive_presets_nrf52811.json
     build_panel_ids.py      rebuilds panel_ids.json from the sibling repos (git show only)
   generated/
     bbep_streams.json       normalised bb_epaper streams per enum, + drift vs the vendored copy
     drive_presets.json      THE HOST ARTEFACT (schema below); attached to every firmware release
-    drive_presets_nrf52811.json  the nRF52811 presets, copied from Firmware_NRF (see Provenance)
+    drive_presets_nrf52811.json  the nRF52811 presets (Firmware_NRF), from nrf52811/presets.yaml
     coverage.md             per-id status table
   legacy/                   lab scripts imported verbatim (see Provenance)
 ```
@@ -48,11 +51,11 @@ panels/
 website presets (`opendisplay.org` branch `feat/od-epd-driver`). The PNG evidence files of the
 source directory were not imported.
 
-`generated/drive_presets_nrf52811.json` is not generated here: it is
-`presets/drive_presets_nrf52811.json` from `Firmware_NRF` branch `v3/nrf52811`, copied byte for
-byte from `756d014` (2026-11-13, "presets: ship only presets checked on glass (11 of 33)"; branch
-tip `3ebf82e`). Firmware_NRF's `tools/gen_presets.py` owns it; its ids are provisional
-(0xE0xx/0xE1xx). Refresh it by copying a newer output in, with that commit named here.
+`nrf52811/presets.yaml` was exported from `Firmware_NRF` branch `v3/nrf52811` at `87e6808`
+(2026-11-27): its `presets/drive_presets_nrf52811.json` and `tools/gen_presets.py`, which derived
+the presets from the 2.x M3 / EPD-nRF5 C drivers. `gen_nrf52811.py` regenerates that file
+identical apart from its `generator` field. Since then this directory is the source and
+Firmware_NRF only reads it; see `nrf52811/README.md`.
 
 `legacy/` scripts are kept for the lab workflow they belong to (they need py-opendisplay's
 `panel_drive`, `lut_lab` and a BLE device). Their absolute paths were replaced by environment
