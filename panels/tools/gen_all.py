@@ -70,7 +70,8 @@ GRAY_INTO = {
 GRAY_LOOKUP_V2 = [3, 2, 1, 0]
 # 4-gray enums whose plane order on glass is the opposite of what their bb_epaper lookup implies
 # (the mid-grays come out swapped), with the checklist section that shows it.
-GRAY_SWAP_ON_GLASS = {"EP42B_400x300_4GRAY": 'HARDWARE_VERIFICATION_CHECKLIST.md § 4.2" BW (0x0002)'}
+GRAY_SWAP_ON_GLASS = {"EP42B_400x300_4GRAY": 'HARDWARE_VERIFICATION_CHECKLIST.md § 4.2" BW (0x0002)',
+                      "EP29_128x296_4GRAY": 'HARDWARE_VERIFICATION_CHECKLIST.md § 2.9" flex BW (0x0017)'}
 
 
 def swap_gray_planes(toks: list[tuple]) -> list[tuple]:

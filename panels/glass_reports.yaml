@@ -116,3 +116,18 @@ reports:
       fast: inverted frame clean, 3.7 s. partial (host PartialState): counter 01-05, 2.5 s per
       update. gray4 with the planes swapped against bb_epaper's lookup: four monotonic levels,
       i1Pro L* 19.9 / 33.0 / 62.9 / 70.4 (tile drift 5.9 % Y).
+  - panel: "0x0017"
+    target_class: default
+    framed_sha256: ec72d3a74aca5235bb39bc6c6d5abcf92331d59e97a3691a0ea286c6035dc829
+    modes: [full, fast, partial, gray4]
+    board: EE04 (ESP32-S3), OD7C42E9
+    firmware: 3.0.0
+    date: 2026-11-27
+    reporter: jonasniesner
+    source: docs/HARDWARE_VERIFICATION_CHECKLIST.md § 2.9" flex BW (0x0017) on EE04 OD7C42E9
+    note: >-
+      Bare 2.9in 128x296 flexible mono panel (UC81xx). full: K/W frame correct, about 4.5 s, i1Pro
+      K L* 18.7 / W L* 70.0. fast: inverted frame clean, 2.6 s. partial (host PartialState, with
+      partial_update_support forced to 1; the website preset has 0): counter 01-03 in place, no
+      flash on 10 fps video, 2.2 s per update. gray4 with the planes swapped against bb_epaper's
+      lookup: four monotonic levels, i1Pro L* 15.9 / 34.4 / 58.1 / 69.6 (tile drift 0.03 % Y).

@@ -1859,3 +1859,11 @@ color_scheme-5 mode. The 0x003B `gray4` is in `refresh_modes.json` (experimental
   harmless once no device carries those ids, removable then.
 - **Glass:** only 0x003B `gray4` has been on glass (checklist § 7.5" GEN2 4-gray). Every merged
   mode is bb_epaper-equivalent, not seen.
+
+## Website preset `ep29-128x296` disables partial on a panel that supports it
+
+The simple-config display `ep29-128x296` (panel 0x0017, 2.9in flex BW) has
+`partial_update_support` 0, so py-opendisplay never takes the partial path and every partial is
+a full refresh. The 0x0017 partial mode works on glass (HARDWARE_VERIFICATION_CHECKLIST.md
+§ 2.9" flex BW (0x0017)). External follow-up: set it to 1 in the website presets.
+

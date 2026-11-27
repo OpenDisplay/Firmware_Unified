@@ -1793,6 +1793,20 @@ K/W/Y/R strip), then a two-digit counter in the centre through `partial_bw` (py-
 | BW2_kick3_w20 (20-frame white runs), 00-05, 23-26 C | **PASS**: "way better" white; 7.3-7.4 s per update. Shipped |
 | Black/white drift over 100 updates, strip outside the counter, meter | **OPEN** |
 
+## 2.9" flex BW (0x0017) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
+
+Bare 2.9in 128x296 flexible mono panel, UC81xx (website preset `ep29-128x296`). Preset written from
+`drive_presets.json`. Camera snapshots, 10 fps video for partial, i1Pro S/N 324492 (D50, M0).
+
+| Row | Result |
+|---|---|
+| `full`, i1Pro K / W | **PASS**: L* 18.7 / 70.0, about 4.5 s (tile drift 0 % Y) |
+| `fast`, inverted frame | **PASS** on camera: clean, 2.6 s |
+| `partial` with the website preset | not exercised: `partial_update_support` 0, so the host sends full refreshes |
+| `partial` (PartialState), `partial_update_support` forced to 1 | **PASS** on video: counter 01-03 in place, no flash, 2.2 s per update |
+| `gray4` in bb_epaper plane order (u8Colors_4gray) | **FAIL**: mid-grays swapped |
+| `gray4` with the planes swapped (`GRAY_SWAP_ON_GLASS`), i1Pro | **PASS**: L* 15.9 / 34.4 / 58.1 / 69.6, monotonic, with the host's stock codes (tile drift 0.03 % Y) |
+
 ## 4.2" BW (0x0002) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
 
 Bare 4.2in 400x300 SSD16xx panel (website preset `ep42-400x300`). Preset written from
