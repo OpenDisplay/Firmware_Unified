@@ -369,7 +369,7 @@ def build_bwry397() -> dict:
                   cmd(0x83, 0x00, 0x00, (w - 1) >> 8, (w - 1) & 0xFF, 0x00, 0x00, (h - 1) >> 8, (h - 1) & 0xFF, 0x01),
                   cmd(0x10), IMAGE, cmd(0x50, 0x97), cmd(0x04), BUSY, cmd(0x12, 0x00), BUSY]
     modes = [
-        (2, "partial_bw", seq, 2, 0, 0, 1,
+        (1, "partial_bw", seq, 2, 0, 0, 1,
          "BW2_kick3_w10 (the 2.9in table) on the stock 3.97in init: full-window flashing partial, "
          "0 = to K, 1 = to W, 2/3 hold; 3.1 s per update over BLE; counter 00-05 on OD7C42E9 with "
          "the colour bar held, judged by eye, not measured [1 ex, prov]"),

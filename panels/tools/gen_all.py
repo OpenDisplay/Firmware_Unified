@@ -181,7 +181,10 @@ DROP_FLOWS = {"EP293_128x296": {"fast": "fast dropped by project decision after 
                                         "(HARDWARE_VERIFICATION_CHECKLIST.md § Seeed 2.9\" BW (0x0005))"},
               "EP213YR_122x250": {"fast": "fast dropped: it draws black as red and cannot clear red on "
                                           "glass (HARDWARE_VERIFICATION_CHECKLIST.md § Seeed 2.13\" BWRY "
-                                          "(0x0034))"}}
+                                          "(0x0034))"},
+              "EP397YR_800x480": {"fast": "fast dropped: it leaves thin dark lines across rows on glass "
+                                          "(HARDWARE_VERIFICATION_CHECKLIST.md § Seeed 3.97\" BWRY "
+                                          "(0x0037))"}}
 PARTIAL_REINIT = {"EP426_800x480", "EP397_800x480"}
 
 
@@ -631,7 +634,7 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
             e["notes"].append("bb_epaper expands pixels for this panel in its own write path; the 2.x "
                               "direct path streams the host bytes raw, so the host must send the "
                               "controller format")
-        if enum.startswith("EP397"):
+        if enum.startswith("EP397_"):
             e["notes"].append("2.x Firmware detects SSD1677 vs SSD2677 at runtime (reg 0x70) and repacks "
                               "to 2bpp for SSD2677; config-driven drive needs READBACK and PIXEL_XFORM")
 

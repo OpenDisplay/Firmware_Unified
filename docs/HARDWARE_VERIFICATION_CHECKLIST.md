@@ -1804,6 +1804,7 @@ entry of `refresh_modes.json`, K/W/Y/R 2x2 quadrants, no dithering. Camera only.
 | `full`, K/W/Y/R quadrants | **PASS** on camera: all four colours in place, 23.5 s |
 | `fast`, quadrants rotated one place | colours in place, 14.2 s, but a thin dark line across one row in the lower half |
 | `fast`, original layout over the previous fast frame | the same line again, plus a second one near the top edge; `full` shows neither |
+| `fast` dropped (`DROP_FLOWS`), `partial_bw` now mode 1; `full` 00 then counter 01-02 from the regenerated presets | **PASS** on camera: 23.3 s full, 3.0 s per partial |
 | experimental `partial_bw` (the 2.9in BW2_kick3_w10 table on the stock init, 800x480 window): `full` 00, then counter 01-05 with 1-bit text | **PASS** on camera, provisional: 3.1-3.2 s per update, digits clean, colour bar held, no lines; judged by eye, not measured |
 | K/W/Y/R stock colours under i1Pro | open |
 
