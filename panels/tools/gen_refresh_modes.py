@@ -334,6 +334,39 @@ def build_bwry75() -> dict:
                     family=FAMILY_JD, timeout_s=120, compress=False)
 
 
+# ------------------------------------------------------------------------- 7.5in BW GEN2 (0x003B)
+# 4-gray on the GDEY075T7 glass: the register-LUT gray4 of EP75_800x480 (0x0014, the
+# EP75_800x480_4GRAY flow), its table in slot 1 here (slot 0 is the partial). The OTP 4-gray of
+# EP75_800x480_4GRAY_GEN2 draws only K and W on this glass: it ignores the 0x10 plane. In
+# 0x0014's plane order the two mid-grays come out swapped against the host's u8Colors_4gray
+# codes, so plane 0 (code bit 0) goes to 0x10 and plane 1 to 0x13; endpoints are unaffected.
+def ep75_gray4(gray: list[tuple]) -> list[tuple]:
+    i = next(k for k, s in enumerate(gray) if s[0] == "image")
+    assert gray[i - 2:i + 3] == [cmd(0x10), cmd(0x13), IMAGE, cmd(0x10), IMAGE], gray[i - 2:i + 3]
+    return gray[:i - 2] + [cmd(0x10), IMAGE, cmd(0x13), IMAGE] + gray[i + 3:]
+
+
+def mode_named(pkts: list[tuple[int, bytes]], name: str) -> bytes:
+    return next(b for pid, b in pkts if pid == 0xAE and b[2:14].rstrip(b"\0") == name.encode())
+
+
+def build_ep75bw() -> dict:
+    key = 0x003B
+    pkts = base_packets("0x003B")
+    src = base_packets("0x0014")
+    gm = mode_named(src, "gray4")
+    table = next(b[4:] for pid, b in src if pid == 0xAF and (b[1] & 0x0F) == gm[19])
+    assert not next(b for pid, b in src if pid == 0xAF and (b[1] & 0x0F) == gm[19])[1] & 0x80
+    modes = [
+        (3, "gray4", ep75_gray4(mode_seq(src, gm[1])), 1, 0, 0, 0,
+         "4-gray full, the 0x0014 gray4 register LUTs with the planes swapped: i1Pro L* 14.7 / "
+         "27.0 / 43.0 / 67.6 on OD7C42E9 (bare), K and W as the stock full; about 5 s; needs a "
+         "host that encodes a scheme-5 mode on a scheme-0 display [1 ex, prov]"),
+    ]
+    return assemble(key, "0x003B", pkts, modes, {1: table}, budget=20, family=0, timeout_s=60, compress=False,
+                    cals={3: "palettes/gray4_0x003B_OD7C42E9.json"}, schemes={3: 5})
+
+
 # ---------------------------------------------------------------------------- 7.09in S6 (EE02)
 # The lab-order stream (tests/host/ee02_spectra_preset.inc k_lab_order_seq, from
 # ee02_spectra709/src/main.cpp) with PSR DF E9, the table's PWR on the main chip, PLL, and the
@@ -407,10 +440,10 @@ def build_ee02() -> dict:
 
 # ------------------------------------------------------------------------------------- assembly
 name_of = {"0x0023": "s73_spectra6", "0x001E": "ep29yr_bwry", "0x0036": "ep35yr_bwry", "0x001C": "ep266yr_bwry", "0x0038": "ep154yr_bwry", "0x003A": "ep42yr_bwry", "0x0040": "ep75yr_bwry",
-           "0x0042": "ee02_709_spectra6"}
+           "0x003B": "ep75_bw", "0x0042": "ee02_709_spectra6"}
 
 def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int,
-             timeout_s: int, compress: bool = True, cals=None) -> dict:
+             timeout_s: int, compress: bool = True, cals=None, schemes=None) -> dict:
     out_pkts, extra = [], []
     top = max(m[0] for m in modes) + 1
     for pid, b in pkts:
@@ -423,23 +456,26 @@ def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int
         # A list of slots is a multi-pass mode: pass n uploads slots[n]; the sequence runs once per pass.
         slots = list(slot) if isinstance(slot, (list, tuple)) else [slot] if slot is not None else None
         body = P.mode_body(idx, name, seq, slots=slots, passes=len(slots) if slots else 1,
-                           tmin=tmin, tmax=tmax, policy=SUBSTITUTE) + mode_tail(
+                           scheme=(schemes or {}).get(idx, 0xFF), tmin=tmin, tmax=tmax, policy=SUBSTITUTE) + mode_tail(
             cost, hold_mask=HOLD_MASK.get((name_of[base], name)),
             held_k_code=HELD_K_CODE.get((name_of[base], name)))
         out_pkts.append((0xAE, body))
         extra.append({"mode_index": idx, "name": name, "experimental": True,
                       "experimental_note": note, "budget_cost": cost, "lut_slot": slot,
                       "passes": len(slots) if slots else 1,
+                      **({"color_scheme": schemes[idx]} if idx in (schemes or {}) else {}),
                       "hold_mask": HOLD_MASK.get((name_of[base], name)),
                       "held_k_code": HELD_K_CODE.get((name_of[base], name)),
                       "temp_window_c": [tmin, tmax], "temp_policy": "substitute",
                       "seq_steps": len(steps) + 1, "seq_bytes": len(seq)})
     lut_meta = []
     for slot, fn in sorted(luts.items()):
-        data = wave(fn)
+        # A table is a waves/ file name, or the bytes of a stock preset's slot.
+        data = wave(fn) if isinstance(fn, str) else fn
         body = lut_packet(slot, data, compress)
         out_pkts.append((0xAF, body))
-        lut_meta.append({"slot": slot, "compressed": compress, "wave": fn, "raw_bytes": len(data),
+        lut_meta.append({"slot": slot, "compressed": compress,
+                         "wave": fn if isinstance(fn, str) else "stock preset slot", "raw_bytes": len(data),
                          "stored_bytes": len(body) - 4})
     cal_meta = []
     # cals: {mode_index: palette JSON path}; the 0xB0 a host needs to encode that multi-pass mode.
@@ -458,7 +494,7 @@ def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int
 
 
 def render() -> tuple[str, str]:
-    panels = [build_s73(), build_bwry266(), build_bwry29(), build_bwry35(), build_bwry154(), build_bwry42(), build_bwry75(), build_ee02()]
+    panels = [build_s73(), build_bwry266(), build_bwry29(), build_bwry35(), build_bwry154(), build_bwry42(), build_bwry75(), build_ep75bw(), build_ee02()]
     presets = json.loads(PRESETS.read_text())["panels"]
     js = {"schema_version": 1, "note": "experimental refresh modes; layouts provisional "
           "(docs/REFRESH_MODES.md)", "panels": {}}

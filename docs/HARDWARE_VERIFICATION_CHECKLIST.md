@@ -1793,6 +1793,22 @@ K/W/Y/R strip), then a two-digit counter in the centre through `partial_bw` (py-
 | BW2_kick3_w20 (20-frame white runs), 00-05, 23-26 C | **PASS**: "way better" white; 7.3-7.4 s per update. Shipped |
 | Black/white drift over 100 updates, strip outside the counter, meter | **OPEN** |
 
+## 7.5" GEN2 BW (0x003B) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
+
+Bare GDEY075T7 panel. Stock preset written from `drive_presets.json`; `gray4` from the `ep75_bw`
+entry of `refresh_modes.json`. Camera snapshots and i1Pro S/N 324492 (D50, M0, tile drift 0.5 % Y).
+
+| Row | Result |
+|---|---|
+| `full`, i1Pro K / W | **PASS**: L* 16.1 / 68.0 |
+| `fast`, inverted frame | **PASS** by eye: clean |
+| `partial` (PartialState), counter 00-10 | **PASS** on camera after the WINDOW fix (`eb31b9a`): rest intact, about 3.2 s per update |
+| 0x003C OTP 4-gray (E5 5F), firmware and raw SPI | **FAIL**: two levels; the 0x10 plane is ignored. 0x003C removed |
+| 0x0015 register-LUT 4-gray, bb_epaper plane order | 4 levels, mid-grays swapped |
+| `gray4` (0x0015 LUTs, planes swapped), i1Pro | **PASS**: L* 14.7 / 27.0 / 43.0 / 67.6, monotonic; through firmware with the host's stock codes on camera |
+| 0x0015 `fast` / 0x0016 (V2) 4-gray | G1 and G2 nearly merge (camera); not shipped for 0x003B |
+| `gray4` from an unmodified host | **OPEN**: py-opendisplay refuses a scheme-5 mode on a scheme-0 display |
+
 ## BWRY 3.5" `partial_bw` refresh mode on OD507E22 (BG22), 2026-11-26
 
 Same procedure as the 7.5" above, `ep35yr_bwry` entry (2825 B config, measured colour16 0xB0 kept).

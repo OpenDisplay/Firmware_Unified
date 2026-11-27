@@ -170,7 +170,7 @@ removes or changes the meaning of a field bumps `schema_version`.
 {
   "schema": "opendisplay.drive_presets",
   "schema_version": 1,
-  "schema_minor": 4,                  // 1: target classes; 2: one step cap, no BG22 length cap; 3: native_controllers; 4: glass reports
+  "schema_minor": 5,                  // 1: target classes; 2: one step cap, no BG22 length cap; 3: native_controllers; 4: glass reports; 5: gray modes, removed
   "sources": {
     "bb_epaper": "4edfa7f",            // revision the streams were captured from
     "bb_epaper_vendored": "5dccfbb",   // third_party/ copy (drift listed in coverage.md)
@@ -184,7 +184,7 @@ removes or changes the meaning of a field bumps `schema_version`.
   },
   "names": {"EP29YR_168x384": "0x001E"},// name -> key (aliases excluded)
   "panels": {
-    "0x001E": {                         // key: legacy panel_ic_type, "0x%04X"; all 77 ids present
+    "0x001E": {                         // key: legacy panel_ic_type, "0x%04X"; every id not in `removed`
       "panel_ic_type": 30,              // the SAME number, as an int. Keep writing it into 0x20.
       "name": "EP29YR_168x384",         // stable panel name (bb_epaper enum, or the panels.yaml name)
       "aliases": [],                    // other keys that mean this panel (0x003A <- 0x03EC)
@@ -242,6 +242,14 @@ removes or changes the meaning of a field bumps `schema_version`.
          "verified": "untested", "equivalent": false, "modes": [], "packets": [], "…": "…"}
       ]
     }
+  },
+  // minor 5: a 4-gray bb_epaper enum is a mode of its BW panel (gen_all.py GRAY_INTO): the BW
+  // entry gains gray4 / gray4_fast / gray4_dark (color_scheme 5, after the stock modes, each with
+  // "source": {"enum", "flow", "planes_swapped"}), and the 4-gray key has no entry. Planes are
+  // swapped where bb_epaper uses u8Colors_4gray_v2, so the host's u8Colors_4gray codes fit all.
+  // A class drops gray modes, last first, that would push the config over its cap.
+  "removed": {                          // keys with no drive data: the device is moved to `use` by hand
+    "0x0015": {"name": "EP75_800x480_4GRAY", "use": "0x0014", "modes": ["gray4", "gray4_fast"]}
   },
   "native_controllers": {              // minor 3: IT8951 / FastEPD parallel ids (ESP32 only)
     "0x0BBD": {                         // key: legacy panel_ic_type 3000-3005, "0x%04X"

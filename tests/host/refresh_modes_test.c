@@ -88,13 +88,15 @@ static unsigned count(const char *needle)
     return n;
 }
 
-/* Image markers in a mode's sequence: IMAGE (one whole plane) or IMAGE_SLICE (part of one). */
-static unsigned image_markers(const uint8_t *body)
+/* Image markers in a mode's sequence: IMAGE (one whole plane) or IMAGE_SLICE (part of one).
+ * *windowed is set when the sequence has a WINDOW step. */
+static unsigned image_markers(const uint8_t *body, bool *windowed)
 {
     const uint16_t n = (uint16_t)(body[35] | (body[36] << 8));
     const uint8_t *q = body + 37;
     unsigned k = 0u;
 
+    *windowed = false;
     for (uint16_t i = 0u; i + 1u < n;) {
         if (q[i] != 0u) {
             i = (uint16_t)(i + 1u + q[i]);
@@ -109,6 +111,8 @@ static unsigned image_markers(const uint8_t *body)
         case OD_EPD_ESC_DELAY: case OD_EPD_ESC_SET_PIN: i += 4u; break;
         case OD_EPD_ESC_LUT_SLICE: i += 6u; break;
         case OD_EPD_ESC_WAVE: i = (uint16_t)(i + 3u + 2u * q[i + 2u]); break;
+        case OD_EPD_ESC_WINDOW: *windowed = true; i = (uint16_t)(i + 3u + 2u * q[i + 2u]); break;
+        case OD_EPD_ESC_FILL: i += 5u; break;
         default: return 0u;
         }
     }
@@ -118,7 +122,8 @@ static unsigned image_markers(const uint8_t *body)
 static bool drive(const uint8_t *body, uint8_t passes, const od_color_geometry_t *g)
 {
     static uint8_t frame[1u << 20];
-    const unsigned planes = image_markers(body);
+    bool windowed;
+    const unsigned planes = image_markers(body, &windowed);
 
     if (planes == 0u) {
         return false;
@@ -178,9 +183,20 @@ static void test_panel(const rm_panel_t *p)
         bool stored = true;
         bool any_lut = false;
         uint8_t slot = 0xFFu;
+        od_color_geometry_t mg;
 
         if (body == NULL) {
             continue;
+        }
+        {
+            bool windowed;
+
+            /* A stock windowed partial runs only through the partial path, which tests/panels
+             * replays for every preset; this suite drives whole-frame passes. */
+            (void)image_markers(body, &windowed);
+            if (windowed && !is_experimental(p, m)) {
+                continue;
+            }
         }
         CASE("each mode selects, runs every pass and sleeps with POF 02 00");
         CHECK(od_epd_cfg_load(&d, &g_bus) && od_epd_cfg_select(m, &info));
@@ -202,14 +218,22 @@ static void test_panel(const rm_panel_t *p)
             CHECK(fx_reset_count == 0u && fx_cmd_count == 0u);
             continue;
         }
-        if (!drive(body, info.passes, &g)) {
+        /* A mode with its own scheme (0x003B gray4: 4-gray on a mono display) has its own frame. */
+        CHECK(od_color_direct_geometry(info.color_scheme == 0xFFu ? d.color_scheme : info.color_scheme,
+                                       d.pixel_width, d.pixel_height, &mg) == OD_COLOR_OK);
+        if (!drive(body, info.passes, &mg)) {
             printf("    mode %u failed rc=%d\n", (unsigned)m, od_epd_cfg_last_rc());
             CHECK(false);
             continue;
         }
         CHECK(strstr(fx_trace, "C 40") == NULL);              /* rule 4: no TSC read */
-        CHECK(strstr(fx_trace, "C 02\nD 00\n") != NULL);       /* rule 6: POF 02 00 */
         CHECK(count("C 12\n") >= (unsigned)info.passes);
+        /* Rules 6 and the PSR bit are the lab handover's, for its S6 / JD-BWRY families; a panel
+         * without a lut_family (UC8179 GEN2) keeps its stock POF and register-LUT PSR. */
+        if (p->family == 0u) {
+            continue;
+        }
+        CHECK(strstr(fx_trace, "C 02\nD 00\n") != NULL);       /* rule 6: POF 02 00 */
         if (is_experimental(p, m) && any_lut) {
             CASE("table modes upload 0x20 per chip per pass and set the custom-table PSR bit");
             CHECK(count("C 20\n") >= (unsigned)info.passes);

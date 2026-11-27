@@ -86,7 +86,13 @@ class Schema(unittest.TestCase):
         self.assertEqual(PRESETS["caps"]["nordic"], 4096)
 
     def test_every_legacy_id_present(self):
-        self.assertEqual(set(PRESETS["panels"]), set(IDS))
+        # A 4-gray id is a mode of its BW panel: listed under `removed`, with no entry.
+        self.assertEqual(set(PRESETS["panels"]) | set(PRESETS["removed"]), set(IDS))
+        self.assertFalse(set(PRESETS["panels"]) & set(PRESETS["removed"]))
+        for key, r in PRESETS["removed"].items():
+            with self.subTest(key=key):
+                modes = {m["name"] for m in PRESETS["panels"][r["use"]]["modes"]}
+                self.assertTrue(set(r["modes"]) <= modes | {"gray4"}, (r, modes))
         self.assertEqual(len(IDS), 77)
         self.assertNotIn("0x0041", IDS)
 
@@ -303,8 +309,13 @@ class Equivalence(unittest.TestCase):
                     continue
                 blob = bytes.fromhex(v["framed_hex"])
                 for m in v["modes"]:
-                    refs = [(r["rect"], r["tokens"]) for r in st["rects"].values()] if m["window"] \
-                        else [(None, st["flows"][m["name"]])]
+                    src = m.get("source")
+                    if src:
+                        ref = STREAMS["panels"][src["enum"]]["flows"][src["flow"]]
+                        refs = [(None, G.swap_gray_planes(ref) if src["planes_swapped"] else ref)]
+                    else:
+                        refs = [(r["rect"], r["tokens"]) for r in st["rects"].values()] if m["window"] \
+                            else [(None, st["flows"][m["name"]])]
                     for rect, ref in refs:
                         with self.subTest(key=key, cls=cls, mode=m["name"], rect=rect):
                             rc, got = G.run_replay(blob, str(m["index"]), cls, [W, H] + (rect or []))

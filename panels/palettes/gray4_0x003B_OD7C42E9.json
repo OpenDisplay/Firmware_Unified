@@ -1,0 +1,16 @@
+{
+ "panel": "ep75_bw",
+ "code_bits": 2,
+ "measured": false,
+ "white": "D50 media-relative to G3 (the mode's own white = L* 100)",
+ "method": "i1Pro S/N 324492, reflective, M0, bare panel on EE04 OD7C42E9; two reads per level, tile drift 0.5 % Y; levels drawn by preset 0x0015's full LUTs with the planes swapped (the gray4 mode)",
+ "codes": "the 2-bit code py-opendisplay sends for the level (u8Colors_4gray: level 0..3 -> 3, 1, 2, 0)",
+ "source": "i1pro/20261127_ep75gen2 readings 11-18 (2026-11-27)",
+ "absolute_lab_d50": {"G0": [14.67, -0.11, -5.28], "G1": [26.98, -1.63, -5.33], "G2": [42.96, -2.55, -4.71], "G3": [67.57, -2.63, -1.78]},
+ "entries": [
+  {"codes": [3], "name": "G0", "lab": [26.57, 1.2, -6.34]},
+  {"codes": [1], "name": "G1", "lab": [43.66, -0.39, -6.05]},
+  {"codes": [2], "name": "G2", "lab": [65.85, -0.97, -4.73]},
+  {"codes": [0], "name": "G3", "lab": [100.0, 0.0, 0.0]}
+ ]
+}

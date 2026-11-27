@@ -1838,3 +1838,24 @@ pieces that belong elsewhere or wait on hardware.
 - **Lean cycle on BG22** (rail up and no reset between back-to-back partials, rail down on a
   timeout) is the fix for the fade itself; the top-up only repairs it after each update. It also
   needs a firmware A/B to tell the rail-up from the reset pulse.
+
+## 4-gray is a mode of the BW panel — what the hosts still need
+
+`panels/generated/drive_presets.json` (schema_minor 5) has no entry for the 13 4-gray keys
+(`removed`); each BW panel carries `gray4` (and `gray4_fast`, `gray4_dark` on 0x0014) as
+color_scheme-5 modes. The 0x003B `gray4` is in `refresh_modes.json` (experimental): the GEN2 OTP
+4-gray of 0x003C draws only K and W on GDEY075T7 glass.
+
+- **py-opendisplay: encode a single-pass mode in its own scheme.** `prepare_multipass` refuses a
+  mode whose color_scheme is not the display's ("cannot be encoded yet"), so no gray mode is
+  reachable from the host. Firmware already sizes the frame by the mode's scheme. The gray codes
+  are u8Colors_4gray (3, 1, 2, 0) for every merged mode, including 0x0027 / 0x0047 (their planes
+  are swapped in the data); `_GRAY4_CODES_BY_PANEL` keyed by the old 4-gray ids no longer applies.
+  The "not a known 4-gray panel" warning fires for every BW key.
+- **py-opendisplay / `opendisplay.org`: the v3 migration** must tell a device configured with a
+  `removed` key to move to `use` (display preset and color_scheme 0) by hand; the website still
+  lists `ep75-800x480-4gray`, `ep426-800x480-4g` and `ep397-800x480-4gray` as displays.
+- **`../Firmware` 2.x boot screen** special-cases 0x0028 / 0x0048 (`od_boot_screen.c` here too);
+  harmless once no device carries those ids, removable then.
+- **Glass:** only 0x003B `gray4` has been on glass (checklist § 7.5" GEN2 4-gray). Every merged
+  mode is bb_epaper-equivalent, not seen.
