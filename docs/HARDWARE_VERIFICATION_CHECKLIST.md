@@ -1802,8 +1802,9 @@ display uses 0x0005, so the legacy display packet borrows `ep29-128x296`'s geome
 | Row | Result |
 |---|---|
 | `full`, i1Pro K / W | **PASS**: L* 21.6 / 71.5, 3.2 s (tile drift 0 % Y) |
-| `fast`, inverted frame | **PASS** on camera: clean, 3.6 s |
+| `fast`, inverted frame | **PASS** on camera: clean, 3.6 s; then dropped from the preset by project decision |
 | `partial` (PartialState), counter 01-03 | **PASS** on video: 2.4 s per update, no flash in an untouched area |
+| `partial` as mode 1 after `fast` was dropped, counter 01-02 | **PASS** on camera: 2.4 s per update |
 
 ## 1.54" BW (0x001A) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
 

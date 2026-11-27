@@ -171,6 +171,9 @@ def needed_caps(raw: list[tuple]) -> dict:
 # them has no driver output control (0x01: MUX, interlaced gate scan) or booster setup. 3.0
 # resets the panel before every update, so their partial starts with the full's init. Without
 # it the EP426 partial lands its rows split around the window, with a grey band across the panel.
+# Flows left out of a panel's modes by project decision, with the reason recorded in its notes.
+DROP_FLOWS = {"EP293_128x296": {"fast": "fast dropped by project decision after glass test "
+                                        "(HARDWARE_VERIFICATION_CHECKLIST.md § Seeed 2.9\" BW (0x0005))"}}
 PARTIAL_REINIT = {"EP426_800x480", "EP397_800x480"}
 
 
@@ -204,6 +207,8 @@ def derive(p: dict, cls: str, skip: frozenset[str] = frozenset()) -> dict:
     detail: dict[str, list[str]] = {}
     for flow in FLOW_ORDER + tuple(p.get("gray_flows", {})):
         if flow not in p["flows"] and flow not in p.get("gray_flows", {}):
+            continue
+        if flow in p.get("drop_flows", ()):
             continue
         if flow in skip:
             blocked_modes.append({"name": flow, "blocked_on": ["CONFIG_SIZE"]})
@@ -571,6 +576,9 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
             out[key] = e
             continue
         native = P.native_scheme(p)
+        if enum in DROP_FLOWS:
+            p["drop_flows"] = set(DROP_FLOWS[enum])
+            e["notes"] += list(DROP_FLOWS[enum].values())
         if enum in PARTIAL_REINIT:
             p["partial_reinit"] = True
             e["notes"].append("partial starts with the full's init: 2.x kept this panel initialised from "
