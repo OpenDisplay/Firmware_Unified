@@ -59,3 +59,16 @@ reports:
     source: https://github.com/OpenDisplay/Firmware_Unified/issues/109
     note: >-
       Again after a 2.x -> 3.0 config migration from the same presets: correct six-colour image.
+  - panel: "0x003B"
+    target_class: default
+    framed_sha256: ada167681a78ac491c6e0c6e49fe58ff0059d640543f81f39513d26800afccd0
+    modes: [full, fast, partial]
+    board: EE04 (ESP32-S3), OD7C42E9
+    firmware: 3.0.0
+    date: 2026-11-27
+    reporter: jonasniesner
+    source: docs/HARDWARE_VERIFICATION_CHECKLIST.md § 7.5" GEN2 BW (0x003B) on EE04 OD7C42E9
+    note: >-
+      Bare GDEY075T7. full: K/W halves, bars and text right, i1Pro K L* 16.1 / W L* 68.0. fast:
+      inverted frame clean. partial (host PartialState): counter 00-10 on camera with the rest of
+      the frame intact, about 3.2 s per update.

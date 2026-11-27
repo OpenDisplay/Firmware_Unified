@@ -132,7 +132,7 @@ def seq_stats(pk: list[tuple[int, int, bytes]]) -> list[dict]:
     for _, pid, b in pk:
         if pid != P.PKT_MODE:
             continue
-        seq = b[37:]
+        seq = b[37:37 + (b[35] | b[36] << 8)]
         st = P.walk_seq(seq)
         out.append({"index": b[1], "seq_bytes": len(seq), "steps": P.count_steps(st),
                     "window": any(s[0] in ("window", "fill") for s in st)})
@@ -265,6 +265,14 @@ def encode_derived(p: dict, d: dict) -> list[tuple[int, int, bytes]]:
                                          mode_count=len(d["modes"]), sleep=sleep,
                                          lut_supported=False))]
     for i, m in enumerate(d["modes"]):
+        if "source" in m:
+            # Gray modes are experimental: the device runs mode 0 outside the custom window.
+            tmin, tmax = P.custom_window(0, 0)
+            pk.append((i, P.PKT_MODE, P.mode_body(i, m["flow"], P.encode_steps(m["steps"]), passes=1,
+                                                  scheme=m["scheme"], slots=[m["slot"]], tmin=tmin,
+                                                  tmax=tmax, policy=P.POLICY_SUBSTITUTE)
+                       + P.mode_tail(P.MODE_EXPERIMENTAL, 0)))
+            continue
         pk.append((i, P.PKT_MODE, P.mode_body(i, m["flow"], P.encode_steps(m["steps"]),
                                               passes=1, scheme=m["scheme"], slots=[m["slot"]])))
     for s, data in enumerate(d["slots"]):
@@ -317,7 +325,7 @@ def class_view(p: dict, cls: str, glass_pk=None, glass_modes=None) -> dict:
         blob = frame_all(pk)
         modes = [{"index": i, "name": m["flow"], "refresh": m["flow"], "passes": 1,
                   "color_scheme": m["scheme"], "planes": m["planes"], "window": m["window"],
-                  **({"source": m["source"]} if "source" in m else {})}
+                  **({"source": m["source"], "experimental": True} if "source" in m else {})}
                  for i, m in enumerate(d["modes"])]
         blocked = sorted(set(P.pixel_blockers(p) + d["detail"].get("full", []) +
                              d["detail"].get("sleep", []) + d["detail"].get("lut_slots", [])))
