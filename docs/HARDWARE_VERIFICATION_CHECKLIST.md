@@ -1848,4 +1848,8 @@ Same procedure as the 7.5" above, `ep29yr_bwry` entry (2998 B config; the unit h
 | Same, 30 s between updates (2026-11-27) | black drawn by the partial (counter, tens "0" held 00-09) holds; black drawn by the stock full (strip, squares in the counter rows and elsewhere) fades. Not a per-row effect |
 | Back to back, a square painted K by the first partial beside a full-drawn square, 26-29 C | all held K fades except pixels driven in that update |
 | **ODBDD245** (2.9", HA unit, 3.1.1, drive packets byte-identical to `ep29yr_bwry`), same back-to-back test, frames only, 20-23 C | **PASS** by eye: nothing fades |
-| OD18FCAA again after 40 min idle, same test | fades; it still reports 26-28 C beside ODBDD245's 20-23 C. Unit vs temperature not yet separated |
+| OD18FCAA again after 40 min idle, same test | fades at 26-28 C |
+| ODBDD245 heated by hand, same test, 27-29 C (the band OD18FCAA faded in) | **PASS** by eye: nothing fades. Temperature is not the cause |
+| Firmware | both 3.1.1 7c3d11a; OD18FCAA's image is the GitHub 3.1.1 `opendisplay-bg22-ota.gbl` (sha256 8e5d56b2...dc4ad matches the release asset); ODBDD245's origin being traced |
+| Configs | differ only in host-side 0xB0 palettes, encryption and name strings; every 0xAE/0xAF/0xB1 packet and pin identical. Same hardware batch (Jonas) |
+| Open: what differs is the panel's history | the two units that fade (OD18FCAA, OD6FACF2) each ran a full 64-state colour16 sweep; ODBDD245 did not |
