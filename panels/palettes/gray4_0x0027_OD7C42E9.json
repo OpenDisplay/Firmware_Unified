@@ -1,0 +1,16 @@
+{
+ "panel": "0x0027",
+ "code_bits": 2,
+ "measured": false,
+ "white": "D50 media-relative to G3 (the mode's own white = L* 100)",
+ "method": "i1Pro S/N 324492, reflective, M0, bare panel on EE04 OD7C42E9; two reads per level; tile drift -3.9 % Y across the gray reads (95.99 -> 94.50 L*), +0.3 % across K/W; levels drawn by the 0x0027 gray4 mode (EP426_800x480_4GRAY full flow, planes swapped)",
+ "codes": "the 2-bit code py-opendisplay sends for the level (u8Colors_4gray: level 0..3 -> 3, 1, 2, 0)",
+ "source": "i1pro/20261127_ep426 readings 10-17 (2026-11-27); stock full K L* 16.27, W L* 58.08 (readings 3-6)",
+ "absolute_lab_d50": {"G0": [17.07, -0.37, -1.4], "G1": [31.6, -1.57, -1.33], "G2": [50.83, -2.29, -0.87], "G3": [59.86, -1.83, 1.23]},
+ "entries": [
+  {"codes": [3], "name": "G0", "lab": [34.57, 0.66, -2.99]},
+  {"codes": [1], "name": "G1", "lab": [56.79, -0.65, -3.23]},
+  {"codes": [2], "name": "G2", "lab": [86.19, -1.04, -3.01]},
+  {"codes": [0], "name": "G3", "lab": [100.0, 0.0, 0.0]}
+ ]
+}
