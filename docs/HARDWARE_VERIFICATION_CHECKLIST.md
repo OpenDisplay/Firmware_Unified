@@ -1793,6 +1793,19 @@ K/W/Y/R strip), then a two-digit counter in the centre through `partial_bw` (py-
 | BW2_kick3_w20 (20-frame white runs), 00-05, 23-26 C | **PASS**: "way better" white; 7.3-7.4 s per update. Shipped |
 | Black/white drift over 100 updates, strip outside the counter, meter | **OPEN** |
 
+## 5.79" BWRY GDEY0579F52 (no panel id) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
+
+Bare Good Display 5.79in 792x272 BWRY panel, label `0579-F52-B2`: two IST7158 controllers, each
+396x272, selected with `A2 01` (master, left half) / `A2 02` (slave, right half), `A2 00` both.
+No protocol panel id and no preset; driven over CMD_SPI_RAW only, nothing stored on the device.
+Reference: Good Display sample code A32-GDEY0579F52 (2025-07-08). Camera only.
+
+| Row | Result |
+|---|---|
+| bb_epaper `epd579yr_init_full` (commented out upstream), halves sent row by row | **FAIL**: master half squashed to half height with a mirrored copy below, white drawn yellowish; slave half dark |
+| same init, whole 792-wide frame with `A2 00` | **FAIL**: master half shows a jumbled flipped frame; slave half dark |
+| Good Display init (adds `A5` OTP load + BUSY after `E0 01`), each half sent as row pairs (271-i, i) for i = 0..135, `A2 00`, `12 01` | **PASS** on camera: K/W/Y/R bands, text and the right-edge marker all in place across both halves |
+
 ## Seeed 3.97" BWRY (0x0037) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
 
 Bare Seeed 3.97in 800x480 BWRY panel (website preset `ep397yr-800x480`, id 55, GDEM0397F81),

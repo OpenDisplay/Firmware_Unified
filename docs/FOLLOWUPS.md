@@ -1881,3 +1881,15 @@ Seeed 2.13in mono panel; id 4 (EP213B_122x250) drives it correctly
 (HARDWARE_VERIFICATION_CHECKLIST.md § 2.13" BW (0x0004)). External follow-up: confirm which glass
 the preset is sold with and switch it to id 4, keeping a migration for devices configured as 3.
 
+## 5.79in BWRY GDEY0579F52 has no panel id and needs a row-pair frame order
+
+The panel drives correctly over raw SPI (HARDWARE_VERIFICATION_CHECKLIST.md § 5.79" BWRY
+GDEY0579F52). Two things stand between it and a preset:
+
+- No panel id: `OD_PANEL_IC_EP579_792X272` (51) is the CrowPanel mono panel. External follow-up:
+  reserve an id in `../opendisplay-protocol`.
+- Frame order: each controller takes its 396-column half as row pairs (271-i, i). The existing
+  escapes cover the split (`A2 01`, 0x10, IMAGE_SLICE 0/2, `A2 02`, 0x10, IMAGE_SLICE 1/2) only
+  if the frame arrives already reordered, which is a host-side transform in py-opendisplay; the
+  alternative is an executor escape that does the reorder on the device.
+
