@@ -250,7 +250,8 @@ removes or changes the meaning of a field bumps `schema_version`.
   // A class drops gray modes, last first, that would push the config over its cap.
   "removed": {                          // keys with no drive data: the device is moved to `use` by hand
     "0x0015": {"name": "EP75_800x480_4GRAY", "use": "0x0014", "modes": ["gray4"]},
-    "0x000C": {"name": "EP29R_128x296", "use": null, "modes": []}   // BWR no simple-config display uses
+    "0x000C": {"name": "EP29R_128x296", "use": null, "modes": []},  // BW/BWR no simple-config display uses
+    "0x0003": {"name": "EP213_122x250", "use": "0x0004", "modes": []} // website preset named the wrong id
   },
   "native_controllers": {              // minor 3: IT8951 / FastEPD parallel ids (ESP32 only)
     "0x0BBD": {                         // key: legacy panel_ic_type 3000-3005, "0x%04X"

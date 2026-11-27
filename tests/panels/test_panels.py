@@ -349,11 +349,11 @@ class Equivalence(unittest.TestCase):
                     else:
                         self.assertNotIn(("DELAY", 200), got[-1:])
                     self.assertEqual(G.compare(ref, got)["equal"], v["status"] == "equivalent")
-        self.assertGreaterEqual(n, 200)
+        self.assertGreaterEqual(n, 120)
 
     def test_default_window_mode_refused_by_bg22(self):
         """The BG22-built interpreter really refuses what the bg22 view leaves out (WINDOW/FILL)."""
-        e = PRESETS["panels"]["0x0001"]
+        e = PRESETS["panels"]["0x001F"]
         m = next(m for m in e["modes"] if m["window"])
         self.assertFalse(any(x["window"] for x in e["targets"]["bg22"]["modes"]))
         rc, _ = P.replay(bytes.fromhex(e["framed_hex"]), str(m["index"]), "bg22", [e["width"], e["height"]])

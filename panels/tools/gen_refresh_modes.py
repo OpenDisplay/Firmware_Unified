@@ -27,6 +27,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import pdlib as P  # noqa: E402
+import gen_all as G  # noqa: E402
 
 REPO = HERE.parents[1]
 PANELS = REPO / "panels"
@@ -353,7 +354,7 @@ def mode_named(pkts: list[tuple[int, bytes]], name: str) -> bytes:
 def build_ep75bw() -> dict:
     key = 0x003B
     pkts = base_packets("0x003B")
-    src = base_packets("0x0014")
+    src = G.gray_source_packets("EP75_800x480", "EP75_800x480_4GRAY")
     gm = mode_named(src, "gray4")
     table = next(b[4:] for pid, b in src if pid == 0xAF and (b[1] & 0x0F) == gm[19])
     assert not next(b for pid, b in src if pid == 0xAF and (b[1] & 0x0F) == gm[19])[1] & 0x80

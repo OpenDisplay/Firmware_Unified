@@ -68,10 +68,15 @@ GRAY_INTO = {
 # every panel. A 4-gray enum with u8Colors_4gray_v2 (3, 2, 1, 0) takes its two planes the other
 # way round, which swaps codes 1 and 2, so one host table serves every gray mode.
 GRAY_LOOKUP_V2 = [3, 2, 1, 0]
-# BWR ids no simple-config display uses (opendisplay.org simple-config-presets.json): no drive
-# data is shipped for them. A device configured with one is moved to a preset by hand.
+# Ids no simple-config display uses (opendisplay.org simple-config-presets.json), BWR and BW, plus
+# 0x0003, which the website described wrongly (Seeed's 2.13in mono is 0x0004): no drive data is
+# shipped for them. A device configured with one is moved to `use` (or a preset) by hand.
 UNUSED_REMOVED = ("0x000C", "0x000F", "0x0010", "0x0019", "0x0021", "0x0024", "0x0025", "0x0026",
-                  "0x0029", "0x002D")
+                  "0x0029", "0x002D",
+                  "0x0001", "0x0006", "0x0007", "0x0009", "0x000A", "0x000B", "0x000D", "0x0011",
+                  "0x0012", "0x0013", "0x0014", "0x001B", "0x0020", "0x002A", "0x002C", "0x002E",
+                  "0x0030", "0x0032", "0x0033", "0x003E", "0x003F", "0x0047", "0x0049", "0x004B")
+REPLACED = {"0x0003": "0x0004"}
 # 4-gray enums whose plane order on glass is the opposite of what their bb_epaper lookup implies
 # (the mid-grays come out swapped), with the checklist section that shows it.
 GRAY_SWAP_ON_GLASS = {"EP42B_400x300_4GRAY": 'HARDWARE_VERIFICATION_CHECKLIST.md § 4.2" BW (0x0002)',
@@ -346,6 +351,17 @@ def equivalence(p: dict, d: dict, blob: bytes, cls: str) -> dict:
     return eq
 
 
+def gray_source_packets(bw_enum: str, gray_enum: str) -> list[tuple[int, bytes]]:
+    """(packet id, body) of a BW enum's derived drive data with the gray enum's full flow as
+    gray4 (bb_epaper plane order), for builders that need a gray flow of a panel with no entry."""
+    cap = P.capture(P.BBEP_REF_REV)
+    p, g = cap["panels"][bw_enum], cap["panels"][gray_enum]
+    p["gray_flows"] = {"gray4": {"events": g["flows"]["full"], "layout": P.frame_layout(g),
+                                 "scheme": P.native_scheme(g), "swap": False, "enum": gray_enum,
+                                 "flow": "full"}}
+    return [(pid, body) for _, pid, body in encode_derived(p, derive(p, "default"))]
+
+
 def class_view(p: dict, cls: str, glass_pk=None, glass_modes=None) -> dict:
     """Drive data for one target class. glass_pk: the panels.yaml packets (not re-derived)."""
     W, H = p["width"], p["height"]
@@ -561,7 +577,7 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
 
     out: dict[str, dict] = {}
     for key, idinfo in ids.items():
-        if key in GRAY_INTO or key in UNUSED_REMOVED:
+        if key in GRAY_INTO or key in UNUSED_REMOVED or key in REPLACED:
             continue
         num = idinfo["panel_ic_type"]
         enum = idinfo["bb_epaper_enum"]
@@ -705,10 +721,13 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
         "names": {e["name"]: k for k, e in out.items() if not e.get("alias_of")},
         "panels": out,
         # Keys with no drive data any more: a device configured with one is moved to `use` by hand.
-        "removed": {**{k: {"name": ids[k]["bb_epaper_enum"], "use": bw, "modes": sorted(fl.values())}
+        "removed": {**{k: ({"name": ids[k]["bb_epaper_enum"], "use": bw, "modes": sorted(fl.values())}
+                           if bw in out else {"name": ids[k]["bb_epaper_enum"], "use": None, "modes": []})
                        for k, (bw, fl) in GRAY_INTO.items()},
                     **{k: {"name": ids[k]["bb_epaper_enum"], "use": None, "modes": []}
-                       for k in UNUSED_REMOVED}},
+                       for k in UNUSED_REMOVED},
+                    **{k: {"name": ids[k]["bb_epaper_enum"], "use": v, "modes": []}
+                       for k, v in REPLACED.items()}},
         "native_controllers": native_controllers(prev),
     }
     streams["drift_vs_vendored"] = drift
