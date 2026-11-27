@@ -1793,6 +1793,19 @@ K/W/Y/R strip), then a two-digit counter in the centre through `partial_bw` (py-
 | BW2_kick3_w20 (20-frame white runs), 00-05, 23-26 C | **PASS**: "way better" white; 7.3-7.4 s per update. Shipped |
 | Black/white drift over 100 updates, strip outside the counter, meter | **OPEN** |
 
+## Seeed 7.5" BWRY (0x0040) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
+
+Bare Seeed 7.5in 800x480 BWRY panel (website preset `ep75-bwry-800x480`, id 64), the same
+0x0040 EP75YR_800x480 preset as the Solum M3 Pro 7.5in (ODBF064E, section above). Stock preset
+from `drive_presets.json`, then the `ep75yr_bwry` entry of `refresh_modes.json`. Camera only.
+
+| Row | Result |
+|---|---|
+| `full`, K/W frame | **PASS** on camera: 14.0 s |
+| `full`, K/W/Y/R quadrants | **PASS** on camera: all four colours in place, 13.5 s |
+| `partial_bw` (BW2_kick3_w20) via `show(prior=last_frame)`, counter 01-03 | **PASS** on camera: about 4.1 s per update, only changed pixels driven (1.8-4.0 k), K/Y/R strip intact; faint ghost of the previous digit |
+| `colour16` | not run |
+
 ## 2.13" BW (0x0004) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
 
 Bare Seeed 2.13in 122x250 mono panel, SSD16xx. Preset written from `drive_presets.json` with the
