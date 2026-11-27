@@ -184,7 +184,9 @@ DROP_FLOWS = {"EP293_128x296": {"fast": "fast dropped by project decision after 
                                           "(0x0034))"},
               "EP397YR_800x480": {"fast": "fast dropped: it leaves thin dark lines across rows on glass "
                                           "(HARDWARE_VERIFICATION_CHECKLIST.md § Seeed 3.97\" BWRY "
-                                          "(0x0037))"}}
+                                          "(0x0037))"},
+              "EP426_800x480": {"fast": "fast dropped: it leaves the previous image on glass "
+                                        "(HARDWARE_VERIFICATION_CHECKLIST.md § 4.26\" BW (0x0027))"}}
 PARTIAL_REINIT = {"EP426_800x480", "EP397_800x480"}
 
 

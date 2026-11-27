@@ -76,7 +76,7 @@ reports:
       added: every sequence byte is unchanged and the device reads neither field at these values.
   - panel: "0x0027"
     target_class: default
-    framed_sha256: 9aae1ac90c8ea52ac88814b0526920312e265dd71d27e0d482a8d5c661878e06
+    framed_sha256: 64d358d8727e59a87f4175e0b29339fec66f96c170efbff427dbaed9aab9b3c6
     modes: [full, partial, gray4]
     board: EE04 (ESP32-S3), OD7C42E9
     firmware: 3.0.0
@@ -86,9 +86,10 @@ reports:
     note: >-
       Bare 4.26in SSD1677 panel. full: K/W frame correct, i1Pro K L* 16.3 / W L* 58.1. partial
       (host PartialState, partial with the full's init): counter 01-05 clean, about 4 s per update.
-      gray4: four monotonic levels, i1Pro L* 17.5 / 31.8 / 51.9 / 60.0. fast is not listed: it
-      leaves the previous image on glass. Sighted on the config before the budget tail and the
-      gray4_fast removal; the full, partial and gray4 sequence bytes are unchanged.
+      gray4: four monotonic levels, i1Pro L* 17.5 / 31.8 / 51.9 / 60.0. fast left the previous
+      image on glass and was then dropped, so partial and gray4 are now modes 1 and 2. Sighted on
+      the config before the budget tail, the gray4_fast removal and the fast drop; the full,
+      partial and gray4 sequence bytes are unchanged.
   - panel: "0x001F"
     target_class: default
     framed_sha256: 60d61890fd1b55fe0672fa7390eb7777247eddd5e849c6689ee2e9c53da78d9d

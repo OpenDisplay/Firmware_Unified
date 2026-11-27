@@ -1938,6 +1938,7 @@ S/N 324492 (D50, M0).
 | `partial` as captured from bb_epaper | **FAIL**: split rows and a grey band; no 0x01 after the 3.0 reset |
 | `partial` with the full's init (`PARTIAL_REINIT`) | **PASS** on camera: counter 01-05 clean, about 4 s per update, firmware and raw SPI |
 | `fast` | **FAIL**: previous image stays; raw SPI with and without the second 0x12 likewise |
+| `fast` dropped (`DROP_FLOWS`) by project decision; full, partial and gray4 sequence bytes unchanged, now modes 0-2 | not re-run on glass |
 | `gray4` (0x0028 full flow, planes swapped), i1Pro | **PASS**: L* 17.5 / 31.8 / 51.9 / 60.0, monotonic (tile drift 0.85 % Y; a first round agrees within 1.1 L*) |
 | `gray4` from an unmodified host | **OPEN**: as 0x003B |
 
