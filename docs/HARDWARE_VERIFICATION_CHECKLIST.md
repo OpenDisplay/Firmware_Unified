@@ -1805,7 +1805,7 @@ preset from `drive_presets.json` plus the `ep29yr128_bwry` entry of `refresh_mod
 | `full`, quadrants rotated one place, same `code_map` | **FAIL**: Y and R swapped again, so the code order, not the layout |
 | `full`, `code_map` [0, 1, 2, 3] (`CODE_MAP_ON_GLASS`) | **PASS** on camera: all four colours in place, 24.4 s |
 | experimental `partial_bw` (the 2.9in BW2_kick3_w10 table on the stock init at 128x296): `full` 00, then counter 01-05 with 1-bit text | **PASS** on camera, provisional: 2.6-2.7 s per update, digits clean, colour bar held; judged by eye, not measured |
-| K/W/Y/R stock colours under i1Pro | open |
+| K/W/Y/R stock colours under i1Pro, `full`, 2x2 quadrants, two reads each | **measured**: media-relative to W, K L* 20.4, Y (92.5, 28.3, 98.5), R (44.2, 59.7, 43.1); contrast 32.4; `panels/palettes/bwry_0x001D_OD7C42E9.json` (data only, not in the preset's 0xB0) |
 
 ## Seeed 2.13" BWRY (0x0034) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
 
