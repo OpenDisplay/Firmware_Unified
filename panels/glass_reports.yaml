@@ -89,3 +89,16 @@ reports:
       gray4: four monotonic levels, i1Pro L* 17.5 / 31.8 / 51.9 / 60.0. fast is not listed: it
       leaves the previous image on glass. Sighted on the config before the budget tail and the
       gray4_fast removal; the full, partial and gray4 sequence bytes are unchanged.
+  - panel: "0x001F"
+    target_class: default
+    framed_sha256: 60d61890fd1b55fe0672fa7390eb7777247eddd5e849c6689ee2e9c53da78d9d
+    modes: [full, fast, partial]
+    board: EE04 (ESP32-S3), OD7C42E9
+    firmware: 3.0.0
+    date: 2026-11-27
+    reporter: jonasniesner
+    source: docs/HARDWARE_VERIFICATION_CHECKLIST.md § 5.83" BW (0x001F) on EE04 OD7C42E9
+    note: >-
+      Bare Seeed 5.83in 648x480 mono panel. full: K/W frame correct, 6.6 s, i1Pro K L* 18.8 /
+      W L* 71.1. fast: inverted frame clean, 3.1 s. partial (host PartialState): counter 01-05
+      clean with the rest of the frame intact, about 3.3 s per update.
