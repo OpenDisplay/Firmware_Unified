@@ -1852,4 +1852,5 @@ Same procedure as the 7.5" above, `ep29yr_bwry` entry (2998 B config; the unit h
 | ODBDD245 heated by hand, same test, 27-29 C (the band OD18FCAA faded in) | **PASS** by eye: nothing fades. Temperature is not the cause |
 | Firmware | both 3.1.1 7c3d11a; OD18FCAA's image is the GitHub 3.1.1 `opendisplay-bg22-ota.gbl` (sha256 8e5d56b2...dc4ad matches the release asset); ODBDD245 took the same asset through HA's guided 2.x->3.x upgrade on 2026-11-25 (HA checks the manifest sha256; the flashed bytes cannot be read back) |
 | Configs | differ only in host-side 0xB0 palettes, encryption and name strings; every 0xAE/0xAF/0xB1 packet and pin identical. Same hardware batch (Jonas) |
-| Open: what differs is the panel's history | the two units that fade (OD18FCAA, OD6FACF2) each ran a full 64-state colour16 sweep; ODBDD245 did not |
+| **OD6A1908** (2.9", upgraded 0.25 -> 3.1.1 for this test, `ep29yr_bwry` written, never swept), same back-to-back test, 26-28 C | **PASS** by eye: nothing fades |
+| Verdict | panel-to-panel: 2 of 3 2.9" units hold K. The two units that fade (OD18FCAA, the 2.66" OD6FACF2) each ran a full 64-state colour16 sweep; whether stock refreshes or rest restore them is **OPEN** |
