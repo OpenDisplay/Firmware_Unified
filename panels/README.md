@@ -273,6 +273,10 @@ Field rules a consumer may rely on:
   0xAF and 0xB0 body to N. 0xAF slot ids are global on the device (looked up by slot alone), so a
   second display must also renumber its slots (0xAF `body[1]` and the 0xAE `lut_slot[]` bytes at
   body offsets 19..26) to avoid colliding with the first display's.
+- A derived BW panel (color_scheme 0) with a partial mode ends its 0xB1 with the v1 tail
+  (docs/REFRESH_MODES.md): `drive_preset_key` = the panel id, `budget_limit` 50, `lut_family` 0,
+  `busy_timeout_s` 0; its partial 0xAE carries the v1 tail with `budget_cost` 1. A host counts
+  partials against the limit and forces a full refresh past it; the device does not count.
 - A migrating client removes any existing 0xAE/0xAF/0xB0/0xB1 packets for that instance (and the
   burned ids 0x2E-0x31) before appending these.
 - `status`: `glass` = the panels.yaml data seen working on a real panel (hand-written, NOT the

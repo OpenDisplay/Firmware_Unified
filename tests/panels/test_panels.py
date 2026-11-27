@@ -198,7 +198,12 @@ class Layout(unittest.TestCase):
                 luts = {b[1]: b for _, i, b in pk if i == P.PKT_LUT}
                 pan = next(b for _, i, b in pk if i == P.PKT_PANEL)
                 # 0xB1
-                self.assertEqual(len(pan), 13 + pan[12])
+                self.assertIn(len(pan) - 13 - pan[12], (0, 9))      # optional 0xB1 tail v1
+                if len(pan) > 13 + pan[12]:
+                    tail = pan[13 + pan[12]:]
+                    self.assertEqual((tail[0], tail[7], tail[8]), (1, 0, 0))   # no lut_family, ms timeout
+                    self.assertEqual([m[37 + struct.unpack_from("<H", m, 35)[0] + 2:][:1] for m in modes
+                                      if m[2:14].rstrip(b"\0") == b"partial"], [b"\x01"])
                 self.assertLessEqual(pan[12], P.SLEEP_MAX)
                 self.assertEqual(pan[11], len(modes))
                 self.assertTrue(pan[2] in (0, 1))
@@ -316,6 +321,11 @@ class Equivalence(unittest.TestCase):
                     else:
                         refs = [(r["rect"], r["tokens"]) for r in st["rects"].values()] if m["window"] \
                             else [(None, st["flows"][m["name"]])]
+                        if m.get("init_from_full"):
+                            wake = [["RESET"], ["BUSY"]]
+                            unwake = lambda f: f[2:] if f[:2] == wake else f  # noqa: E731
+                            pre = G.full_init_prefix(unwake(st["flows"]["full"]))
+                            refs = [(rect, pre + unwake(ref)) for rect, ref in refs]
                     for rect, ref in refs:
                         with self.subTest(key=key, cls=cls, mode=m["name"], rect=rect):
                             rc, got = G.run_replay(blob, str(m["index"]), cls, [W, H] + (rect or []))

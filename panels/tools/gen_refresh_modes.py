@@ -363,7 +363,7 @@ def build_ep75bw() -> dict:
          "27.0 / 43.0 / 67.6 on OD7C42E9 (bare), K and W as the stock full; about 5 s; needs a "
          "host that encodes a scheme-5 mode on a scheme-0 display [1 ex, prov]"),
     ]
-    return assemble(key, "0x003B", pkts, modes, {1: table}, budget=20, family=0, timeout_s=60, compress=False,
+    return assemble(key, "0x003B", pkts, modes, {1: table}, budget=50, family=0, timeout_s=60, compress=False,
                     cals={3: "palettes/gray4_0x003B_OD7C42E9.json"}, schemes={3: 5})
 
 

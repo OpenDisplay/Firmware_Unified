@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import struct
 import sys
 from pathlib import Path
 
@@ -156,12 +157,28 @@ def needed_caps(raw: list[tuple]) -> dict:
     return {"seq_max": None, "steps": None}
 
 
+# 2.x Firmware keeps these panels powered and initialised from the full refresh into a partial
+# (display_service.cpp panel_skips_reinit_on_partial_refresh), so bb_epaper's partial flow for
+# them has no driver output control (0x01: MUX, interlaced gate scan) or booster setup. 3.0
+# resets the panel before every update, so their partial starts with the full's init. Without
+# it the EP426 partial lands its rows split around the window, with a grey band across the panel.
+PARTIAL_REINIT = {"EP426_800x480", "EP397_800x480"}
+
+
+def full_init_prefix(full: list) -> list:
+    """The full flow's tokens before the command that takes its first image plane."""
+    k = next(i for i, t in enumerate(full) if t[0] == "IMAGE")
+    return list(full[:k - 1])
+
+
 def partial_tokens(p: dict, window: bool) -> tuple[list[tuple], list[tuple[list[int] | None, list[tuple]]], list[str]]:
     """-> (tokens to derive from, [(rect or None, reference tokens)], notes)."""
-    full = strip_wake(P.normalise(p["flows"]["partial"], "bbep"))
+    pre = full_init_prefix(strip_wake(P.normalise(p["flows"]["full"], "bbep"))) \
+        if p.get("partial_reinit") else []
+    full = pre + strip_wake(P.normalise(p["flows"]["partial"], "bbep"))
     if not window or not p.get("rects"):
         return full, [(None, full)], []
-    runs = [(r["rect"], strip_wake(P.normalise(r["events"], "bbep")))
+    runs = [(r["rect"], pre + strip_wake(P.normalise(r["events"], "bbep")))
             for _, r in sorted(p["rects"].items())]
     wt, why = P.infer_window(runs, p["width"], p["height"])
     if why:
@@ -234,7 +251,8 @@ def derive(p: dict, cls: str, skip: frozenset[str] = frozenset()) -> dict:
         req.update(r)
         modes.append({"flow": flow, "steps": steps, "slot": slot_idx, "planes": nimg,
                       "scheme": 0 if flow == "partial" else scheme, "refs": refs,
-                      "window": any(s[0] in ("window", "fill") for s in steps)})
+                      "window": any(s[0] in ("window", "fill") for s in steps),
+                      **({"init_from_full": True} if flow == "partial" and p.get("partial_reinit") else {})})
     sleep_toks = P.normalise(p["flows"]["sleep"], "bbep")
     if p.get("bleed_ms"):
         sleep_toks = sleep_toks + [("DELAY", p["bleed_ms"])]
@@ -257,13 +275,26 @@ def code_map_of(p: dict) -> list[int]:
     return [0, 1, 2, 3]
 
 
+# BW panels: partials allowed between two full refreshes, as the 0xB1 tail's budget_limit with
+# budget_cost 1 on the partial. Host information only; the device does not count.
+BW_PARTIAL_BUDGET = 50
+DRIVE_REV = 1
+
+
+def panel_tail(key: int, budget: int) -> bytes:
+    """0xB1 tail v1: lut_family 0 and busy_timeout_s 0, so the device reads nothing new from it."""
+    return struct.pack("<BHHBBBB", 1, key, DRIVE_REV, 0, budget, 0, 0)
+
+
 def encode_derived(p: dict, d: dict) -> list[tuple[int, int, bytes]]:
     bp = P.busy_policy(p)
     sleep = P.encode_steps(d["sleep_steps"]) if not d["sleep_blocked"] else b""
+    budget = p.get("budget_key") is not None and any(m["flow"] == "partial" for m in d["modes"])
     pk = [(0, P.PKT_PANEL, P.panel_body(busy_usable=bp["usable"], idle=bp["idle"],
                                          timeout=bp["timeout"], fixed=0, code_map=code_map_of(p),
                                          mode_count=len(d["modes"]), sleep=sleep,
-                                         lut_supported=False))]
+                                         lut_supported=False)
+           + (panel_tail(p["budget_key"], BW_PARTIAL_BUDGET) if budget else b""))]
     for i, m in enumerate(d["modes"]):
         if "source" in m:
             # Gray modes are experimental: the device runs mode 0 outside the custom window.
@@ -274,7 +305,8 @@ def encode_derived(p: dict, d: dict) -> list[tuple[int, int, bytes]]:
                        + P.mode_tail(P.MODE_EXPERIMENTAL, 0)))
             continue
         pk.append((i, P.PKT_MODE, P.mode_body(i, m["flow"], P.encode_steps(m["steps"]),
-                                              passes=1, scheme=m["scheme"], slots=[m["slot"]])))
+                                              passes=1, scheme=m["scheme"], slots=[m["slot"]])
+                   + (P.mode_tail(0, 1) if budget and m["flow"] == "partial" else b"")))
     for s, data in enumerate(d["slots"]):
         pk.append((s, P.PKT_LUT, P.lut_body(s, data)))
     return pk
@@ -325,7 +357,8 @@ def class_view(p: dict, cls: str, glass_pk=None, glass_modes=None) -> dict:
         blob = frame_all(pk)
         modes = [{"index": i, "name": m["flow"], "refresh": m["flow"], "passes": 1,
                   "color_scheme": m["scheme"], "planes": m["planes"], "window": m["window"],
-                  **({"source": m["source"], "experimental": True} if "source" in m else {})}
+                  **({"source": m["source"], "experimental": True} if "source" in m else {}),
+                  **({"init_from_full": True} if m.get("init_from_full") else {})}
                  for i, m in enumerate(d["modes"])]
         blocked = sorted(set(P.pixel_blockers(p) + d["detail"].get("full", []) +
                              d["detail"].get("sleep", []) + d["detail"].get("lut_slots", [])))
@@ -525,6 +558,10 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
             out[key] = e
             continue
         native = P.native_scheme(p)
+        if enum in PARTIAL_REINIT:
+            p["partial_reinit"] = True
+            e["notes"].append("partial starts with the full's init: 2.x kept this panel initialised from "
+                              "the full into a partial, 3.0 resets it before every update")
         if enum in P.POST_SLEEP_BLEED:
             p["bleed_ms"] = P.POST_SLEEP_BLEED[enum]
             e["notes"].append(f"sleep sequence ends with a {p['bleed_ms']} ms DELAY so the rail does not "
@@ -584,7 +621,12 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
                 v["equivalence"] = {"modes": {"0": {"rc": rc, **compare(ref, strip_wake(got))}},
                                     "sleep": None, "all_equal": False}
         else:
+            if native == 0:
+                p["budget_key"] = int(key, 16)
             views = {cls: class_view(p, cls) for cls in P.CLASSES}
+            if native == 0 and any(m["name"] == "partial" for v in views.values() for m in v.get("modes", [])):
+                e["notes"].append(f"at most {BW_PARTIAL_BUDGET} partials between full refreshes "
+                                  "(0xB1 budget_limit, host-enforced)")
             if p["flags"] & 0x0008:
                 e["notes"].append(f"DOUBT: code_map {code_map_of(p)} is bb_epaper's pColorLookup; for EP42YR "
                                   "and EP75YR that lookup is the identity while the glass panels.yaml "

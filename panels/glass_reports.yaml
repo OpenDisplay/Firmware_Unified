@@ -61,7 +61,7 @@ reports:
       Again after a 2.x -> 3.0 config migration from the same presets: correct six-colour image.
   - panel: "0x003B"
     target_class: default
-    framed_sha256: ada167681a78ac491c6e0c6e49fe58ff0059d640543f81f39513d26800afccd0
+    framed_sha256: aa18f3d28da6c53dc646a7b2f4895648797f8f5423f9e57ef360185cf32f64c3
     modes: [full, fast, partial]
     board: EE04 (ESP32-S3), OD7C42E9
     firmware: 3.0.0
@@ -71,4 +71,6 @@ reports:
     note: >-
       Bare GDEY075T7. full: K/W halves, bars and text right, i1Pro K L* 16.1 / W L* 68.0. fast:
       inverted frame clean. partial (host PartialState): counter 00-10 on camera with the rest of
-      the frame intact, about 3.2 s per update.
+      the frame intact, about 3.2 s per update. Re-hashed without a re-sighting after the 0xB1
+      tail (budget_limit 50, lut_family 0, busy_timeout_s 0) and the partial's 0xAE tail were
+      added: every sequence byte is unchanged and the device reads neither field at these values.
