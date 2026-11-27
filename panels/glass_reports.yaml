@@ -102,3 +102,17 @@ reports:
       Bare Seeed 5.83in 648x480 mono panel. full: K/W frame correct, 6.6 s, i1Pro K L* 18.8 /
       W L* 71.1. fast: inverted frame clean, 3.1 s. partial (host PartialState): counter 01-05
       clean with the rest of the frame intact, about 3.3 s per update.
+  - panel: "0x0002"
+    target_class: default
+    framed_sha256: c14ad3ddca0455ad599849d405afa8ed944e41070bf87c8ff926c34633d7f6ba
+    modes: [full, fast, partial, gray4]
+    board: EE04 (ESP32-S3), OD7C42E9
+    firmware: 3.0.0
+    date: 2026-11-27
+    reporter: jonasniesner
+    source: docs/HARDWARE_VERIFICATION_CHECKLIST.md § 4.2" BW (0x0002) on EE04 OD7C42E9
+    note: >-
+      Bare 4.2in 400x300 SSD16xx panel. full: K/W frame correct, 3.3 s, i1Pro K L* 19.5 / W L* 69.7.
+      fast: inverted frame clean, 3.7 s. partial (host PartialState): counter 01-05, 2.5 s per
+      update. gray4 with the planes swapped against bb_epaper's lookup: four monotonic levels,
+      i1Pro L* 19.9 / 33.0 / 62.9 / 70.4 (tile drift 5.9 % Y).

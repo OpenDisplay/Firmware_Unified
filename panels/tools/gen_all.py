@@ -68,6 +68,9 @@ GRAY_INTO = {
 # every panel. A 4-gray enum with u8Colors_4gray_v2 (3, 2, 1, 0) takes its two planes the other
 # way round, which swaps codes 1 and 2, so one host table serves every gray mode.
 GRAY_LOOKUP_V2 = [3, 2, 1, 0]
+# 4-gray enums whose plane order on glass is the opposite of what their bb_epaper lookup implies
+# (the mid-grays come out swapped), with the checklist section that shows it.
+GRAY_SWAP_ON_GLASS = {"EP42B_400x300_4GRAY": 'HARDWARE_VERIFICATION_CHECKLIST.md § 4.2" BW (0x0002)'}
 
 
 def swap_gray_planes(toks: list[tuple]) -> list[tuple]:
@@ -532,6 +535,8 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
         g = cap["panels"][ids[gkey]["bb_epaper_enum"]]
         b = cap["panels"][ids[bw]["bb_epaper_enum"]]
         swap = list(g["lookup"][:4]) == GRAY_LOOKUP_V2
+        glass = ids[gkey]["bb_epaper_enum"] in GRAY_SWAP_ON_GLASS
+        swap ^= glass
         for flow, name in flows.items():
             b.setdefault("gray_flows", {})[name] = {
                 "events": g["flows"][flow], "layout": P.frame_layout(g), "scheme": P.native_scheme(g),
@@ -539,7 +544,9 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
         if flows:
             gray_notes.setdefault(bw, []).append(
                 f"{', '.join(flows.values())}: the {', '.join(flows)} flow of {ids[gkey]['bb_epaper_enum']} "
-                f"(formerly {gkey})" + (", image planes swapped (u8Colors_4gray_v2)" if swap else ""))
+                f"(formerly {gkey})" + (", image planes swapped (u8Colors_4gray_v2)" if swap and not glass else "")
+                + (", image planes swapped against bb_epaper's lookup: its mid-grays are swapped on glass "
+                   f"({GRAY_SWAP_ON_GLASS[ids[gkey]['bb_epaper_enum']]})" if glass else ""))
 
     out: dict[str, dict] = {}
     for key, idinfo in ids.items():

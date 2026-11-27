@@ -1793,6 +1793,20 @@ K/W/Y/R strip), then a two-digit counter in the centre through `partial_bw` (py-
 | BW2_kick3_w20 (20-frame white runs), 00-05, 23-26 C | **PASS**: "way better" white; 7.3-7.4 s per update. Shipped |
 | Black/white drift over 100 updates, strip outside the counter, meter | **OPEN** |
 
+## 4.2" BW (0x0002) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
+
+Bare 4.2in 400x300 SSD16xx panel (website preset `ep42-400x300`). Preset written from
+`drive_presets.json`. Camera snapshots and i1Pro S/N 324492 (D50, M0).
+
+| Row | Result |
+|---|---|
+| `full`, i1Pro K / W | **PASS**: L* 19.5 / 69.7, 3.3 s (tile drift 2.2 % Y) |
+| `fast`, inverted frame | **PASS** on camera: clean, 3.7 s |
+| `partial` (PartialState), counter 01-05 | **PASS** on camera: 2.5 s per update |
+| `gray4` in bb_epaper plane order (u8Colors_4gray) | **FAIL**: G1 light, G2 dark (mid-grays swapped) |
+| `gray4` with the planes swapped (`GRAY_SWAP_ON_GLASS`), i1Pro | **PASS**: L* 19.9 / 33.0 / 62.9 / 70.4, monotonic, with the host's stock codes (tile drift 5.9 % Y) |
+| `gray4` from an unmodified host | **OPEN**: as 0x003B |
+
 ## 5.83" BW (0x001F) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
 
 Bare Seeed 5.83in 648x480 mono panel (UC81xx). Preset written from `drive_presets.json`. Camera
