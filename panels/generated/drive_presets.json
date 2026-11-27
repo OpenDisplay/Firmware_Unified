@@ -1777,7 +1777,7 @@
    },
    "color_scheme": 0,
    "status": "equivalent",
-   "verified": "equivalent",
+   "verified": "glass",
    "blocked_on": [],
    "blocked_detail": {},
    "modes": [
@@ -1795,7 +1795,7 @@
       "default": true,
       "bg22": true
      },
-     "verified": "equivalent"
+     "verified": "glass"
     },
     {
      "index": 1,
@@ -1811,7 +1811,7 @@
       "default": true,
       "bg22": true
      },
-     "verified": "equivalent"
+     "verified": "glass"
     },
     {
      "index": 2,
@@ -1827,7 +1827,7 @@
       "default": true,
       "bg22": false
      },
-     "verified": "equivalent"
+     "verified": "glass"
     }
    ],
    "modes_blocked": [],
@@ -1920,7 +1920,22 @@
     },
     "all_equal": true
    },
-   "glass_reports": [],
+   "glass_reports": [
+    {
+     "framed_sha256": "9dc26440c59371e89aa99ac503c93ea9963ab3adddf4d4e59a7f2f2dadd0ab1a",
+     "modes": [
+      "full",
+      "fast",
+      "partial"
+     ],
+     "board": "EE04 (ESP32-S3), OD7C42E9",
+     "firmware": "3.0.0",
+     "date": "2026-11-27",
+     "reporter": "jonasniesner",
+     "source": "docs/HARDWARE_VERIFICATION_CHECKLIST.md \u00a7 Seeed 2.9\" BW (0x0005) on EE04 OD7C42E9",
+     "note": "Bare Seeed 2.9in 128x296 mono panel (SSD16xx), id 5 per the Seeed product page. full: K/W frame correct, 3.2 s, i1Pro K L* 21.6 / W L* 71.5. fast: inverted frame clean, 3.6 s. partial (host PartialState, partial_update_support 1): counter 01-03, 2.4 s per update, no flash in an untouched area on 5 fps video."
+    }
+   ],
    "targets": {
     "default": {
      "limits": {
@@ -1929,7 +1944,7 @@
       "window": true
      },
      "status": "equivalent",
-     "verified": "equivalent",
+     "verified": "glass",
      "blocked_on": [],
      "blocked_detail": {},
      "modes_blocked": [],
@@ -1950,7 +1965,7 @@
         "default": true,
         "bg22": true
        },
-       "verified": "equivalent"
+       "verified": "glass"
       },
       {
        "index": 1,
@@ -1966,7 +1981,7 @@
         "default": true,
         "bg22": true
        },
-       "verified": "equivalent"
+       "verified": "glass"
       },
       {
        "index": 2,
@@ -1982,7 +1997,7 @@
         "default": true,
         "bg22": false
        },
-       "verified": "equivalent"
+       "verified": "glass"
       }
      ],
      "packets": [
@@ -2015,7 +2030,22 @@
       "esp32": true,
       "nordic": true
      },
-     "glass_reports": []
+     "glass_reports": [
+      {
+       "framed_sha256": "9dc26440c59371e89aa99ac503c93ea9963ab3adddf4d4e59a7f2f2dadd0ab1a",
+       "modes": [
+        "full",
+        "fast",
+        "partial"
+       ],
+       "board": "EE04 (ESP32-S3), OD7C42E9",
+       "firmware": "3.0.0",
+       "date": "2026-11-27",
+       "reporter": "jonasniesner",
+       "source": "docs/HARDWARE_VERIFICATION_CHECKLIST.md \u00a7 Seeed 2.9\" BW (0x0005) on EE04 OD7C42E9",
+       "note": "Bare Seeed 2.9in 128x296 mono panel (SSD16xx), id 5 per the Seeed product page. full: K/W frame correct, 3.2 s, i1Pro K L* 21.6 / W L* 71.5. fast: inverted frame clean, 3.6 s. partial (host PartialState, partial_update_support 1): counter 01-03, 2.4 s per update, no flash in an untouched area on 5 fps video."
+      }
+     ]
     },
     "bg22": {
      "limits": {

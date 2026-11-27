@@ -1867,3 +1867,10 @@ The simple-config display `ep29-128x296` (panel 0x0017, 2.9in flex BW) has
 a full refresh. The 0x0017 partial mode works on glass (HARDWARE_VERIFICATION_CHECKLIST.md
 § 2.9" flex BW (0x0017)). External follow-up: set it to 1 in the website presets.
 
+## No website preset for the Seeed 2.9in mono panel (0x0005)
+
+Seeed lists its 2.9in 128x296 mono panel as id 5 (EP293_128x296), and 0x0005 works on glass
+(HARDWARE_VERIFICATION_CHECKLIST.md § Seeed 2.9" BW (0x0005)), but no simple-config display
+references 0x0005; the only 2.9in mono entry is the flexible `ep29-128x296` (0x0017). External
+follow-up: add a display preset for it, with `partial_update_support` 1.
+

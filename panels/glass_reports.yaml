@@ -146,3 +146,17 @@ reports:
       counter 01-03, 2.5 s per update, black keeps its full-refresh density on camera. gray4
       with the planes swapped against bb_epaper's lookup: four monotonic levels, i1Pro
       L* 22.4 / 43.5 / 64.1 / 73.3 (tile drift 0.05 % Y).
+  - panel: "0x0005"
+    target_class: default
+    framed_sha256: 9dc26440c59371e89aa99ac503c93ea9963ab3adddf4d4e59a7f2f2dadd0ab1a
+    modes: [full, fast, partial]
+    board: EE04 (ESP32-S3), OD7C42E9
+    firmware: 3.0.0
+    date: 2026-11-27
+    reporter: jonasniesner
+    source: docs/HARDWARE_VERIFICATION_CHECKLIST.md § Seeed 2.9" BW (0x0005) on EE04 OD7C42E9
+    note: >-
+      Bare Seeed 2.9in 128x296 mono panel (SSD16xx), id 5 per the Seeed product page. full: K/W
+      frame correct, 3.2 s, i1Pro K L* 21.6 / W L* 71.5. fast: inverted frame clean, 3.6 s.
+      partial (host PartialState, partial_update_support 1): counter 01-03, 2.4 s per update, no
+      flash in an untouched area on 5 fps video.
