@@ -610,6 +610,67 @@
         }
       ]
     },
+    "ep397yr_bwry": {
+      "name": "ep397yr_bwry",
+      "key": "0x0037",
+      "base_preset": "0x0037",
+      "drive_rev": 1,
+      "budget_limit": 20,
+      "lut_family": 2,
+      "busy_timeout_s": 120,
+      "modes": [
+        {
+          "mode_index": 2,
+          "name": "partial_bw",
+          "experimental": true,
+          "experimental_note": "BW2_kick3_w10 (the 2.9in table) on the stock 3.97in init: full-window flashing partial, 0 = to K, 1 = to W, 2/3 hold; 3.1 s per update over BLE; counter 00-05 on OD7C42E9 with the colour bar held, judged by eye, not measured [1 ex, prov]",
+          "budget_cost": 1,
+          "lut_slot": 2,
+          "passes": 1,
+          "hold_mask": 12,
+          "held_k_code": null,
+          "temp_window_c": [
+            15,
+            30
+          ],
+          "temp_policy": "substitute",
+          "seq_steps": 23,
+          "seq_bytes": 91
+        }
+      ],
+      "luts": [
+        {
+          "slot": 2,
+          "compressed": false,
+          "wave": "bwry29_BW2_kick3_w10.bin",
+          "raw_bytes": 535,
+          "stored_bytes": 535
+        }
+      ],
+      "config_bytes": 1035,
+      "packets": [
+        {
+          "id": 177,
+          "body_hex": "000301409c000000010203030a02020000010207a50000013700010000140278"
+        },
+        {
+          "id": 174,
+          "body_hex": "000066756c6c00000000000000000301000000ffffffffffffffff00000000000000006b0003002b2905060f8b93c10250370561032002a809627676765a9d8a766205650000000002e01002e7a402e901010400010110000303002b2905060f8b93c10250370561032002a809627676765a9d8a766205650000000002e01002e7a402e9010104000102120000010000"
+        },
+        {
+          "id": 174,
+          "body_hex": "00016661737400000000000000000301000000ffffffffffffffff0000000000000000820003002b2905060f8b93c10250370561032002a809627676765a9d8a766205650000000002e01002e7a402e901010400010110000303002b2905060f8b93c10250370230080561032002a809627676765a9d8a766205650000000002e01002e7a402e90102ef0102f62002ef0002e01202e65c02a50000010104000102120000010000"
+        },
+        {
+          "id": 174,
+          "body_hex": "00027061727469616c5f62770000ff010f1e0102ffffffffffffff00000000000000005b0003002ba905060f8b93c10250370561032002a809627676765a9d8a766205650000000002e01002e7a402e90107010700222d2d220230020282a0012000040a830000031f000001df01011000030250970104000102120000010000010101ff0c"
+        },
+        {
+          "id": 175,
+          "body_hex": "0002b78500222d2d222002efffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffbff3dffffefffffffefeffffff6ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefb7dc2d7d7fef7d7f7defeff3ff7f7dffefffffffefefffffefffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffefffff34ffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffebb2d7d7fef7d7f7defeffeff7f7dffefffffffefefffffefffffefffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      ]
+    },
     "ep154yr_bwry": {
       "name": "ep154yr_bwry",
       "key": "0x0038",
