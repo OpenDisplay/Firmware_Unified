@@ -1806,7 +1806,7 @@ entry of `refresh_modes.json`, K/W/Y/R 2x2 quadrants, no dithering. Camera only.
 | `fast`, original layout over the previous fast frame | the same line again, plus a second one near the top edge; `full` shows neither |
 | `fast` dropped (`DROP_FLOWS`), `partial_bw` now mode 1; `full` 00 then counter 01-02 from the regenerated presets | **PASS** on camera: 23.3 s full, 3.0 s per partial |
 | experimental `partial_bw` (the 2.9in BW2_kick3_w10 table on the stock init, 800x480 window): `full` 00, then counter 01-05 with 1-bit text | **PASS** on camera, provisional: 3.1-3.2 s per update, digits clean, colour bar held, no lines; judged by eye, not measured |
-| K/W/Y/R stock colours under i1Pro | open |
+| K/W/Y/R stock colours under i1Pro, `full`, 2x2 quadrants, two reads each | **measured**: media-relative to W, K L* 17.8, Y (88.7, 26.0, 96.7), R (41.1, 57.7, 40.0); contrast 40.3; `panels/palettes/bwry_0x0037_OD7C42E9.json` (data only, not in the preset's 0xB0) |
 
 ## Seeed 2.9" BWRY (0x001D) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
 
