@@ -177,3 +177,45 @@ reports:
       K L* 18.8 / W L* 71.0. fast: inverted frame clean, 3.6 s. partial (host PartialState):
       counter 01-03, 2.5 s per update, no flash in an untouched area on 5 fps video. 0x0003, the
       website preset's id, draws only a faint noisy image on this glass.
+  - panel: "0x0037"
+    target_class: default
+    framed_sha256: ab7fc723ae34b5c457a43f52c772fd926bf0d7be201266991f64ce0d314e2588
+    modes: [full]
+    board: EE04 (ESP32-S3), OD7C42E9
+    firmware: 3.0.0
+    date: 2026-11-27
+    reporter: jonasniesner
+    source: docs/HARDWARE_VERIFICATION_CHECKLIST.md § Seeed 3.97" BWRY (0x0037) on EE04 OD7C42E9
+    note: >-
+      Bare Seeed 3.97in 800x480 BWRY panel (GDEM0397F81). full: K/W/Y/R quadrants in place, 23.4 s;
+      i1Pro K L* 17.8 / Y (88.7, 26.0, 96.7) / R (41.1, 57.7, 40.0) relative to W, contrast 40.3.
+      fast was dropped (thin dark lines across rows). The experimental partial_bw of
+      refresh_modes.json drew a clean counter; it is not part of these bytes.
+  - panel: "0x001D"
+    target_class: default
+    framed_sha256: b6b1ee5201e8fe9b7b49192d9d0cbfa615d6df0caf5875ebe76f0671039c39fe
+    modes: [full]
+    board: EE04 (ESP32-S3), OD7C42E9
+    firmware: 3.0.0
+    date: 2026-11-27
+    reporter: jonasniesner
+    source: docs/HARDWARE_VERIFICATION_CHECKLIST.md § Seeed 2.9" BWRY (0x001D) on EE04 OD7C42E9
+    note: >-
+      Bare Seeed 2.9in 128x296 BWRY panel (GDEY029F51). full with code_map [0, 1, 2, 3]: K/W/Y/R
+      quadrants in place, 24.4 s; bb_epaper's [0, 1, 3, 2] drew Y and R swapped. i1Pro K L* 20.4 /
+      Y (92.5, 28.3, 98.5) / R (44.3, 59.7, 43.1) relative to W, contrast 32.4. The experimental
+      partial_bw of refresh_modes.json drew a clean counter; it is not part of these bytes.
+  - panel: "0x0034"
+    target_class: default
+    framed_sha256: 1a041c25084ff7f10c959dbbe7c5877dea8cc25d7767c844fc0226ace78892f4
+    modes: [full]
+    board: EE04 (ESP32-S3), OD7C42E9
+    firmware: 3.0.0
+    date: 2026-11-27
+    reporter: jonasniesner
+    source: docs/HARDWARE_VERIFICATION_CHECKLIST.md § Seeed 2.13" BWRY (0x0034) on EE04 OD7C42E9
+    note: >-
+      Bare Seeed 2.13in 122x250 BWRY panel (GDEY0213F52). full: K/W/Y/R quadrants in place,
+      16.9 s; i1Pro K L* 20.2 / Y (92.9, 25.2, 98.3) / R (46.7, 63.1, 43.8) relative to W,
+      contrast 32.9. fast was dropped (black drawn as red). The experimental partial_bw of
+      refresh_modes.json drew a clean counter; it is not part of these bytes.
