@@ -131,3 +131,18 @@ reports:
       partial_update_support forced to 1; the website preset has 0): counter 01-03 in place, no
       flash on 10 fps video, 2.2 s per update. gray4 with the planes swapped against bb_epaper's
       lookup: four monotonic levels, i1Pro L* 15.9 / 34.4 / 58.1 / 69.6 (tile drift 0.03 % Y).
+  - panel: "0x001A"
+    target_class: default
+    framed_sha256: 2070479dfb57cb70d4d0ccc2379ab407fe9e31faaabe06a55d304792bf6b76f4
+    modes: [full, fast, partial, gray4]
+    board: EE04 (ESP32-S3), OD7C42E9
+    firmware: 3.0.0
+    date: 2026-11-27
+    reporter: jonasniesner
+    source: docs/HARDWARE_VERIFICATION_CHECKLIST.md § 1.54" BW (0x001A) on EE04 OD7C42E9
+    note: >-
+      Bare Seeed 1.54in 200x200 mono panel (SSD16xx). full: K/W frame correct, 3.2 s, i1Pro
+      K L* 19.3 / W L* 70.6. fast: inverted frame clean, 3.3 s. partial (host PartialState):
+      counter 01-03, 2.5 s per update, black keeps its full-refresh density on camera. gray4
+      with the planes swapped against bb_epaper's lookup: four monotonic levels, i1Pro
+      L* 22.4 / 43.5 / 64.1 / 73.3 (tile drift 0.05 % Y).
