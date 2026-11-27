@@ -1793,6 +1793,17 @@ K/W/Y/R strip), then a two-digit counter in the centre through `partial_bw` (py-
 | BW2_kick3_w20 (20-frame white runs), 00-05, 23-26 C | **PASS**: "way better" white; 7.3-7.4 s per update. Shipped |
 | Black/white drift over 100 updates, strip outside the counter, meter | **OPEN** |
 
+## Seeed 2.13" BWRY (0x0034) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
+
+Bare Seeed 2.13in 122x250 BWRY panel (website preset `ep213r-122x250`, id 52, GDEY0213F52).
+Stock preset from `drive_presets.json`, K/W/Y/R 2x2 quadrants, no dithering. Camera only.
+
+| Row | Result |
+|---|---|
+| `full`, K/W/Y/R quadrants | **PASS** on camera: all four colours in place, 16.9 s |
+| `fast`, quadrants rotated one place | **FAIL**: black drawn as red; Y and W right; 12.8 s |
+| `fast`, original layout over the previous fast frame | **FAIL**: black as red again, and the quadrant due to go white stays red |
+
 ## Seeed 7.5" BWRY (0x0040) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
 
 Bare Seeed 7.5in 800x480 BWRY panel (website preset `ep75-bwry-800x480`, id 64), the same
