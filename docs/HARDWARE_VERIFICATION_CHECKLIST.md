@@ -1805,7 +1805,7 @@ Stock preset from `drive_presets.json`, K/W/Y/R 2x2 quadrants, no dithering. Cam
 | `fast`, original layout over the previous fast frame | **FAIL**: black as red again, and the quadrant due to go white stays red |
 | `fast` dropped (`DROP_FLOWS`); `full` re-run from the new preset, rotated quadrants | **PASS** on camera: 16.9 s |
 | experimental `partial_bw` (refresh_modes `ep213yr_bwry`, the 2.9in BW2_kick3_w10 table on the 2.9in init at 128x250): `full` 00, then counter 01-03 with 1-bit text | **PASS** on camera, provisional: 2.8 s per update, digits clean, colour bar held; judged by eye, not measured |
-| K/W/Y/R base colours under i1Pro | open: deferred by project direction |
+| K/W/Y/R stock colours under i1Pro, `full`, 2x2 quadrants, two reads each | **measured**: media-relative to W, K L* 20.2, Y (92.9, 25.2, 98.3), R (46.7, 63.1, 43.8); contrast 32.9; `panels/palettes/bwry_0x0034_OD7C42E9.json` (data only, not in the preset's 0xB0) |
 
 ## Seeed 7.5" BWRY (0x0040) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
 

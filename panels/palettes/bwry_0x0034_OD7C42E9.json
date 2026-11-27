@@ -1,0 +1,17 @@
+{
+ "panel": "0x0034",
+ "code_bits": 2,
+ "measured": false,
+ "white": "D50 media-relative to W (the stock full refresh's own white = L* 100)",
+ "method": "i1Pro S/N 324492, reflective, M0, bare Seeed 2.13in BWRY 122x250 (GDEY0213F52) panel on EE04 OD7C42E9; two reads per colour, 2x2 quadrant swatches; stock full refresh (OTP waveform, 16.9 s); tile drift 0.05 % Y; red reads 1.5 b* apart between the two spots, the other pairs within 0.3",
+ "codes": "the BWRY frame code py-opendisplay sends (0 = black, 1 = white, 2 = yellow, 3 = red); colours correct on glass with this panel's code_map [0, 1, 2, 3]",
+ "source": "i1pro/20261127_ep213yr readings 3-10 (2026-11-27); tile readings 1, 2, 11",
+ "contrast": 32.88,
+ "absolute_lab_d50": {"black": [8.72, 3.65, -1.07], "white": [63.19, -2.03, 0.03], "yellow": [58.31, 15.2, 67.12], "red": [26.83, 41.71, 29.91]},
+ "entries": [
+  {"codes": [0], "name": "black", "lab": [20.21, 6.32, -1.57]},
+  {"codes": [1], "name": "white", "lab": [100.0, 0.0, 0.0]},
+  {"codes": [2], "name": "yellow", "lab": [92.86, 25.21, 98.31]},
+  {"codes": [3], "name": "red", "lab": [46.74, 63.09, 43.78]}
+ ]
+}
