@@ -1793,6 +1793,20 @@ K/W/Y/R strip), then a two-digit counter in the centre through `partial_bw` (py-
 | BW2_kick3_w20 (20-frame white runs), 00-05, 23-26 C | **PASS**: "way better" white; 7.3-7.4 s per update. Shipped |
 | Black/white drift over 100 updates, strip outside the counter, meter | **OPEN** |
 
+## 4.26" BW (0x0027) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
+
+Bare 4.26in SSD1677 panel. Preset written from `drive_presets.json`. Camera snapshots and i1Pro
+S/N 324492 (D50, M0).
+
+| Row | Result |
+|---|---|
+| `full`, i1Pro K / W | **PASS**: L* 16.3 / 58.1 (tile drift 0.3 % Y) |
+| `partial` as captured from bb_epaper | **FAIL**: split rows and a grey band; no 0x01 after the 3.0 reset |
+| `partial` with the full's init (`PARTIAL_REINIT`) | **PASS** on camera: counter 01-05 clean, about 4 s per update, firmware and raw SPI |
+| `fast` | **FAIL**: previous image stays; raw SPI with and without the second 0x12 likewise |
+| `gray4` (0x0028 full flow, planes swapped), i1Pro | **PASS**: L* 17.5 / 31.8 / 51.9 / 60.0, monotonic (tile drift 0.85 % Y; a first round agrees within 1.1 L*) |
+| `gray4` from an unmodified host | **OPEN**: as 0x003B |
+
 ## 7.5" GEN2 BW (0x003B) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
 
 Bare GDEY075T7 panel. Stock preset written from `drive_presets.json`; `gray4` from the `ep75_bw`

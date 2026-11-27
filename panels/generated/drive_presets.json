@@ -11373,7 +11373,7 @@
    },
    "color_scheme": 0,
    "status": "equivalent",
-   "verified": "equivalent",
+   "verified": "glass",
    "blocked_on": [],
    "blocked_detail": {},
    "modes": [
@@ -11391,7 +11391,7 @@
       "default": true,
       "bg22": true
      },
-     "verified": "equivalent"
+     "verified": "glass"
     },
     {
      "index": 1,
@@ -11424,7 +11424,7 @@
       "default": true,
       "bg22": false
      },
-     "verified": "equivalent"
+     "verified": "glass"
     },
     {
      "index": 3,
@@ -11446,7 +11446,7 @@
       "default": true,
       "bg22": true
      },
-     "verified": "equivalent"
+     "verified": "glass"
     }
    ],
    "modes_blocked": [],
@@ -11548,7 +11548,22 @@
     },
     "all_equal": true
    },
-   "glass_reports": [],
+   "glass_reports": [
+    {
+     "framed_sha256": "9aae1ac90c8ea52ac88814b0526920312e265dd71d27e0d482a8d5c661878e06",
+     "modes": [
+      "full",
+      "partial",
+      "gray4"
+     ],
+     "board": "EE04 (ESP32-S3), OD7C42E9",
+     "firmware": "3.0.0",
+     "date": "2026-11-27",
+     "reporter": "jonasniesner",
+     "source": "docs/HARDWARE_VERIFICATION_CHECKLIST.md \u00a7 4.26\" BW (0x0027) on EE04 OD7C42E9",
+     "note": "Bare 4.26in SSD1677 panel. full: K/W frame correct, i1Pro K L* 16.3 / W L* 58.1. partial (host PartialState, partial with the full's init): counter 01-05 clean, about 4 s per update. gray4: four monotonic levels, i1Pro L* 17.5 / 31.8 / 51.9 / 60.0. fast is not listed: it leaves the previous image on glass. Sighted on the config before the budget tail and the gray4_fast removal; the full, partial and gray4 sequence bytes are unchanged."
+    }
+   ],
    "targets": {
     "default": {
      "limits": {
@@ -11557,7 +11572,7 @@
       "window": true
      },
      "status": "equivalent",
-     "verified": "equivalent",
+     "verified": "glass",
      "blocked_on": [],
      "blocked_detail": {},
      "modes_blocked": [],
@@ -11578,7 +11593,7 @@
         "default": true,
         "bg22": true
        },
-       "verified": "equivalent"
+       "verified": "glass"
       },
       {
        "index": 1,
@@ -11611,7 +11626,7 @@
         "default": true,
         "bg22": false
        },
-       "verified": "equivalent"
+       "verified": "glass"
       },
       {
        "index": 3,
@@ -11633,7 +11648,7 @@
         "default": true,
         "bg22": true
        },
-       "verified": "equivalent"
+       "verified": "glass"
       }
      ],
      "packets": [
@@ -11671,7 +11686,22 @@
       "esp32": true,
       "nordic": true
      },
-     "glass_reports": []
+     "glass_reports": [
+      {
+       "framed_sha256": "9aae1ac90c8ea52ac88814b0526920312e265dd71d27e0d482a8d5c661878e06",
+       "modes": [
+        "full",
+        "partial",
+        "gray4"
+       ],
+       "board": "EE04 (ESP32-S3), OD7C42E9",
+       "firmware": "3.0.0",
+       "date": "2026-11-27",
+       "reporter": "jonasniesner",
+       "source": "docs/HARDWARE_VERIFICATION_CHECKLIST.md \u00a7 4.26\" BW (0x0027) on EE04 OD7C42E9",
+       "note": "Bare 4.26in SSD1677 panel. full: K/W frame correct, i1Pro K L* 16.3 / W L* 58.1. partial (host PartialState, partial with the full's init): counter 01-05 clean, about 4 s per update. gray4: four monotonic levels, i1Pro L* 17.5 / 31.8 / 51.9 / 60.0. fast is not listed: it leaves the previous image on glass. Sighted on the config before the budget tail and the gray4_fast removal; the full, partial and gray4 sequence bytes are unchanged."
+      }
+     ]
     },
     "bg22": {
      "limits": {
