@@ -178,7 +178,10 @@ def needed_caps(raw: list[tuple]) -> dict:
 # it the EP426 partial lands its rows split around the window, with a grey band across the panel.
 # Flows left out of a panel's modes by project decision, with the reason recorded in its notes.
 DROP_FLOWS = {"EP293_128x296": {"fast": "fast dropped by project decision after glass test "
-                                        "(HARDWARE_VERIFICATION_CHECKLIST.md § Seeed 2.9\" BW (0x0005))"}}
+                                        "(HARDWARE_VERIFICATION_CHECKLIST.md § Seeed 2.9\" BW (0x0005))"},
+              "EP213YR_122x250": {"fast": "fast dropped: it draws black as red and cannot clear red on "
+                                          "glass (HARDWARE_VERIFICATION_CHECKLIST.md § Seeed 2.13\" BWRY "
+                                          "(0x0034))"}}
 PARTIAL_REINIT = {"EP426_800x480", "EP397_800x480"}
 
 

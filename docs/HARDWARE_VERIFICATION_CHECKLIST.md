@@ -1803,6 +1803,7 @@ Stock preset from `drive_presets.json`, K/W/Y/R 2x2 quadrants, no dithering. Cam
 | `full`, K/W/Y/R quadrants | **PASS** on camera: all four colours in place, 16.9 s |
 | `fast`, quadrants rotated one place | **FAIL**: black drawn as red; Y and W right; 12.8 s |
 | `fast`, original layout over the previous fast frame | **FAIL**: black as red again, and the quadrant due to go white stays red |
+| `fast` dropped (`DROP_FLOWS`); `full` re-run from the new preset, rotated quadrants | **PASS** on camera: 16.9 s |
 
 ## Seeed 7.5" BWRY (0x0040) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
 

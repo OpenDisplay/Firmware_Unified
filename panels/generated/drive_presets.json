@@ -5404,6 +5404,7 @@
    "name": "EP213YR_122x250",
    "aliases": [],
    "notes": [
+    "fast dropped: it draws black as red and cannot clear red on glass (HARDWARE_VERIFICATION_CHECKLIST.md \u00a7 Seeed 2.13\" BWRY (0x0034))",
     "DOUBT: code_map [0, 1, 2, 3] is bb_epaper's pColorLookup; for EP42YR and EP75YR that lookup is the identity while the glass panels.yaml entries use [0,1,3,2], so the BWRY code order of this panel is unproven"
    ],
    "differences": [
@@ -5449,22 +5450,6 @@
       "bg22": true
      },
      "verified": "equivalent"
-    },
-    {
-     "index": 1,
-     "name": "fast",
-     "refresh": "fast",
-     "passes": 1,
-     "color_scheme": 3,
-     "planes": 1,
-     "window": false,
-     "seq_bytes": 37,
-     "steps": 16,
-     "fits": {
-      "default": true,
-      "bg22": true
-     },
-     "verified": "equivalent"
     }
    ],
    "modes_blocked": [],
@@ -5473,21 +5458,16 @@
     {
      "id": 177,
      "number": 0,
-     "body_hex": "000101409c000000010203020a02020000010207a50000"
+     "body_hex": "000101409c000000010203010a02020000010207a50000"
     },
     {
      "id": 174,
      "number": 0,
      "body_hex": "000066756c6c00000000000000000301000000ffffffffffffffff0000000000000000190002e901010400010110000302e9010104000102120000010000"
-    },
-    {
-     "id": 174,
-     "number": 1,
-     "body_hex": "00016661737400000000000000000301000000ffffffffffffffff0000000000000000250002e9010104000101100003000102e00202e65a01a5000102e9010104000102120000010000"
     }
    ],
-   "framed_hex": "00b11700000101409c000000010203020a02020000010207a5000000ae3e00000066756c6c00000000000000000301000000ffffffffffffffff0000000000000000190002e901010400010110000302e901010400010212000001000001ae4a0000016661737400000000000000000301000000ffffffffffffffff0000000000000000250002e9010104000101100003000102e00202e65a01a5000102e9010104000102120000010000",
-   "drive_bytes": 171,
+   "framed_hex": "00b11700000101409c000000010203010a02020000010207a5000000ae3e00000066756c6c00000000000000000301000000ffffffffffffffff0000000000000000190002e901010400010110000302e9010104000102120000010000",
+   "drive_bytes": 93,
    "fits": {
     "bg22": true,
     "esp32": true,
@@ -5496,10 +5476,6 @@
    "equivalence": {
     "modes": {
      "0": {
-      "rc": 0,
-      "equal": true
-     },
-     "1": {
       "rc": 0,
       "equal": true
      }
@@ -5541,43 +5517,22 @@
         "bg22": true
        },
        "verified": "equivalent"
-      },
-      {
-       "index": 1,
-       "name": "fast",
-       "refresh": "fast",
-       "passes": 1,
-       "color_scheme": 3,
-       "planes": 1,
-       "window": false,
-       "seq_bytes": 37,
-       "steps": 16,
-       "fits": {
-        "default": true,
-        "bg22": true
-       },
-       "verified": "equivalent"
       }
      ],
      "packets": [
       {
        "id": 177,
        "number": 0,
-       "body_hex": "000101409c000000010203020a02020000010207a50000"
+       "body_hex": "000101409c000000010203010a02020000010207a50000"
       },
       {
        "id": 174,
        "number": 0,
        "body_hex": "000066756c6c00000000000000000301000000ffffffffffffffff0000000000000000190002e901010400010110000302e9010104000102120000010000"
-      },
-      {
-       "id": 174,
-       "number": 1,
-       "body_hex": "00016661737400000000000000000301000000ffffffffffffffff0000000000000000250002e9010104000101100003000102e00202e65a01a5000102e9010104000102120000010000"
       }
      ],
-     "framed_hex": "00b11700000101409c000000010203020a02020000010207a5000000ae3e00000066756c6c00000000000000000301000000ffffffffffffffff0000000000000000190002e901010400010110000302e901010400010212000001000001ae4a0000016661737400000000000000000301000000ffffffffffffffff0000000000000000250002e9010104000101100003000102e00202e65a01a5000102e9010104000102120000010000",
-     "drive_bytes": 171,
+     "framed_hex": "00b11700000101409c000000010203010a02020000010207a5000000ae3e00000066756c6c00000000000000000301000000ffffffffffffffff0000000000000000190002e901010400010110000302e9010104000102120000010000",
+     "drive_bytes": 93,
      "fits_config": true,
      "fits": {
       "bg22": true,
@@ -5601,10 +5556,6 @@
      "equivalence": {
       "modes": {
        "0": {
-        "rc": 0,
-        "equal": true
-       },
-       "1": {
         "rc": 0,
         "equal": true
        }
@@ -5632,43 +5583,22 @@
         "bg22": true
        },
        "verified": "equivalent"
-      },
-      {
-       "index": 1,
-       "name": "fast",
-       "refresh": "fast",
-       "passes": 1,
-       "color_scheme": 3,
-       "planes": 1,
-       "window": false,
-       "seq_bytes": 37,
-       "steps": 16,
-       "fits": {
-        "default": true,
-        "bg22": true
-       },
-       "verified": "equivalent"
       }
      ],
      "packets": [
       {
        "id": 177,
        "number": 0,
-       "body_hex": "000101409c000000010203020a02020000010207a50000"
+       "body_hex": "000101409c000000010203010a02020000010207a50000"
       },
       {
        "id": 174,
        "number": 0,
        "body_hex": "000066756c6c00000000000000000301000000ffffffffffffffff0000000000000000190002e901010400010110000302e9010104000102120000010000"
-      },
-      {
-       "id": 174,
-       "number": 1,
-       "body_hex": "00016661737400000000000000000301000000ffffffffffffffff0000000000000000250002e9010104000101100003000102e00202e65a01a5000102e9010104000102120000010000"
       }
      ],
-     "framed_hex": "00b11700000101409c000000010203020a02020000010207a5000000ae3e00000066756c6c00000000000000000301000000ffffffffffffffff0000000000000000190002e901010400010110000302e901010400010212000001000001ae4a0000016661737400000000000000000301000000ffffffffffffffff0000000000000000250002e9010104000101100003000102e00202e65a01a5000102e9010104000102120000010000",
-     "drive_bytes": 171,
+     "framed_hex": "00b11700000101409c000000010203010a02020000010207a5000000ae3e00000066756c6c00000000000000000301000000ffffffffffffffff0000000000000000190002e901010400010110000302e9010104000102120000010000",
+     "drive_bytes": 93,
      "fits_config": true,
      "fits": {
       "bg22": true,
