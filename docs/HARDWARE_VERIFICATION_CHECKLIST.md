@@ -1845,3 +1845,7 @@ Same procedure as the 7.5" above, `ep29yr_bwry` entry (2998 B config; the unit h
 |---|---|
 | BW2_kick3_w10, counter 00-10, 24-26 C | updates, 3.1 s per update, but held K fades a step per update as on the 2.66": **FAIL** for shipping as is |
 | The 2.66" held-K top-up on the 2.9" | **OPEN** |
+| Same, 30 s between updates (2026-11-27) | black drawn by the partial (counter, tens "0" held 00-09) holds; black drawn by the stock full (strip, squares in the counter rows and elsewhere) fades. Not a per-row effect |
+| Back to back, a square painted K by the first partial beside a full-drawn square, 26-29 C | all held K fades except pixels driven in that update |
+| **ODBDD245** (2.9", HA unit, 3.1.1, drive packets byte-identical to `ep29yr_bwry`), same back-to-back test, frames only, 20-23 C | **PASS** by eye: nothing fades |
+| OD18FCAA again after 40 min idle, same test | fades; it still reports 26-28 C beside ODBDD245's 20-23 C. Unit vs temperature not yet separated |
