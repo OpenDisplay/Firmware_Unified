@@ -8,6 +8,38 @@ required for now: a version without one is released with notes that say so.
 
 ## [Unreleased]
 
+## [3.2.0]
+
+Frame layout for panels that take their frame split across two controllers or in a reordered
+row order, and the first preset that needs it.
+
+### Breaking changes
+
+- **Colour scheme 8 (BWGBRY_SPLIT) is refused.** It is now BWGBRY with `frame_split` HALVES, the
+  same bytes. A device that stored scheme 8 (the EE02 dual Spectra 6 presets `0x002B` and
+  `0x0042`) keeps its config and stays reachable, but refuses uploads and shows no boot screen
+  until a 3.2-aware tool writes the config again with scheme 4 and `frame_split` 1. Rewrite the
+  config before or right after updating those units.
+
+### Added
+
+- **Frame layout** (protocol structs 2.5). DisplayConfig `0x20` gains `frame_split`,
+  `frame_scan`, `part_width`, `part_stride`, `plane_invert`, `pixel_pack` and `row_order`
+  (offsets 33-41, from `reserved`). All zero is the plain linear frame every existing config
+  already has. Undefined values and non-zero reserved bytes are refused at config load. The
+  device forwards uploaded bytes unchanged; it reads the fields to size the frame and to draw
+  its own boot screen in the same order. A host older than 3.2 ignores the fields and misdraws
+  a panel that uses them.
+- **GDEY0579F52 5.79in BWRY** (panel id 78, preset `0x004E`): `frame_split` HALVES +
+  `row_order` FOLD, mode `full`, drawn on glass on EE04.
+- **CrowPanel 5.79in** (`0x0033`): split layout from bb_epaper, not tried on glass.
+
+### Changed
+
+- Protocol headers vendored byte for byte from opendisplay-protocol: structs 2.6 (panel ids 78
+  and 3005, sensors AHT20 / PCF8563, `NM420_INIT`, config packet 0xB3, escapes WINDOW / FILL,
+  ActionInfoResponse `tables`) and protocol 2.5. No wire change beyond those already shipped.
+
 ## [3.0.0]
 
 The first release of `Firmware_Unified`. It replaces three firmware lines with one source tree:
@@ -36,14 +68,6 @@ no way to drive its panel, so old updaters must not see 3.0 at all. See
     - ESP32 and Nordic still keep bb_epaper (and FastEPD on ESP32) beside the config-driven
       path for the panels they already know.
   - Config packets `0x2E`-`0x31` are retired. Firmware walks past them and never acts on them.
-- **Frame layout in DisplayConfig, colour scheme 8 retired** (protocol structs 2.5). `0x20` gains
-  `frame_split`, `frame_scan`, `part_width`, `part_stride`, `plane_invert`, `pixel_pack` and
-  `row_order` (offsets 33-41, from `reserved`) for panels that take their frame split across
-  controllers or reordered; all zero is the old frame. Undefined values and non-zero reserved
-  bytes are refused at config load. Scheme 8 (BWGBRY_SPLIT) is refused: it is BWGBRY +
-  `frame_split` HALVES, the same bytes, and the v3 migration rewrites it. A host older than 3.0
-  ignores the new fields, so it misdraws a panel that uses them. *(pending merge:
-  `panels/window-geometry`)*
 - **Config format Rev 2.** Packet types `0x80` and above form an indexed tail, and a config is
   now larger:
   - BG22 accepts up to 3120 B (2.x: 2048 B). A 3.0 config may therefore not be readable after a
