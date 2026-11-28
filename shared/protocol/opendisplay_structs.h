@@ -19,9 +19,9 @@
  *   type mirrors (see docs/shared-types-plan.md); codegen must carry the prose
  *   through as idiomatic doc comments in each target language.
  *
- *   OD_STRUCTS_VERSION  2.3   (MAJOR.MINOR spec marker for THIS file; see
+ *   OD_STRUCTS_VERSION  2.6   (MAJOR.MINOR spec marker for THIS file; see
  *                              VERSIONING POLICY below -- NOT sent on the wire)
- *   LAST CHANGED        2026-11-06
+ *   LAST CHANGED        2026-11-28
  *
  *   The two version schemes carried here are DISTINCT (see §6 Q2 of the plan):
  *     - OD_STRUCTS_VERSION_* : documents this spec file, like protocol.h's
@@ -66,21 +66,58 @@
  * CHANGELOG  (newest first; entries accrue under "Unreleased" and roll into a
  *            new version heading on each bump -- see AGENT INSTRUCTIONS below)
  * --------------------------------------------------------------------------
- *   Unreleased (since 2.3)
+ *   Unreleased (since 2.6)
  *     - Add each payload-layout change here as it lands. On the next version bump,
  *       move these under a new "MAJOR.MINOR (YYYY-MM-DD)" heading.
- *     - Firmware 3.0 (Firmware_Unified, decided 2026-11-11; to be adopted by
- *       opendisplay-protocol):
- *         PanelIC 3005 OD_PANEL_IC_M5PAPER_960X540; SensorType 7 AHT20 and
- *         8 PCF8563; DeviceFlags bit 5 OD_DEVICE_FLAG_NM420_INIT; config
- *         packet 0xB3 OD_PKT_DISPLAY_CONTROLLER; DriveSeqEscape 0x0C WINDOW
- *         and 0x0D FILL; ActionInfoResponse grows to 8 B (`tables`) and
- *         `rejected` counts every skipped entry.
- *     - Structs 2.5 (opendisplay-protocol#18): DisplayConfig frame layout
- *       (frame_split, frame_scan, part_width, part_stride, plane_invert,
- *       pixel_pack, row_order from reserved[13]; reserved[4] left), enums
- *       FrameSplit / RowOrder / PixelPack, bits FrameScan / PlaneInvert,
- *       PanelIC 78 EP579YR_792X272, ColorScheme 8 BWGBRY_SPLIT retired.
+ *
+ *   2.6  (2026-11-28)  -- Firmware 3.0 values (Firmware_Unified)
+ *     - MINOR, all additive: PanelIC 78 EP579YR_792X272 (GDEY0579F52, drawn
+ *       with frame_split HALVES + row_order FOLD) and 3005 M5PAPER_960X540;
+ *       SensorType 7 AHT20 and 8 PCF8563 (6 stays with the nRF firmware's
+ *       nPM1300); DeviceFlags bit 5 OD_DEVICE_FLAG_NM420_INIT; config packet
+ *       0xB3 OD_PKT_DISPLAY_CONTROLLER; DriveSeqEscape 0x0C WINDOW and 0x0D
+ *       FILL (advertised in CMD_READ_IDENT's escapes byte).
+ *     - ActionInfoResponse grows to 8 B with `tables` (0xB2 packets in the
+ *       config); `rejected` counts every malformed entry skipped, as the
+ *       walk no longer stops at the first. A reader of the first 7 bytes is
+ *       unaffected.
+ *     - Doc: DriveTempPolicy SUBSTITUTE falls back to mode 0 (the stock full)
+ *       when mode 0's own window covers the temperature, else refuses as
+ *       REJECT; the ACK's mode byte reports it.
+ *
+ *   2.5  (2026-11-28)  -- DisplayConfig frame layout (byte order a panel takes)
+ *     - DisplayConfig 0x20 carves 9 bytes from reserved[13] (offsets 33-41):
+ *       frame_split, frame_scan, part_width, part_stride, plane_invert,
+ *       pixel_pack, row_order; reserved shrinks to 4. They say in which order
+ *       the host emits frame bytes for panels whose controllers do not take a
+ *       linear row-major stream (two controllers per glass, column-major RAM,
+ *       folded or interleaved gate order, LSB-first, nibble-per-pixel). The
+ *       device still forwards uploaded bytes unchanged; it reads the fields to
+ *       size the frame and to render its own boot screen in the same order.
+ *       All zero = the linear layout every existing config already has.
+ *     - New enums FrameSplit, PixelPack, RowOrder; new bit sets FrameScan,
+ *       PlaneInvert. Any value or bit not defined here, and any non-zero byte
+ *       in the remaining reserved[4], MUST make a reader refuse the config, so
+ *       later additions fail loudly on readers that do not know them.
+ *     - ColorScheme 8 BWGBRY_SPLIT is retired: it is BWGBRY (4) with
+ *       frame_split = HALVES. Readers from 3.0 refuse it in DisplayConfig; the
+ *       value stays reserved and is never reused.
+ *     - MINOR, not MAJOR: a 2.4 reader sees zeros for every existing panel.
+ *       Non-zero layouts are only written for panels that 2.4 firmware cannot
+ *       drive correctly anyway.
+ *
+ *   2.4  (2026-11-25)  -- 3-bit calibration codes (Spectra 6 multi-pass modes)
+ *     - DisplayCalibrationHead.cal_flags bit1 = OD_DRIVE_CAL_FLAG_CODES_3BIT
+ *       (carved from the reserved bits 1-7): DisplayCalibrationEntry.codes
+ *       packs 3-bit panel codes, pass p in bits [3p+2:3p], at most 5 passes.
+ *       Clear = the 2-bit layout, unchanged. For panels whose frame codes are
+ *       3 bits wide (BWGBRY / BWGBRY_SPLIT: K0 W1 Y2 R3 B5 G6; 4 and 7 leave
+ *       the pixel as it is). A host that does not know the bit MUST NOT use
+ *       the palette; hosts written before 2.4 only use 0xB0 for BWRY16 modes,
+ *       and no device reads 0xB0, so old peers are unaffected.
+ *     - Doc-only: display_mode.color_scheme 0xFF on a multi-pass mode means
+ *       each pass frame packs as the panel's scheme (e.g. BWGBRY_SPLIT); the
+ *       mode's colours come from its 0xB0 palette, not from the scheme.
  *
  *   2.3  (2026-11-06)  -- action table + image-store payloads (Firmware_Unified BG22)
  *     - Config packet 0xB2 = OD_PKT_ACTION_TABLE (length-prefixed, SINGLETON):
@@ -334,8 +371,8 @@
 /* Payload-spec revision, MAJOR.MINOR. Documents THIS file; NOT sent on the wire.
  * Distinct from the on-wire OD_CONFIG_VERSION pair defined in SECTION 1. */
 #define OD_STRUCTS_VERSION_MAJOR       2u
-#define OD_STRUCTS_VERSION_MINOR       3u
-#define OD_STRUCTS_VERSION_STR         "2.3"
+#define OD_STRUCTS_VERSION_MINOR       6u
+#define OD_STRUCTS_VERSION_STR         "2.6"
 
 /* --------------------------------------------------------------------------
  * Portable compile-time size check. Defined once here; every packed struct is
@@ -469,7 +506,7 @@ enum ConfigPacketType {
     OD_PKT_DISPLAY_CAL    = 0xB0, /**< @doc "display_calibration (length-prefixed; repeatable, max 32): per-mode palette -- per-pass codes + measured CIELAB. HOST-ONLY: the device skips it." @since 1.6 */
     OD_PKT_DISPLAY_PANEL  = 0xB1, /**< @doc "display_panel (length-prefixed; repeatable, max 4): per-panel drive properties -- BUSY trust/sense, colour code map, sleep sequence." @since 1.6 */
     OD_PKT_ACTION_TABLE   = 0xB2, /**< @doc "action_table (length-prefixed; SINGLETON -- at most one per config, and a client replaces it rather than appending a second): trigger -> effect sequences the device runs locally. Body = ActionEntryHead + ActionStep records; see the 0xB2 section." @since 1.6 */
-    OD_PKT_DISPLAY_CONTROLLER = 0xB3  /**< @doc "display_controller (length-prefixed; per instance, first wins): selects a built-in controller driver (IT8951, MCU-timed parallel) instead of drive packets. v0 body 12 B: instance, version 0, class (0 command-driven, 1 IT8951, 2 parallel), flags (bit0 MIRRORED, bit1 GRAY16, bit2 TEMP_SENSOR), vcom_mv LE16 (0 keep stored), default_temp_c int8 (0x7F driver default), parallel_panel (1 Inkplate 5 V2, 2 Inkplate 10, 3 PaperS3), miso_pin, en_pin, ite_en_pin (0xFF none), reserved 0. A longer body is accepted; an unknown version or class is ignored." @since 3.0 */
+    OD_PKT_DISPLAY_CONTROLLER = 0xB3  /**< @doc "display_controller (length-prefixed; per instance, first wins): selects a built-in controller driver (IT8951, MCU-timed parallel) instead of drive packets. v0 body 12 B: instance, version 0, class (0 command-driven, 1 IT8951, 2 parallel), flags (bit0 MIRRORED, bit1 GRAY16, bit2 TEMP_SENSOR), vcom_mv LE16 (0 keep stored), default_temp_c int8 (0x7F driver default), parallel_panel (1 Inkplate 5 V2, 2 Inkplate 10, 3 PaperS3), miso_pin, en_pin, ite_en_pin (0xFF none), reserved 0. A longer body is accepted; an unknown version or class is ignored." @since 2.6 */
 };
 
 /* ==========================================================================
@@ -537,7 +574,7 @@ enum ManufacturerId {
 #define OD_DEVICE_FLAG_WS_PP_INIT      (1u << 2) /* @doc "apply Waveshare PhotoPainter low-power init" */
 #define OD_DEVICE_FLAG_PWR_LATCH       (1u << 3) /* @doc "self-holding MOSFET latch on pwr_pin_2; optional long-press shutdown button on pwr_pin_3" */
 #define OD_DEVICE_FLAG_PWR_LATCH_DFF   (1u << 4) /* @doc "74AHC1G79 D-FF latch: pwr_pin_2=D (hold), pwr_pin_3=CP (clock); command 0x0052 releases latch" */
-#define OD_DEVICE_FLAG_NM420_INIT      (1u << 5) /* @doc "apply RockBase NM-EPD-420 low-power init: default peripheral and ADC enable pins LOW; hold them LOW in deep sleep" @since 3.0 */
+#define OD_DEVICE_FLAG_NM420_INIT      (1u << 5) /* @doc "apply RockBase NM-EPD-420 low-power init: default peripheral and ADC enable pins LOW; hold them LOW in deep sleep" @since 2.6 */
 
 /** @struct SystemConfig  @packet 0x01  @required
  *  @doc "Host IC identity, communication capabilities, and power-management pins.
@@ -764,7 +801,7 @@ enum PanelIC {
     OD_PANEL_IC_EP40_SPECTRA_400X600     = 74  , /**< @doc "GDEP040E01 Spectra 6 4\" 400x600" */
     OD_PANEL_IC_EP27_176X264             = 75  , /**< @doc "Badger2350 B/W 2.7\"" */
     OD_PANEL_IC_EP27_176X264_4GRAY       = 76  , /**< @doc "Badger2350 4-gray 2.7\"" */
-    OD_PANEL_IC_EP579YR_792X272          = 78  , /**< @doc "GDEY0579F52 5.79\" BWRY (two IST7158; frame_split HALVES, row_order FOLD). 77 is taken by ep42r3_400x300 in the toolbox config.yaml." @since 2.5 */
+    OD_PANEL_IC_EP579YR_792X272          = 78  , /**< @doc "GDEY0579F52 5.79\" BWRY (two IST7158; frame_split HALVES, row_order FOLD). 77 is taken by ep42r3_400x300 in the toolbox config.yaml." @since 2.6 */
     OD_PANEL_IC_UC8176_420_BW            = 1000, /**< @doc "UC8176 4.2\" B/W (M3 / EPD-nRF5 driver line, values 1000-1030)" */
     OD_PANEL_IC_SSD1619_420_BWR          = 1001, /**< @doc "SSD1619 4.2\" B/W/R" */
     OD_PANEL_IC_UC8176_420_BWR           = 1002, /**< @doc "UC8176 4.2\" B/W/R" */
@@ -801,7 +838,7 @@ enum PanelIC {
     OD_PANEL_IC_INKPLATE5V2_1280X720     = 3002, /**< @doc "Soldered Inkplate 5 V2 (ED050WROW, 1280x720, 1bpp; FastEPD native parallel path)" */
     OD_PANEL_IC_INKPLATE10_1200X825      = 3003, /**< @doc "Soldered Inkplate 10 (ED097TC2, 1200x825, 1bpp; FastEPD native parallel path)" */
     OD_PANEL_IC_M5PAPERS3_960X540        = 3004, /**< @doc "M5Stack PaperS3 (ED047TC1-class, 960x540, 16-gray capable; FastEPD native parallel path)" @since 1.5 */
-    OD_PANEL_IC_M5PAPER_960X540          = 3005  /**< @doc "M5Stack M5Paper (ED047TC1 behind an IT8951 over SPI; FastEPD IT8951 path)" @since 3.0 */
+    OD_PANEL_IC_M5PAPER_960X540          = 3005  /**< @doc "M5Stack M5Paper (ED047TC1 behind an IT8951 over SPI; FastEPD IT8951 path)" @since 2.6 */
 };
 
 /* DisplayConfig.transmission_modes @bits TransmissionModes (bits 5-6 reserved --
@@ -947,8 +984,8 @@ enum SensorType {
     OD_SENSOR_TYPE_SHT40       = 4, /**< @doc "Sensirion SHT40 (I2C); writes 3 LE bytes into MSD dynamic data (21 bits: 0.1C, 0.1% RH)" */
     OD_SENSOR_TYPE_BQ27220     = 5, /**< @doc "TI BQ27220 fuel gauge (I2C 0x55); voltage in MSD bytes 14-15, one packed dynamic byte (bits 0-6 SOC%, bit7 charging)" */
     /* 6 is taken by the nRF firmware's nPM1300 PMIC (targets/nordic-zephyr protocol_pending.h). */
-    OD_SENSOR_TYPE_AHT20       = 7, /**< @doc "AHT20 (I2C 0x38); wake-time sample in SHT40-compatible 3-byte MSD format" @since 3.0 */
-    OD_SENSOR_TYPE_PCF8563     = 8  /**< @doc "PCF8563 / BM8563 RTC (I2C 0x51) as the power-off wake source; publishes no MSD data" @since 3.0 */
+    OD_SENSOR_TYPE_AHT20       = 7, /**< @doc "AHT20 (I2C 0x38); wake-time sample in SHT40-compatible 3-byte MSD format" @since 2.6 */
+    OD_SENSOR_TYPE_PCF8563     = 8  /**< @doc "PCF8563 / BM8563 RTC (I2C 0x51) as the power-off wake source; publishes no MSD data" @since 2.6 */
 };
 
 /** @struct SensorData  @packet 0x23  @repeatable max=4
@@ -1351,8 +1388,8 @@ enum DriveSeqEscape {
     OD_SEQ_ESC_READ_SCRATCH  = 0x09, /**< @doc "args [pin_ref][len]: clock `len` bytes (<= 16) into the scratch buffer, sampling `pin_ref` (DriveSeqPinRef) as the data-in line -- explicit because the read source varies (dc_pin doubles as MISO on some boards; a waveform EEPROM has its own MISO on an aux pin). Scratch is 16 bytes, zeroed at sequence start." @since 1.6 */
     OD_SEQ_ESC_WRITE_SCRATCH = 0x0A, /**< @doc "args [cmd][off][len]: send command byte `cmd` followed by scratch[off..off+len) as data. With READ_SCRATCH this expresses e.g. the UC8159 panel-EEPROM flow (SET_PIN eeprom-CS, READ_SCRATCH PLL/VCOM, WRITE_SCRATCH into registers)." @since 1.6 */
     OD_SEQ_ESC_LUT_SLICE     = 0x0B, /**< @doc "args [off:2 LE][len:2 LE]: stream bytes [off, off+len) of the current pass's waveform slot. For controllers whose waveform spans several registers (UC81xx 0x20-0x24): the slot stores the concatenation and the sequence sends one slice per register, so ONE slot per pass still suffices." @since 1.6 */
-    OD_SEQ_ESC_WINDOW        = 0x0C, /**< @doc "args [n][(kind,val)*n]: one step of n bytes (cmd first, n 1..32), each a literal (kind 0) or a geometry byte (kind 1; val bits 2..0 x0/x1/y0/y1/W-1/H-1/w/h, bit3 divide by 8, bit4 mirror, bit5 high byte) of the update window (the partial rectangle, else the whole panel)." @since 3.0 */
-    OD_SEQ_ESC_FILL          = 0x0D  /**< @doc "args [cmd][value][flags]: cmd, then a plane of `value`; flags bits 1..0 bpp (1/2/4; 3 refused), bit 7 the window instead of the whole panel." @since 3.0 */
+    OD_SEQ_ESC_WINDOW        = 0x0C, /**< @doc "args [n][(kind,val)*n]: one step of n bytes (cmd first, n 1..32), each a literal (kind 0) or a geometry byte (kind 1; val bits 2..0 x0/x1/y0/y1/W-1/H-1/w/h, bit3 divide by 8, bit4 mirror, bit5 high byte) of the update window (the partial rectangle, else the whole panel)." @since 2.6 */
+    OD_SEQ_ESC_FILL          = 0x0D  /**< @doc "args [cmd][value][flags]: cmd, then a plane of `value`; flags bits 1..0 bpp (1/2/4; 3 refused), bit 7 the window instead of the whole panel." @since 2.6 */
 };
 
 /** @enum DriveSeqPinRef  @width 1
@@ -1389,8 +1426,9 @@ enum DriveTempPolicy {
 #define OD_PANEL_FLAG_BUSY_USABLE   (1u << 0) /* @doc "the BUSY line can be polled; else use busy_fixed_delay_ms blind waits." */
 #define OD_PANEL_FLAG_LUT_SUPPORTED (1u << 1) /* @doc "panel honours a custom waveform (display_lut slots are meaningful)." */
 
-/* DisplayCalibrationHead.cal_flags @bits DriveCalFlags (bits 1-7 reserved). */
+/* DisplayCalibrationHead.cal_flags @bits DriveCalFlags (bits 2-7 reserved). */
 #define OD_DRIVE_CAL_FLAG_MEASURED  (1u << 0) /* @doc "lab[] values were photometrically measured on THIS unit; 0 = borrowed/nominal placeholder." */
+#define OD_DRIVE_CAL_FLAG_CODES_3BIT (1u << 1) /* @doc "DisplayCalibrationEntry.codes packs 3-bit panel codes, pass p in bits [3p+2:3p], so a palette covers at most 5 passes; clear = 2-bit codes. Set for panels whose frame codes are 3 bits (BWGBRY, BWGBRY_SPLIT: 0 K, 1 W, 2 Y, 3 R, 5 B, 6 G; 4 and 7 leave the pixel unchanged, so a pass may use them to keep the previous pass's colour). A host that does not know this bit MUST NOT use the palette." @since 2.4 */
 
 /** @struct DisplayModeHead  @packet 0xAE  @repeatable max=32  @since 1.6
  *  @doc "HEAD of a display_mode packet: one drive mode of one display. Body =
@@ -1401,7 +1439,7 @@ struct DisplayModeHead {
     uint8_t  instance_number; /**< @doc "display instance this mode belongs to (DisplayConfig.instance_number)." */
     uint8_t  mode_index;      /**< @doc "mode id named by CMD_DRIVE_WRITE_START's mode byte; unique per display." */
     uint8_t  mode_name[12];   /**< @doc "human-readable mode name, NUL-padded ASCII (e.g. 'full', 'fast', '16colour')." */
-    uint8_t  color_scheme;    /**< @enum ColorScheme @doc "what this mode RENDERS (e.g. BWRY16 for a multi-pass 16-colour mode, GRAY16 for a grey mode on a BWR panel); 0xFF = inherit the panel's DisplayConfig.color_scheme. This is the one legitimate home for mode-level schemes like BWRY16 that must never enter 0x20." */
+    uint8_t  color_scheme;    /**< @enum ColorScheme @doc "what this mode RENDERS (e.g. BWRY16 for a multi-pass 16-colour mode, GRAY16 for a grey mode on a BWR panel); 0xFF = inherit the panel's DisplayConfig.color_scheme. A multi-pass mode with 0xFF packs every pass frame as the panel's scheme (e.g. BWGBRY_SPLIT nibbles) and takes its colours from its display_calibration (0xB0) palette. This is the one legitimate home for mode-level schemes like BWRY16 that must never enter 0x20." */
     uint8_t  passes;          /**< @min 1 @max 8 @doc "how many frames one transfer streams; the device re-runs the sequence per pass." */
     uint8_t  temp_min_c;      /**< @doc "lower temperature bound, SIGNED int8 two's complement, degrees C." */
     uint8_t  temp_max_c;      /**< @doc "upper temperature bound, SIGNED int8 two's complement, degrees C." */
@@ -1450,7 +1488,7 @@ OD_STATIC_ASSERT(sizeof(struct DisplayCalibrationHead) == 4, "DisplayCalibration
  *  do NOT apply display_panel.code_map to them (doing so swaps yellow and red
  *  on BWRY glass)." */
 struct DisplayCalibrationEntry {
-    uint16_t codes;           /**< @endian le @doc "packed 2-bit panel codes, pass p in bits [2p+1:2p] (LSB-first); 16 bits cover the 8-pass maximum." */
+    uint16_t codes;           /**< @endian le @doc "packed panel codes, LSB-first: 2-bit codes with pass p in bits [2p+1:2p] (16 bits cover the 8-pass maximum), or, when cal_flags has OD_DRIVE_CAL_FLAG_CODES_3BIT, 3-bit codes with pass p in bits [3p+2:3p] (at most 5 passes; bit 15 zero)." */
     uint16_t lab_l;           /**< @endian le @doc "CIELAB L* x100, SIGNED int16 two's complement." */
     uint16_t lab_a;           /**< @endian le @doc "CIELAB a* x100, SIGNED int16 two's complement." */
     uint16_t lab_b;           /**< @endian le @doc "CIELAB b* x100, SIGNED int16 two's complement." */
@@ -1748,7 +1786,7 @@ OD_STATIC_ASSERT(sizeof(struct FlashSlotRecord) == 6, "FlashSlotRecord wire size
 /** @struct ActionInfoResponse  @message CMD_ACTION_INFO
  *  @doc "8-byte CMD_ACTION_INFO 0x004C response DATA (device->host): load
  *  statistics of the FIRST 0xB2 action table plus runner observability. All
- *  counters reset on boot and on every config write. A 2.4 reader of the
+ *  counters reset on boot and on every config write. A reader of the
  *  first 7 bytes is unaffected by `tables`." */
 struct ActionInfoResponse {
     uint8_t entries;      /**< @doc "structurally valid entries loaded (= active + inactive)." */
@@ -1758,7 +1796,7 @@ struct ActionInfoResponse {
     uint8_t last_trigger; /**< @enum ActionTrigger @doc "trigger that last started a sequence; 0 = none yet." */
     uint8_t fire_count;   /**< @doc "sequences started, mod 256." */
     uint8_t last_temp_c;  /**< @unit C @doc "latest temperature sample, SIGNED int8 two's complement; 0 before the first sample." */
-    uint8_t tables;       /**< @doc "number of 0xB2 packets in the config; only the first runs (> 1 means a host appended instead of replacing)." @since 3.0 */
+    uint8_t tables;       /**< @doc "number of 0xB2 packets in the config; only the first runs (> 1 means a host appended instead of replacing)." @since 2.6 */
 } __attribute__((packed));
 OD_STATIC_ASSERT(sizeof(struct ActionInfoResponse) == 8, "ActionInfoResponse wire size");
 

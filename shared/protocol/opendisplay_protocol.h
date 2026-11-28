@@ -10,7 +10,7 @@
  *   fully-correct client from THIS FILE ALONE, without reading firmware.
  *
  *   OD_PROTOCOL_VERSION 2.5   (MAJOR.MINOR; see VERSIONING POLICY below)
- *   LAST CHANGED        2026-11-25
+ *   LAST CHANGED        2026-11-28
  *
  * --------------------------------------------------------------------------
  * VERSIONING POLICY
@@ -79,8 +79,7 @@
  *       (OD_CAP_DISPLAYED_ETAG), not only those with OD_CAP_PARTIAL.
  *     - Doc: 0x0085 @flags names bit2 INLINE_LUT (rsv = inline table length).
  *     - (rolled in from "Unreleased (since 2.4)":)
- *     - Firmware 3.0 (Firmware_Unified, decided 2026-11-11; to be adopted by
- *       opendisplay-protocol): CMD_READ_IDENT tail (flags, limits, escapes)
+ *     - Firmware 3.0 (Firmware_Unified, decided 2026-11-11): CMD_READ_IDENT tail (flags, limits, escapes)
  *       and one fw_target per MCU family (0x05 nRF52840); upload START NACK
  *       data bytes 0x08 NEEDS_MIGRATION and 0x09 PANEL_BUSY (section 4h);
  *       OD_ERR_DRIVE_PANEL_BUSY 0x08 (4e); CONFIG_WRITE NACK byte (4g);
