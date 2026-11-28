@@ -223,8 +223,7 @@ bool od_xfer_app_panel_info(od_xfer_panel_info_t *out)
 {
     memset(out, 0, sizeof(*out));
     out->needs_migration = od_display_needs_migration();
-    if (od_color_direct_geometry(g_disp->color_scheme, g_disp->pixel_width,
-                                 g_disp->pixel_height, &out->geometry) != OD_COLOR_OK) {
+    if (od_color_display_geometry(g_disp, g_disp->color_scheme, &out->geometry) != OD_COLOR_OK) {
         return false;
     }
     out->width = g_disp->pixel_width;
@@ -312,7 +311,7 @@ uint32_t od_inflate_app_output_count(void) { return od_zlib_stream_output_count(
 
 /* ---------------------------------------------------------------------- setup --- */
 
-/* BWGBRY_SPLIT 16x8: two 4 bpp halves of 8x8 = 32 B each. One full mode whose sequence writes
+/* BWGBRY + frame_split HALVES, 16x8: two 4 bpp halves of 8x8 = 32 B each. One full mode whose sequence writes
  * IMAGE_SLICE 0/2 on CS 0, then IMAGE_SLICE 1/2 on CS 1, then refreshes both. */
 static void provision(bool second_cs)
 {
@@ -331,7 +330,8 @@ static void provision(bool second_cs)
     g_cfg.display_count = 1u;
     g_disp->pixel_width = 16u;
     g_disp->pixel_height = 8u;
-    g_disp->color_scheme = OD_COLOR_SCHEME_BWGBRY_SPLIT;
+    g_disp->color_scheme = OD_COLOR_SCHEME_BWGBRY;
+    g_disp->frame_split = OD_FRAME_SPLIT_HALVES;
     g_disp->cs_pin = 5u;
     g_disp->cs_pin_2 = second_cs ? 9u : 0xFFu;
     g_disp->reset_pin = 6u;

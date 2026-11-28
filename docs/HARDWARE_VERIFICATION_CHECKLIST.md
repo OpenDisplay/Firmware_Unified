@@ -1793,18 +1793,22 @@ K/W/Y/R strip), then a two-digit counter in the centre through `partial_bw` (py-
 | BW2_kick3_w20 (20-frame white runs), 00-05, 23-26 C | **PASS**: "way better" white; 7.3-7.4 s per update. Shipped |
 | Black/white drift over 100 updates, strip outside the counter, meter | **OPEN** |
 
-## 5.79" BWRY GDEY0579F52 (no panel id) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
+## 5.79" BWRY GDEY0579F52 (panel id 78, `0x004E`) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
 
 Bare Good Display 5.79in 792x272 BWRY panel, label `0579-F52-B2`: two IST7158 controllers, each
 396x272, selected with `A2 01` (master, left half) / `A2 02` (slave, right half), `A2 00` both.
-No protocol panel id and no preset; driven over CMD_SPI_RAW only, nothing stored on the device.
-Reference: Good Display sample code A32-GDEY0579F52 (2025-07-08). Camera only.
+The first four rows drive it over CMD_SPI_RAW only, nothing stored on the device; the last two run
+preset `0x004E` from the config. Reference: Good Display sample code A32-GDEY0579F52 (2025-07-08).
+Camera only.
 
 | Row | Result |
 |---|---|
 | bb_epaper `epd579yr_init_full` (commented out upstream), halves sent row by row | **FAIL**: master half squashed to half height with a mirrored copy below, white drawn yellowish; slave half dark |
 | same init, whole 792-wide frame with `A2 00` | **FAIL**: master half shows a jumbled flipped frame; slave half dark |
 | Good Display init (adds `A5` OTP load + BUSY after `E0 01`), each half sent as row pairs (271-i, i) for i = 0..135, `A2 00`, `12 01` | **PASS** on camera: K/W/Y/R bands, text and the right-edge marker all in place across both halves |
+| Good Display init, each half sent in plain row order (0..271), `A2 00`, `12 01` (2026-11-28, bands rotated) | **FAIL**: each half squashed to half height with an upside-down copy below. Even wire rows land top-down, odd rows bottom-up, so the row pairs are the glass's gate order, not a register setting: preset `0x004E` keeps `row_order` FOLD |
+| Firmware with structs 2.5 (this branch, `s3-n16r8`), config `0x004E` written by the py-opendisplay fork: the device's own SETUP screen (claim mode), drawn by the frame walker with split + FOLD | **PASS** on camera: border continuous across the column-396 seam, QR whole on the right half with its finder patterns in place, nothing folded or mirrored |
+| Same firmware and config after claim mode timed out: `upload_image` (py-opendisplay fork, host packs split + FOLD), mode `full`, W/Y/R/K bands + text + right-edge triangle (2026-11-28). Device drive packets read back equal to `drive_presets.json` default class (`framed_sha256` 09aa3fba…) | **PASS** on camera, 21.3 s: bands in order, colours right, text whole across the column-396 seam, triangle at the right edge, nothing folded or mirrored. Recorded in `panels/glass_reports.yaml` |
 
 ## Seeed 3.97" BWRY (0x0037) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
 

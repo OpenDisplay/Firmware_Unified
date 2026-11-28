@@ -107,7 +107,6 @@ int     od_display_boot_sink_end_frame(void);
 int     od_display_boot_sink_bits_per_pixel(uint8_t color_scheme);
 int     od_display_boot_sink_default_plane(uint8_t color_scheme);
 bool    od_display_boot_sink_direct_2bpp(void);
-uint8_t od_display_boot_sink_segments(void);
 #endif
 
 #ifdef __cplusplus

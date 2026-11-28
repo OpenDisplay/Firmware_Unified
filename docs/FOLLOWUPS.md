@@ -1881,28 +1881,25 @@ Seeed 2.13in mono panel; id 4 (EP213B_122x250) drives it correctly
 (HARDWARE_VERIFICATION_CHECKLIST.md § 2.13" BW (0x0004)). External follow-up: confirm which glass
 the preset is sold with and switch it to id 4, keeping a migration for devices configured as 3.
 
-## 5.79in BWRY GDEY0579F52 has no panel id and needs a row-pair frame order
+## 5.79in BWRY GDEY0579F52 (0x004E) has no website entry
 
-The panel drives correctly over raw SPI (HARDWARE_VERIFICATION_CHECKLIST.md § 5.79" BWRY
-GDEY0579F52). Two things stand between it and a preset:
+`full` draws on glass through the preset (HARDWARE_VERIFICATION_CHECKLIST.md § 5.79" BWRY
+GDEY0579F52; `panels/glass_reports.yaml`), so the generated entry is `verified: glass`. The
+`panels.yaml` entry stays `status: untested` because the Glass tests compare every `glass` entry
+byte for byte with the website's drive-presets.json, which does not list 0x004E. External
+follow-up: add it to the website (with its frame layout, which needs the od-v3.js config writer to
+emit structs 2.5 fields), then flip the entry to `glass`.
 
-- No panel id: `OD_PANEL_IC_EP579_792X272` (51) is the CrowPanel mono panel. External follow-up:
-  reserve an id in `../opendisplay-protocol`.
-- Frame order: each controller takes its 396-column half as row pairs (271-i, i). The existing
-  escapes cover the split (`A2 01`, 0x10, IMAGE_SLICE 0/2, `A2 02`, 0x10, IMAGE_SLICE 1/2) only
-  if the frame arrives already reordered, which is a host-side transform in py-opendisplay; the
-  alternative is an executor escape that does the reorder on the device.
+## 5.79in CrowPanel EP579_792x272 (0x0033) is not checked on glass
 
+OpenDisplay/Firmware#191. The panel has two SSD1683s, each owning a 400-column half. `panels.yaml`
+now carries a per-half sequence transcribed from bb_epaper `bbepWriteHalf` (`24` + IMAGE_SLICE 0/2,
+`91`/`C4`/`C5`/`CE`/`CF` + `A4` + IMAGE_SLICE 1/2) with `frame_split` HALVES, part_width 400,
+part_stride 392, COLUMN_MAJOR; `status: untested`, as no unit is on the bench. When one is:
 
-## 5.79in CrowPanel EP579_792x272 (0x0033) streams the frame to one controller
-
-OpenDisplay/Firmware#191. The panel has two SSD1683s, each owning a 400-column half addressed
-column-major (bb_epaper `bbepWriteHalf`: `11 05`, a half-width RAM window, the second controller
-through cmd|0x80 — `91`, `C4`/`C5`, `CE`/`CF`, then `A4`/`A6`). The generated sequence sends the
-whole frame linearly to the first controller, so the preset is kept (the id is in use) but marked
-DOUBT in `panels/generated/coverage.md`. Needs:
-
-- a hand-written per-half sequence (both windows, `24` + IMAGE_SLICE 0/2, `A4` + IMAGE_SLICE 1/2,
-  zero planes for `26`/`A6`);
-- the host to emit each half column-major, padded 396 to 400 columns, the second half starting at
-  frame column 392 — a py-opendisplay transform, the same kind the GDEY0579F52 entry above needs.
+- try the linear layout first (CLAUDE.md decision 16): data entry `11 01` / `91 00` (X first)
+  takes the halves as plain rows and drops COLUMN_MAJOR. bb_epaper's second-controller window is
+  `C4 30 00` (49 bytes) with the counter at `CE 31`; with X-first entry a 50-byte row would wrap
+  mid-row, so check that window first;
+- the `26` / `A6` planes bb_epaper zeroes are not written; the full (`22 F7`) and fast (`22 C7`)
+  updates should not read them, but an artefact from stale RAM would point there.

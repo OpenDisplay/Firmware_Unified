@@ -36,6 +36,14 @@ no way to drive its panel, so old updaters must not see 3.0 at all. See
     - ESP32 and Nordic still keep bb_epaper (and FastEPD on ESP32) beside the config-driven
       path for the panels they already know.
   - Config packets `0x2E`-`0x31` are retired. Firmware walks past them and never acts on them.
+- **Frame layout in DisplayConfig, colour scheme 8 retired** (protocol structs 2.5). `0x20` gains
+  `frame_split`, `frame_scan`, `part_width`, `part_stride`, `plane_invert`, `pixel_pack` and
+  `row_order` (offsets 33-41, from `reserved`) for panels that take their frame split across
+  controllers or reordered; all zero is the old frame. Undefined values and non-zero reserved
+  bytes are refused at config load. Scheme 8 (BWGBRY_SPLIT) is refused: it is BWGBRY +
+  `frame_split` HALVES, the same bytes, and the v3 migration rewrites it. A host older than 3.0
+  ignores the new fields, so it misdraws a panel that uses them. *(pending merge:
+  `panels/window-geometry`)*
 - **Config format Rev 2.** Packet types `0x80` and above form an indexed tail, and a config is
   now larger:
   - BG22 accepts up to 3120 B (2.x: 2048 B). A 3.0 config may therefore not be readable after a

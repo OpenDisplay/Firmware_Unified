@@ -206,7 +206,6 @@ static void formatBootColorSchemeText(uint8_t scheme, char* out, uint16_t outSiz
         case OD_COLOR_SCHEME_BWY:          snprintf(out, outSize, "BWY"); break;
         case OD_COLOR_SCHEME_BWRY:         snprintf(out, outSize, "BWRY"); break;
         case OD_COLOR_SCHEME_BWGBRY:       snprintf(out, outSize, "6 color"); break;
-        case OD_COLOR_SCHEME_BWGBRY_SPLIT: snprintf(out, outSize, "6c split"); break;
         case OD_COLOR_SCHEME_GRAY4:        snprintf(out, outSize, "4 gray"); break;
         case OD_COLOR_SCHEME_GRAY16:       snprintf(out, outSize, "16 gray"); break;
         case OD_COLOR_SCHEME_SEVEN_COLOR:  snprintf(out, outSize, "7 color"); break;
@@ -414,7 +413,6 @@ static const uint8_t kSchemeWhiteValue[] = {
     0xFF,  // 5: OD_COLOR_SCHEME_GRAY4 — 2bpp gray, code 11b per pixel = white
     0xFF,  // 6: OD_COLOR_SCHEME_GRAY16 — 4bpp Seeed 16-gray, nibble 15 = white
     0xFF,  // 7: OD_COLOR_SCHEME_SEVEN_COLOR — currently rendered as a mono stub
-    0x11,  // 8: OD_COLOR_SCHEME_BWGBRY_SPLIT — same packed white as BWGBRY
 };
 
 // Spectra 6 footer swatches: palette order black/white/yellow/red/blue/green →
@@ -436,6 +434,46 @@ static void bootGray4FillSwatchCodes(uint16_t panelIc, bool direct2bpp, uint8_t 
     for (int level = 0; level < 4; level++) {
         out[level] = direct2bpp ? (uint8_t)level : (uint8_t)((~stored[level]) & 3);
     }
+}
+
+/* The layout the boot frame goes out in: the display's frame layout, or the linear one. The
+ * renderer hands the walk rows packed at bpp, so a non-linear layout must pack at that depth. */
+static bool bootLayout(const struct DisplayConfig *d, int bpp, od_color_frame_layout_t *L) {
+    if (od_color_layout_is_linear(d)) {
+        memset(L, 0, sizeof *L);
+        L->parts = 1u;
+        L->bits_per_pixel = (uint8_t)bpp;
+        L->cell_bits = (uint8_t)bpp;
+        L->part_width = d->pixel_width;
+        L->part_stride = d->pixel_width;
+        return true;
+    }
+    return od_color_frame_layout(d, d->color_scheme, L) == OD_COLOR_OK &&
+           L->bits_per_pixel == (uint8_t)bpp;
+}
+
+static int bootWrite(void *ctx, uint16_t y, uint8_t part, const uint8_t *p, uint16_t n) {
+    (void)ctx;
+    return od_boot_app_write_row(y, part, p, n);
+}
+
+/* White as one code at bpp, from a scheme's packed white byte. */
+static uint8_t bootWhiteCode(uint8_t whiteValue, int bpp) {
+    return (uint8_t)((whiteValue >> (8 - bpp)) & ((1u << bpp) - 1u));
+}
+
+/* A plane that is all `code` (the BWR/BWY colour plane with no colour drawn). */
+static bool bootConstPlane(uint8_t *row, int pitch, uint8_t fill, const od_color_frame_layout_t *L,
+                           uint16_t w, uint16_t h, bool invert, uint8_t *scratch, size_t scratchLen) {
+    od_frame_walk_t walk;
+    uint16_t y, x0, x1;
+    bool ok = od_frame_walk_init(&walk, L, w, h, (uint8_t)(fill & 1u), invert, scratch, scratchLen);
+
+    while (ok && od_frame_walk_next(&walk, &y, &x0, &x1)) {
+        memset(row, fill, (size_t)pitch);
+        ok = od_frame_walk_emit(&walk, row, bootWrite, NULL);
+    }
+    return ok && od_frame_walk_finish(&walk, bootWrite, NULL);
 }
 
 bool od_boot_screen_render(const struct od_config *cfg,
@@ -518,7 +556,6 @@ bool od_boot_screen_render(const struct od_config *cfg,
                 numSwatches = 4;
                 break;
             case OD_COLOR_SCHEME_BWGBRY:
-            case OD_COLOR_SCHEME_BWGBRY_SPLIT:
                 for (int i = 0; i < 6; i++) swatchCode[i] = kBwgbrySwatchCodes[i];
                 numSwatches = 6;
                 break;
@@ -815,15 +852,17 @@ bool od_boot_screen_render(const struct od_config *cfg,
     const bool gray4Split = (colorScheme == OD_COLOR_SCHEME_GRAY4) && !direct2bpp;
     const int planePitch = (w + 7) / 8;
     const int planePasses = (gray4Split || colorSwatchPlane1) ? 2 : 1;
-    const uint8_t segments = od_boot_app_segments();
     const size_t rowRequired = (size_t)pitch + (gray4Split ? (size_t)planePitch : 0u);
+    od_color_frame_layout_t layout;
     bool outputOk = true;
-    if ((segments != 1u && segments != 2u) || (pitch % segments) != 0 ||
-        (gray4Split && (planePitch % segments) != 0) || rowRequired > bufs->row_len) {
+    if (rowRequired > bufs->row_len ||
+        !bootLayout(&cfg->displays[0], (gray4Split || useBitplanes) ? 1 : bitsPerPixel, &layout)) {
         return false;
     }
-    if (od_boot_app_begin_frame(w, h, segments) != 0) return false;
-    for (uint8_t segment = 0; segment < segments && outputOk; segment++) {
+    uint8_t *const scratch = bufs->row + rowRequired;
+    const size_t scratchLen = bufs->row_len - rowRequired;
+    if (od_boot_app_begin_frame(w, h, layout.parts) != 0) return false;
+    {
       for (int pass = 0; pass < planePasses && outputOk; pass++) {
         const int bitSel = pass;  // pass 0 -> LSB/PLANE_0, pass 1 -> MSB/PLANE_1
         const int targetPlane = (gray4Split || colorSwatchPlane1)
@@ -838,13 +877,19 @@ bool od_boot_screen_render(const struct od_config *cfg,
             : (uint16_t)(fwY + ls);
         const uint16_t k2Y   = (uint16_t)(k1Y + ls);
         const bool colorPlanePass = colorSwatchPlane1 && pass == 1;
-        if (od_boot_app_begin_plane(targetPlane) != 0) {
+        const int planeBpp = (gray4Split || useBitplanes) ? 1 : bitsPerPixel;
+        od_frame_walk_t walk;
+        uint16_t y_native, xFrom, xTo;
+        if (od_boot_app_begin_plane(targetPlane) != 0 ||
+            !od_frame_walk_init(&walk, &layout, w, h,
+                                (colorPlanePass || gray4Split) ? 0u : bootWhiteCode(whiteValue, planeBpp),
+                                ((layout.plane_invert >> pass) & 1u) != 0u, scratch, scratchLen)) {
             outputOk = false;
             break;
         }
-        for (uint16_t y_native = 0; y_native < h && outputOk; y_native++) {
+        while (outputOk && od_frame_walk_next(&walk, &y_native, &xFrom, &xTo)) {
             memset(row, colorPlanePass ? 0x00 : whiteValue, pitch);
-            for (uint16_t x_native = 0; x_native < w; x_native++) {
+            for (uint16_t x_native = xFrom; x_native < xTo; x_native++) {
                 // Map native pixel to logical (user-visible) coordinates
                 uint16_t lx, ly;
                 switch (rotation) {
@@ -889,28 +934,23 @@ bool od_boot_screen_render(const struct od_config *cfg,
                     if (si >= 0) setBootPixelCode(row, x_native, pitch, bitsPerPixel, swatchCode[si]);
                 }
             }
+            const uint8_t *out = row;
             if (gray4Split) {
                 uint8_t *planeRow = row + pitch;
                 makeGray4PlaneRow(planeRow, row, planePitch, w, bitSel);
-                if (od_boot_app_write_row(y_native, segment,
-                        planeRow + segment * (planePitch / segments),
-                        (uint16_t)(planePitch / segments)) != 0) outputOk = false;
-            } else {
-                if (od_boot_app_write_row(y_native, segment,
-                        row + segment * (pitch / segments),
-                        (uint16_t)(pitch / segments)) != 0) outputOk = false;
+                out = planeRow;
             }
+            if (!od_frame_walk_emit(&walk, out, bootWrite, NULL)) outputOk = false;
         }
+        if (outputOk && !od_frame_walk_finish(&walk, bootWrite, NULL)) outputOk = false;
         if (od_boot_app_end_plane(targetPlane) != 0) outputOk = false;
       }
 
       if (useBitplanes && !colorSwatchPlane1 && outputOk) {
-            memset(row, 0x00, pitch);
-            if (od_boot_app_begin_plane(OD_BOOT_PLANE_SECOND) != 0) outputOk = false;
-            for (uint16_t y = 0; y < h && outputOk; y++) {
-                if (od_boot_app_write_row(y, segment,
-                        row + segment * (pitch / segments),
-                        (uint16_t)(pitch / segments)) != 0) outputOk = false;
+            if (od_boot_app_begin_plane(OD_BOOT_PLANE_SECOND) != 0 ||
+                !bootConstPlane(row, pitch, 0x00, &layout, w, h,
+                                (layout.plane_invert & OD_PLANE_INVERT_1) != 0u, scratch, scratchLen)) {
+                outputOk = false;
             }
             if (od_boot_app_end_plane(OD_BOOT_PLANE_SECOND) != 0) outputOk = false;
         }
@@ -1161,26 +1201,34 @@ bool od_boot_screen_render_setup(const struct od_config *cfg, enum od_setup_scre
     const bool gray4Split = (colorScheme == OD_COLOR_SCHEME_GRAY4) && !direct2bpp;
     const int planePitch = (w + 7) / 8;
     const int planePasses = gray4Split ? 2 : 1;
-    const uint8_t segments = od_boot_app_segments();
     const size_t rowRequired = (size_t)pitch + (gray4Split ? (size_t)planePitch : 0u);
+    od_color_frame_layout_t layout;
     bool outputOk = true;
-    if ((segments != 1u && segments != 2u) || (pitch % segments) != 0 ||
-        (gray4Split && (planePitch % segments) != 0) || rowRequired > bufs->row_len) {
+    if (rowRequired > bufs->row_len ||
+        !bootLayout(&cfg->displays[0], (gray4Split || useBitplanes) ? 1 : bitsPerPixel, &layout)) {
         return false;
     }
-    if (od_boot_app_begin_frame(w, h, segments) != 0) return false;
-    for (uint8_t segment = 0; segment < segments && outputOk; segment++) {
+    uint8_t *const scratch = bufs->row + rowRequired;
+    const size_t scratchLen = bufs->row_len - rowRequired;
+    if (od_boot_app_begin_frame(w, h, layout.parts) != 0) return false;
+    {
         for (int pass = 0; pass < planePasses && outputOk; pass++) {
             const int targetPlane = gray4Split
                 ? (pass == 0 ? OD_BOOT_PLANE_PRIMARY : OD_BOOT_PLANE_SECOND)
                 : (useBitplanes ? OD_BOOT_PLANE_PRIMARY : od_boot_app_default_plane(colorScheme));
-            if (od_boot_app_begin_plane(targetPlane) != 0) {
+            const int planeBpp = (gray4Split || useBitplanes) ? 1 : bitsPerPixel;
+            od_frame_walk_t walk;
+            uint16_t y_native, xFrom, xTo;
+            if (od_boot_app_begin_plane(targetPlane) != 0 ||
+                !od_frame_walk_init(&walk, &layout, w, h,
+                                    gray4Split ? 0u : bootWhiteCode(whiteValue, planeBpp),
+                                    ((layout.plane_invert >> pass) & 1u) != 0u, scratch, scratchLen)) {
                 outputOk = false;
                 break;
             }
-            for (uint16_t y_native = 0; y_native < h && outputOk; y_native++) {
+            while (outputOk && od_frame_walk_next(&walk, &y_native, &xFrom, &xTo)) {
                 memset(row, whiteValue, pitch);
-                for (uint16_t x_native = 0; x_native < w; x_native++) {
+                for (uint16_t x_native = xFrom; x_native < xTo; x_native++) {
                     uint16_t lx, ly;
                     switch (rotation) {
                         case 1:  lx = y_native; ly = (uint16_t)(h_log - 1u - x_native); break;
@@ -1200,24 +1248,21 @@ bool od_boot_screen_render_setup(const struct od_config *cfg, enum od_setup_scre
                     }
                 }
                 const uint8_t *out = row;
-                int outPitch = pitch;
                 if (gray4Split) {
                     uint8_t *planeRow = row + pitch;
                     makeGray4PlaneRow(planeRow, row, planePitch, w, pass);
                     out = planeRow;
-                    outPitch = planePitch;
                 }
-                if (od_boot_app_write_row(y_native, segment, out + segment * (outPitch / segments),
-                                          (uint16_t)(outPitch / segments)) != 0) outputOk = false;
+                if (!od_frame_walk_emit(&walk, out, bootWrite, NULL)) outputOk = false;
             }
+            if (outputOk && !od_frame_walk_finish(&walk, bootWrite, NULL)) outputOk = false;
             if (od_boot_app_end_plane(targetPlane) != 0) outputOk = false;
         }
         if (useBitplanes && outputOk) {
-            memset(row, 0x00, pitch);
-            if (od_boot_app_begin_plane(OD_BOOT_PLANE_SECOND) != 0) outputOk = false;
-            for (uint16_t y = 0; y < h && outputOk; y++) {
-                if (od_boot_app_write_row(y, segment, row + segment * (pitch / segments),
-                                          (uint16_t)(pitch / segments)) != 0) outputOk = false;
+            if (od_boot_app_begin_plane(OD_BOOT_PLANE_SECOND) != 0 ||
+                !bootConstPlane(row, pitch, 0x00, &layout, w, h,
+                                (layout.plane_invert & OD_PLANE_INVERT_1) != 0u, scratch, scratchLen)) {
+                outputOk = false;
             }
             if (od_boot_app_end_plane(OD_BOOT_PLANE_SECOND) != 0) outputOk = false;
         }

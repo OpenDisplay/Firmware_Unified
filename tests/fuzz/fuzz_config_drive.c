@@ -145,9 +145,8 @@ static void drive(uint8_t ctl, int8_t temp, unsigned pause_what)
         if (od_epd_cfg_select_policy(&mode, temp, &hdr) != 0u) {
             continue;
         }
-        if (od_color_direct_geometry(hdr.color_scheme == 0xFFu ? d.color_scheme
-                                                                : hdr.color_scheme,
-                                     d.pixel_width, d.pixel_height, &geom) != OD_COLOR_OK ||
+        if (od_color_display_geometry(&d, hdr.color_scheme == 0xFFu ? d.color_scheme
+                                                                : hdr.color_scheme, &geom) != OD_COLOR_OK ||
             geom.total_bytes > sizeof frame) {
             continue;
         }

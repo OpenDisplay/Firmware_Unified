@@ -42,7 +42,7 @@ PANELS = [
     ("0x0034", 4, False, False),   # BWRY 122x250, panel code table
     ("0x0031", 4, False, False),   # GRAY4 122x250, two 1-bit planes
     ("0x004A", 6, False, False),   # BWGBRY (Spectra 6) 400x600, 4 bpp
-    ("0x002B", 6, False, False),   # BWGBRY_SPLIT 1024x576, two halves on two CS
+    ("0x002B", 6, False, False),   # BWGBRY + frame_split 1024x576, two halves on two CS
 ]
 
 
@@ -115,7 +115,9 @@ def main():
     for pid, n, raw, pipe in PANELS:
         e = db["panels"][pid]
         ic, w, h, scheme = e["panel_ic_type"], e["width"], e["height"], e["color_scheme"]
-        data = encode(ic, scheme, pattern(w, h, n))
+        split = (e.get("frame_layout") or {}).get("frame_split", 0)
+        # A split panel was BWGBRY_SPLIT (8) in 2.x, whose bytes are BWGBRY + frame_split's.
+        data = encode(ic, e["legacy"]["color_scheme"] if split else scheme, pattern(w, h, n))
         tag = "lu_%s" % pid[2:].lower()
         out.append("/* %s %s, color_scheme %d, %d B frame */" % (pid, e["name"], scheme, len(data)))
         out += c_bytes(tag + "_drive", [bytes.fromhex(e["targets"]["default"]["framed_hex"])],
@@ -123,9 +125,9 @@ def main():
         out += c_bytes(tag + "_z", direct_flow(data, True))
         out += c_bytes(tag + "_raw", direct_flow(data, False)) if raw else []
         out += c_bytes(tag + "_pipe", pipe_flow(data)) if pipe else []
-        rows.append("    { \"%s %s\", 0x%04X, %d, %d, %d, %du, 0x%08Xu, %s_drive, sizeof %s_drive, "
+        rows.append("    { \"%s %s\", 0x%04X, %d, %d, %d, %du, %du, 0x%08Xu, %s_drive, sizeof %s_drive, "
                     "%s_z, sizeof %s_z, %s, %s, %s, %s },"
-                    % (pid, e["name"], ic, w, h, scheme, len(data), zlib.crc32(data), tag, tag,
+                    % (pid, e["name"], ic, w, h, scheme, split, len(data), zlib.crc32(data), tag, tag,
                        tag, tag,
                        tag + "_raw" if raw else "NULL", "sizeof " + tag + "_raw" if raw else "0",
                        tag + "_pipe" if pipe else "NULL", "sizeof " + tag + "_pipe" if pipe else "0"))

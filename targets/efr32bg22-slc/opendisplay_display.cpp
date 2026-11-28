@@ -272,7 +272,6 @@ static int boot_bits_per_pixel(uint8_t color_scheme)
 {
   switch (color_scheme) {
     case OD_COLOR_SCHEME_BWGBRY:
-    case OD_COLOR_SCHEME_BWGBRY_SPLIT:
     case OD_COLOR_SCHEME_GRAY16:
       return 4;
     case OD_COLOR_SCHEME_BWRY:
@@ -1065,7 +1064,7 @@ extern "C" bool od_xfer_app_panel_info(od_xfer_panel_info_t *out)
   memset(out, 0, sizeof(*out));
   /* No drive packets: every upload start NACKs needs-migration before the panel is touched. */
   out->needs_migration = !od_epd_shim_available(d);
-  if (od_color_direct_geometry(d->color_scheme, d->pixel_width, d->pixel_height,
+  if (od_color_display_geometry(d, d->color_scheme,
                                &out->geometry) != OD_COLOR_OK && !out->needs_migration) {
     return false;
   }
@@ -1295,7 +1294,7 @@ extern "C" void opendisplay_display_service(void)
   }
   /* The stored bytes are a 0x0070 frame for this panel, planes included; the arm already
    * checked width, height and scheme. */
-  if (od_color_direct_geometry(d->color_scheme, d->pixel_width, d->pixel_height, &geometry)
+  if (od_color_display_geometry(d, d->color_scheme, &geometry)
           != OD_COLOR_OK
       || geometry.layout == OD_COLOR_LAYOUT_SPLIT_HALVES
       || geometry.total_bytes != slot.payload_len) {

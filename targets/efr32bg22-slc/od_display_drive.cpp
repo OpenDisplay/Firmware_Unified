@@ -128,8 +128,7 @@ extern "C" int od_display_drive_write_start(uint8_t mode, uint8_t refresh, uint8
     /* The frame geometry is the MODE's scheme when it declares one (BWRY16 for a 16-colour
      * mode), else the panel's. Both pack identically, so this decides nothing about bytes -- it
      * exists so a mode can describe what it renders without restating the panel. */
-    if (od_color_direct_geometry(hdr.color_scheme == 0xFFu ? d->color_scheme : hdr.color_scheme,
-                                 d->pixel_width, d->pixel_height, &geom) != OD_COLOR_OK) {
+    if (od_color_display_geometry(d, hdr.color_scheme == 0xFFu ? d->color_scheme : hdr.color_scheme, &geom) != OD_COLOR_OK) {
         opendisplay_display_power(false);
         return -OD_ERR_DRIVE_NO_CONFIG;
     }

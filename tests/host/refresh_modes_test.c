@@ -38,6 +38,7 @@ static struct DisplayConfig store(const rm_panel_t *p)
     fx_cfg_t c;
     struct DisplayConfig d = fx_display(0u, p->panel.width, p->panel.height, p->panel.scheme);
 
+    d.frame_split = p->panel.frame_split;
     d.cs_pin_2 = 7u;
     fx_cfg_begin(&c, 1u);
     fx_cfg_legacy_head(&c, &d);
@@ -174,7 +175,7 @@ static void test_panel(const rm_panel_t *p)
     CHECK(od_epd_cfg_load(&d, &g_bus));
     mode_count = od_epd_cfg_mode_count();
     CHECK(mode_count == p->modes[p->n_modes - 1u] + 1u);
-    CHECK(od_color_direct_geometry(d.color_scheme, d.pixel_width, d.pixel_height, &g) ==
+    CHECK(od_color_display_geometry(&d, d.color_scheme, &g) ==
           OD_COLOR_OK);
 
     for (uint8_t m = 0u; m < mode_count; m++) {
@@ -219,8 +220,7 @@ static void test_panel(const rm_panel_t *p)
             continue;
         }
         /* A mode with its own scheme (0x003B gray4: 4-gray on a mono display) has its own frame. */
-        CHECK(od_color_direct_geometry(info.color_scheme == 0xFFu ? d.color_scheme : info.color_scheme,
-                                       d.pixel_width, d.pixel_height, &mg) == OD_COLOR_OK);
+        CHECK(od_color_display_geometry(&d, info.color_scheme == 0xFFu ? d.color_scheme : info.color_scheme, &mg) == OD_COLOR_OK);
         if (!drive(body, info.passes, &mg)) {
             printf("    mode %u failed rc=%d\n", (unsigned)m, od_epd_cfg_last_rc());
             CHECK(false);
@@ -280,7 +280,7 @@ static void test_inline(void)
     if (fast6 == NULL) {
         return;
     }
-    CHECK(od_color_direct_geometry(d.color_scheme, d.pixel_width, d.pixel_height, &g) ==
+    CHECK(od_color_display_geometry(&d, d.color_scheme, &g) ==
           OD_COLOR_OK);
     CHECK(od_epd_cfg_load(&d, &g_bus) && od_epd_cfg_select(8u, NULL));
     fx_bus_clear();

@@ -419,6 +419,7 @@ bool od_epd_cfg_load(const struct DisplayConfig *d, const od_epd_cfg_bus_t *bus)
     s_desc.width = d->pixel_width;
     s_desc.height = d->pixel_height;
     s_desc.colour_scheme = d->color_scheme;
+    s_desc.frame_parts = d->frame_split == OD_FRAME_SPLIT_HALVES ? 2u : 1u;
 
     for (int i = 0; i < od_cfg_index_count(); i++) {
         const od_cfg_entry_t *e = od_cfg_index_entry(i);

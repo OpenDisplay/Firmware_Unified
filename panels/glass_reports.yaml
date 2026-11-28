@@ -219,3 +219,18 @@ reports:
       16.9 s; i1Pro K L* 20.2 / Y (92.9, 25.2, 98.3) / R (46.7, 63.1, 43.8) relative to W,
       contrast 32.9. fast was dropped (black drawn as red). The experimental partial_bw of
       refresh_modes.json drew a clean counter; it is not part of these bytes.
+  - panel: "0x004E"
+    target_class: default
+    framed_sha256: 09aa3fbaa371234134a59c160b54306840bf5063b5d8db5fc1766d54b23d6742
+    modes: [full]
+    board: EE04 (ESP32-S3), OD7C42E9
+    firmware: 3.0.0 (structs 2.5, panels/window-geometry)
+    date: 2026-11-28
+    reporter: jonasniesner
+    source: docs/HARDWARE_VERIFICATION_CHECKLIST.md § 5.79" BWRY GDEY0579F52 (panel id 78, `0x004E`)
+    note: >-
+      Good Display GDEY0579F52 5.79in 792x272 BWRY, two IST7158s. Config 0x004E (frame_split
+      HALVES, row_order FOLD) written by the py-opendisplay fork; device packets read back equal
+      to these bytes. full: W/Y/R/K bands, text and a red triangle drawn by upload_image, the
+      host packing the layout; colours right, nothing folded or mirrored, no seam at column 396.
+      21.3 s.

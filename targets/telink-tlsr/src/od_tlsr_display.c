@@ -801,7 +801,7 @@ bool od_xfer_app_panel_info(od_xfer_panel_info_t *out)
     }
     memset(out, 0, sizeof *out);
     out->needs_migration = od_display_needs_migration();
-    geometry_ok = od_color_direct_geometry(d->color_scheme, d->pixel_width, d->pixel_height,
+    geometry_ok = od_color_display_geometry(d, d->color_scheme,
                                            &out->geometry) == OD_COLOR_OK;
     if (!geometry_ok && !out->needs_migration) {
         return false;

@@ -381,9 +381,9 @@ def gray_source_packets(bw_enum: str, gray_enum: str) -> list[tuple[int, bytes]]
 def class_view(p: dict, cls: str, glass_pk=None, glass_modes=None) -> dict:
     """Drive data for one target class. glass_pk: the panels.yaml packets (not re-derived)."""
     W, H = p["width"], p["height"]
-    d = derive(p, cls)
     # Gray modes ride on the BW panel's config: drop them, last first, until the class's cap fits.
     if glass_pk is None:
+        d = derive(p, cls)
         gray = list(p.get("gray_flows", {}))
         skip: set[str] = set()
         while gray and P.TYPICAL_BASE + len(frame_all(encode_derived(p, d))) > P.CLASSES[cls]["config"]:
@@ -395,7 +395,8 @@ def class_view(p: dict, cls: str, glass_pk=None, glass_modes=None) -> dict:
         modes = glass_modes
         runs_ok = all(P.replay(frame_all(pk), str(m["index"]), cls, [W, H])[0] == 0 for m in modes) and \
             P.replay(frame_all(pk), "sleep", cls, [W, H])[0] == 0
-        v.update({"status": "glass" if runs_ok else "blocked", "verified": "glass" if runs_ok else "untested",
+        ok = "untested" if p.get("yaml_untested") else "glass"
+        v.update({"status": ok if runs_ok else "blocked", "verified": ok if runs_ok else "untested",
                   "blocked_on": [] if runs_ok else ["REPLAY_REFUSED"], "blocked_detail": {},
                   "modes_blocked": [], "requires_escapes": [], "notes": []})
     else:
@@ -483,6 +484,9 @@ def native_controllers(prev: dict | None) -> dict:
 
 
 # ----------------------------------------------------------------------------- main
+
+# panels.yaml colour.scheme -> DisplayConfig color_scheme
+YAML_SCHEMES = {"MONO": 0, "BWR": 1, "BWY": 2, "BWRY": 3, "BWGBRY": 4, "GRAY4": 5}
 
 TOP_FROM_CLASS = ("status", "verified", "blocked_on", "blocked_detail", "modes", "modes_blocked",
                   "requires_escapes", "packets", "framed_hex", "drive_bytes", "fits", "equivalence",
@@ -598,6 +602,11 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
         num = idinfo["panel_ic_type"]
         enum = idinfo["bb_epaper_enum"]
         p = cap["panels"].get(enum)
+        if p is None and num in yml:
+            # A panels.yaml entry with no bb_epaper capture: the YAML is the only source.
+            ent = yml[num]
+            p = {"width": int(ent["geometry"]["width"]), "height": int(ent["geometry"]["height"]),
+                 "chip": str(ent.get("controller", "")), "flags": 0, "flows": {}, "yaml_only": True}
         legacy_scheme = idinfo["preset_color_scheme"]
         e: dict = {"panel_ic_type": num, "name": enum, "aliases": [], "notes": [], "differences": []}
         if idinfo["alias_of"]:
@@ -607,7 +616,11 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
                       "packets": [], "legacy": {"panel_ic_type": num, "color_scheme": legacy_scheme}})
             out[key] = e
             continue
-        native = P.native_scheme(p)
+        native = P.native_scheme(p) if not p.get("yaml_only") else \
+            YAML_SCHEMES[str(yml[num]["colour"]["scheme"])]
+        layout = dict(yml[num].get("frame_layout") or {}) if num in yml else P.frame_layout_fields(p)
+        if layout:
+            e["frame_layout"] = layout
         if enum in DROP_FLOWS:
             p["drop_flows"] = set(DROP_FLOWS[enum])
             e["notes"] += list(DROP_FLOWS[enum].values())
@@ -622,9 +635,13 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
         e.update({"width": p["width"], "height": p["height"], "controller": p["chip"],
                   "bbep_flags": P.flag_names(p["flags"])})
         e["notes"] += gray_notes.get(key, [])
-        if legacy_scheme is None:
+        if legacy_scheme is None and p.get("yaml_only"):
             legacy_scheme = native
-            e["notes"].append("no website preset; legacy color_scheme is the bb_epaper native scheme")
+            e["notes"].append("no 2.x driver; driven from panels.yaml only")
+        elif legacy_scheme is None:
+            # 2.x drove SPLIT_BUFFER panels as BWGBRY_SPLIT (8); 3.0 writes 4 + frame_split.
+            legacy_scheme = 8 if p["flags"] & 0x0400 else native
+            e["notes"].append("no website preset; legacy color_scheme is the bb_epaper 2.x scheme")
         elif legacy_scheme != native:
             e["notes"].append(f"website preset color_scheme {legacy_scheme} != bb_epaper native {native}; "
                               "legacy value kept for old clients")
@@ -637,12 +654,6 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
             e["notes"].append("bb_epaper expands pixels for this panel in its own write path; the 2.x "
                               "direct path streams the host bytes raw, so the host must send the "
                               "controller format")
-        if enum == "EP579_792x272":
-            e["notes"].append("DOUBT: does not drive the glass yet. Two SSD1683s each take a 400-column half "
-                              "column-major (bb_epaper bbepWriteHalf: 0x11 05, half RAM windows, the second "
-                              "half through cmd|0x80); this sequence streams the frame linearly to the first "
-                              "controller. Needs the host half reorder and a per-half sequence "
-                              "(OpenDisplay/Firmware#191, docs/FOLLOWUPS.md)")
         if enum.startswith("EP397_"):
             e["notes"].append("2.x Firmware detects SSD1677 vs SSD2677 at runtime (reg 0x70) and repacks "
                               "to 2bpp for SSD2677; config-driven drive needs READBACK and PIXEL_XFORM")
@@ -650,15 +661,18 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
         glass = num in yml
         if glass:
             ent = yml[num]
+            p["yaml_untested"] = ent.get("status") == "untested"
             web = (prev_entries.get(key) or {}).get("packets")
             pk = glass_packets(ent, web if web else None)
-            gmodes = [{"index": i, "name": m["name"], "refresh": "full", "passes": m.get("passes", 1),
+            gmodes = [{"index": i, "name": m["name"], "refresh": m["name"] if m["name"] in ("fast", "partial") else "full",
+                       "passes": m.get("passes", 1),
                        "color_scheme": int(m.get("color_scheme", 0xFF)),
                        **({"experimental": True} if m["name"] in P.EXPERIMENTAL_YAML_MODES else {})}
                       for i, m in enumerate(ent.get("modes") or [])]
             e["name"] = str(ent.get("name", enum))
             e["color_scheme"] = int((ent.get("modes") or [{}])[0].get("color_scheme", native))
-            e["notes"].append("hand-written panels.yaml sequences, kept byte-identical to the website "
+            e["notes"].append("hand-written panels.yaml sequences, not on glass yet" if p["yaml_untested"]
+                              else "hand-written panels.yaml sequences, kept byte-identical to the website "
                               "presets; not derived from bb_epaper")
             for m in ent.get("modes") or []:
                 src = m.get("palette")
@@ -674,11 +688,15 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
             e["notes"].append("DOUBT: 0xB1 code_map is carried but od_epd_cfg never applies it")
             views = {cls: class_view(p, cls, pk, json.loads(json.dumps(gmodes))) for cls in P.CLASSES}
             # bb_epaper comparison for the record only: the glass sequences are not derived from it
-            rc, got = run_replay(frame_all(pk), "0", "default", [p["width"], p["height"]])
-            ref = strip_wake(P.normalise(p["flows"]["full"], "bbep"))
-            for v in views.values():
-                v["equivalence"] = {"modes": {"0": {"rc": rc, **compare(ref, strip_wake(got))}},
-                                    "sleep": None, "all_equal": False}
+            if "full" in p["flows"]:
+                rc, got = run_replay(frame_all(pk), "0", "default", [p["width"], p["height"]])
+                ref = strip_wake(P.normalise(p["flows"]["full"], "bbep"))
+                for v in views.values():
+                    v["equivalence"] = {"modes": {"0": {"rc": rc, **compare(ref, strip_wake(got))}},
+                                        "sleep": None, "all_equal": False}
+            else:
+                for v in views.values():
+                    v["equivalence"] = None
         else:
             if native == 0:
                 p["budget_key"] = int(key, 16)

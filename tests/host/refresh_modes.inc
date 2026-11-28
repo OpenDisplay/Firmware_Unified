@@ -1668,7 +1668,7 @@ static const uint8_t k_rm_11_0[33] = {
     0x78,
 };
 static const uint8_t k_rm_11_1[347] = {
-    0x00, 0x00, 0x66, 0x75, 0x6C, 0x6C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x01,
+    0x00, 0x00, 0x66, 0x75, 0x6C, 0x6C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x01,
     0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x36, 0x01, 0x0A, 0x74, 0x00, 0x0C, 0x0C, 0xD9, 0xDD, 0xDD, 0x15, 0x15, 0x55,
     0x00, 0x05, 0x0A, 0x00, 0x07, 0xF0, 0x49, 0x55, 0x13, 0x5D, 0x05, 0x10, 0x00, 0x08, 0x01, 0x07,
@@ -1963,16 +1963,16 @@ typedef struct {
 } rm_panel_t;
 
 static const rm_panel_t k_rm_panels[] = {
-    { { "s73_spectra6", 800, 480, 4, k_rm_pkts_0, 19 }, k_rm_modes_0, sizeof k_rm_modes_0, 1u },
-    { { "ep266yr_bwry", 184, 360, 3, k_rm_pkts_1, 9 }, k_rm_modes_1, sizeof k_rm_modes_1, 2u },
-    { { "ep29yr_bwry", 168, 384, 3, k_rm_pkts_2, 10 }, k_rm_modes_2, sizeof k_rm_modes_2, 2u },
-    { { "ep29yr128_bwry", 128, 296, 3, k_rm_pkts_3, 4 }, k_rm_modes_3, sizeof k_rm_modes_3, 2u },
-    { { "ep35yr_bwry", 184, 384, 3, k_rm_pkts_4, 9 }, k_rm_modes_4, sizeof k_rm_modes_4, 2u },
-    { { "ep397yr_bwry", 800, 480, 3, k_rm_pkts_5, 4 }, k_rm_modes_5, sizeof k_rm_modes_5, 2u },
-    { { "ep154yr_bwry", 200, 200, 3, k_rm_pkts_6, 9 }, k_rm_modes_6, sizeof k_rm_modes_6, 2u },
-    { { "ep213yr_bwry", 122, 250, 3, k_rm_pkts_7, 4 }, k_rm_modes_7, sizeof k_rm_modes_7, 2u },
-    { { "ep42yr_bwry", 400, 300, 3, k_rm_pkts_8, 9 }, k_rm_modes_8, sizeof k_rm_modes_8, 2u },
-    { { "ep75yr_bwry", 800, 480, 3, k_rm_pkts_9, 9 }, k_rm_modes_9, sizeof k_rm_modes_9, 2u },
-    { { "ep75_bw", 800, 480, 0, k_rm_pkts_10, 8 }, k_rm_modes_10, sizeof k_rm_modes_10, 0u },
-    { { "ee02_709_spectra6", 1200, 1600, 8, k_rm_pkts_11, 14 }, k_rm_modes_11, sizeof k_rm_modes_11, 1u },
+    { { "s73_spectra6", 800, 480, 4, k_rm_pkts_0, 19, 0u }, k_rm_modes_0, sizeof k_rm_modes_0, 1u },
+    { { "ep266yr_bwry", 184, 360, 3, k_rm_pkts_1, 9, 0u }, k_rm_modes_1, sizeof k_rm_modes_1, 2u },
+    { { "ep29yr_bwry", 168, 384, 3, k_rm_pkts_2, 10, 0u }, k_rm_modes_2, sizeof k_rm_modes_2, 2u },
+    { { "ep29yr128_bwry", 128, 296, 3, k_rm_pkts_3, 4, 0u }, k_rm_modes_3, sizeof k_rm_modes_3, 2u },
+    { { "ep35yr_bwry", 184, 384, 3, k_rm_pkts_4, 9, 0u }, k_rm_modes_4, sizeof k_rm_modes_4, 2u },
+    { { "ep397yr_bwry", 800, 480, 3, k_rm_pkts_5, 4, 0u }, k_rm_modes_5, sizeof k_rm_modes_5, 2u },
+    { { "ep154yr_bwry", 200, 200, 3, k_rm_pkts_6, 9, 0u }, k_rm_modes_6, sizeof k_rm_modes_6, 2u },
+    { { "ep213yr_bwry", 122, 250, 3, k_rm_pkts_7, 4, 0u }, k_rm_modes_7, sizeof k_rm_modes_7, 2u },
+    { { "ep42yr_bwry", 400, 300, 3, k_rm_pkts_8, 9, 0u }, k_rm_modes_8, sizeof k_rm_modes_8, 2u },
+    { { "ep75yr_bwry", 800, 480, 3, k_rm_pkts_9, 9, 0u }, k_rm_modes_9, sizeof k_rm_modes_9, 2u },
+    { { "ep75_bw", 800, 480, 0, k_rm_pkts_10, 8, 0u }, k_rm_modes_10, sizeof k_rm_modes_10, 0u },
+    { { "ee02_709_spectra6", 1200, 1600, 4, k_rm_pkts_11, 14, 1u }, k_rm_modes_11, sizeof k_rm_modes_11, 1u },
 };

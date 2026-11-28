@@ -199,6 +199,16 @@ before proposing anything under `shared/`; extend the pattern as targets are imp
     `py-opendisplay` must keep rejecting uploads, and firmware must keep rejecting operational
     use, until a separate device-qualified protocol/backend plan defines and tests the encoding.
     See `plans/PLAN_OD_COLOR_2026-08-18.md` § 2.1.
+16. **Frame layout quirks are the last resort for a panel, not the first** (structs 2.5,
+    `docs/FRAME_LAYOUT_PROPOSAL.md`). 0x20 carries `frame_split`, `frame_scan`, `part_width`,
+    `part_stride`, `plane_invert`, `pixel_pack` and `row_order`, so the host can pack a frame in
+    an order the panel needs; all zero is the plain linear frame. Before a preset sets any of
+    them, try every way to drive the glass without one and record what was tried: the
+    controller's own data-entry mode, RAM address and window registers, scan/mirror bits in its
+    panel-setting command, per-controller CS with IMAGE_SLICE, and a vendor init that reorders
+    in RAM. A quirk is justified only when the controller cannot be made to take the linear
+    frame. Non-linear layouts lose partial updates, and every field a preset sets is a field the
+    boot renderer and the host packer must both get right.
 
 ## Layout
 

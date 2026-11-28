@@ -70,7 +70,7 @@ void od_flash_store_mount(void)
         return;
     }
     d = &cfg->displays[0];
-    if (od_color_direct_geometry(d->color_scheme, d->pixel_width, d->pixel_height, &g) !=
+    if (od_color_display_geometry(d, d->color_scheme, &g) !=
         OD_COLOR_OK) {
         return;
     }

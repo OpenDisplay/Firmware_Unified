@@ -567,8 +567,6 @@ def busy_policy(p: dict) -> dict:
 
 def native_scheme(p: dict) -> int:
     f = p["flags"]
-    if f & 0x0400:
-        return 8
     if f & 0x0020:
         return 4
     if f & 0x0008:
@@ -578,6 +576,12 @@ def native_scheme(p: dict) -> int:
     if f & 0x0010:
         return 5
     return 0
+
+
+def frame_layout_fields(p: dict) -> dict:
+    """DisplayConfig 0x20 frame layout fields (structs 2.5) of a bb_epaper panel; empty = linear.
+    SPLIT_BUFFER panels send the left half, then the right, one IMAGE_SLICE each."""
+    return {"frame_split": 1} if p["flags"] & 0x0400 else {}
 
 
 def pixel_blockers(p: dict) -> list[str]:
@@ -654,6 +658,9 @@ def encode_yaml_steps(steps: list[str]) -> bytes:
         s = raw.strip()
         if s in ("@busy", "@image", "@lut"):
             out += bytes([0, ESC[s[1:]]])
+        elif s.startswith("@slice"):
+            part, of = (int(t, 10) for t in s.split()[1:3])
+            out += bytes([0, ESC["slice"], part, of])
         elif s.startswith("@delay"):
             ms = int(s.split()[1], 10)
             out += bytes([0, ESC["delay"], ms & 0xFF, ms >> 8])

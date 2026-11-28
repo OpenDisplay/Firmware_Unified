@@ -580,7 +580,8 @@ def render() -> tuple[str, str]:
         idx = ", ".join(str(m["mode_index"]) for m in p["modes"])
         inc.append(f"static const uint8_t k_rm_modes_{i}[] = {{ {idx} }};")
         rows.append(f'    {{ {{ "{p["name"]}", {base["width"]}, {base["height"]}, '
-                    f'{base["color_scheme"]}, k_rm_pkts_{i}, {len(p["packets"])} }}, '
+                    f'{base["color_scheme"]}, k_rm_pkts_{i}, {len(p["packets"])}, '
+                    f'{(base.get("frame_layout") or {}).get("frame_split", 0)}u }}, '
                     f'k_rm_modes_{i}, sizeof k_rm_modes_{i}, {p["lut_family"]}u }},')
     inc += ["", "typedef struct {\n    fx_panel_t panel;\n    const uint8_t *modes;\n"
             "    unsigned n_modes;\n    uint8_t family;\n} rm_panel_t;", "",

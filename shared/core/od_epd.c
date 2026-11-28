@@ -305,6 +305,8 @@ int od_epd_validate(od_epd_t *e)
     e->seq_has_window = false;
     e->seq_has_lut = false;
     e->seq_tail = 0u;
+    uint8_t halves = 0u;
+    bool whole_image = false;
 
     while (i < e->seq_len) {
         if (++steps > OD_EPD_MAX_SEQ_STEPS) {
@@ -343,10 +345,15 @@ int od_epd_validate(od_epd_t *e)
         i = (uint16_t)(i + st.size);
         if (st.n == 0u) {
             if (st.esc == OD_EPD_SEQ_END) {
-                return OD_OK;
+                break;
             }
             if (st.esc == OD_EPD_ESC_IMAGE || st.esc == OD_EPD_ESC_IMAGE_SLICE) {
                 e->seq_tail = i;
+                if (st.esc == OD_EPD_ESC_IMAGE_SLICE && st.a[1] == 2u) {
+                    halves |= (uint8_t)(1u << st.a[0]);
+                } else {
+                    whole_image = true;
+                }
             }
             if (st.esc == OD_EPD_ESC_LUT || st.esc == OD_EPD_ESC_LUT_SLICE) {
                 e->seq_has_lut = true;
@@ -357,6 +364,11 @@ int od_epd_validate(od_epd_t *e)
     }
     /* Running off the end without an END escape is legal -- the runtime walk
      * treats it as end-of-sequence, so the validator must agree with it. */
+    /* A split frame goes out as IMAGE_SLICE 0/2 and 1/2, both or neither (sleep, setup steps). */
+    if (e->desc != NULL && e->desc->frame_parts == 2u &&
+        (whole_image || (halves != 0u && halves != 0x03u))) {
+        return OD_ERR_SEQ;
+    }
     return OD_OK;
 }
 

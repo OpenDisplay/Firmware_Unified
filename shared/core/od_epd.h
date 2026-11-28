@@ -215,6 +215,9 @@ typedef struct {
 typedef struct {
     uint16_t width, height;
     uint8_t  colour_scheme;
+    /* Controllers sharing the frame (DisplayConfig.frame_split): 2 = every image marker of a
+     * sequence must be IMAGE_SLICE 0/2 or 1/2, and both must be there. */
+    uint8_t  frame_parts;
     uint8_t  code_map[4];        /* logical colour -> panel 2-bit code */
     bool     busy_usable;        /* false: this panel's BUSY line lies */
     uint8_t  busy_idle_level;    /* pin level that means "not busy" */

@@ -350,8 +350,7 @@ static od_color_geometry_t geom(void)
     od_color_geometry_t g;
 
     memset(&g, 0, sizeof g);
-    (void)od_color_direct_geometry(g_disp->color_scheme, g_disp->pixel_width,
-                                   g_disp->pixel_height, &g);
+    (void)od_color_display_geometry(g_disp, g_disp->color_scheme, &g);
     return g;
 }
 
@@ -459,8 +458,9 @@ static void test_split_halves_cs_select(void)
     unsigned k;
     long cs1_bytes = -1;
 
-    CASE("BWGBRY_SPLIT: IMAGE_SLICE 0/2 and 1/2 land on cs_pin and cs_pin_2");
-    display(16, 8, OD_COLOR_SCHEME_BWGBRY_SPLIT);
+    CASE("BWGBRY + frame_split HALVES: IMAGE_SLICE 0/2 and 1/2 land on cs_pin and cs_pin_2");
+    display(16, 8, OD_COLOR_SCHEME_BWGBRY);
+    g_disp->frame_split = OD_FRAME_SPLIT_HALVES;
     g_disp->cs_pin_2 = 9u;
     store_reset();
     panel_packet(1u);
@@ -482,7 +482,8 @@ static void test_split_halves_cs_select(void)
     CHECK(cs1_bytes == 32);
 
     CASE("CS_SELECT on a board without cs_pin_2 is refused before the panel is touched");
-    display(16, 8, OD_COLOR_SCHEME_BWGBRY_SPLIT);
+    display(16, 8, OD_COLOR_SCHEME_BWGBRY);
+    g_disp->frame_split = OD_FRAME_SPLIT_HALVES;
     store_reset();
     panel_packet(1u);
     mode_packet(0u, "full", 0xFFu, 1u, 0, 0, 0u, seq, sizeof seq);

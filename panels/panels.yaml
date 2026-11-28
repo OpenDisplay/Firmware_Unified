@@ -667,6 +667,170 @@ panels:
 #   parallel_panel: 1 Inkplate 5 V2, 2 Inkplate 10, 3 M5Stack PaperS3
 #   default_temp_c 127 = the driver's own default; pin 255 = none; vcom 0 = keep stored VCOM
   # ---------------------------------------------------------------------------
+  # CrowPanel 5.79in 792x272 mono: two SSD1683s, 400 columns each, the second starting at panel
+  # column 392 and addressed through cmd | 0x80. From bb_epaper bbepWriteHalf (orientation 0) and
+  # epd579_init_full / _fast: data entry 0x11 05 fills each 50-byte x 272-row half column-major,
+  # so the frame layout is split 400 / 392, COLUMN_MAJOR. The 0x26 / 0xA6 planes bb_epaper zeroes
+  # are left out: the full (22 F7) and fast (22 C7) updates do not read them.
+  #
+  # Not on glass yet (no unit). Before this layout is relied on, try the linear one first (data
+  # entry 0x11 01 / 0x91 00, X first, so the halves are plain rows; docs/FOLLOWUPS.md).
+  - id: 0x0033
+    status: untested
+    name: EP579_792x272
+    controller: SSD16xx
+    geometry: { width: 792, height: 272 }
+    colour:
+      scheme: MONO
+      plane_format: 1bpp
+    frame_layout: { frame_split: 1, frame_scan: 1, part_width: 400, part_stride: 392 }
+    busy:
+      usable: true
+      idle_level: 0
+      timeout_ms: 30000
+    lut:
+      supported: false
+    sleep_sequence:
+      - "3F 22"
+      - "22 83"
+      - "20"
+      - "@busy"
+      - "10 03"               # deep sleep
+    modes:
+      - name: full
+        init: full
+        passes: 1
+      - name: fast
+        init: fast
+        passes: 1
+    init_sequences:
+      full:
+        - "@busy"
+        - "12"                  # SWRESET
+        - "@busy"
+        - "3C C0"               # border white
+        - "@busy"
+        - "11 05"               # first controller: X+, Y-, Y first
+        - "44 00 31"
+        - "45 0F 01 00 00"
+        - "4E 00"
+        - "4F 0F 01"
+        - "24"
+        - "@slice 0 2"
+        - "91 04"               # second controller: X-, Y-, Y first
+        - "C4 30 00"
+        - "C5 0F 01 00 00"
+        - "CE 31"
+        - "CF 0F 01"
+        - "A4"
+        - "@slice 1 2"
+        - "22 F7"
+        - "20"
+        - "@busy"
+      fast:
+        - "@busy"
+        - "12"
+        - "@busy"
+        - "18 80"               # internal temperature sensor
+        - "22 B1"
+        - "20"
+        - "@busy"
+        - "1A 64 00"            # temperature 100 -> fast waveform
+        - "22 91"
+        - "20"
+        - "@busy"
+        - "11 05"
+        - "44 00 31"
+        - "45 0F 01 00 00"
+        - "4E 00"
+        - "4F 0F 01"
+        - "24"
+        - "@slice 0 2"
+        - "91 04"
+        - "C4 30 00"
+        - "C5 0F 01 00 00"
+        - "CE 31"
+        - "CF 0F 01"
+        - "A4"
+        - "@slice 1 2"
+        - "22 C7"
+        - "20"
+        - "@busy"
+
+  # ---------------------------------------------------------------------------
+  # Good Display GDEY0579F52 5.79in 792x272 BWRY (label 0579-F52-B2): two IST7158s, 396 columns
+  # each, selected with A2 01 / A2 02 (A2 00 = both). Init from the Good Display sample
+  # A32-GDEY0579F52, as driven on glass over raw SPI (checklist § 5.79" BWRY GDEY0579F52). Each
+  # half is sent as row pairs (271-i, i): frame_split HALVES + row_order FOLD. The linear order
+  # with the same init does not draw (checklist § 5.79" BWRY GDEY0579F52). full is on glass
+  # through glass_reports.yaml; status stays untested as the entry has no website counterpart.
+  - id: 0x004E
+    status: untested
+    name: EP579YR_792x272
+    part: GDEY0579F52
+    controller: IST7158
+    geometry: { width: 792, height: 272 }
+    colour:
+      scheme: BWRY
+      plane_format: 2bpp_packed
+      code_map: [0, 1, 2, 3]  # 0 K, 1 W, 2 Y, 3 R, on glass over raw SPI
+    frame_layout: { frame_split: 1, row_order: 1 }
+    busy:
+      usable: true
+      idle_level: 1
+      timeout_ms: 60000
+    lut:
+      supported: false
+    sleep_sequence:
+      - "02 00"               # POF
+      - "07 A5"               # deep sleep
+    modes:
+      - name: full
+        init: full
+        passes: 1
+    init_sequences:
+      full:
+        - "@busy"
+        - "E0 01"
+        - "A5"                  # OTP load; BUSY while it runs
+        - "@busy"
+        - "A2 01"
+        - "00 07 29"            # PSR, first controller
+        - "A2 00"
+        - "A2 02"
+        - "00 03 29"            # PSR, second controller
+        - "A2 00"
+        - "01 07 00 26 78 24 26"
+        - "06 C0 C0 C0"
+        - "50 97"
+        - "61 01 8C 01 10"      # TRES 396x272
+        - "65 00 00 00 00"
+        - "E3 77"
+        - "FF A5"
+        - "EF 01 1E 06 1E 0E 1C 12 10"
+        - "DB 00"
+        - "CF 00"
+        - "DF 00"
+        - "FD 01"
+        - "E8 03"
+        - "DC 00"
+        - "DD 0A"
+        - "DE 3C"
+        - "FF E3"
+        - "E9 01"
+        - "04"                  # PON
+        - "@busy"
+        - "A2 01"
+        - "10"
+        - "@slice 0 2"
+        - "A2 02"
+        - "10"
+        - "@slice 1 2"
+        - "A2 00"
+        - "12 01"               # DRF
+        - "@busy"
+
+  # ---------------------------------------------------------------------------
   # PROVISIONAL -- not glass-verified, not on the website, id not assigned by
   # ../opendisplay-protocol. The 2.0" 200x152 BWRY glass of the legacy firmware
   # Telink tags (legacy screen type 38, hw 0x6C), on a JD79661 like 0x001E.

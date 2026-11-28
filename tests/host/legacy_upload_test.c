@@ -44,6 +44,7 @@ typedef struct {
     uint16_t w;
     uint16_t h;
     uint8_t scheme;
+    uint8_t frame_split;
     uint32_t frame_bytes;
     uint32_t frame_crc;
     const uint8_t *drive;
@@ -219,8 +220,7 @@ bool od_xfer_app_panel_info(od_xfer_panel_info_t *out)
 {
     memset(out, 0, sizeof(*out));
     out->needs_migration = od_display_needs_migration();
-    if (od_color_direct_geometry(g_disp->color_scheme, g_disp->pixel_width,
-                                 g_disp->pixel_height, &out->geometry) != OD_COLOR_OK) {
+    if (od_color_display_geometry(g_disp, g_disp->color_scheme, &out->geometry) != OD_COLOR_OK) {
         return false;
     }
     out->width = g_disp->pixel_width;
@@ -335,11 +335,12 @@ static void provision(const lu_panel_t *p, const uint8_t *drive, size_t drive_n)
     g_disp->pixel_width = p->w;
     g_disp->pixel_height = p->h;
     g_disp->color_scheme = p->scheme;
+    g_disp->frame_split = p->frame_split;
     g_disp->reset_pin = 6u;
     g_disp->dc_pin = 7u;
     g_disp->busy_pin = 8u;
     g_disp->cs_pin = 5u;
-    g_disp->cs_pin_2 = p->scheme == OD_COLOR_SCHEME_BWGBRY_SPLIT ? 9u : 0xFFu;
+    g_disp->cs_pin_2 = p->frame_split != 0u ? 9u : 0xFFu;
     store_config(drive, drive_n);
     od_xfer_reset();
     od_pipe_reset_state();
@@ -385,8 +386,7 @@ static uint16_t *reference_trace(const uint8_t *frame, uint32_t n, uint32_t *len
     uint16_t *copy;
 
     g_trace_n = 0u;
-    if (od_color_direct_geometry(g_disp->color_scheme, g_disp->pixel_width,
-                                 g_disp->pixel_height, &g) != OD_COLOR_OK ||
+    if (od_color_display_geometry(g_disp, g_disp->color_scheme, &g) != OD_COLOR_OK ||
         g.total_bytes != n || !od_epd_cfg_load(g_disp, &g_bus) ||
         !od_epd_cfg_select(0u, NULL) || !od_epd_cfg_begin_pass(0u) ||
         !od_epd_cfg_stream_init(&st, &g, 1u, false, NULL, 0u) ||
