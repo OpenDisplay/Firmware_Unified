@@ -59,6 +59,7 @@
   "EP73_SPECTRA_800x480": "0x0023",
   "EP426_800x480": "0x0027",
   "EP81_SPECTRA_1024x576": "0x002B",
+  "EP579_792x272": "0x0033",
   "EP213YR_122x250": "0x0034",
   "EP37YR_240x416": "0x0035",
   "EP35YR_184x384": "0x0036",
@@ -5355,6 +5356,293 @@
     "bg22": true
    }
   },
+  "0x0033": {
+   "panel_ic_type": 51,
+   "name": "EP579_792x272",
+   "aliases": [],
+   "notes": [
+    "no website preset; legacy color_scheme is the bb_epaper native scheme",
+    "DOUBT: does not drive the glass yet. Two SSD1683s each take a 400-column half column-major (bb_epaper bbepWriteHalf: 0x11 05, half RAM windows, the second half through cmd|0x80); this sequence streams the frame linearly to the first controller. Needs the host half reorder and a per-half sequence (OpenDisplay/Firmware#191, docs/FOLLOWUPS.md)"
+   ],
+   "differences": [
+    "D1",
+    "D2",
+    "D3",
+    "D4",
+    "D5"
+   ],
+   "width": 792,
+   "height": 272,
+   "controller": "SSD16xx",
+   "bbep_flags": [],
+   "legacy": {
+    "panel_ic_type": 51,
+    "color_scheme": 0,
+    "pixel_width": null,
+    "pixel_height": null,
+    "presets": []
+   },
+   "color_scheme": 0,
+   "status": "equivalent",
+   "verified": "equivalent",
+   "blocked_on": [],
+   "blocked_detail": {},
+   "modes": [
+    {
+     "index": 0,
+     "name": "full",
+     "refresh": "full",
+     "passes": 1,
+     "color_scheme": 0,
+     "planes": 1,
+     "window": false,
+     "seq_bytes": 53,
+     "steps": 21,
+     "fits": {
+      "default": true,
+      "bg22": true
+     },
+     "verified": "equivalent"
+    },
+    {
+     "index": 1,
+     "name": "fast",
+     "refresh": "fast",
+     "passes": 1,
+     "color_scheme": 0,
+     "planes": 1,
+     "window": false,
+     "seq_bytes": 67,
+     "steps": 26,
+     "fits": {
+      "default": true,
+      "bg22": true
+     },
+     "verified": "equivalent"
+    }
+   ],
+   "modes_blocked": [],
+   "requires_escapes": [
+    "SET_PIN"
+   ],
+   "packets": [
+    {
+     "id": 177,
+     "number": 0,
+     "body_hex": "0001003075000000010203020f023f22022283012000010210030000"
+    },
+    {
+     "id": 174,
+     "number": 0,
+     "body_hex": "000066756c6c00000000000000000001000000ffffffffffffffff00000000000000003500000101120001023cc0000101240003000610000005140000061001000514000001000101120001023cc000010222f7012000010000"
+    },
+    {
+     "id": 174,
+     "number": 1,
+     "body_hex": "00016661737400000000000000000001000000ffffffffffffffff00000000000000004300000101120001023cc0000101240003000610000005140000061001000514000001011200010218800222b101200001031a6400022291012000010222c7012000010000"
+    }
+   ],
+   "framed_hex": "00b11c000001003075000000010203020f023f2202228301200001021003000000ae5a00000066756c6c00000000000000000001000000ffffffffffffffff00000000000000003500000101120001023cc0000101240003000610000005140000061001000514000001000101120001023cc000010222f701200001000001ae680000016661737400000000000000000001000000ffffffffffffffff00000000000000004300000101120001023cc0000101240003000610000005140000061001000514000001011200010218800222b101200001031a6400022291012000010222c7012000010000",
+   "drive_bytes": 234,
+   "fits": {
+    "bg22": true,
+    "esp32": true,
+    "nordic": true
+   },
+   "equivalence": {
+    "modes": {
+     "0": {
+      "rc": 0,
+      "equal": true
+     },
+     "1": {
+      "rc": 0,
+      "equal": true
+     }
+    },
+    "sleep": {
+     "rc": 0,
+     "equal": true
+    },
+    "all_equal": true
+   },
+   "glass_reports": [],
+   "targets": {
+    "default": {
+     "limits": {
+      "seq_max": 512,
+      "max_steps": 128,
+      "window": true
+     },
+     "status": "equivalent",
+     "verified": "equivalent",
+     "blocked_on": [],
+     "blocked_detail": {},
+     "modes_blocked": [],
+     "requires_escapes": [
+      "SET_PIN"
+     ],
+     "notes": [],
+     "modes": [
+      {
+       "index": 0,
+       "name": "full",
+       "refresh": "full",
+       "passes": 1,
+       "color_scheme": 0,
+       "planes": 1,
+       "window": false,
+       "seq_bytes": 53,
+       "steps": 21,
+       "fits": {
+        "default": true,
+        "bg22": true
+       },
+       "verified": "equivalent"
+      },
+      {
+       "index": 1,
+       "name": "fast",
+       "refresh": "fast",
+       "passes": 1,
+       "color_scheme": 0,
+       "planes": 1,
+       "window": false,
+       "seq_bytes": 67,
+       "steps": 26,
+       "fits": {
+        "default": true,
+        "bg22": true
+       },
+       "verified": "equivalent"
+      }
+     ],
+     "packets": [
+      {
+       "id": 177,
+       "number": 0,
+       "body_hex": "0001003075000000010203020f023f22022283012000010210030000"
+      },
+      {
+       "id": 174,
+       "number": 0,
+       "body_hex": "000066756c6c00000000000000000001000000ffffffffffffffff00000000000000003500000101120001023cc0000101240003000610000005140000061001000514000001000101120001023cc000010222f7012000010000"
+      },
+      {
+       "id": 174,
+       "number": 1,
+       "body_hex": "00016661737400000000000000000001000000ffffffffffffffff00000000000000004300000101120001023cc0000101240003000610000005140000061001000514000001011200010218800222b101200001031a6400022291012000010222c7012000010000"
+      }
+     ],
+     "framed_hex": "00b11c000001003075000000010203020f023f2202228301200001021003000000ae5a00000066756c6c00000000000000000001000000ffffffffffffffff00000000000000003500000101120001023cc0000101240003000610000005140000061001000514000001000101120001023cc000010222f701200001000001ae680000016661737400000000000000000001000000ffffffffffffffff00000000000000004300000101120001023cc0000101240003000610000005140000061001000514000001011200010218800222b101200001031a6400022291012000010222c7012000010000",
+     "drive_bytes": 234,
+     "fits_config": true,
+     "fits": {
+      "bg22": true,
+      "esp32": true,
+      "nordic": true
+     },
+     "glass_reports": []
+    },
+    "bg22": {
+     "limits": {
+      "seq_max": 512,
+      "max_steps": 128,
+      "window": false
+     },
+     "status": "equivalent",
+     "verified": "equivalent",
+     "blocked_on": [],
+     "blocked_detail": {},
+     "modes_blocked": [],
+     "requires_escapes": [
+      "SET_PIN"
+     ],
+     "equivalence": {
+      "modes": {
+       "0": {
+        "rc": 0,
+        "equal": true
+       },
+       "1": {
+        "rc": 0,
+        "equal": true
+       }
+      },
+      "sleep": {
+       "rc": 0,
+       "equal": true
+      },
+      "all_equal": true
+     },
+     "notes": [],
+     "modes": [
+      {
+       "index": 0,
+       "name": "full",
+       "refresh": "full",
+       "passes": 1,
+       "color_scheme": 0,
+       "planes": 1,
+       "window": false,
+       "seq_bytes": 53,
+       "steps": 21,
+       "fits": {
+        "default": true,
+        "bg22": true
+       },
+       "verified": "equivalent"
+      },
+      {
+       "index": 1,
+       "name": "fast",
+       "refresh": "fast",
+       "passes": 1,
+       "color_scheme": 0,
+       "planes": 1,
+       "window": false,
+       "seq_bytes": 67,
+       "steps": 26,
+       "fits": {
+        "default": true,
+        "bg22": true
+       },
+       "verified": "equivalent"
+      }
+     ],
+     "packets": [
+      {
+       "id": 177,
+       "number": 0,
+       "body_hex": "0001003075000000010203020f023f22022283012000010210030000"
+      },
+      {
+       "id": 174,
+       "number": 0,
+       "body_hex": "000066756c6c00000000000000000001000000ffffffffffffffff00000000000000003500000101120001023cc0000101240003000610000005140000061001000514000001000101120001023cc000010222f7012000010000"
+      },
+      {
+       "id": 174,
+       "number": 1,
+       "body_hex": "00016661737400000000000000000001000000ffffffffffffffff00000000000000004300000101120001023cc0000101240003000610000005140000061001000514000001011200010218800222b101200001031a6400022291012000010222c7012000010000"
+      }
+     ],
+     "framed_hex": "00b11c000001003075000000010203020f023f2202228301200001021003000000ae5a00000066756c6c00000000000000000001000000ffffffffffffffff00000000000000003500000101120001023cc0000101240003000610000005140000061001000514000001000101120001023cc000010222f701200001000001ae680000016661737400000000000000000001000000ffffffffffffffff00000000000000004300000101120001023cc0000101240003000610000005140000061001000514000001011200010218800222b101200001031a6400022291012000010222c7012000010000",
+     "drive_bytes": 234,
+     "fits_config": true,
+     "fits": {
+      "bg22": true,
+      "esp32": true,
+      "nordic": true
+     },
+     "glass_reports": []
+    }
+   },
+   "fits_target": {
+    "default": true,
+    "bg22": true
+   }
+  },
   "0x0034": {
    "panel_ic_type": 52,
    "name": "EP213YR_122x250",
@@ -10397,11 +10685,6 @@
   },
   "0x0032": {
    "name": "EP154Z_152x152",
-   "use": null,
-   "modes": []
-  },
-  "0x0033": {
-   "name": "EP579_792x272",
    "use": null,
    "modes": []
   },

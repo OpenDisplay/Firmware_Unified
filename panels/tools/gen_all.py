@@ -70,12 +70,13 @@ GRAY_INTO = {
 GRAY_LOOKUP_V2 = [3, 2, 1, 0]
 # Ids no simple-config display uses (opendisplay.org simple-config-presets.json), BWR and BW, plus
 # 0x0003, which the website described wrongly (Seeed's 2.13in mono is 0x0004): no drive data is
-# shipped for them. A device configured with one is moved to `use` (or a preset) by hand.
+# shipped for them. A device configured with one is moved to `use` (or a preset) by hand. 0x0033
+# (CrowPanel 5.79in) stays: it is in use (OpenDisplay/Firmware#191).
 UNUSED_REMOVED = ("0x000C", "0x000F", "0x0010", "0x0019", "0x0021", "0x0024", "0x0025", "0x0026",
                   "0x0029", "0x002D",
                   "0x0001", "0x0006", "0x0007", "0x0009", "0x000A", "0x000B", "0x000D", "0x0011",
                   "0x0012", "0x0013", "0x0014", "0x001B", "0x0020", "0x002A", "0x002C", "0x002E",
-                  "0x0030", "0x0032", "0x0033", "0x003E", "0x003F", "0x0047", "0x0049", "0x004B")
+                  "0x0030", "0x0032", "0x003E", "0x003F", "0x0047", "0x0049", "0x004B")
 REPLACED = {"0x0003": "0x0004"}
 # 4-gray enums whose plane order on glass is the opposite of what their bb_epaper lookup implies
 # (the mid-grays come out swapped), with the checklist section that shows it.
@@ -636,6 +637,12 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
             e["notes"].append("bb_epaper expands pixels for this panel in its own write path; the 2.x "
                               "direct path streams the host bytes raw, so the host must send the "
                               "controller format")
+        if enum == "EP579_792x272":
+            e["notes"].append("DOUBT: does not drive the glass yet. Two SSD1683s each take a 400-column half "
+                              "column-major (bb_epaper bbepWriteHalf: 0x11 05, half RAM windows, the second "
+                              "half through cmd|0x80); this sequence streams the frame linearly to the first "
+                              "controller. Needs the host half reorder and a per-half sequence "
+                              "(OpenDisplay/Firmware#191, docs/FOLLOWUPS.md)")
         if enum.startswith("EP397_"):
             e["notes"].append("2.x Firmware detects SSD1677 vs SSD2677 at runtime (reg 0x70) and repacks "
                               "to 2bpp for SSD2677; config-driven drive needs READBACK and PIXEL_XFORM")

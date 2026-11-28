@@ -1893,3 +1893,16 @@ GDEY0579F52). Two things stand between it and a preset:
   if the frame arrives already reordered, which is a host-side transform in py-opendisplay; the
   alternative is an executor escape that does the reorder on the device.
 
+
+## 5.79in CrowPanel EP579_792x272 (0x0033) streams the frame to one controller
+
+OpenDisplay/Firmware#191. The panel has two SSD1683s, each owning a 400-column half addressed
+column-major (bb_epaper `bbepWriteHalf`: `11 05`, a half-width RAM window, the second controller
+through cmd|0x80 — `91`, `C4`/`C5`, `CE`/`CF`, then `A4`/`A6`). The generated sequence sends the
+whole frame linearly to the first controller, so the preset is kept (the id is in use) but marked
+DOUBT in `panels/generated/coverage.md`. Needs:
+
+- a hand-written per-half sequence (both windows, `24` + IMAGE_SLICE 0/2, `A4` + IMAGE_SLICE 1/2,
+  zero planes for `26`/`A6`);
+- the host to emit each half column-major, padded 396 to 400 columns, the second half starting at
+  frame column 392 — a py-opendisplay transform, the same kind the GDEY0579F52 entry above needs.
