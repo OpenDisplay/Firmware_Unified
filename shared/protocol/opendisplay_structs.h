@@ -76,6 +76,11 @@
  *         packet 0xB3 OD_PKT_DISPLAY_CONTROLLER; DriveSeqEscape 0x0C WINDOW
  *         and 0x0D FILL; ActionInfoResponse grows to 8 B (`tables`) and
  *         `rejected` counts every skipped entry.
+ *     - Structs 2.5 (opendisplay-protocol#18): DisplayConfig frame layout
+ *       (frame_split, frame_scan, part_width, part_stride, plane_invert,
+ *       pixel_pack, row_order from reserved[13]; reserved[4] left), enums
+ *       FrameSplit / RowOrder / PixelPack, bits FrameScan / PlaneInvert,
+ *       PanelIC 78 EP579YR_792X272, ColorScheme 8 BWGBRY_SPLIT retired.
  *
  *   2.3  (2026-11-06)  -- action table + image-store payloads (Firmware_Unified BG22)
  *     - Config packet 0xB2 = OD_PKT_ACTION_TABLE (length-prefixed, SINGLETON):
@@ -667,7 +672,7 @@ enum ColorScheme {
     OD_COLOR_SCHEME_GRAY4        = 5,   /**< @doc "2bpp 4-level gray" */
     OD_COLOR_SCHEME_GRAY16       = 6,   /**< @doc "4bpp 16-level gray" */
     OD_COLOR_SCHEME_SEVEN_COLOR  = 7,   /**< @doc "7-color (Spectra/ACeP 7, config.yaml '7color')" @changed "2.0: value 7 is SEVEN_COLOR; the former COLOR_SCHEME_GRAY8=7 was a mistake (gray8 is not a real scheme) and is removed -- not renumbered." */
-    OD_COLOR_SCHEME_BWGBRY_SPLIT = 8,   /**< @doc "Spectra 6 nibbles, left-half plane then right-half plane (dual-CS panels, no device framebuffer)" */
+    OD_COLOR_SCHEME_BWGBRY_SPLIT = 8,   /**< @doc "RETIRED: Spectra 6 nibbles, left-half plane then right-half plane. Write BWGBRY (4) with DisplayConfig.frame_split = OD_FRAME_SPLIT_HALVES instead; readers from 3.0 refuse 8 in DisplayConfig. The value stays reserved and is never reused." @changed "2.5: retired in favour of frame_split." */
     OD_COLOR_SCHEME_BWRY16       = 10,  /**< @doc "BWRY packing with a 16-colour multi-pass palette. Packs IDENTICALLY to BWRY(3): 2bpp, one plane; the number of frames comes from the display_mode (0xAE) pass count, not from this value. Exists so a host image pipeline can select the 16-entry palette (display_calibration 0xB0). MUST NOT be written into DisplayConfig.color_scheme -- the PANEL's scheme stays BWRY(3); 16-colour is a property of a MODE (display_mode.color_scheme). Value 9 is SKIPPED on purpose: epaper-dithering uses 9 for a library-local Grayscale8 that is deliberately not a wire value." @since 1.6 */
     OD_COLOR_SCHEME_RGB565       = 100, /**< @doc "RGB565 (non-epaper)" */
     OD_COLOR_SCHEME_RGB888       = 101, /**< @doc "RGB888 (non-epaper)" */
@@ -759,6 +764,7 @@ enum PanelIC {
     OD_PANEL_IC_EP40_SPECTRA_400X600     = 74  , /**< @doc "GDEP040E01 Spectra 6 4\" 400x600" */
     OD_PANEL_IC_EP27_176X264             = 75  , /**< @doc "Badger2350 B/W 2.7\"" */
     OD_PANEL_IC_EP27_176X264_4GRAY       = 76  , /**< @doc "Badger2350 4-gray 2.7\"" */
+    OD_PANEL_IC_EP579YR_792X272          = 78  , /**< @doc "GDEY0579F52 5.79\" BWRY (two IST7158; frame_split HALVES, row_order FOLD). 77 is taken by ep42r3_400x300 in the toolbox config.yaml." @since 2.5 */
     OD_PANEL_IC_UC8176_420_BW            = 1000, /**< @doc "UC8176 4.2\" B/W (M3 / EPD-nRF5 driver line, values 1000-1030)" */
     OD_PANEL_IC_SSD1619_420_BWR          = 1001, /**< @doc "SSD1619 4.2\" B/W/R" */
     OD_PANEL_IC_UC8176_420_BWR           = 1002, /**< @doc "UC8176 4.2\" B/W/R" */
@@ -809,9 +815,53 @@ enum PanelIC {
 #define OD_TRANSMISSION_MODE_RESERVED_6              (1u << 6) /* @reserved @doc "reserved; must be 0 (placeholder name for a future transmission mode)" */
 #define OD_TRANSMISSION_MODE_CLEAR_ON_BOOT           (1u << 7) /* @doc "Clear screen on boot. Synonymous with config.yaml's no_boot_text / NO_BOOT_TEXT -- same bit, same behavior (clearing on boot is why no boot text shows)." */
 
+/* ---- DisplayConfig frame layout (2.5) ---------------------------------------
+ * The order in which the host emits the frame bytes. The device forwards
+ * uploaded bytes unchanged and has no framebuffer, so a panel whose controllers
+ * do not take one linear row-major stream needs the host to produce that order.
+ * Applied in this order to the packed frame of DisplayConfig.color_scheme:
+ *   1. frame_split cuts the frame into parts, one per controller;
+ *   2. within each part, row_order and frame_scan fix the byte order;
+ *   3. pixel_pack, plane_invert and FRAME_SCAN_LSB_FIRST fix each byte.
+ * All zero = one part, rows top to bottom, MSB-first, as packed by the scheme.
+ * A value or bit not defined below MUST make the reader refuse the config.
+ * ------------------------------------------------------------------------- */
+
+/** @enum FrameSplit  @width 1  @since 2.5
+ *  @doc "how many controllers share the frame (DisplayConfig.frame_split)." */
+enum FrameSplit {
+    OD_FRAME_SPLIT_NONE   = 0, /**< @doc "one part: the whole frame" */
+    OD_FRAME_SPLIT_HALVES = 1  /**< @doc "two parts side by side, left part first; each is sent as its own IMAGE_SLICE (part 0 of 2, part 1 of 2). Part n covers panel columns [n * part_stride, n * part_stride + part_width); columns past the panel's edge are sent as white." */
+};
+
+/** @enum RowOrder  @width 1  @since 2.5
+ *  @doc "order of the rows inside each part (DisplayConfig.row_order)." */
+enum RowOrder {
+    OD_ROW_ORDER_LINEAR     = 0, /**< @doc "rows 0 .. h-1" */
+    OD_ROW_ORDER_FOLD       = 1, /**< @doc "rows in pairs from both ends: h-1, 0, h-2, 1, ... (one gate driver per half of the glass, fed bottom row then top row)" */
+    OD_ROW_ORDER_INTERLEAVE = 2  /**< @doc "rows in pairs (y, y+1) sent as ONE stream, pixel by pixel: for each column x, the code of (x, y+1) then the code of (x, y). Defined for 2-bit codes; h is even." */
+};
+
+/** @enum PixelPack  @width 1  @since 2.5
+ *  @doc "how pixel codes are packed into bytes (DisplayConfig.pixel_pack)." */
+enum PixelPack {
+    OD_PIXEL_PACK_SCHEME = 0, /**< @doc "as color_scheme packs them" */
+    OD_PIXEL_PACK_NIBBLE = 1  /**< @doc "one pixel per nibble, high nibble = left pixel; the 2-bit code sits in the nibble's low bits, upper bits 0. For 2-bit schemes (BWRY): doubles the frame size." */
+};
+
+/* DisplayConfig.frame_scan @bits FrameScan (bits 4-7 reserved) @since 2.5 */
+#define OD_FRAME_SCAN_COLUMN_MAJOR (1u << 0) /* @doc "each part is sent column by column: for each byte-column (8 / bpp pixels wide), one byte per row, rows in row_order. For controllers whose RAM address counter steps along the gate direction." */
+#define OD_FRAME_SCAN_MIRROR_X     (1u << 1) /* @doc "columns right to left inside each part (for a controller whose source direction cannot be set by a command)" */
+#define OD_FRAME_SCAN_MIRROR_Y     (1u << 2) /* @doc "rows bottom to top inside each part, applied before row_order" */
+#define OD_FRAME_SCAN_LSB_FIRST    (1u << 3) /* @doc "the leftmost pixel of each byte is in the least significant bits (each byte bit-reversed in pixel units)" */
+
+/* DisplayConfig.plane_invert @bits PlaneInvert (bits 2-7 reserved) @since 2.5 */
+#define OD_PLANE_INVERT_0 (1u << 0) /* @doc "invert every bit of plane 0 (the only plane of a one-plane scheme)" */
+#define OD_PLANE_INVERT_1 (1u << 1) /* @doc "invert every bit of plane 1 (the colour plane of BWR / BWY, the second plane of GRAY4)" */
+
 /** @struct DisplayConfig  @packet 0x20  @repeatable max=4
  *  @doc "Per-panel configuration: geometry, controller, SPI pins, color scheme,
- *  and supported transmission modes. Up to 4 instances. 46 bytes." */
+ *  and supported transmission modes, and the frame layout. Up to 4 instances. 46 bytes." */
 struct DisplayConfig {
     uint8_t  instance_number;        /**< @doc "0-based display index (unique per display block)." */
     uint8_t  display_technology;     /**< @enum DisplayTechnology @doc "panel technology." */
@@ -839,7 +889,14 @@ struct DisplayConfig {
     uint8_t  aux_pin_5;              /**< @doc "auxiliary panel pin 5 (was reserved_pin_7); see aux_pin_1." @since 1.6 */
     uint8_t  aux_pin_6;              /**< @doc "auxiliary panel pin 6 (was reserved_pin_8); see aux_pin_1." @since 1.6 */
     uint16_t full_update_mC;         /**< @endian le @unit mC @doc "energy consumed by a full refresh; 0 = unknown." */
-    uint8_t  reserved[13];           /**< @reserved @doc "future use; must be 0." */
+    uint8_t  frame_split;            /**< @enum FrameSplit @doc "controllers sharing the frame; see the frame layout block above." @since 2.5 */
+    uint8_t  frame_scan;             /**< @bits FrameScan @doc "byte order inside each part." @since 2.5 */
+    uint16_t part_width;             /**< @endian le @unit px @doc "columns each part carries on the wire; 0 = pixel_width / parts. A part boundary must fall on a byte at the scheme's bit depth." @since 2.5 */
+    uint16_t part_stride;            /**< @endian le @unit px @doc "panel column where the next part starts, relative to this one; 0 = part_width. Smaller than part_width = the parts overlap; larger = padding columns between them." @since 2.5 */
+    uint8_t  plane_invert;           /**< @bits PlaneInvert @doc "planes sent bit-inverted." @since 2.5 */
+    uint8_t  pixel_pack;             /**< @enum PixelPack @doc "pixel packing; 0 = as the scheme packs." @since 2.5 */
+    uint8_t  row_order;              /**< @enum RowOrder @doc "row order inside each part." @since 2.5 */
+    uint8_t  reserved[4];            /**< @reserved @doc "future use; must be 0. A reader MUST refuse a config with any of these non-zero." */
 } __attribute__((packed));
 OD_STATIC_ASSERT(sizeof(struct DisplayConfig) == 46, "DisplayConfig wire size");
 

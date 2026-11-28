@@ -931,9 +931,7 @@ int displayBootBitsPerPixel(uint8_t colorScheme) {
         return 4;
     }
 #endif
-    if (colorScheme == OD_COLOR_SCHEME_BWGBRY ||
-        colorScheme == OD_COLOR_SCHEME_BWGBRY_SPLIT ||
-        colorScheme == OD_COLOR_SCHEME_GRAY16) return 4;
+    if (colorScheme == OD_COLOR_SCHEME_BWGBRY || colorScheme == OD_COLOR_SCHEME_GRAY16) return 4;
     if (colorScheme == OD_COLOR_SCHEME_BWRY || colorScheme == OD_COLOR_SCHEME_GRAY4) return 2;
     if (colorScheme == OD_COLOR_SCHEME_MONO || colorScheme == OD_COLOR_SCHEME_BWR ||
         colorScheme == OD_COLOR_SCHEME_BWY || colorScheme == OD_COLOR_SCHEME_SEVEN_COLOR) return 1;
@@ -1110,7 +1108,7 @@ static od_color_status_t nativeGeometry(const struct DisplayConfig& d, od_color_
         geometry->total_bytes = (uint32_t)totalBytes;
         return OD_COLOR_OK;
     }
-    return od_color_direct_geometry(d.color_scheme, d.pixel_width, d.pixel_height, geometry);
+    return od_color_display_geometry(&d, d.color_scheme, geometry);
 }
 #endif
 
@@ -1154,8 +1152,7 @@ extern "C" bool od_xfer_app_panel_info(od_xfer_panel_info_t *out) {
     }
 #endif
     out->needs_migration = od_display_needs_migration();
-    const bool geometryOk = od_color_direct_geometry(d.color_scheme, d.pixel_width,
-                                                     d.pixel_height, &out->geometry) == OD_COLOR_OK;
+    const bool geometryOk = od_color_display_geometry(&d, d.color_scheme, &out->geometry) == OD_COLOR_OK;
     if (!geometryOk && !out->needs_migration) return false;
     /* Partial needs a "partial" mode to drive it, whatever 0x20 claims. */
     out->partial_enabled = !out->needs_migration && od_display_partial_available();

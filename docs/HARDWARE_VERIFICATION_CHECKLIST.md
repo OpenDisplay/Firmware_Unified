@@ -1793,6 +1793,188 @@ K/W/Y/R strip), then a two-digit counter in the centre through `partial_bw` (py-
 | BW2_kick3_w20 (20-frame white runs), 00-05, 23-26 C | **PASS**: "way better" white; 7.3-7.4 s per update. Shipped |
 | Black/white drift over 100 updates, strip outside the counter, meter | **OPEN** |
 
+## 5.79" BWRY GDEY0579F52 (panel id 78, `0x004E`) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
+
+Bare Good Display 5.79in 792x272 BWRY panel, label `0579-F52-B2`: two IST7158 controllers, each
+396x272, selected with `A2 01` (master, left half) / `A2 02` (slave, right half), `A2 00` both.
+The first four rows drive it over CMD_SPI_RAW only, nothing stored on the device; the last two run
+preset `0x004E` from the config. Reference: Good Display sample code A32-GDEY0579F52 (2025-07-08).
+Camera only.
+
+| Row | Result |
+|---|---|
+| bb_epaper `epd579yr_init_full` (commented out upstream), halves sent row by row | **FAIL**: master half squashed to half height with a mirrored copy below, white drawn yellowish; slave half dark |
+| same init, whole 792-wide frame with `A2 00` | **FAIL**: master half shows a jumbled flipped frame; slave half dark |
+| Good Display init (adds `A5` OTP load + BUSY after `E0 01`), each half sent as row pairs (271-i, i) for i = 0..135, `A2 00`, `12 01` | **PASS** on camera: K/W/Y/R bands, text and the right-edge marker all in place across both halves |
+| Good Display init, each half sent in plain row order (0..271), `A2 00`, `12 01` (2026-11-28, bands rotated) | **FAIL**: each half squashed to half height with an upside-down copy below. Even wire rows land top-down, odd rows bottom-up, so the row pairs are the glass's gate order, not a register setting: preset `0x004E` keeps `row_order` FOLD |
+| Firmware with structs 2.5 (this branch, `s3-n16r8`), config `0x004E` written by the py-opendisplay fork: the device's own SETUP screen (claim mode), drawn by the frame walker with split + FOLD | **PASS** on camera: border continuous across the column-396 seam, QR whole on the right half with its finder patterns in place, nothing folded or mirrored |
+| Same firmware and config after claim mode timed out: `upload_image` (py-opendisplay fork, host packs split + FOLD), mode `full`, W/Y/R/K bands + text + right-edge triangle (2026-11-28). Device drive packets read back equal to `drive_presets.json` default class (`framed_sha256` 09aa3fba…) | **PASS** on camera, 21.3 s: bands in order, colours right, text whole across the column-396 seam, triangle at the right edge, nothing folded or mirrored. Recorded in `panels/glass_reports.yaml` |
+
+## Seeed 3.97" BWRY (0x0037) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
+
+Bare Seeed 3.97in 800x480 BWRY panel (website preset `ep397yr-800x480`, id 55, GDEM0397F81),
+mounted portrait under the camera. Stock preset from `drive_presets.json` plus the `ep397yr_bwry`
+entry of `refresh_modes.json`, K/W/Y/R 2x2 quadrants, no dithering. Camera only.
+
+| Row | Result |
+|---|---|
+| `full`, K/W/Y/R quadrants | **PASS** on camera: all four colours in place, 23.5 s |
+| `fast`, quadrants rotated one place | colours in place, 14.2 s, but a thin dark line across one row in the lower half |
+| `fast`, original layout over the previous fast frame | the same line again, plus a second one near the top edge; `full` shows neither |
+| `fast` dropped (`DROP_FLOWS`), `partial_bw` now mode 1; `full` 00 then counter 01-02 from the regenerated presets | **PASS** on camera: 23.3 s full, 3.0 s per partial |
+| experimental `partial_bw` (the 2.9in BW2_kick3_w10 table on the stock init, 800x480 window): `full` 00, then counter 01-05 with 1-bit text | **PASS** on camera, provisional: 3.1-3.2 s per update, digits clean, colour bar held, no lines; judged by eye, not measured |
+| K/W/Y/R stock colours under i1Pro, `full`, 2x2 quadrants, two reads each | **measured**: media-relative to W, K L* 17.8, Y (88.7, 26.0, 96.7), R (41.1, 57.7, 40.0); contrast 40.3; `panels/palettes/bwry_0x0037_OD7C42E9.json` (data only, not in the preset's 0xB0) |
+
+## Seeed 2.9" BWRY (0x001D) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
+
+Bare Seeed 2.9in 128x296 BWRY panel (website preset `ep29r-128x296`, id 29, GDEY029F51). Stock
+preset from `drive_presets.json` plus the `ep29yr128_bwry` entry of `refresh_modes.json`, K/W/Y/R
+2x2 quadrants, no dithering. Camera only.
+
+| Row | Result |
+|---|---|
+| `full`, K/W/Y/R quadrants, bb_epaper `code_map` [0, 1, 3, 2] | **FAIL**: K and W in place, Y and R swapped; 24.4 s |
+| `full`, quadrants rotated one place, same `code_map` | **FAIL**: Y and R swapped again, so the code order, not the layout |
+| `full`, `code_map` [0, 1, 2, 3] (`CODE_MAP_ON_GLASS`) | **PASS** on camera: all four colours in place, 24.4 s |
+| experimental `partial_bw` (the 2.9in BW2_kick3_w10 table on the stock init at 128x296): `full` 00, then counter 01-05 with 1-bit text | **PASS** on camera, provisional: 2.6-2.7 s per update, digits clean, colour bar held; judged by eye, not measured |
+| K/W/Y/R stock colours under i1Pro, `full`, 2x2 quadrants, two reads each | **measured**: media-relative to W, K L* 20.4, Y (92.5, 28.3, 98.5), R (44.2, 59.7, 43.1); contrast 32.4; `panels/palettes/bwry_0x001D_OD7C42E9.json` (data only, not in the preset's 0xB0) |
+
+## Seeed 2.13" BWRY (0x0034) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
+
+Bare Seeed 2.13in 122x250 BWRY panel (website preset `ep213r-122x250`, id 52, GDEY0213F52).
+Stock preset from `drive_presets.json`, K/W/Y/R 2x2 quadrants, no dithering. Camera only.
+
+| Row | Result |
+|---|---|
+| `full`, K/W/Y/R quadrants | **PASS** on camera: all four colours in place, 16.9 s |
+| `fast`, quadrants rotated one place | **FAIL**: black drawn as red; Y and W right; 12.8 s |
+| `fast`, original layout over the previous fast frame | **FAIL**: black as red again, and the quadrant due to go white stays red |
+| `fast` dropped (`DROP_FLOWS`); `full` re-run from the new preset, rotated quadrants | **PASS** on camera: 16.9 s |
+| experimental `partial_bw` (refresh_modes `ep213yr_bwry`, the 2.9in BW2_kick3_w10 table on the 2.9in init at 128x250): `full` 00, then counter 01-03 with 1-bit text | **PASS** on camera, provisional: 2.8 s per update, digits clean, colour bar held; judged by eye, not measured |
+| K/W/Y/R stock colours under i1Pro, `full`, 2x2 quadrants, two reads each | **measured**: media-relative to W, K L* 20.2, Y (92.9, 25.2, 98.3), R (46.7, 63.1, 43.8); contrast 32.9; `panels/palettes/bwry_0x0034_OD7C42E9.json` (data only, not in the preset's 0xB0) |
+
+## Seeed 7.5" BWRY (0x0040) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
+
+Bare Seeed 7.5in 800x480 BWRY panel (website preset `ep75-bwry-800x480`, id 64), the same
+0x0040 EP75YR_800x480 preset as the Solum M3 Pro 7.5in (ODBF064E, section above). Stock preset
+from `drive_presets.json`, then the `ep75yr_bwry` entry of `refresh_modes.json`. Camera only.
+
+| Row | Result |
+|---|---|
+| `full`, K/W frame | **PASS** on camera: 14.0 s |
+| `full`, K/W/Y/R quadrants | **PASS** on camera: all four colours in place, 13.5 s |
+| `partial_bw` (BW2_kick3_w20) via `show(prior=last_frame)`, counter 01-03 | **PASS** on camera: about 4.1 s per update, only changed pixels driven (1.8-4.0 k), K/Y/R strip intact; faint ghost of the previous digit |
+| `colour16` | not run |
+
+## 2.13" BW (0x0004) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
+
+Bare Seeed 2.13in 122x250 mono panel, SSD16xx. Preset written from `drive_presets.json` with the
+`ep213-122x250` display packet. Camera snapshots, 10 fps video, i1Pro S/N 324492 (D50, M0).
+
+| Row | Result |
+|---|---|
+| 0x0003 EP213_122x250 (the website preset's id), full | **FAIL**: faint noisy image only |
+| 0x0004 `full`, i1Pro K / W | **PASS**: L* 18.8 / 71.0, 3.7 s (tile drift 0 % Y) |
+| 0x0004 `fast`, inverted frame | **PASS** on camera: clean, 3.6 s |
+| 0x0004 `partial` (PartialState), counter 01-03 | **PASS** on video: 2.5 s per update, no flash in an untouched area |
+
+## Seeed 2.9" BW (0x0005) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
+
+Bare Seeed 2.9in 128x296 mono panel, SSD16xx; id 5 per the Seeed product page. No simple-config
+display uses 0x0005, so the legacy display packet borrows `ep29-128x296`'s geometry with
+`partial_update_support` 1. Camera snapshots, 10 fps video, i1Pro S/N 324492 (D50, M0).
+
+| Row | Result |
+|---|---|
+| `full`, i1Pro K / W | **PASS**: L* 21.6 / 71.5, 3.2 s (tile drift 0 % Y) |
+| `fast`, inverted frame | **PASS** on camera: clean, 3.6 s; then dropped from the preset by project decision |
+| `partial` (PartialState), counter 01-03 | **PASS** on video: 2.4 s per update, no flash in an untouched area |
+| `partial` as mode 1 after `fast` was dropped, counter 01-02 | **PASS** on camera: 2.4 s per update |
+
+## 1.54" BW (0x001A) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
+
+Bare Seeed 1.54in 200x200 mono panel, SSD16xx (website preset `ep154-200x200`). Preset written
+from `drive_presets.json`. Camera snapshots, i1Pro S/N 324492 (D50, M0), gray swatches as 2x2
+quadrants.
+
+| Row | Result |
+|---|---|
+| `full`, i1Pro K / W | **PASS**: L* 19.3 / 70.6, 3.2 s (tile drift 0 % Y) |
+| `fast`, inverted frame | **PASS** on camera: clean, 3.3 s |
+| `partial` (PartialState), counter 01-03 | **PASS** on camera: 2.5 s per update, partial path taken |
+| `gray4` in bb_epaper plane order (u8Colors_4gray) | **FAIL**: mid-grays swapped (camera 64 / 120 / 84 / 143) |
+| `gray4` with the planes swapped (`GRAY_SWAP_ON_GLASS`), i1Pro | **PASS**: L* 22.4 / 43.5 / 64.1 / 73.3, monotonic, with the host's stock codes (tile drift 0.05 % Y) |
+
+## 2.9" flex BW (0x0017) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
+
+Bare 2.9in 128x296 flexible mono panel, UC81xx (website preset `ep29-128x296`). Preset written from
+`drive_presets.json`. Camera snapshots, 10 fps video for partial, i1Pro S/N 324492 (D50, M0).
+
+| Row | Result |
+|---|---|
+| `full`, i1Pro K / W | **PASS**: L* 18.7 / 70.0, about 4.5 s (tile drift 0 % Y) |
+| `fast`, inverted frame | **PASS** on camera: clean, 2.6 s |
+| `partial` with the website preset | not exercised: `partial_update_support` 0, so the host sends full refreshes |
+| `partial` (PartialState), `partial_update_support` forced to 1 | **PASS** on video: counter 01-03 in place, no flash, 2.2 s per update |
+| `gray4` in bb_epaper plane order (u8Colors_4gray) | **FAIL**: mid-grays swapped |
+| `gray4` with the planes swapped (`GRAY_SWAP_ON_GLASS`), i1Pro | **PASS**: L* 15.9 / 34.4 / 58.1 / 69.6, monotonic, with the host's stock codes (tile drift 0.03 % Y) |
+
+## 4.2" BW (0x0002) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
+
+Bare 4.2in 400x300 SSD16xx panel (website preset `ep42-400x300`). Preset written from
+`drive_presets.json`. Camera snapshots and i1Pro S/N 324492 (D50, M0).
+
+| Row | Result |
+|---|---|
+| `full`, i1Pro K / W | **PASS**: L* 19.5 / 69.7, 3.3 s (tile drift 2.2 % Y) |
+| `fast`, inverted frame | **PASS** on camera: clean, 3.7 s |
+| `partial` (PartialState), counter 01-05 | **PASS** on camera: 2.5 s per update |
+| `gray4` in bb_epaper plane order (u8Colors_4gray) | **FAIL**: G1 light, G2 dark (mid-grays swapped) |
+| `gray4` with the planes swapped (`GRAY_SWAP_ON_GLASS`), i1Pro | **PASS**: L* 19.9 / 33.0 / 62.9 / 70.4, monotonic, with the host's stock codes (tile drift 5.9 % Y) |
+| `gray4` from an unmodified host | **OPEN**: as 0x003B |
+
+## 5.83" BW (0x001F) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
+
+Bare Seeed 5.83in 648x480 mono panel (UC81xx). Preset written from `drive_presets.json`. Camera
+snapshots and i1Pro S/N 324492 (D50, M0, tile drift 1.8 % Y). No 4-gray enum, so no extra modes.
+
+| Row | Result |
+|---|---|
+| `full`, i1Pro K / W | **PASS**: L* 18.8 / 71.1, 6.6 s |
+| `fast`, inverted frame | **PASS** on camera: clean, 3.1 s |
+| `partial` (PartialState), counter 01-05 | **PASS** on camera: rest intact, about 3.3 s per update |
+
+## 4.26" BW (0x0027) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
+
+Bare 4.26in SSD1677 panel. Preset written from `drive_presets.json`. Camera snapshots and i1Pro
+S/N 324492 (D50, M0).
+
+| Row | Result |
+|---|---|
+| `full`, i1Pro K / W | **PASS**: L* 16.3 / 58.1 (tile drift 0.3 % Y) |
+| `partial` as captured from bb_epaper | **FAIL**: split rows and a grey band; no 0x01 after the 3.0 reset |
+| `partial` with the full's init (`PARTIAL_REINIT`) | **PASS** on camera: counter 01-05 clean, about 4 s per update, firmware and raw SPI |
+| `fast` | **FAIL**: previous image stays; raw SPI with and without the second 0x12 likewise |
+| `fast` dropped (`DROP_FLOWS`) by project decision; full, partial and gray4 sequence bytes unchanged, now modes 0-2 | not re-run on glass |
+| `gray4` (0x0028 full flow, planes swapped), i1Pro | **PASS**: L* 17.5 / 31.8 / 51.9 / 60.0, monotonic (tile drift 0.85 % Y; a first round agrees within 1.1 L*) |
+| `gray4` from an unmodified host | **OPEN**: as 0x003B |
+
+## 7.5" GEN2 BW (0x003B) on EE04 OD7C42E9 (ESP32-S3, 3.0.0), 2026-11-27
+
+Bare GDEY075T7 panel. Stock preset written from `drive_presets.json`; `gray4` from the `ep75_bw`
+entry of `refresh_modes.json`. Camera snapshots and i1Pro S/N 324492 (D50, M0, tile drift 0.5 % Y).
+
+| Row | Result |
+|---|---|
+| `full`, i1Pro K / W | **PASS**: L* 16.1 / 68.0 |
+| `fast`, inverted frame | **PASS** by eye: clean |
+| `partial` (PartialState), counter 00-10 | **PASS** on camera after the WINDOW fix (`eb31b9a`): rest intact, about 3.2 s per update |
+| 0x003C OTP 4-gray (E5 5F), firmware and raw SPI | **FAIL**: two levels; the 0x10 plane is ignored. 0x003C removed |
+| 0x0015 register-LUT 4-gray, bb_epaper plane order | 4 levels, mid-grays swapped |
+| `gray4` (0x0015 LUTs, planes swapped), i1Pro | **PASS**: L* 14.7 / 27.0 / 43.0 / 67.6, monotonic; through firmware with the host's stock codes on camera |
+| 0x0015 `fast` / 0x0016 (V2) 4-gray | G1 and G2 nearly merge (camera); not shipped for 0x003B |
+| `gray4` from an unmodified host | **OPEN**: py-opendisplay refuses a scheme-5 mode on a scheme-0 display |
+
 ## BWRY 3.5" `partial_bw` refresh mode on OD507E22 (BG22), 2026-11-26
 
 Same procedure as the 7.5" above, `ep35yr_bwry` entry (2825 B config, measured colour16 0xB0 kept).

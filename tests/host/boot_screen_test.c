@@ -8,7 +8,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-static uint8_t g_segments;
 static bool g_direct_2bpp;
 static uint8_t g_scheme;
 static int g_fail_begin_frame;
@@ -25,6 +24,7 @@ static uint8_t g_last_segment;
 static uint16_t g_last_y;
 static int g_last_plane;
 static uint32_t g_hash;
+static uint32_t g_data_hash;   /* write_row calls only: the pixels, not the plane markers */
 static int g_current_plane;
 static uint8_t g_bwr_primary_black;
 static uint8_t g_bwr_primary_color;
@@ -51,7 +51,6 @@ static uint16_t g_cap_rows;
 
 static void reset_fake(void)
 {
-  g_segments = 1;
   g_direct_2bpp = false;
   g_scheme = OD_COLOR_SCHEME_MONO;
   g_fail_begin_frame = g_fail_begin_plane = g_fail_end_plane = g_fail_end_frame = 0;
@@ -61,6 +60,7 @@ static void reset_fake(void)
   g_last_y = 0;
   g_last_plane = -1;
   g_hash = 2166136261u;
+  g_data_hash = 2166136261u;
   g_key_state = OD_BOOT_KEY_HIDDEN;   /* claimed, SHOW_KEY_ON_SCREEN clear: the default */
   g_key_calls = 0;
   g_current_plane = -1;
@@ -160,6 +160,11 @@ int od_boot_app_write_row(uint16_t y, uint8_t segment, const uint8_t *row, uint1
   hash_byte(segment); hash_byte((uint8_t)y); hash_byte((uint8_t)(y >> 8));
   hash_byte((uint8_t)len); hash_byte((uint8_t)(len >> 8));
   for (uint16_t i = 0; i < len; i++) hash_byte(row[i]);
+  {
+    const uint8_t hdr[5] = { segment, (uint8_t)y, (uint8_t)(y >> 8), (uint8_t)len, (uint8_t)(len >> 8) };
+    for (unsigned i = 0; i < 5u; i++) g_data_hash = (g_data_hash ^ hdr[i]) * 16777619u;
+    for (uint16_t i = 0; i < len; i++) g_data_hash = (g_data_hash ^ row[i]) * 16777619u;
+  }
   if (segment == 0u && g_current_plane == OD_BOOT_PLANE_PRIMARY &&
       (size_t)(y + 1u) * len <= sizeof g_cap) {
     memcpy(&g_cap[(size_t)y * len], row, len);
@@ -213,11 +218,7 @@ int od_boot_app_bits_per_pixel(uint8_t scheme)
 {
   g_scheme = scheme;
   if (scheme == OD_COLOR_SCHEME_BWRY || scheme == OD_COLOR_SCHEME_GRAY4) return 2;
-  /* BWGBRY_SPLIT is 4 bpp too -- ../Firmware/src/display_service.cpp:1755-1756. Omitting it here
-   * silently rendered the split case at 1 bpp, which is the same omission the renderer's own
-   * scheme table had. A fake that is wrong the same way as the code proves nothing. */
-  if (scheme == OD_COLOR_SCHEME_BWGBRY || scheme == OD_COLOR_SCHEME_BWGBRY_SPLIT ||
-      scheme == OD_COLOR_SCHEME_GRAY16) return 4;
+  if (scheme == OD_COLOR_SCHEME_BWGBRY || scheme == OD_COLOR_SCHEME_GRAY16) return 4;
   return 1;
 }
 
@@ -228,7 +229,6 @@ int od_boot_app_default_plane(uint8_t scheme)
 }
 
 bool od_boot_app_direct_2bpp(void) { return g_direct_2bpp; }
-uint8_t od_boot_app_segments(void) { return g_segments; }
 uint32_t od_boot_app_device_id24(void) { return 0xABCDEFu; }
 void od_boot_app_firmware_version(uint8_t *a, uint8_t *b, uint8_t *c)
 {
@@ -386,11 +386,14 @@ int main(void)
   assert(!render(&cfg, &sec, row, sizeof(row), qr, sizeof(qr)));
   assert(g_end_frames == 1);
 
+  /* frame_split HALVES: one plane, each row sent once per part. The pixel stream (write_row
+   * calls alone) is the one the two-segment renderer produced for this panel. */
   reset_fake();
-  g_segments = 2;
   make_case(&cfg, &sec, 304, 16, OD_COLOR_SCHEME_MONO);
+  cfg.displays[0].frame_split = OD_FRAME_SPLIT_HALVES;
   assert(render(&cfg, &sec, row, sizeof(row), qr, sizeof(qr)));
-  assert(g_begin_planes == 2 && g_writes == 32 && g_end_planes == 2 && g_end_frames == 1);
+  assert(g_begin_planes == 1 && g_writes == 32 && g_end_planes == 1 && g_end_frames == 1);
+  assert(g_data_hash == 0x2612FDC0u);
 
   reset_fake();
   make_case(&cfg, &sec, 400, 300, OD_COLOR_SCHEME_BWR);
@@ -441,25 +444,22 @@ int main(void)
   assert(g_begin_planes == 2 && g_writes == 960);
   PIN(0xE33DADFEu);
 
-  /* BWGBRY_SPLIT is scheme 8 and was the one scheme with no case. It needs its own: the local
-   * scheme enum this renderer replaced had no entry for it, so it fell past the end of
-   * kSchemeWhiteValue to the 0xFF fallback instead of 0x11, and past the swatch switch to
-   * default. Both are packed-4bpp values a count-only assertion cannot see, and its "6c split"
-   * label was missing too. 1600x1200 is the real dual-controller geometry (the E1004's 13.3"
-   * Spectra6 glass); it also renders the footer scheme text, which 400x300 does not, so the
-   * label is unpinned at the smaller size. segments = 2 because a split-buffer scheme is
-   * dual-controller by definition. */
+  /* BWGBRY + frame_split HALVES at 1600x1200, the real dual-controller geometry (the E1004's
+   * 13.3" Spectra6 glass), which also renders the footer scheme text 400x300 does not. The
+   * packed-4bpp white (0x11) and swatches are what a count-only assertion cannot see, so the
+   * pixel stream is pinned: the one the retired scheme 8 renderer produced for this panel with
+   * its footer label set to BWGBRY's "6 color". */
   reset_fake();
-  g_segments = 2;
-  make_case(&cfg, &sec, 1200, 1600, OD_COLOR_SCHEME_BWGBRY_SPLIT);
+  make_case(&cfg, &sec, 1200, 1600, OD_COLOR_SCHEME_BWGBRY);
+  cfg.displays[0].frame_split = OD_FRAME_SPLIT_HALVES;
   cfg.displays[0].rotation = 1;   /* landscape: w_log 1600, h_log 1200 */
   assert(render(&cfg, &sec, row_wide, sizeof(row_wide), qr, sizeof(qr)));
-  assert(g_begin_planes == 2 && g_writes == 3200 && g_end_frames == 1);
-  PIN(0x0EADB8A8u);
+  assert(g_begin_planes == 1 && g_writes == 3200 && g_end_frames == 1);
+  assert(g_data_hash == 0x056292ABu);
   /* One byte short of the full pitch is refused, not silently half-rendered. */
   reset_fake();
-  g_segments = 2;
-  make_case(&cfg, &sec, 1200, 1600, OD_COLOR_SCHEME_BWGBRY_SPLIT);
+  make_case(&cfg, &sec, 1200, 1600, OD_COLOR_SCHEME_BWGBRY);
+  cfg.displays[0].frame_split = OD_FRAME_SPLIT_HALVES;
   cfg.displays[0].rotation = 1;
   assert(!render(&cfg, &sec, row_wide, 599, qr, sizeof(qr)));
   assert(g_begin_frames == 0 && g_writes == 0);

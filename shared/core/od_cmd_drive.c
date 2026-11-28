@@ -71,8 +71,7 @@ static uint8_t drive_begin(uint8_t *mode, uint8_t flags, uint16_t inline_len, od
             return err;
         }
     }
-    if (od_color_direct_geometry(hdr.color_scheme == 0xFFu ? d->color_scheme : hdr.color_scheme,
-                                 d->pixel_width, d->pixel_height, geom) != OD_COLOR_OK) {
+    if (od_color_display_geometry(d, hdr.color_scheme == 0xFFu ? d->color_scheme : hdr.color_scheme, geom) != OD_COLOR_OK) {
         return OD_ERR_DRIVE_NO_CONFIG;
     }
     if (inline_len != 0u) {

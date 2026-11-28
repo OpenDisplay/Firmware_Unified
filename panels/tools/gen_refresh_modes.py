@@ -27,6 +27,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import pdlib as P  # noqa: E402
+import gen_all as G  # noqa: E402
 
 REPO = HERE.parents[1]
 PANELS = REPO / "panels"
@@ -83,6 +84,9 @@ HOLD_MASK = {
     ("ep35yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
     ("ep42yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
     ("ep154yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
+    ("ep213yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
+    ("ep29yr128_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
+    ("ep397yr_bwry", "partial_bw"): 0b1100,  # 0 = to K, 1 = to W, 2/3 hold
     ("ep266yr_bwry", "partial_bw"): 0b1000,  # 0 = to K, 1 = to W, 2 = held K top-up, 3 hold
     ("s73_spectra6", "partialcool"): 1 << 4,  # code 4 = hold (R-0234)
     ("ee02_709_spectra6", "changedonly"): (1 << 4) | (1 << 7),  # 4/7 hardwired holds (R-0032)
@@ -203,8 +207,7 @@ def build_s73() -> dict:
 # R-0237/R-0238): RST, JD init with LUT_EN and the table's own header rails, 0x20 table, 0x83
 # window, data, CDI 97, PON, DRF, POF 02 00 + DSLP (0xB1 sleep). The window here is the whole
 # panel (BG22 has no WINDOW escape): codes 0 = to K, 1 = to W, 2/3 = hold.
-def jd29_partial(hdr: bytes) -> list[tuple]:
-    w, h = 168, 384
+def jd29_partial(hdr: bytes, w: int = 168, h: int = 384) -> list[tuple]:
     return [hexcmd("4D 78"), hexcmd("00 0F A9"), ("cmd", 0x01, bytes([0x07]) + hdr[0:5]),
             hexcmd("03 10 54 44"), hexcmd("06 05 00 3F 0A 25 12 1A"), cmd(0x30, hdr[6]),
             hexcmd("50 37"), hexcmd("60 02 02"), cmd(0x61, 0x00, w, h >> 8, h & 0xFF),
@@ -320,6 +323,61 @@ def f75_partial(colour16: list[tuple]) -> list[tuple]:
     return colour16[:i] + [cmd(0x30, 0x02), win] + colour16[i:]
 
 
+# 2.13in JD-BWRY (0x0034): the stock preset runs on OTP defaults (no register init) and has no
+# colour16 to borrow from, so the partial takes the 2.9in full init at this panel's 128x250 (122
+# visible) RAM geometry.
+def build_bwry213() -> dict:
+    key = 0x0034
+    pkts = base_packets("0x0034")
+    modes = [
+        (1, "partial_bw", jd29_partial(wave("bwry29_BW2_kick3_w10.bin")[:7], 128, 250), 2, 0, 0, 1,
+         "BW2_kick3_w10 (the 2.9in table) on the 2.9in init: full-window flashing partial, 0 = to K, "
+         "1 = to W, 2/3 hold; 2.8 s per update over BLE; counter 00-03 on OD7C42E9 with the colour "
+         "bar held, judged by eye, not measured [1 ex, prov]"),
+    ]
+    return assemble(key, "0x0034", pkts, modes, {2: "bwry29_BW2_kick3_w10.bin"}, budget=20,
+                    family=FAMILY_JD, timeout_s=120, compress=False)
+
+
+# 2.9in 128x296 JD-BWRY (0x001D, GDEY029F51): the stock init is the 2.9in 168x384 one at this
+# panel's RAM geometry, so the 2.9in partial runs unchanged at 128x296.
+def build_bwry29s() -> dict:
+    key = 0x001D
+    pkts = base_packets("0x001D")
+    modes = [
+        (1, "partial_bw", jd29_partial(wave("bwry29_BW2_kick3_w10.bin")[:7], 128, 296), 2, 0, 0, 1,
+         "BW2_kick3_w10 (the 2.9in table) on the 2.9in init: full-window flashing partial, 0 = to K, "
+         "1 = to W, 2/3 hold; 2.7 s per update over BLE; counter 00-05 on OD7C42E9 with the colour "
+         "bar held, judged by eye, not measured [1 ex, prov]"),
+    ]
+    return assemble(key, "0x001D", pkts, modes, {2: "bwry29_BW2_kick3_w10.bin"}, budget=20,
+                    family=FAMILY_JD, timeout_s=120, compress=False)
+
+
+# 3.97in JD-BWRY (0x0037, GDEM0397F81): its own register set (0x62/0x65/0xE7 A4), so the partial
+# keeps the stock init up to PON with LUT_EN (PSR b2 | 0x80), adds the table header's rails, PLL
+# and VCOM, then the 2.9in table, a full-panel 0x83 window, data, CDI 97, PON, DRF.
+def build_bwry397() -> dict:
+    key = 0x0037
+    w, h = 800, 480
+    pkts = base_packets("0x0037")
+    hdr = wave("bwry29_BW2_kick3_w10.bin")[:7]
+    full = mode_seq(pkts, 0)
+    init = replace_cmd(full[:full.index(cmd(0x04))], 0x00, b"\x2B\xA9")
+    seq = init + [("cmd", 0x01, bytes([0x07]) + hdr[0:5]), cmd(0x30, hdr[6]), cmd(0x82, hdr[5] ^ 0x80),
+                  cmd(0x20), LUT,
+                  cmd(0x83, 0x00, 0x00, (w - 1) >> 8, (w - 1) & 0xFF, 0x00, 0x00, (h - 1) >> 8, (h - 1) & 0xFF, 0x01),
+                  cmd(0x10), IMAGE, cmd(0x50, 0x97), cmd(0x04), BUSY, cmd(0x12, 0x00), BUSY]
+    modes = [
+        (1, "partial_bw", seq, 2, 0, 0, 1,
+         "BW2_kick3_w10 (the 2.9in table) on the stock 3.97in init: full-window flashing partial, "
+         "0 = to K, 1 = to W, 2/3 hold; 3.1 s per update over BLE; counter 00-05 on OD7C42E9 with "
+         "the colour bar held, judged by eye, not measured [1 ex, prov]"),
+    ]
+    return assemble(key, "0x0037", pkts, modes, {2: "bwry29_BW2_kick3_w10.bin"}, budget=20,
+                    family=FAMILY_JD, timeout_s=120, compress=False)
+
+
 def build_bwry75() -> dict:
     key = 0x0040
     pkts = base_packets("0x0040")
@@ -332,6 +390,39 @@ def build_bwry75() -> dict:
     # Slots 0/1 hold the colour16 waves; stored uncompressed for BG22 (no inflate cache).
     return assemble(key, "0x0040", pkts, modes, {2: "bwry75_BW2_kick3_w20.bin"}, budget=20,
                     family=FAMILY_JD, timeout_s=120, compress=False)
+
+
+# ------------------------------------------------------------------------- 7.5in BW GEN2 (0x003B)
+# 4-gray on the GDEY075T7 glass: the register-LUT gray4 of EP75_800x480 (0x0014, the
+# EP75_800x480_4GRAY flow), its table in slot 1 here (slot 0 is the partial). The OTP 4-gray of
+# EP75_800x480_4GRAY_GEN2 draws only K and W on this glass: it ignores the 0x10 plane. In
+# 0x0014's plane order the two mid-grays come out swapped against the host's u8Colors_4gray
+# codes, so plane 0 (code bit 0) goes to 0x10 and plane 1 to 0x13; endpoints are unaffected.
+def ep75_gray4(gray: list[tuple]) -> list[tuple]:
+    i = next(k for k, s in enumerate(gray) if s[0] == "image")
+    assert gray[i - 2:i + 3] == [cmd(0x10), cmd(0x13), IMAGE, cmd(0x10), IMAGE], gray[i - 2:i + 3]
+    return gray[:i - 2] + [cmd(0x10), IMAGE, cmd(0x13), IMAGE] + gray[i + 3:]
+
+
+def mode_named(pkts: list[tuple[int, bytes]], name: str) -> bytes:
+    return next(b for pid, b in pkts if pid == 0xAE and b[2:14].rstrip(b"\0") == name.encode())
+
+
+def build_ep75bw() -> dict:
+    key = 0x003B
+    pkts = base_packets("0x003B")
+    src = G.gray_source_packets("EP75_800x480", "EP75_800x480_4GRAY")
+    gm = mode_named(src, "gray4")
+    table = next(b[4:] for pid, b in src if pid == 0xAF and (b[1] & 0x0F) == gm[19])
+    assert not next(b for pid, b in src if pid == 0xAF and (b[1] & 0x0F) == gm[19])[1] & 0x80
+    modes = [
+        (3, "gray4", ep75_gray4(mode_seq(src, gm[1])), 1, 0, 0, 0,
+         "4-gray full, the 0x0014 gray4 register LUTs with the planes swapped: i1Pro L* 14.7 / "
+         "27.0 / 43.0 / 67.6 on OD7C42E9 (bare), K and W as the stock full; about 5 s; needs a "
+         "host that encodes a scheme-5 mode on a scheme-0 display [1 ex, prov]"),
+    ]
+    return assemble(key, "0x003B", pkts, modes, {1: table}, budget=50, family=0, timeout_s=60, compress=False,
+                    cals={3: "palettes/gray4_0x003B_OD7C42E9.json"}, schemes={3: 5})
 
 
 # ---------------------------------------------------------------------------- 7.09in S6 (EE02)
@@ -407,10 +498,12 @@ def build_ee02() -> dict:
 
 # ------------------------------------------------------------------------------------- assembly
 name_of = {"0x0023": "s73_spectra6", "0x001E": "ep29yr_bwry", "0x0036": "ep35yr_bwry", "0x001C": "ep266yr_bwry", "0x0038": "ep154yr_bwry", "0x003A": "ep42yr_bwry", "0x0040": "ep75yr_bwry",
-           "0x0042": "ee02_709_spectra6"}
+           "0x0034": "ep213yr_bwry", "0x001D": "ep29yr128_bwry",
+           "0x0037": "ep397yr_bwry",
+           "0x003B": "ep75_bw", "0x0042": "ee02_709_spectra6"}
 
 def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int,
-             timeout_s: int, compress: bool = True, cals=None) -> dict:
+             timeout_s: int, compress: bool = True, cals=None, schemes=None) -> dict:
     out_pkts, extra = [], []
     top = max(m[0] for m in modes) + 1
     for pid, b in pkts:
@@ -423,23 +516,26 @@ def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int
         # A list of slots is a multi-pass mode: pass n uploads slots[n]; the sequence runs once per pass.
         slots = list(slot) if isinstance(slot, (list, tuple)) else [slot] if slot is not None else None
         body = P.mode_body(idx, name, seq, slots=slots, passes=len(slots) if slots else 1,
-                           tmin=tmin, tmax=tmax, policy=SUBSTITUTE) + mode_tail(
+                           scheme=(schemes or {}).get(idx, 0xFF), tmin=tmin, tmax=tmax, policy=SUBSTITUTE) + mode_tail(
             cost, hold_mask=HOLD_MASK.get((name_of[base], name)),
             held_k_code=HELD_K_CODE.get((name_of[base], name)))
         out_pkts.append((0xAE, body))
         extra.append({"mode_index": idx, "name": name, "experimental": True,
                       "experimental_note": note, "budget_cost": cost, "lut_slot": slot,
                       "passes": len(slots) if slots else 1,
+                      **({"color_scheme": schemes[idx]} if idx in (schemes or {}) else {}),
                       "hold_mask": HOLD_MASK.get((name_of[base], name)),
                       "held_k_code": HELD_K_CODE.get((name_of[base], name)),
                       "temp_window_c": [tmin, tmax], "temp_policy": "substitute",
                       "seq_steps": len(steps) + 1, "seq_bytes": len(seq)})
     lut_meta = []
     for slot, fn in sorted(luts.items()):
-        data = wave(fn)
+        # A table is a waves/ file name, or the bytes of a stock preset's slot.
+        data = wave(fn) if isinstance(fn, str) else fn
         body = lut_packet(slot, data, compress)
         out_pkts.append((0xAF, body))
-        lut_meta.append({"slot": slot, "compressed": compress, "wave": fn, "raw_bytes": len(data),
+        lut_meta.append({"slot": slot, "compressed": compress,
+                         "wave": fn if isinstance(fn, str) else "stock preset slot", "raw_bytes": len(data),
                          "stored_bytes": len(body) - 4})
     cal_meta = []
     # cals: {mode_index: palette JSON path}; the 0xB0 a host needs to encode that multi-pass mode.
@@ -458,7 +554,7 @@ def assemble(key: int, base: str, pkts, modes, luts, *, budget: int, family: int
 
 
 def render() -> tuple[str, str]:
-    panels = [build_s73(), build_bwry266(), build_bwry29(), build_bwry35(), build_bwry154(), build_bwry42(), build_bwry75(), build_ee02()]
+    panels = [build_s73(), build_bwry266(), build_bwry29(), build_bwry29s(), build_bwry35(), build_bwry397(), build_bwry154(), build_bwry213(), build_bwry42(), build_bwry75(), build_ep75bw(), build_ee02()]
     presets = json.loads(PRESETS.read_text())["panels"]
     js = {"schema_version": 1, "note": "experimental refresh modes; layouts provisional "
           "(docs/REFRESH_MODES.md)", "panels": {}}
@@ -484,7 +580,8 @@ def render() -> tuple[str, str]:
         idx = ", ".join(str(m["mode_index"]) for m in p["modes"])
         inc.append(f"static const uint8_t k_rm_modes_{i}[] = {{ {idx} }};")
         rows.append(f'    {{ {{ "{p["name"]}", {base["width"]}, {base["height"]}, '
-                    f'{base["color_scheme"]}, k_rm_pkts_{i}, {len(p["packets"])} }}, '
+                    f'{base["color_scheme"]}, k_rm_pkts_{i}, {len(p["packets"])}, '
+                    f'{(base.get("frame_layout") or {}).get("frame_split", 0)}u }}, '
                     f'k_rm_modes_{i}, sizeof k_rm_modes_{i}, {p["lut_family"]}u }},')
     inc += ["", "typedef struct {\n    fx_panel_t panel;\n    const uint8_t *modes;\n"
             "    unsigned n_modes;\n    uint8_t family;\n} rm_panel_t;", "",

@@ -567,8 +567,6 @@ def busy_policy(p: dict) -> dict:
 
 def native_scheme(p: dict) -> int:
     f = p["flags"]
-    if f & 0x0400:
-        return 8
     if f & 0x0020:
         return 4
     if f & 0x0008:
@@ -578,6 +576,12 @@ def native_scheme(p: dict) -> int:
     if f & 0x0010:
         return 5
     return 0
+
+
+def frame_layout_fields(p: dict) -> dict:
+    """DisplayConfig 0x20 frame layout fields (structs 2.5) of a bb_epaper panel; empty = linear.
+    SPLIT_BUFFER panels send the left half, then the right, one IMAGE_SLICE each."""
+    return {"frame_split": 1} if p["flags"] & 0x0400 else {}
 
 
 def pixel_blockers(p: dict) -> list[str]:
@@ -654,6 +658,9 @@ def encode_yaml_steps(steps: list[str]) -> bytes:
         s = raw.strip()
         if s in ("@busy", "@image", "@lut"):
             out += bytes([0, ESC[s[1:]]])
+        elif s.startswith("@slice"):
+            part, of = (int(t, 10) for t in s.split()[1:3])
+            out += bytes([0, ESC["slice"], part, of])
         elif s.startswith("@delay"):
             ms = int(s.split()[1], 10)
             out += bytes([0, ESC["delay"], ms & 0xFF, ms >> 8])
@@ -776,6 +783,20 @@ _WIN_CANDIDATES = [sel | f | hi for f in (0, WIN_DIV8, WIN_MIRROR, WIN_MIRROR | 
                    if not (f & WIN_MIRROR and sel >= 6)]
 
 
+def _win_probes(W: int, H: int) -> list[list[int]]:
+    """Byte-aligned rectangles across the panel, for telling WINDOW geometries apart."""
+    xs = sorted({0, 8, (W // 2) & ~7, max(0, ((W - 16) // 8) * 8)})
+    ys = sorted({0, 1, H // 2, max(0, H - 2)})
+    out = []
+    for x in xs:
+        for y in ys:
+            for x1 in xs:
+                for y1 in ys:
+                    if x1 >= x and y1 >= y:
+                        out.append([x, y, min(W - x, x1 - x + 8), y1 - y + 1])
+    return out
+
+
 def infer_window(runs: list[tuple[list[int], list[tuple]]], W: int, H: int) -> tuple[list[tuple], str | None]:
     """Partial-flow token lists captured for several rectangles -> one token list where every
     command byte that follows the rectangle is a WINDOW geometry byte and every whole-plane
@@ -807,11 +828,16 @@ def infer_window(runs: list[tuple[list[int], list[tuple]]], W: int, H: int) -> t
             vals = [c[2][j] for c in col]
             if len(set(vals)) == 1:
                 kv.append((WIN_LIT, b)); continue
-            d = next((d for d in _WIN_CANDIDATES
-                      if all(win_value(d, r, W, H) == c[2][j] for r, c in zip([x[0] for x in runs], col))), None)
-            if d is None:
+            fits = [d for d in _WIN_CANDIDATES
+                    if all(win_value(d, r, W, H) == c[2][j] for r, c in zip([x[0] for x in runs], col))]
+            if not fits:
                 return base, f"command {t[1]:#04x} byte {j} matches no WINDOW geometry"
-            kv.append((WIN_GEOM, d))
+            # Two meanings that fit every capture but differ on some other rectangle: the
+            # captures cannot tell them apart, and picking one would be a guess.
+            probes = _win_probes(W, H)
+            if any(win_value(d, p, W, H) != win_value(fits[0], p, W, H) for d in fits[1:] for p in probes):
+                return base, f"command {t[1]:#04x} byte {j} is ambiguous ({len(fits)} geometries fit)"
+            kv.append((WIN_GEOM, fits[0]))
         if len(kv) + 1 > 32:
             return base, f"command {t[1]:#04x} longer than a WINDOW step"
         out.append(("WINDOW", t[1], tuple(kv), t[3]))

@@ -267,16 +267,24 @@ static void emit_rects(void)
         setup_panel(idx);
         if (!has_partial()) continue;
         const int w = bbep.native_width, h = bbep.native_height;
-        /* x and width multiples of 8 (byte-addressed RAM X); the last rect touches the far
-         * corner so coordinate high bytes are exercised on panels wider/taller than 256. */
-        const int r[3][4] = {
+        /* x and width multiples of 8 (byte-addressed RAM X). The generator tells window bytes
+         * apart only where these rects give them different values, so on a panel wider or
+         * taller than 256 the set must vary every high byte independently: the third touches
+         * the far corner, the fourth spans the panel (start.hi != end.hi), and the fifth and
+         * sixth sit in the top-right and bottom-left corners (x high with y low, and the
+         * reverse). */
+        const int xr = (((w - 16) / 8) * 8) - 8;
+        const int r[6][4] = {
             {8, 16, 32, 24},
             {((w / 2) & ~7), h / 2, 16, h / 4},
-            {(((w - 16) / 8) * 8) - 8, h - 13, 16, 12},
+            {xr, h - 13, 16, 12},
+            {8, 8, ((w - 16) / 8) * 8, h - 16},
+            {xr, 8, 16, 12},
+            {8, h - 13, 16, 12},
         };
         printf("P %d %d %d %d %u %d %d %d\n", idx, w, h, bbep.chip_type, (unsigned)bbep.iFlags,
                bbep.x_offset, bbep.pInitFast != NULL, 1);
-        for (int k = 0; k < 3; k++) {
+        for (int k = 0; k < 6; k++) {
             setup_panel(idx);
             g_rx = r[k][0]; g_ry = r[k][1]; g_rw = r[k][2]; g_rh = r[k][3];
             printf("F partial_r%d %d %d %d %d\n", k, g_rx, g_ry, g_rw, g_rh);

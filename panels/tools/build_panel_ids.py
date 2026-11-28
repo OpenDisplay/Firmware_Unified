@@ -26,6 +26,10 @@ if not (WS / "Firmware").exists():
     WS = pdlib.REPO.parents[1]
 
 
+# Panel ids with no 2.x driver: driven from panels.yaml only. -> the name gen_all uses as the key.
+YAML_ONLY = {78: "EP579YR_792x272"}
+
+
 def show(repo: str, ref: str, path: str) -> str:
     return subprocess.run(["git", "-C", str(WS / repo), "show", f"{ref}:{path}"],
                           check=True, capture_output=True, text=True).stdout
@@ -45,6 +49,7 @@ def main() -> int:
             num = int(key, 16)
         if enum != "EP_PANEL_UNDEFINED":
             fw[num] = enum
+    fw.update(YAML_ONLY)
 
     presets = json.loads(show("opendisplay.org_2", "origin/main",
                               "httpdocs/firmware/toolbox/simple-config-presets.json"))

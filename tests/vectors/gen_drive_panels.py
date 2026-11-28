@@ -63,7 +63,7 @@ def main():
                      len(entries)))
     out.append("static const fx_panel_t FX_PANELS[] = {")
     for label, w, h, scheme, name, n in rows:
-        out.append('    { "%s", %d, %d, %d, fxp_%s, %d },' % (label, w, h, scheme, name, n))
+        out.append('    { "%s", %d, %d, %d, fxp_%s, %d, 0u },' % (label, w, h, scheme, name, n))
     out.append("};")
     out.append("#define FX_PANEL_COUNT %d" % len(rows))
     print("\n".join(out))

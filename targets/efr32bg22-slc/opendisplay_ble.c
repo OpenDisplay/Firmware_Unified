@@ -375,7 +375,7 @@ static void od_mount_imgstore(void)
   }
   if (d0 != NULL && fc != NULL) {
     od_color_geometry_t g;
-    if (od_color_direct_geometry(d0->color_scheme, d0->pixel_width, d0->pixel_height, &g)
+    if (od_color_display_geometry(d0, d0->color_scheme, &g)
         == OD_COLOR_OK) {
       /* MISO is reserved[0]: canonical FlashConfig stops at `mode`, and the toolbox writes
        * miso/wp/hold into the first three reserved bytes. */

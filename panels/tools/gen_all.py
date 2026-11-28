@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import struct
 import sys
 from pathlib import Path
 
@@ -37,11 +38,62 @@ OUT_STREAMS = P.GENERATED / "bbep_streams.json"
 OUT_COVERAGE = P.GENERATED / "coverage.md"
 
 FLOW_ORDER = ("full", "fast", "partial")
-SCHEMA_MINOR = 4
+SCHEMA_MINOR = 5
 GLASS_REPORTS = P.PANELS / "glass_reports.yaml"
 REPORT_FIELDS = ("panel", "target_class", "framed_sha256", "modes", "board", "firmware", "date",
                  "reporter", "source")
 DIFFS_BASE = ["D1", "D2", "D3", "D4", "D5"]
+
+# A 4-gray bb_epaper enum is the same glass as a BW one driven another way, so it is a mode of the
+# BW panel, not a panel: 4-gray key -> (BW key, {4-gray flow: mode name}). The 4-gray keys get no
+# entry; a device configured with one is switched to the BW key by hand. 0x003C is dropped without
+# a mode: its OTP 4-gray draws only K and W on GDEY075T7 glass, and 0x003B's 4-gray is the
+# register-LUT one in refresh_modes.json (gen_refresh_modes.py).
+GRAY_INTO = {
+    "0x0008": ("0x0007", {"full": "gray4"}),
+    "0x0015": ("0x0014", {"full": "gray4"}),
+    "0x0016": ("0x0014", {}),
+    "0x0018": ("0x0017", {"full": "gray4"}),
+    "0x0028": ("0x0027", {"full": "gray4"}),
+    "0x002F": ("0x002E", {"full": "gray4"}),
+    "0x0031": ("0x0030", {"full": "gray4"}),
+    "0x003C": ("0x003B", {}),
+    "0x0043": ("0x001A", {"full": "gray4"}),
+    "0x0044": ("0x0002", {"full": "gray4"}),
+    "0x0046": ("0x0045", {"full": "gray4"}),
+    "0x0048": ("0x0047", {"full": "gray4"}),
+    "0x004C": ("0x004B", {"full": "gray4"}),
+}
+# The host maps gray level 0..3 (black..white) to panel codes 3, 1, 2, 0 (u8Colors_4gray) for
+# every panel. A 4-gray enum with u8Colors_4gray_v2 (3, 2, 1, 0) takes its two planes the other
+# way round, which swaps codes 1 and 2, so one host table serves every gray mode.
+GRAY_LOOKUP_V2 = [3, 2, 1, 0]
+# Ids no simple-config display uses (opendisplay.org simple-config-presets.json), BWR and BW, plus
+# 0x0003, which the website described wrongly (Seeed's 2.13in mono is 0x0004): no drive data is
+# shipped for them. A device configured with one is moved to `use` (or a preset) by hand. 0x0033
+# (CrowPanel 5.79in) stays: it is in use (OpenDisplay/Firmware#191).
+UNUSED_REMOVED = ("0x000C", "0x000F", "0x0010", "0x0019", "0x0021", "0x0024", "0x0025", "0x0026",
+                  "0x0029", "0x002D",
+                  "0x0001", "0x0006", "0x0007", "0x0009", "0x000A", "0x000B", "0x000D", "0x0011",
+                  "0x0012", "0x0013", "0x0014", "0x001B", "0x0020", "0x002A", "0x002C", "0x002E",
+                  "0x0030", "0x0032", "0x003E", "0x003F", "0x0047", "0x0049", "0x004B")
+REPLACED = {"0x0003": "0x0004"}
+# 4-gray enums whose plane order on glass is the opposite of what their bb_epaper lookup implies
+# (the mid-grays come out swapped), with the checklist section that shows it.
+GRAY_SWAP_ON_GLASS = {"EP42B_400x300_4GRAY": 'HARDWARE_VERIFICATION_CHECKLIST.md § 4.2" BW (0x0002)',
+                      "EP29_128x296_4GRAY": 'HARDWARE_VERIFICATION_CHECKLIST.md § 2.9" flex BW (0x0017)',
+                      "EP154_200x200_4GRAY": 'HARDWARE_VERIFICATION_CHECKLIST.md § 1.54" BW (0x001A)'}
+
+
+def swap_gray_planes(toks: list[tuple]) -> list[tuple]:
+    """Exchange the commands that load the two image planes (1 <-> 2 in the stored codes)."""
+    at = [i - 1 for i, t in enumerate(toks) if t[0] == "IMAGE"]
+    assert len(at) == 2 and all(toks[i][0] == "CMD" for i in at), at
+    out = list(toks)
+    a, b = at
+    out[a] = (toks[a][0], toks[b][1]) + tuple(toks[a][2:])
+    out[b] = (toks[b][0], toks[a][1]) + tuple(toks[b][2:])
+    return out
 
 
 def tok_json(t: tuple) -> list:
@@ -96,7 +148,7 @@ def seq_stats(pk: list[tuple[int, int, bytes]]) -> list[dict]:
     for _, pid, b in pk:
         if pid != P.PKT_MODE:
             continue
-        seq = b[37:]
+        seq = b[37:37 + (b[35] | b[36] << 8)]
         st = P.walk_seq(seq)
         out.append({"index": b[1], "seq_bytes": len(seq), "steps": P.count_steps(st),
                     "window": any(s[0] in ("window", "fill") for s in st)})
@@ -120,12 +172,39 @@ def needed_caps(raw: list[tuple]) -> dict:
     return {"seq_max": None, "steps": None}
 
 
+# 2.x Firmware keeps these panels powered and initialised from the full refresh into a partial
+# (display_service.cpp panel_skips_reinit_on_partial_refresh), so bb_epaper's partial flow for
+# them has no driver output control (0x01: MUX, interlaced gate scan) or booster setup. 3.0
+# resets the panel before every update, so their partial starts with the full's init. Without
+# it the EP426 partial lands its rows split around the window, with a grey band across the panel.
+# Flows left out of a panel's modes by project decision, with the reason recorded in its notes.
+DROP_FLOWS = {"EP293_128x296": {"fast": "fast dropped by project decision after glass test "
+                                        "(HARDWARE_VERIFICATION_CHECKLIST.md § Seeed 2.9\" BW (0x0005))"},
+              "EP213YR_122x250": {"fast": "fast dropped: it draws black as red and cannot clear red on "
+                                          "glass (HARDWARE_VERIFICATION_CHECKLIST.md § Seeed 2.13\" BWRY "
+                                          "(0x0034))"},
+              "EP397YR_800x480": {"fast": "fast dropped: it leaves thin dark lines across rows on glass "
+                                          "(HARDWARE_VERIFICATION_CHECKLIST.md § Seeed 3.97\" BWRY "
+                                          "(0x0037))"},
+              "EP426_800x480": {"fast": "fast dropped: it leaves the previous image on glass "
+                                        "(HARDWARE_VERIFICATION_CHECKLIST.md § 4.26\" BW (0x0027))"}}
+PARTIAL_REINIT = {"EP426_800x480", "EP397_800x480"}
+
+
+def full_init_prefix(full: list) -> list:
+    """The full flow's tokens before the command that takes its first image plane."""
+    k = next(i for i, t in enumerate(full) if t[0] == "IMAGE")
+    return list(full[:k - 1])
+
+
 def partial_tokens(p: dict, window: bool) -> tuple[list[tuple], list[tuple[list[int] | None, list[tuple]]], list[str]]:
     """-> (tokens to derive from, [(rect or None, reference tokens)], notes)."""
-    full = strip_wake(P.normalise(p["flows"]["partial"], "bbep"))
+    pre = full_init_prefix(strip_wake(P.normalise(p["flows"]["full"], "bbep"))) \
+        if p.get("partial_reinit") else []
+    full = pre + strip_wake(P.normalise(p["flows"]["partial"], "bbep"))
     if not window or not p.get("rects"):
         return full, [(None, full)], []
-    runs = [(r["rect"], strip_wake(P.normalise(r["events"], "bbep")))
+    runs = [(r["rect"], pre + strip_wake(P.normalise(r["events"], "bbep")))
             for _, r in sorted(p["rects"].items())]
     wt, why = P.infer_window(runs, p["width"], p["height"])
     if why:
@@ -133,15 +212,46 @@ def partial_tokens(p: dict, window: bool) -> tuple[list[tuple], list[tuple[list[
     return wt, runs, []
 
 
-def derive(p: dict, cls: str) -> dict:
+def derive(p: dict, cls: str, skip: frozenset[str] = frozenset()) -> dict:
     c = P.CLASSES[cls]
     layout = P.frame_layout(p)
     scheme = P.native_scheme(p)
     modes, blocked_modes, slots, notes = [], [], [], []
     req: set[str] = set()
     detail: dict[str, list[str]] = {}
-    for flow in FLOW_ORDER:
-        if flow not in p["flows"]:
+    for flow in FLOW_ORDER + tuple(p.get("gray_flows", {})):
+        if flow not in p["flows"] and flow not in p.get("gray_flows", {}):
+            continue
+        if flow in p.get("drop_flows", ()):
+            continue
+        if flow in skip:
+            blocked_modes.append({"name": flow, "blocked_on": ["CONFIG_SIZE"]})
+            continue
+        gray = p.get("gray_flows", {}).get(flow)
+        if gray is not None:
+            toks = strip_wake(P.normalise(gray["events"], "bbep"))
+            if gray["swap"]:
+                toks = swap_gray_planes(toks)
+            refs = [(None, toks)]
+            raw, r, bl = P.tokens_to_steps(toks, gray["layout"], "full")
+            steps, slot, bl2 = P.fit_steps(raw, c["seq_max"], max_steps=c["max_steps"])
+            bl = sorted(set(bl + bl2))
+            if slot and slot not in slots and len(slots) >= P.MAX_LUT_SLOTS:
+                bl.append("LUT_SLOTS")
+            if bl:
+                blocked_modes.append({"name": flow, "blocked_on": bl})
+                continue
+            slot_idx = 0xFF
+            if slot:
+                if slot not in slots:
+                    slots.append(slot)
+                slot_idx = slots.index(slot)
+            req.update(r)
+            modes.append({"flow": flow, "steps": steps, "slot": slot_idx,
+                          "planes": sum(1 for t in toks if t[0] == "IMAGE"), "scheme": gray["scheme"],
+                          "refs": refs, "window": False,
+                          "source": {"enum": gray["enum"], "flow": gray["flow"],
+                                     "planes_swapped": gray["swap"]}})
             continue
         if flow == "partial":
             toks, refs, n = partial_tokens(p, c["window"])
@@ -169,7 +279,8 @@ def derive(p: dict, cls: str) -> dict:
         req.update(r)
         modes.append({"flow": flow, "steps": steps, "slot": slot_idx, "planes": nimg,
                       "scheme": 0 if flow == "partial" else scheme, "refs": refs,
-                      "window": any(s[0] in ("window", "fill") for s in steps)})
+                      "window": any(s[0] in ("window", "fill") for s in steps),
+                      **({"init_from_full": True} if flow == "partial" and p.get("partial_reinit") else {})})
     sleep_toks = P.normalise(p["flows"]["sleep"], "bbep")
     if p.get("bleed_ms"):
         sleep_toks = sleep_toks + [("DELAY", p["bleed_ms"])]
@@ -186,22 +297,51 @@ def derive(p: dict, cls: str) -> dict:
             "requires": sorted(req), "detail": detail, "notes": notes}
 
 
+# BWRY code order seen on glass where bb_epaper's pColorLookup draws yellow and red swapped.
+CODE_MAP_ON_GLASS = {"EP29YR_128x296": [0, 1, 2, 3]}
+GLASS_SECTION = {"EP29YR_128x296": 'Seeed 2.9" BWRY (0x001D)'}
+
+
 def code_map_of(p: dict) -> list[int]:
+    if p["name"] in CODE_MAP_ON_GLASS:
+        return list(CODE_MAP_ON_GLASS[p["name"]])
     if p["flags"] & 0x0008:
         return list(p["lookup"][:4])
     return [0, 1, 2, 3]
 
 
+# BW panels: partials allowed between two full refreshes, as the 0xB1 tail's budget_limit with
+# budget_cost 1 on the partial. Host information only; the device does not count.
+BW_PARTIAL_BUDGET = 50
+DRIVE_REV = 1
+
+
+def panel_tail(key: int, budget: int) -> bytes:
+    """0xB1 tail v1: lut_family 0 and busy_timeout_s 0, so the device reads nothing new from it."""
+    return struct.pack("<BHHBBBB", 1, key, DRIVE_REV, 0, budget, 0, 0)
+
+
 def encode_derived(p: dict, d: dict) -> list[tuple[int, int, bytes]]:
     bp = P.busy_policy(p)
     sleep = P.encode_steps(d["sleep_steps"]) if not d["sleep_blocked"] else b""
+    budget = p.get("budget_key") is not None and any(m["flow"] == "partial" for m in d["modes"])
     pk = [(0, P.PKT_PANEL, P.panel_body(busy_usable=bp["usable"], idle=bp["idle"],
                                          timeout=bp["timeout"], fixed=0, code_map=code_map_of(p),
                                          mode_count=len(d["modes"]), sleep=sleep,
-                                         lut_supported=False))]
+                                         lut_supported=False)
+           + (panel_tail(p["budget_key"], BW_PARTIAL_BUDGET) if budget else b""))]
     for i, m in enumerate(d["modes"]):
+        if "source" in m:
+            # Gray modes are experimental: the device runs mode 0 outside the custom window.
+            tmin, tmax = P.custom_window(0, 0)
+            pk.append((i, P.PKT_MODE, P.mode_body(i, m["flow"], P.encode_steps(m["steps"]), passes=1,
+                                                  scheme=m["scheme"], slots=[m["slot"]], tmin=tmin,
+                                                  tmax=tmax, policy=P.POLICY_SUBSTITUTE)
+                       + P.mode_tail(P.MODE_EXPERIMENTAL, 0)))
+            continue
         pk.append((i, P.PKT_MODE, P.mode_body(i, m["flow"], P.encode_steps(m["steps"]),
-                                              passes=1, scheme=m["scheme"], slots=[m["slot"]])))
+                                              passes=1, scheme=m["scheme"], slots=[m["slot"]])
+                   + (P.mode_tail(0, 1) if budget and m["flow"] == "partial" else b"")))
     for s, data in enumerate(d["slots"]):
         pk.append((s, P.PKT_LUT, P.lut_body(s, data)))
     return pk
@@ -227,24 +367,45 @@ def equivalence(p: dict, d: dict, blob: bytes, cls: str) -> dict:
     return eq
 
 
+def gray_source_packets(bw_enum: str, gray_enum: str) -> list[tuple[int, bytes]]:
+    """(packet id, body) of a BW enum's derived drive data with the gray enum's full flow as
+    gray4 (bb_epaper plane order), for builders that need a gray flow of a panel with no entry."""
+    cap = P.capture(P.BBEP_REF_REV)
+    p, g = cap["panels"][bw_enum], cap["panels"][gray_enum]
+    p["gray_flows"] = {"gray4": {"events": g["flows"]["full"], "layout": P.frame_layout(g),
+                                 "scheme": P.native_scheme(g), "swap": False, "enum": gray_enum,
+                                 "flow": "full"}}
+    return [(pid, body) for _, pid, body in encode_derived(p, derive(p, "default"))]
+
+
 def class_view(p: dict, cls: str, glass_pk=None, glass_modes=None) -> dict:
     """Drive data for one target class. glass_pk: the panels.yaml packets (not re-derived)."""
     W, H = p["width"], p["height"]
-    d = derive(p, cls)
+    # Gray modes ride on the BW panel's config: drop them, last first, until the class's cap fits.
+    if glass_pk is None:
+        d = derive(p, cls)
+        gray = list(p.get("gray_flows", {}))
+        skip: set[str] = set()
+        while gray and P.TYPICAL_BASE + len(frame_all(encode_derived(p, d))) > P.CLASSES[cls]["config"]:
+            skip.add(gray.pop())
+            d = derive(p, cls, frozenset(skip))
     v: dict = {"limits": {k: P.CLASSES[cls][k] for k in ("seq_max", "max_steps", "window")}}
     if glass_pk is not None:
         pk = glass_pk
         modes = glass_modes
         runs_ok = all(P.replay(frame_all(pk), str(m["index"]), cls, [W, H])[0] == 0 for m in modes) and \
             P.replay(frame_all(pk), "sleep", cls, [W, H])[0] == 0
-        v.update({"status": "glass" if runs_ok else "blocked", "verified": "glass" if runs_ok else "untested",
+        ok = "untested" if p.get("yaml_untested") else "glass"
+        v.update({"status": ok if runs_ok else "blocked", "verified": ok if runs_ok else "untested",
                   "blocked_on": [] if runs_ok else ["REPLAY_REFUSED"], "blocked_detail": {},
                   "modes_blocked": [], "requires_escapes": [], "notes": []})
     else:
         pk = encode_derived(p, d)
         blob = frame_all(pk)
         modes = [{"index": i, "name": m["flow"], "refresh": m["flow"], "passes": 1,
-                  "color_scheme": m["scheme"], "planes": m["planes"], "window": m["window"]}
+                  "color_scheme": m["scheme"], "planes": m["planes"], "window": m["window"],
+                  **({"source": m["source"], "experimental": True} if "source" in m else {}),
+                  **({"init_from_full": True} if m.get("init_from_full") else {})}
                  for i, m in enumerate(d["modes"])]
         blocked = sorted(set(P.pixel_blockers(p) + d["detail"].get("full", []) +
                              d["detail"].get("sleep", []) + d["detail"].get("lut_slots", [])))
@@ -323,6 +484,9 @@ def native_controllers(prev: dict | None) -> dict:
 
 
 # ----------------------------------------------------------------------------- main
+
+# panels.yaml colour.scheme -> DisplayConfig color_scheme
+YAML_SCHEMES = {"MONO": 0, "BWR": 1, "BWY": 2, "BWRY": 3, "BWGBRY": 4, "GRAY4": 5}
 
 TOP_FROM_CLASS = ("status", "verified", "blocked_on", "blocked_detail", "modes", "modes_blocked",
                   "requires_escapes", "packets", "framed_hex", "drive_bytes", "fits", "equivalence",
@@ -413,11 +577,36 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
             if diff:
                 drift.append(f"{name}: {', '.join(diff)} differ in {P.BBEP_VENDORED_REV}")
 
+    gray_notes: dict[str, list[str]] = {}
+    for gkey, (bw, flows) in GRAY_INTO.items():
+        g = cap["panels"][ids[gkey]["bb_epaper_enum"]]
+        b = cap["panels"][ids[bw]["bb_epaper_enum"]]
+        swap = list(g["lookup"][:4]) == GRAY_LOOKUP_V2
+        glass = ids[gkey]["bb_epaper_enum"] in GRAY_SWAP_ON_GLASS
+        swap ^= glass
+        for flow, name in flows.items():
+            b.setdefault("gray_flows", {})[name] = {
+                "events": g["flows"][flow], "layout": P.frame_layout(g), "scheme": P.native_scheme(g),
+                "swap": swap, "enum": ids[gkey]["bb_epaper_enum"], "flow": flow}
+        if flows:
+            gray_notes.setdefault(bw, []).append(
+                f"{', '.join(flows.values())}: the {', '.join(flows)} flow of {ids[gkey]['bb_epaper_enum']} "
+                f"(formerly {gkey})" + (", image planes swapped (u8Colors_4gray_v2)" if swap and not glass else "")
+                + (", image planes swapped against bb_epaper's lookup: its mid-grays are swapped on glass "
+                   f"({GRAY_SWAP_ON_GLASS[ids[gkey]['bb_epaper_enum']]})" if glass else ""))
+
     out: dict[str, dict] = {}
     for key, idinfo in ids.items():
+        if key in GRAY_INTO or key in UNUSED_REMOVED or key in REPLACED:
+            continue
         num = idinfo["panel_ic_type"]
         enum = idinfo["bb_epaper_enum"]
         p = cap["panels"].get(enum)
+        if p is None and num in yml:
+            # A panels.yaml entry with no bb_epaper capture: the YAML is the only source.
+            ent = yml[num]
+            p = {"width": int(ent["geometry"]["width"]), "height": int(ent["geometry"]["height"]),
+                 "chip": str(ent.get("controller", "")), "flags": 0, "flows": {}, "yaml_only": True}
         legacy_scheme = idinfo["preset_color_scheme"]
         e: dict = {"panel_ic_type": num, "name": enum, "aliases": [], "notes": [], "differences": []}
         if idinfo["alias_of"]:
@@ -427,16 +616,32 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
                       "packets": [], "legacy": {"panel_ic_type": num, "color_scheme": legacy_scheme}})
             out[key] = e
             continue
-        native = P.native_scheme(p)
+        native = P.native_scheme(p) if not p.get("yaml_only") else \
+            YAML_SCHEMES[str(yml[num]["colour"]["scheme"])]
+        layout = dict(yml[num].get("frame_layout") or {}) if num in yml else P.frame_layout_fields(p)
+        if layout:
+            e["frame_layout"] = layout
+        if enum in DROP_FLOWS:
+            p["drop_flows"] = set(DROP_FLOWS[enum])
+            e["notes"] += list(DROP_FLOWS[enum].values())
+        if enum in PARTIAL_REINIT:
+            p["partial_reinit"] = True
+            e["notes"].append("partial starts with the full's init: 2.x kept this panel initialised from "
+                              "the full into a partial, 3.0 resets it before every update")
         if enum in P.POST_SLEEP_BLEED:
             p["bleed_ms"] = P.POST_SLEEP_BLEED[enum]
             e["notes"].append(f"sleep sequence ends with a {p['bleed_ms']} ms DELAY so the rail does not "
                               "drop before the boost caps and VCOM have bled (upstream Firmware d28582c)")
         e.update({"width": p["width"], "height": p["height"], "controller": p["chip"],
                   "bbep_flags": P.flag_names(p["flags"])})
-        if legacy_scheme is None:
+        e["notes"] += gray_notes.get(key, [])
+        if legacy_scheme is None and p.get("yaml_only"):
             legacy_scheme = native
-            e["notes"].append("no website preset; legacy color_scheme is the bb_epaper native scheme")
+            e["notes"].append("no 2.x driver; driven from panels.yaml only")
+        elif legacy_scheme is None:
+            # 2.x drove SPLIT_BUFFER panels as BWGBRY_SPLIT (8); 3.0 writes 4 + frame_split.
+            legacy_scheme = 8 if p["flags"] & 0x0400 else native
+            e["notes"].append("no website preset; legacy color_scheme is the bb_epaper 2.x scheme")
         elif legacy_scheme != native:
             e["notes"].append(f"website preset color_scheme {legacy_scheme} != bb_epaper native {native}; "
                               "legacy value kept for old clients")
@@ -449,22 +654,25 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
             e["notes"].append("bb_epaper expands pixels for this panel in its own write path; the 2.x "
                               "direct path streams the host bytes raw, so the host must send the "
                               "controller format")
-        if enum.startswith("EP397"):
+        if enum.startswith("EP397_"):
             e["notes"].append("2.x Firmware detects SSD1677 vs SSD2677 at runtime (reg 0x70) and repacks "
                               "to 2bpp for SSD2677; config-driven drive needs READBACK and PIXEL_XFORM")
 
         glass = num in yml
         if glass:
             ent = yml[num]
+            p["yaml_untested"] = ent.get("status") == "untested"
             web = (prev_entries.get(key) or {}).get("packets")
             pk = glass_packets(ent, web if web else None)
-            gmodes = [{"index": i, "name": m["name"], "refresh": "full", "passes": m.get("passes", 1),
+            gmodes = [{"index": i, "name": m["name"], "refresh": m["name"] if m["name"] in ("fast", "partial") else "full",
+                       "passes": m.get("passes", 1),
                        "color_scheme": int(m.get("color_scheme", 0xFF)),
                        **({"experimental": True} if m["name"] in P.EXPERIMENTAL_YAML_MODES else {})}
                       for i, m in enumerate(ent.get("modes") or [])]
             e["name"] = str(ent.get("name", enum))
             e["color_scheme"] = int((ent.get("modes") or [{}])[0].get("color_scheme", native))
-            e["notes"].append("hand-written panels.yaml sequences, kept byte-identical to the website "
+            e["notes"].append("hand-written panels.yaml sequences, not on glass yet" if p["yaml_untested"]
+                              else "hand-written panels.yaml sequences, kept byte-identical to the website "
                               "presets; not derived from bb_epaper")
             for m in ent.get("modes") or []:
                 src = m.get("palette")
@@ -480,14 +688,27 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
             e["notes"].append("DOUBT: 0xB1 code_map is carried but od_epd_cfg never applies it")
             views = {cls: class_view(p, cls, pk, json.loads(json.dumps(gmodes))) for cls in P.CLASSES}
             # bb_epaper comparison for the record only: the glass sequences are not derived from it
-            rc, got = run_replay(frame_all(pk), "0", "default", [p["width"], p["height"]])
-            ref = strip_wake(P.normalise(p["flows"]["full"], "bbep"))
-            for v in views.values():
-                v["equivalence"] = {"modes": {"0": {"rc": rc, **compare(ref, strip_wake(got))}},
-                                    "sleep": None, "all_equal": False}
+            if "full" in p["flows"]:
+                rc, got = run_replay(frame_all(pk), "0", "default", [p["width"], p["height"]])
+                ref = strip_wake(P.normalise(p["flows"]["full"], "bbep"))
+                for v in views.values():
+                    v["equivalence"] = {"modes": {"0": {"rc": rc, **compare(ref, strip_wake(got))}},
+                                        "sleep": None, "all_equal": False}
+            else:
+                for v in views.values():
+                    v["equivalence"] = None
         else:
+            if native == 0:
+                p["budget_key"] = int(key, 16)
             views = {cls: class_view(p, cls) for cls in P.CLASSES}
-            if p["flags"] & 0x0008:
+            if native == 0 and any(m["name"] == "partial" for v in views.values() for m in v.get("modes", [])):
+                e["notes"].append(f"at most {BW_PARTIAL_BUDGET} partials between full refreshes "
+                                  "(0xB1 budget_limit, host-enforced)")
+            if enum in CODE_MAP_ON_GLASS:
+                e["notes"].append(f"code_map {code_map_of(p)} from glass: bb_epaper's pColorLookup "
+                                  "draws yellow and red swapped (HARDWARE_VERIFICATION_CHECKLIST.md "
+                                  f"§ {GLASS_SECTION[enum]})")
+            elif p["flags"] & 0x0008:
                 e["notes"].append(f"DOUBT: code_map {code_map_of(p)} is bb_epaper's pColorLookup; for EP42YR "
                                   "and EP75YR that lookup is the identity while the glass panels.yaml "
                                   "entries use [0,1,3,2], so the BWRY code order of this panel is unproven")
@@ -543,6 +764,14 @@ def build(prev: dict | None) -> tuple[dict, dict, str]:
         "bg22_unavailable": bg22_out,
         "names": {e["name"]: k for k, e in out.items() if not e.get("alias_of")},
         "panels": out,
+        # Keys with no drive data any more: a device configured with one is moved to `use` by hand.
+        "removed": {**{k: ({"name": ids[k]["bb_epaper_enum"], "use": bw, "modes": sorted(fl.values())}
+                           if bw in out else {"name": ids[k]["bb_epaper_enum"], "use": None, "modes": []})
+                       for k, (bw, fl) in GRAY_INTO.items()},
+                    **{k: {"name": ids[k]["bb_epaper_enum"], "use": None, "modes": []}
+                       for k in UNUSED_REMOVED},
+                    **{k: {"name": ids[k]["bb_epaper_enum"], "use": v, "modes": []}
+                       for k, v in REPLACED.items()}},
         "native_controllers": native_controllers(prev),
     }
     streams["drift_vs_vendored"] = drift

@@ -35,7 +35,7 @@ ENTRY_KEYS = {"panel_ic_type", "name", "aliases", "legacy", "verified", "status"
               "packets", "notes", "differences"}
 DRIVE_KEYS = {"width", "height", "color_scheme", "controller", "bbep_flags", "modes", "modes_blocked",
               "requires_escapes", "framed_hex", "drive_bytes", "fits", "equivalence", "blocked_detail"}
-STATUS = {"equivalent", "differs", "blocked", "glass", "not_attempted"}
+STATUS = {"equivalent", "differs", "blocked", "glass", "untested", "not_attempted"}
 VERIFIED = {"glass", "equivalent", "untested"}
 KNOWN_BLOCKERS = {"SEQ_MAX", "MAX_STEPS", "LUT_MAX", "LUT_AFTER_IMAGE", "LUT_SLOTS", "CS_BOTH",
                   "CS_EVERY_BYTE", "DATA_WITHOUT_CMD", "IT8951", "NO_FULL_FLOW", "NO_BBEP_ENUM",
@@ -86,8 +86,18 @@ class Schema(unittest.TestCase):
         self.assertEqual(PRESETS["caps"]["nordic"], 4096)
 
     def test_every_legacy_id_present(self):
-        self.assertEqual(set(PRESETS["panels"]), set(IDS))
-        self.assertEqual(len(IDS), 77)
+        # A 4-gray id is a mode of its BW panel, and an unused BWR id has no `use`: both listed
+        # under `removed`, with no entry.
+        self.assertEqual(set(PRESETS["panels"]) | set(PRESETS["removed"]), set(IDS))
+        self.assertFalse(set(PRESETS["panels"]) & set(PRESETS["removed"]))
+        for key, r in PRESETS["removed"].items():
+            if r["use"] is None:
+                self.assertEqual(r["modes"], [])
+                continue
+            with self.subTest(key=key):
+                modes = {m["name"] for m in PRESETS["panels"][r["use"]]["modes"]}
+                self.assertTrue(set(r["modes"]) <= modes | {"gray4"}, (r, modes))
+        self.assertEqual(len(IDS), 78)
         self.assertNotIn("0x0041", IDS)
 
     def test_entries(self):
@@ -192,7 +202,12 @@ class Layout(unittest.TestCase):
                 luts = {b[1]: b for _, i, b in pk if i == P.PKT_LUT}
                 pan = next(b for _, i, b in pk if i == P.PKT_PANEL)
                 # 0xB1
-                self.assertEqual(len(pan), 13 + pan[12])
+                self.assertIn(len(pan) - 13 - pan[12], (0, 9))      # optional 0xB1 tail v1
+                if len(pan) > 13 + pan[12]:
+                    tail = pan[13 + pan[12]:]
+                    self.assertEqual((tail[0], tail[7], tail[8]), (1, 0, 0))   # no lut_family, ms timeout
+                    self.assertEqual([m[37 + struct.unpack_from("<H", m, 35)[0] + 2:][:1] for m in modes
+                                      if m[2:14].rstrip(b"\0") == b"partial"], [b"\x01"])
                 self.assertLessEqual(pan[12], P.SLEEP_MAX)
                 self.assertEqual(pan[11], len(modes))
                 self.assertTrue(pan[2] in (0, 1))
@@ -257,7 +272,12 @@ class Mode0Invariant(unittest.TestCase):
                     self.assertEqual(mode0[15], 1, "mode 0 must be single-pass")
                     self.assertIn(mode0[14], (0xFF, e["color_scheme"]))
                     if e["legacy"].get("color_scheme") is not None:
-                        self.assertEqual(e["color_scheme"], e["legacy"]["color_scheme"])
+                        # 2.x's BWGBRY_SPLIT (8) is BWGBRY (4) + frame_split HALVES in 3.0
+                        legacy = e["legacy"]["color_scheme"]
+                        if legacy == 8:
+                            self.assertEqual(e.get("frame_layout"), {"frame_split": 1})
+                            legacy = 4
+                        self.assertEqual(e["color_scheme"], legacy)
                     for m in modes:
                         name = m[2:14].split(b"\0", 1)[0].decode().lower()
                         if name in ("fast", "partial"):
@@ -294,7 +314,7 @@ class Equivalence(unittest.TestCase):
     def test_derived_entries(self):
         n = 0
         for key, e in PRESETS["panels"].items():
-            if e["status"] in ("glass", "not_attempted") or e.get("alias_of"):
+            if e["status"] in ("glass", "untested", "not_attempted") or e.get("alias_of"):
                 continue
             st = STREAMS["panels"][e["name"]]
             W, H = e["width"], e["height"]
@@ -303,8 +323,18 @@ class Equivalence(unittest.TestCase):
                     continue
                 blob = bytes.fromhex(v["framed_hex"])
                 for m in v["modes"]:
-                    refs = [(r["rect"], r["tokens"]) for r in st["rects"].values()] if m["window"] \
-                        else [(None, st["flows"][m["name"]])]
+                    src = m.get("source")
+                    if src:
+                        ref = STREAMS["panels"][src["enum"]]["flows"][src["flow"]]
+                        refs = [(None, G.swap_gray_planes(ref) if src["planes_swapped"] else ref)]
+                    else:
+                        refs = [(r["rect"], r["tokens"]) for r in st["rects"].values()] if m["window"] \
+                            else [(None, st["flows"][m["name"]])]
+                        if m.get("init_from_full"):
+                            wake = [["RESET"], ["BUSY"]]
+                            unwake = lambda f: f[2:] if f[:2] == wake else f  # noqa: E731
+                            pre = G.full_init_prefix(unwake(st["flows"]["full"]))
+                            refs = [(rect, pre + unwake(ref)) for rect, ref in refs]
                     for rect, ref in refs:
                         with self.subTest(key=key, cls=cls, mode=m["name"], rect=rect):
                             rc, got = G.run_replay(blob, str(m["index"]), cls, [W, H] + (rect or []))
@@ -324,11 +354,11 @@ class Equivalence(unittest.TestCase):
                     else:
                         self.assertNotIn(("DELAY", 200), got[-1:])
                     self.assertEqual(G.compare(ref, got)["equal"], v["status"] == "equivalent")
-        self.assertGreaterEqual(n, 200)
+        self.assertGreaterEqual(n, 120)
 
     def test_default_window_mode_refused_by_bg22(self):
         """The BG22-built interpreter really refuses what the bg22 view leaves out (WINDOW/FILL)."""
-        e = PRESETS["panels"]["0x0001"]
+        e = PRESETS["panels"]["0x001F"]
         m = next(m for m in e["modes"] if m["window"])
         self.assertFalse(any(x["window"] for x in e["targets"]["bg22"]["modes"]))
         rc, _ = P.replay(bytes.fromhex(e["framed_hex"]), str(m["index"]), "bg22", [e["width"], e["height"]])
@@ -337,7 +367,9 @@ class Equivalence(unittest.TestCase):
     def test_long_double_init_runs_on_bg22(self):
         """Full flows longer than the old 128 B BG22 cap (the doubled bb_epaper init) now run there
         unchanged: same full-mode packet as the default class, replayed by the BG22 build."""
-        e = PRESETS["panels"]["0x000C"]
+        e = next(e for e in PRESETS["panels"].values()
+                 if e.get("modes") and e["modes"][0]["seq_bytes"] > 128 and "bg22" in e.get("targets", {})
+                 and e["targets"]["bg22"]["status"] == "equivalent")
         self.assertEqual(e["targets"]["bg22"]["status"], "equivalent")
         full = e["modes"][0]
         self.assertEqual(full["name"], "full")
@@ -434,6 +466,34 @@ def website_packets(key: str, ent: dict) -> list[dict]:
     return out
 
 
+class Untested(unittest.TestCase):
+    """panels.yaml entries with `status: untested`: hand-written, with no website counterpart.
+    They ship with their frame layout, `verified` is glass only through a glass report (0x004E),
+    and every sequence walks cleanly in od_epd for every class."""
+
+    SEEN = {"0x004E"}
+
+    def test_untested_entries(self):
+        ents = {k: e for k, e in yaml_entries().items() if e.get("status") == "untested"}
+        self.assertEqual(set(ents), {"0x0033", "0x004E"})
+        for key, ent in ents.items():
+            e = PRESETS["panels"][key]
+            with self.subTest(key=key):
+                self.assertEqual(e["status"], "untested")
+                self.assertEqual(e["verified"], "glass" if key in self.SEEN else "untested")
+                self.assertNotIn(key, GLASS)
+                self.assertEqual(e.get("frame_layout"), ent["frame_layout"])
+                for cls in CLASSES:
+                    self.assertEqual(e["targets"][cls]["status"], "untested", cls)
+                    blob = bytes.fromhex(e["targets"][cls]["framed_hex"])
+                    for m in e["targets"][cls]["modes"]:
+                        rc, out = P.replay(blob, str(m["index"]), cls, [e["width"], e["height"]])
+                        self.assertEqual(rc, 0, (cls, m["name"], out[-3:]))
+                        # one IMAGE_SLICE per half, in order, and no whole-frame IMAGE
+                        self.assertEqual([ln.split()[1:3] for ln in out if ln.startswith("I")],
+                                         [["0", "2"], ["1", "2"]], out)
+
+
 class Glass(unittest.TestCase):
     def test_byte_identical_with_website(self):
         ents = yaml_entries()
@@ -451,8 +511,8 @@ class Glass(unittest.TestCase):
         waves = {w: (P.PANELS / "waves" / f"{w}.bin").read_bytes() for w in ("wave_colour", "wave_edit")}
         pal = json.loads((P.PANELS / "palettes" / "palette16_photo_ODBEEBA6.json").read_text())
         for ent in doc["panels"]:
-            if ent.get("status") == "provisional":
-                continue  # not on the website; test_provisional_entries covers it
+            if ent.get("status") in ("provisional", "untested"):
+                continue  # not on the website; test_provisional_entries / Untested cover them
             key = f"0x{int(str(ent['id']), 0):04X}"
             with self.subTest(key=key):
                 mine = [{"pid": str(pid), "raw": b.hex()} for _, pid, b in P.yaml_panel_packets(ent, waves, pal)]
@@ -486,7 +546,6 @@ class DisplayPresets(unittest.TestCase):
     catch them drifting."""
     WANT = (("display_presets.inc", "EP29YR", "0x001E", None),
             ("display_presets.inc", "EP42B", "0x0002", "bg22"),
-            ("display_presets.inc", "EP74R", "0x0024", None),
             ("ee02_spectra_preset.inc", "EP133S", "0x0042", None))
 
     def test_inc_matches_database(self):

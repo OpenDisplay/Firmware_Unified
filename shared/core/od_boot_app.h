@@ -20,7 +20,6 @@ int od_boot_app_end_frame(void);
 int od_boot_app_bits_per_pixel(uint8_t color_scheme);
 int od_boot_app_default_plane(uint8_t color_scheme);
 bool od_boot_app_direct_2bpp(void);
-uint8_t od_boot_app_segments(void);
 uint32_t od_boot_app_device_id24(void);
 void od_boot_app_firmware_version(uint8_t *major, uint8_t *minor, uint8_t *patch);
 float od_boot_app_battery_volts(void);

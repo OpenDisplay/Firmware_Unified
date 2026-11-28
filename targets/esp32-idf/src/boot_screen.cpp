@@ -100,12 +100,6 @@ bool od_boot_app_direct_2bpp(void)
   return od_display_boot_sink_direct_2bpp();
 }
 
-uint8_t od_boot_app_segments(void)
-{
-  if (NATIVE()) return 1u;
-  return od_display_boot_sink_segments();
-}
-
 uint32_t od_boot_app_device_id24(void)
 {
   char id[7];

@@ -971,6 +971,18 @@
    "in_bg22_2x_map": false,
    "unified_nordic_map": null
   },
+  "0x004E": {
+   "panel_ic_type": 78,
+   "bb_epaper_enum": "EP579YR_792x272",
+   "alias_of": null,
+   "presets": [],
+   "preset_color_scheme": null,
+   "preset_pixel_width": null,
+   "preset_pixel_height": null,
+   "preset_partial_update_support": null,
+   "in_bg22_2x_map": false,
+   "unified_nordic_map": null
+  },
   "0x03EC": {
    "panel_ic_type": 1004,
    "bb_epaper_enum": "EP42YR_400x300",

@@ -187,7 +187,7 @@ static uint8_t pixel(uint16_t x, uint16_t y)
     return n;
 }
 
-/* BWGBRY_SPLIT (scheme 8) as a client encodes it: the left half's rows, then the right half's,
+/* BWGBRY + frame_split HALVES as a client encodes it: the left half's rows, then the right half's,
  * each row ceil(600 * 4 / 8) = 300 B, left pixel in the high nibble. */
 static uint8_t g_frame[FRAME_BYTES];
 
@@ -497,8 +497,7 @@ bool od_xfer_app_panel_info(od_xfer_panel_info_t *out)
 {
     memset(out, 0, sizeof(*out));
     out->needs_migration = od_display_needs_migration();
-    if (od_color_direct_geometry(g_disp->color_scheme, g_disp->pixel_width,
-                                 g_disp->pixel_height, &out->geometry) != OD_COLOR_OK) {
+    if (od_color_display_geometry(g_disp, g_disp->color_scheme, &out->geometry) != OD_COLOR_OK) {
         return false;
     }
     out->width = g_disp->pixel_width;
@@ -586,7 +585,8 @@ uint32_t od_inflate_app_output_count(void) { return od_zlib_stream_output_count(
 
 /* ---------------------------------------------------------------------- setup --- */
 
-/* The EE02's 0x20 display block: 1200x1600, BWGBRY_SPLIT, its pins (ee02_spectra_preset.inc). */
+/* The EE02's 0x20 display block: 1200x1600, BWGBRY + frame_split HALVES, its pins
+ * (ee02_spectra_preset.inc). */
 static void display_block(void)
 {
     memset(&g_cfg, 0, sizeof g_cfg);
@@ -595,7 +595,8 @@ static void display_block(void)
     g_disp->panel_ic_type = EE02_PANEL_IC;
     g_disp->pixel_width = PANEL_W;
     g_disp->pixel_height = PANEL_H;
-    g_disp->color_scheme = OD_COLOR_SCHEME_BWGBRY_SPLIT;
+    g_disp->color_scheme = OD_COLOR_SCHEME_BWGBRY;
+    g_disp->frame_split = OD_FRAME_SPLIT_HALVES;
     g_disp->data_pin = EE02_PIN_DATA;
     g_disp->clk_pin = EE02_PIN_CLK;
     g_disp->cs_pin = EE02_PIN_CS;
@@ -1006,9 +1007,9 @@ static void test_geometry(void)
 {
     od_color_geometry_t g;
 
-    CASE("BWGBRY_SPLIT 1200x1600: two 600x1600 halves at 4 bpp, 960,000 B");
-    CHECK(od_color_direct_geometry(OD_COLOR_SCHEME_BWGBRY_SPLIT, PANEL_W, PANEL_H, &g) ==
-          OD_COLOR_OK);
+    CASE("BWGBRY + frame_split 1200x1600: two 600x1600 halves at 4 bpp, 960,000 B");
+    display_block();
+    CHECK(od_color_display_geometry(g_disp, g_disp->color_scheme, &g) == OD_COLOR_OK);
     CHECK(g.layout == OD_COLOR_LAYOUT_SPLIT_HALVES && g.bits_per_pixel == 4u);
     CHECK(g.part_width[0] == HALF_W && g.part_width[1] == HALF_W);
     CHECK(g.row_bytes[0] == HALF_ROW && g.part_bytes[0] == HALF_BYTES &&
@@ -1277,7 +1278,8 @@ static const uint8_t k_tsc_seq[] = {
     0x00, 0x08, 0x01,
     0x01, 0x40, 0x00, 0x09, OD_SEQ_PINREF_AUX_1, 0x02,   /* slave: TSC, read 2 */
     0x00, 0x08, 0x00,
-    0x00, 0x03,
+    0x00, 0x07, 0x00, 0x02,                               /* a split frame: both halves */
+    0x00, 0x07, 0x01, 0x02,
     0x00, 0x00,
 };
 

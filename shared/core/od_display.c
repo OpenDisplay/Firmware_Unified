@@ -168,7 +168,8 @@ bool od_display_partial_available(void)
 {
     const struct DisplayConfig *d = od_drive_app_display();
 
-    if (s_session != SESSION_IDLE || d == NULL || !od_epd_cfg_load(d, od_drive_app_bus())) {
+    if (s_session != SESSION_IDLE || d == NULL || !od_color_layout_is_linear(d) ||
+        !od_epd_cfg_load(d, od_drive_app_bus())) {
         return false;
     }
     return od_epd_cfg_find_usable_mode("partial", od_drive_app_temp_c()) >= 0;
@@ -297,7 +298,7 @@ static od_display_rc_t boot_pass(const struct od_config *cfg, const struct Secur
         return rc;
     }
     if (!plain_mode(d, &hdr) ||
-        od_color_direct_geometry(d->color_scheme, d->pixel_width, d->pixel_height, &g)
+        od_color_display_geometry(d, d->color_scheme, &g)
             != OD_COLOR_OK) {
         return OD_DISPLAY_BAD_MODE;
     }
@@ -393,7 +394,6 @@ int BOOT_SINK(bits_per_pixel)(uint8_t color_scheme)
 {
     switch (color_scheme) {
         case OD_COLOR_SCHEME_BWGBRY:
-        case OD_COLOR_SCHEME_BWGBRY_SPLIT:
         case OD_COLOR_SCHEME_GRAY16:
         case OD_COLOR_SCHEME_SEVEN_COLOR:
             return 4;
@@ -419,11 +419,4 @@ int BOOT_SINK(default_plane)(uint8_t color_scheme)
 bool BOOT_SINK(direct_2bpp)(void)
 {
     return false;
-}
-
-uint8_t BOOT_SINK(segments)(void)
-{
-    const struct DisplayConfig *d = od_drive_app_display();
-
-    return (d != NULL && d->color_scheme == OD_COLOR_SCHEME_BWGBRY_SPLIT) ? 2u : 1u;
 }

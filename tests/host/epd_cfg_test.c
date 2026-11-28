@@ -44,8 +44,7 @@ static bool run_mode(const struct DisplayConfig *d, uint8_t mode, char *hdr, siz
         fx_trace_line(hdr);
         return false;
     }
-    if (od_color_direct_geometry(m.color_scheme == 0xFFu ? d->color_scheme : m.color_scheme,
-                                 d->pixel_width, d->pixel_height, &g) != OD_COLOR_OK ||
+    if (od_color_display_geometry(d, m.color_scheme == 0xFFu ? d->color_scheme : m.color_scheme, &g) != OD_COLOR_OK ||
         g.total_bytes > sizeof g_frame) {
         snprintf(hdr, hdr_cap, "# mode %u: no geometry", (unsigned)mode);
         fx_trace_line(hdr);
@@ -1314,7 +1313,7 @@ static bool run_inline(const uint8_t *prefix, uint16_t prefix_n, uint32_t chunk)
     const uint32_t frame = 8u;   /* 16x4 px mono = 8 B */
     uint32_t off = 0u;
 
-    if (od_color_direct_geometry(g_d0.color_scheme, g_d0.pixel_width, g_d0.pixel_height, &g) !=
+    if (od_color_display_geometry(&g_d0, g_d0.color_scheme, &g) !=
             OD_COLOR_OK || g.total_bytes != frame) {
         return false;
     }

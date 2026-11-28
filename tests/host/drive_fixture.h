@@ -255,6 +255,7 @@ typedef struct {
     uint8_t               scheme;
     const fx_panel_pkt_t *pkts;
     unsigned              count;
+    uint8_t               frame_split;   /* DisplayConfig.frame_split; 0 for a linear frame */
 } fx_panel_t;
 
 #include "../vectors/drive_panels.inc"
@@ -281,6 +282,7 @@ static inline struct DisplayConfig fx_store_panel(const fx_panel_t *p)
     fx_cfg_t c;
     struct DisplayConfig d = fx_display(0u, p->width, p->height, p->scheme);
 
+    d.frame_split = p->frame_split;
     fx_cfg_begin(&c, 1u);
     fx_cfg_legacy_head(&c, &d);
     fx_cfg_panel(&c, p, 0u);

@@ -170,7 +170,7 @@ removes or changes the meaning of a field bumps `schema_version`.
 {
   "schema": "opendisplay.drive_presets",
   "schema_version": 1,
-  "schema_minor": 4,                  // 1: target classes; 2: one step cap, no BG22 length cap; 3: native_controllers; 4: glass reports
+  "schema_minor": 5,                  // 1: target classes; 2: one step cap, no BG22 length cap; 3: native_controllers; 4: glass reports; 5: gray modes, removed
   "sources": {
     "bb_epaper": "4edfa7f",            // revision the streams were captured from
     "bb_epaper_vendored": "5dccfbb",   // third_party/ copy (drift listed in coverage.md)
@@ -184,7 +184,7 @@ removes or changes the meaning of a field bumps `schema_version`.
   },
   "names": {"EP29YR_168x384": "0x001E"},// name -> key (aliases excluded)
   "panels": {
-    "0x001E": {                         // key: legacy panel_ic_type, "0x%04X"; all 77 ids present
+    "0x001E": {                         // key: legacy panel_ic_type, "0x%04X"; every id not in `removed`
       "panel_ic_type": 30,              // the SAME number, as an int. Keep writing it into 0x20.
       "name": "EP29YR_168x384",         // stable panel name (bb_epaper enum, or the panels.yaml name)
       "aliases": [],                    // other keys that mean this panel (0x003A <- 0x03EC)
@@ -243,6 +243,16 @@ removes or changes the meaning of a field bumps `schema_version`.
       ]
     }
   },
+  // minor 5: a 4-gray bb_epaper enum is a mode of its BW panel (gen_all.py GRAY_INTO): the BW
+  // entry gains one gray4 mode, the enum's full flow (color_scheme 5, after the stock modes, with
+  // "source": {"enum", "flow", "planes_swapped"}), and the 4-gray key has no entry. Planes are
+  // swapped where bb_epaper uses u8Colors_4gray_v2, so the host's u8Colors_4gray codes fit all.
+  // A class drops gray modes, last first, that would push the config over its cap.
+  "removed": {                          // keys with no drive data: the device is moved to `use` by hand
+    "0x0015": {"name": "EP75_800x480_4GRAY", "use": "0x0014", "modes": ["gray4"]},
+    "0x000C": {"name": "EP29R_128x296", "use": null, "modes": []},  // BW/BWR no simple-config display uses
+    "0x0003": {"name": "EP213_122x250", "use": "0x0004", "modes": []} // website preset named the wrong id
+  },
   "native_controllers": {              // minor 3: IT8951 / FastEPD parallel ids (ESP32 only)
     "0x0BBD": {                         // key: legacy panel_ic_type 3000-3005, "0x%04X"
       "panel_ic_type": 3005, "name": "M5PAPER_960x540", "board": "M5Stack M5Paper (ED047TC1)",
@@ -265,6 +275,10 @@ Field rules a consumer may rely on:
   0xAF and 0xB0 body to N. 0xAF slot ids are global on the device (looked up by slot alone), so a
   second display must also renumber its slots (0xAF `body[1]` and the 0xAE `lut_slot[]` bytes at
   body offsets 19..26) to avoid colliding with the first display's.
+- A derived BW panel (color_scheme 0) with a partial mode ends its 0xB1 with the v1 tail
+  (docs/REFRESH_MODES.md): `drive_preset_key` = the panel id, `budget_limit` 50, `lut_family` 0,
+  `busy_timeout_s` 0; its partial 0xAE carries the v1 tail with `budget_cost` 1. A host counts
+  partials against the limit and forces a full refresh past it; the device does not count.
 - A migrating client removes any existing 0xAE/0xAF/0xB0/0xB1 packets for that instance (and the
   burned ids 0x2E-0x31) before appending these.
 - `status`: `glass` = the panels.yaml data seen working on a real panel (hand-written, NOT the

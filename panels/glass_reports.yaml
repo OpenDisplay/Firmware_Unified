@@ -59,3 +59,178 @@ reports:
     source: https://github.com/OpenDisplay/Firmware_Unified/issues/109
     note: >-
       Again after a 2.x -> 3.0 config migration from the same presets: correct six-colour image.
+  - panel: "0x003B"
+    target_class: default
+    framed_sha256: aa18f3d28da6c53dc646a7b2f4895648797f8f5423f9e57ef360185cf32f64c3
+    modes: [full, fast, partial]
+    board: EE04 (ESP32-S3), OD7C42E9
+    firmware: 3.0.0
+    date: 2026-11-27
+    reporter: jonasniesner
+    source: docs/HARDWARE_VERIFICATION_CHECKLIST.md § 7.5" GEN2 BW (0x003B) on EE04 OD7C42E9
+    note: >-
+      Bare GDEY075T7. full: K/W halves, bars and text right, i1Pro K L* 16.1 / W L* 68.0. fast:
+      inverted frame clean. partial (host PartialState): counter 00-10 on camera with the rest of
+      the frame intact, about 3.2 s per update. Re-hashed without a re-sighting after the 0xB1
+      tail (budget_limit 50, lut_family 0, busy_timeout_s 0) and the partial's 0xAE tail were
+      added: every sequence byte is unchanged and the device reads neither field at these values.
+  - panel: "0x0027"
+    target_class: default
+    framed_sha256: 64d358d8727e59a87f4175e0b29339fec66f96c170efbff427dbaed9aab9b3c6
+    modes: [full, partial, gray4]
+    board: EE04 (ESP32-S3), OD7C42E9
+    firmware: 3.0.0
+    date: 2026-11-27
+    reporter: jonasniesner
+    source: docs/HARDWARE_VERIFICATION_CHECKLIST.md § 4.26" BW (0x0027) on EE04 OD7C42E9
+    note: >-
+      Bare 4.26in SSD1677 panel. full: K/W frame correct, i1Pro K L* 16.3 / W L* 58.1. partial
+      (host PartialState, partial with the full's init): counter 01-05 clean, about 4 s per update.
+      gray4: four monotonic levels, i1Pro L* 17.5 / 31.8 / 51.9 / 60.0. fast left the previous
+      image on glass and was then dropped, so partial and gray4 are now modes 1 and 2. Sighted on
+      the config before the budget tail, the gray4_fast removal and the fast drop; the full,
+      partial and gray4 sequence bytes are unchanged.
+  - panel: "0x001F"
+    target_class: default
+    framed_sha256: 60d61890fd1b55fe0672fa7390eb7777247eddd5e849c6689ee2e9c53da78d9d
+    modes: [full, fast, partial]
+    board: EE04 (ESP32-S3), OD7C42E9
+    firmware: 3.0.0
+    date: 2026-11-27
+    reporter: jonasniesner
+    source: docs/HARDWARE_VERIFICATION_CHECKLIST.md § 5.83" BW (0x001F) on EE04 OD7C42E9
+    note: >-
+      Bare Seeed 5.83in 648x480 mono panel. full: K/W frame correct, 6.6 s, i1Pro K L* 18.8 /
+      W L* 71.1. fast: inverted frame clean, 3.1 s. partial (host PartialState): counter 01-05
+      clean with the rest of the frame intact, about 3.3 s per update.
+  - panel: "0x0002"
+    target_class: default
+    framed_sha256: c14ad3ddca0455ad599849d405afa8ed944e41070bf87c8ff926c34633d7f6ba
+    modes: [full, fast, partial, gray4]
+    board: EE04 (ESP32-S3), OD7C42E9
+    firmware: 3.0.0
+    date: 2026-11-27
+    reporter: jonasniesner
+    source: docs/HARDWARE_VERIFICATION_CHECKLIST.md § 4.2" BW (0x0002) on EE04 OD7C42E9
+    note: >-
+      Bare 4.2in 400x300 SSD16xx panel. full: K/W frame correct, 3.3 s, i1Pro K L* 19.5 / W L* 69.7.
+      fast: inverted frame clean, 3.7 s. partial (host PartialState): counter 01-05, 2.5 s per
+      update. gray4 with the planes swapped against bb_epaper's lookup: four monotonic levels,
+      i1Pro L* 19.9 / 33.0 / 62.9 / 70.4 (tile drift 5.9 % Y).
+  - panel: "0x0017"
+    target_class: default
+    framed_sha256: ec72d3a74aca5235bb39bc6c6d5abcf92331d59e97a3691a0ea286c6035dc829
+    modes: [full, fast, partial, gray4]
+    board: EE04 (ESP32-S3), OD7C42E9
+    firmware: 3.0.0
+    date: 2026-11-27
+    reporter: jonasniesner
+    source: docs/HARDWARE_VERIFICATION_CHECKLIST.md § 2.9" flex BW (0x0017) on EE04 OD7C42E9
+    note: >-
+      Bare 2.9in 128x296 flexible mono panel (UC81xx). full: K/W frame correct, about 4.5 s, i1Pro
+      K L* 18.7 / W L* 70.0. fast: inverted frame clean, 2.6 s. partial (host PartialState, with
+      partial_update_support forced to 1; the website preset has 0): counter 01-03 in place, no
+      flash on 10 fps video, 2.2 s per update. gray4 with the planes swapped against bb_epaper's
+      lookup: four monotonic levels, i1Pro L* 15.9 / 34.4 / 58.1 / 69.6 (tile drift 0.03 % Y).
+  - panel: "0x001A"
+    target_class: default
+    framed_sha256: 2070479dfb57cb70d4d0ccc2379ab407fe9e31faaabe06a55d304792bf6b76f4
+    modes: [full, fast, partial, gray4]
+    board: EE04 (ESP32-S3), OD7C42E9
+    firmware: 3.0.0
+    date: 2026-11-27
+    reporter: jonasniesner
+    source: docs/HARDWARE_VERIFICATION_CHECKLIST.md § 1.54" BW (0x001A) on EE04 OD7C42E9
+    note: >-
+      Bare Seeed 1.54in 200x200 mono panel (SSD16xx). full: K/W frame correct, 3.2 s, i1Pro
+      K L* 19.3 / W L* 70.6. fast: inverted frame clean, 3.3 s. partial (host PartialState):
+      counter 01-03, 2.5 s per update, black keeps its full-refresh density on camera. gray4
+      with the planes swapped against bb_epaper's lookup: four monotonic levels, i1Pro
+      L* 22.4 / 43.5 / 64.1 / 73.3 (tile drift 0.05 % Y).
+  - panel: "0x0005"
+    target_class: default
+    framed_sha256: bc05771c74a9860652346a55f4cb8a3a7a580d3575b020fded161e930dcbd9a6
+    modes: [full, partial]
+    board: EE04 (ESP32-S3), OD7C42E9
+    firmware: 3.0.0
+    date: 2026-11-27
+    reporter: jonasniesner
+    source: docs/HARDWARE_VERIFICATION_CHECKLIST.md § Seeed 2.9" BW (0x0005) on EE04 OD7C42E9
+    note: >-
+      Bare Seeed 2.9in 128x296 mono panel (SSD16xx), id 5 per the Seeed product page. full: K/W
+      frame correct, 3.2 s, i1Pro K L* 21.6 / W L* 71.5. fast: inverted frame clean, 3.6 s.
+      partial (host PartialState, partial_update_support 1): counter 01-03, 2.4 s per update, no
+      flash in an untouched area on 5 fps video. Sighted with fast as mode 1; fast was then
+      dropped by project decision, so partial is now mode 1 and the full and partial sequence
+      bytes are unchanged.
+  - panel: "0x0004"
+    target_class: default
+    framed_sha256: 25b0ee912b9393962d547c945caebfd1aea1f7a625b25ae1ad8af7391ed58191
+    modes: [full, fast, partial]
+    board: EE04 (ESP32-S3), OD7C42E9
+    firmware: 3.0.0
+    date: 2026-11-27
+    reporter: jonasniesner
+    source: docs/HARDWARE_VERIFICATION_CHECKLIST.md § 2.13" BW (0x0004) on EE04 OD7C42E9
+    note: >-
+      Bare Seeed 2.13in 122x250 mono panel (SSD16xx). full: K/W frame correct, 3.7 s, i1Pro
+      K L* 18.8 / W L* 71.0. fast: inverted frame clean, 3.6 s. partial (host PartialState):
+      counter 01-03, 2.5 s per update, no flash in an untouched area on 5 fps video. 0x0003, the
+      website preset's id, draws only a faint noisy image on this glass.
+  - panel: "0x0037"
+    target_class: default
+    framed_sha256: ab7fc723ae34b5c457a43f52c772fd926bf0d7be201266991f64ce0d314e2588
+    modes: [full]
+    board: EE04 (ESP32-S3), OD7C42E9
+    firmware: 3.0.0
+    date: 2026-11-27
+    reporter: jonasniesner
+    source: docs/HARDWARE_VERIFICATION_CHECKLIST.md § Seeed 3.97" BWRY (0x0037) on EE04 OD7C42E9
+    note: >-
+      Bare Seeed 3.97in 800x480 BWRY panel (GDEM0397F81). full: K/W/Y/R quadrants in place, 23.4 s;
+      i1Pro K L* 17.8 / Y (88.7, 26.0, 96.7) / R (41.1, 57.7, 40.0) relative to W, contrast 40.3.
+      fast was dropped (thin dark lines across rows). The experimental partial_bw of
+      refresh_modes.json drew a clean counter; it is not part of these bytes.
+  - panel: "0x001D"
+    target_class: default
+    framed_sha256: b6b1ee5201e8fe9b7b49192d9d0cbfa615d6df0caf5875ebe76f0671039c39fe
+    modes: [full]
+    board: EE04 (ESP32-S3), OD7C42E9
+    firmware: 3.0.0
+    date: 2026-11-27
+    reporter: jonasniesner
+    source: docs/HARDWARE_VERIFICATION_CHECKLIST.md § Seeed 2.9" BWRY (0x001D) on EE04 OD7C42E9
+    note: >-
+      Bare Seeed 2.9in 128x296 BWRY panel (GDEY029F51). full with code_map [0, 1, 2, 3]: K/W/Y/R
+      quadrants in place, 24.4 s; bb_epaper's [0, 1, 3, 2] drew Y and R swapped. i1Pro K L* 20.4 /
+      Y (92.5, 28.3, 98.5) / R (44.3, 59.7, 43.1) relative to W, contrast 32.4. The experimental
+      partial_bw of refresh_modes.json drew a clean counter; it is not part of these bytes.
+  - panel: "0x0034"
+    target_class: default
+    framed_sha256: 1a041c25084ff7f10c959dbbe7c5877dea8cc25d7767c844fc0226ace78892f4
+    modes: [full]
+    board: EE04 (ESP32-S3), OD7C42E9
+    firmware: 3.0.0
+    date: 2026-11-27
+    reporter: jonasniesner
+    source: docs/HARDWARE_VERIFICATION_CHECKLIST.md § Seeed 2.13" BWRY (0x0034) on EE04 OD7C42E9
+    note: >-
+      Bare Seeed 2.13in 122x250 BWRY panel (GDEY0213F52). full: K/W/Y/R quadrants in place,
+      16.9 s; i1Pro K L* 20.2 / Y (92.9, 25.2, 98.3) / R (46.7, 63.1, 43.8) relative to W,
+      contrast 32.9. fast was dropped (black drawn as red). The experimental partial_bw of
+      refresh_modes.json drew a clean counter; it is not part of these bytes.
+  - panel: "0x004E"
+    target_class: default
+    framed_sha256: 09aa3fbaa371234134a59c160b54306840bf5063b5d8db5fc1766d54b23d6742
+    modes: [full]
+    board: EE04 (ESP32-S3), OD7C42E9
+    firmware: 3.0.0 (structs 2.5, panels/window-geometry)
+    date: 2026-11-28
+    reporter: jonasniesner
+    source: docs/HARDWARE_VERIFICATION_CHECKLIST.md § 5.79" BWRY GDEY0579F52 (panel id 78, `0x004E`)
+    note: >-
+      Good Display GDEY0579F52 5.79in 792x272 BWRY, two IST7158s. Config 0x004E (frame_split
+      HALVES, row_order FOLD) written by the py-opendisplay fork; device packets read back equal
+      to these bytes. full: W/Y/R/K bands, text and a red triangle drawn by upload_image, the
+      host packing the layout; colours right, nothing folded or mirrored, no seam at column 396.
+      21.3 s.
